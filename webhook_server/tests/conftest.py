@@ -210,8 +210,11 @@ def owners_files_test_data():
 
 @pytest.fixture
 def mock_logger():
-    """Create a mock logger for testing log viewer components."""
-    return Mock()
+    """Create a mock logger that mirrors production logger attributes."""
+    mock = Mock(spec=python_logging.Logger)
+    mock.name = "webhook_server.tests"
+    mock.level = python_logging.INFO
+    return mock
 
 
 @pytest.fixture
@@ -256,6 +259,10 @@ def sample_json_webhook_data() -> dict:
         },
         "token_spend": 35,
         "success": False,
+        "error": {
+            "type": "TestError",
+            "message": "Test failure message for unit tests",
+        },
     }
 
 
@@ -274,7 +281,11 @@ def create_json_log_file():
     """
 
     def _create_json_log_file(log_dir: Path, filename: str, entries: list[dict]) -> Path:
-        """Create a test JSON log file with entries.
+        """Create a test JSON log file with entries in JSONL format.
+
+        The log viewer expects JSONL format (JSON Lines): one compact JSON object per line.
+        This matches production behavior where each webhook log entry is written as a single
+        line for efficient streaming and parsing.
 
         Args:
             log_dir: Directory to create the log file in
@@ -287,6 +298,8 @@ def create_json_log_file():
         log_file = log_dir / filename
         with open(log_file, "w", encoding="utf-8") as f:
             for entry in entries:
+                # JSONL format: one compact JSON object per line (no indentation)
+                # This matches production log format and log_viewer._stream_json_log_entries()
                 f.write(json.dumps(entry) + "\n")
         return log_file
 
