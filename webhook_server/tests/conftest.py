@@ -260,10 +260,11 @@ def sample_json_webhook_data() -> dict:
 
 
 @pytest.fixture
-def create_json_log_file(tmp_path):
+def create_json_log_file():
     """Factory fixture to create test JSON log files.
 
-    Returns a callable that creates JSON log files in the provided directory.
+    Returns a callable that accepts log_dir, filename, and entries parameters.
+    Tests pass their own tmp_path to the returned factory function.
 
     Usage:
         def test_example(create_json_log_file, tmp_path):
@@ -293,10 +294,11 @@ def create_json_log_file(tmp_path):
 
 
 @pytest.fixture
-def create_text_log_file(tmp_path):
+def create_text_log_file():
     """Factory fixture to create test text log files.
 
-    Returns a callable that creates text log files in the provided directory.
+    Returns a callable that accepts log_dir, filename, and log_lines parameters.
+    Tests pass their own tmp_path to the returned factory function.
 
     Usage:
         def test_example(create_text_log_file, tmp_path):
