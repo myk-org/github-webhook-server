@@ -54,7 +54,6 @@ import copy
 import datetime
 import json
 from collections.abc import AsyncIterator
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -68,11 +67,6 @@ class TestLogViewerJSONMethods:
     """Test cases for LogViewerController JSON log methods."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -82,70 +76,43 @@ class TestLogViewerJSONMethods:
             return LogViewerController(logger=mock_logger)
 
     @pytest.fixture
-    def sample_json_webhook_data(self) -> dict:
-        """Create sample JSON webhook log data."""
-        return {
-            "hook_id": "test-hook-123",
-            "event_type": "pull_request",
-            "action": "opened",
-            "repository": "org/test-repo",
-            "sender": "test-user",
-            "pr": {
-                "number": 456,
-                "title": "Test PR",
-                "url": "https://github.com/org/test-repo/pull/456",
-            },
-            "timing": {
-                "started_at": "2025-01-05T10:00:00.000000Z",
-                "completed_at": "2025-01-05T10:00:05.000000Z",
-                "duration_ms": 5000,
-            },
-            "workflow_steps": {
-                "step1": {
-                    "timestamp": "2025-01-05T10:00:01.000000Z",
-                    "status": "completed",
-                    "duration_ms": 1000,
-                },
-                "step2": {
-                    "timestamp": "2025-01-05T10:00:03.000000Z",
-                    "status": "completed",
-                    "duration_ms": 2000,
-                },
-            },
-            "token_spend": 35,
-            "success": True,
-        }
+    def json_webhook_data_simple(self, sample_json_webhook_data) -> dict:
+        """Create simple webhook data with step1/step2 instead of clone_repository/etc.
 
-    def create_json_log_file(self, log_dir: Path, filename: str, entries: list[dict]) -> Path:
-        """Create a test JSON log file with entries.
-
-        Args:
-            log_dir: Directory to create the log file in
-            filename: Name of the log file
-            entries: List of JSON webhook data dictionaries
-
-        Returns:
-            Path to created log file
+        This fixture adapts the shared sample_json_webhook_data for tests that
+        expect simpler step names (step1, step2).
         """
-        log_file = log_dir / filename
-        with open(log_file, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
-        return log_file
+        data = copy.deepcopy(sample_json_webhook_data)
+        data["workflow_steps"] = {
+            "step1": {
+                "timestamp": "2025-01-05T10:00:01.000000Z",
+                "status": "completed",
+                "duration_ms": 1000,
+            },
+            "step2": {
+                "timestamp": "2025-01-05T10:00:03.000000Z",
+                "status": "completed",
+                "duration_ms": 2000,
+            },
+        }
+        data["success"] = True
+        return data
 
-    async def test_stream_json_log_entries_yields_entries(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_stream_json_log_entries_yields_entries(
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
+    ):
         """Test that _stream_json_log_entries yields JSON entries from log files."""
         # Create logs directory
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create a JSON log file with multiple entries
-        entry1 = sample_json_webhook_data.copy()
-        entry2 = sample_json_webhook_data.copy()
+        entry1 = json_webhook_data_simple.copy()
+        entry2 = json_webhook_data_simple.copy()
         entry2["hook_id"] = "test-hook-456"
         entry2["pr"]["number"] = 789
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry1, entry2])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry1, entry2])
 
         # Stream JSON entries
         entries = [entry async for entry in controller._stream_json_log_entries(max_files=10, max_entries=100)]
@@ -156,7 +123,7 @@ class TestLogViewerJSONMethods:
         assert entries[1]["hook_id"] == "test-hook-123"
 
     async def test_stream_json_log_entries_respects_max_files_limit(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test that _stream_json_log_entries respects max_files limit."""
         log_dir = tmp_path / "logs"
@@ -164,9 +131,9 @@ class TestLogViewerJSONMethods:
 
         # Create 5 JSON log files
         for i in range(5):
-            entry = sample_json_webhook_data.copy()
+            entry = json_webhook_data_simple.copy()
             entry["hook_id"] = f"hook-file-{i}"
-            self.create_json_log_file(log_dir, f"webhooks_2025-01-0{i}.json", [entry])
+            create_json_log_file(log_dir, f"webhooks_2025-01-0{i}.json", [entry])
 
         # Stream with max_files=2
         entries = [entry async for entry in controller._stream_json_log_entries(max_files=2, max_entries=100)]
@@ -175,7 +142,7 @@ class TestLogViewerJSONMethods:
         assert len(entries) == 2
 
     async def test_stream_json_log_entries_respects_max_entries_limit(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test that _stream_json_log_entries respects max_entries limit."""
         log_dir = tmp_path / "logs"
@@ -184,11 +151,11 @@ class TestLogViewerJSONMethods:
         # Create a JSON log file with 10 entries
         entries_data = []
         for i in range(10):
-            entry = sample_json_webhook_data.copy()
+            entry = json_webhook_data_simple.copy()
             entry["hook_id"] = f"hook-{i}"
             entries_data.append(entry)
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", entries_data)
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", entries_data)
 
         # Stream with max_entries=5
         entries = [entry async for entry in controller._stream_json_log_entries(max_files=10, max_entries=5)]
@@ -197,7 +164,7 @@ class TestLogViewerJSONMethods:
         assert len(entries) == 5
 
     async def test_stream_json_log_entries_skips_invalid_json_lines(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple
     ):
         """Test that _stream_json_log_entries skips invalid JSON lines."""
         log_dir = tmp_path / "logs"
@@ -207,12 +174,12 @@ class TestLogViewerJSONMethods:
         log_file = log_dir / "webhooks_2025-01-05.json"
         with open(log_file, "w", encoding="utf-8") as f:
             # Valid JSON
-            f.write(json.dumps(sample_json_webhook_data) + "\n")
+            f.write(json.dumps(json_webhook_data_simple) + "\n")
             # Invalid JSON lines
             f.write("not valid json\n")
             f.write('{"incomplete": \n')
             # Another valid JSON
-            entry2 = sample_json_webhook_data.copy()
+            entry2 = json_webhook_data_simple.copy()
             entry2["hook_id"] = "hook-valid-2"
             f.write(json.dumps(entry2) + "\n")
 
@@ -244,23 +211,25 @@ class TestLogViewerJSONMethods:
         # Should yield nothing
         assert len(entries) == 0
 
-    async def test_stream_json_log_entries_newest_first_ordering(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_stream_json_log_entries_newest_first_ordering(
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
+    ):
         """Test that _stream_json_log_entries returns newest files first."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create multiple JSON log files with different modification times
         # Older file
-        entry1 = sample_json_webhook_data.copy()
+        entry1 = json_webhook_data_simple.copy()
         entry1["hook_id"] = "old-hook"
-        self.create_json_log_file(log_dir, "webhooks_2025-01-01.json", [entry1])
+        create_json_log_file(log_dir, "webhooks_2025-01-01.json", [entry1])
 
         await asyncio.sleep(0.01)  # Ensure different mtime
 
         # Newer file
-        entry2 = sample_json_webhook_data.copy()
+        entry2 = json_webhook_data_simple.copy()
         entry2["hook_id"] = "new-hook"
-        file2 = self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry2])
+        file2 = create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry2])
 
         # Ensure file2 has a newer mtime
         file2.touch()
@@ -274,13 +243,15 @@ class TestLogViewerJSONMethods:
         assert entries[0]["hook_id"] == "new-hook"
         assert entries[1]["hook_id"] == "old-hook"
 
-    async def test_get_workflow_steps_json_returns_workflow_data(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_workflow_steps_json_returns_workflow_data(
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
+    ):
         """Test get_workflow_steps_json returns workflow steps in frontend-expected format."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [json_webhook_data_simple])
 
         # Get workflow steps
         result = await controller.get_workflow_steps_json("test-hook-123")
@@ -314,14 +285,14 @@ class TestLogViewerJSONMethods:
             assert "relative_time_ms" in step
 
     async def test_get_workflow_steps_json_returns_none_for_unknown_hook_id(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test get_workflow_steps_json raises HTTPException for unknown hook_id."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file with different hook_id
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [json_webhook_data_simple])
 
         # Try to get workflow steps for non-existent hook_id
         with pytest.raises(HTTPException) as exc:
@@ -343,13 +314,15 @@ class TestLogViewerJSONMethods:
         # Should raise 404
         assert exc.value.status_code == 404
 
-    async def test_get_workflow_steps_json_with_error_in_log(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_workflow_steps_json_with_error_in_log(
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
+    ):
         """Test get_workflow_steps_json with webhook that has error step."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log entry with failed step
-        error_data = copy.deepcopy(sample_json_webhook_data)
+        error_data = copy.deepcopy(json_webhook_data_simple)
         error_data["workflow_steps"]["failed_step"] = {
             "timestamp": "2025-01-05T10:00:04.000000Z",
             "status": "failed",
@@ -357,7 +330,7 @@ class TestLogViewerJSONMethods:
             "error": {"type": "ValueError", "message": "Test error occurred"},
         }
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [error_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [error_data])
 
         # Get workflow steps
         result = await controller.get_workflow_steps_json("test-hook-123")
@@ -370,13 +343,15 @@ class TestLogViewerJSONMethods:
         assert failed_steps[0]["error"]["message"] == "Test error occurred"
         assert failed_steps[0]["level"] == "ERROR"
 
-    async def test_get_workflow_steps_uses_json_when_available(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_workflow_steps_uses_json_when_available(
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
+    ):
         """Test get_workflow_steps uses JSON logs when available."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [json_webhook_data_simple])
 
         # Get workflow steps (should use JSON, not fall back to text)
         result = await controller.get_workflow_steps("test-hook-123")
@@ -420,24 +395,24 @@ class TestLogViewerJSONMethods:
         assert result["token_spend"] == 15
 
     async def test_get_workflow_steps_json_searches_multiple_files(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test get_workflow_steps_json searches through multiple JSON log files."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create multiple JSON log files
-        entry1 = sample_json_webhook_data.copy()
+        entry1 = json_webhook_data_simple.copy()
         entry1["hook_id"] = "hook-file1"
-        self.create_json_log_file(log_dir, "webhooks_2025-01-01.json", [entry1])
+        create_json_log_file(log_dir, "webhooks_2025-01-01.json", [entry1])
 
-        entry2 = sample_json_webhook_data.copy()
+        entry2 = json_webhook_data_simple.copy()
         entry2["hook_id"] = "hook-file2"
-        self.create_json_log_file(log_dir, "webhooks_2025-01-02.json", [entry2])
+        create_json_log_file(log_dir, "webhooks_2025-01-02.json", [entry2])
 
-        entry3 = sample_json_webhook_data.copy()
+        entry3 = json_webhook_data_simple.copy()
         entry3["hook_id"] = "target-hook"
-        self.create_json_log_file(log_dir, "webhooks_2025-01-03.json", [entry3])
+        create_json_log_file(log_dir, "webhooks_2025-01-03.json", [entry3])
 
         # Search for hook in third file
         result = await controller.get_workflow_steps_json("target-hook")
@@ -445,7 +420,9 @@ class TestLogViewerJSONMethods:
         # Should find it
         assert result["hook_id"] == "target-hook"
 
-    async def test_get_workflow_steps_json_fails_fast_on_missing_required_fields(self, controller, tmp_path):
+    async def test_get_workflow_steps_json_fails_fast_on_missing_required_fields(
+        self, controller, tmp_path, create_json_log_file
+    ):
         """Test get_workflow_steps_json raises HTTPException when required fields are missing.
 
         Required fields (timing, workflow_steps) must be present and valid.
@@ -460,7 +437,7 @@ class TestLogViewerJSONMethods:
             # Missing: timing, workflow_steps (required fields)
         }
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [minimal_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [minimal_data])
 
         # Should raise HTTPException 500 for malformed log entry
         # (distinguishing from 404 "not found" case)
@@ -470,19 +447,62 @@ class TestLogViewerJSONMethods:
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "Malformed log entry"
 
+    async def test_get_workflow_steps_json_fails_fast_on_step_missing_timestamp(
+        self, controller, tmp_path, create_json_log_file
+    ):
+        """Test get_workflow_steps_json raises HTTPException when a step is missing timestamp.
+
+        Each workflow step must have a timestamp. Missing timestamps indicate malformed
+        log data and should fail fast with 500 instead of flowing bad data to UI.
+        """
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log entry with valid structure but step missing timestamp
+        data_with_missing_step_timestamp = {
+            "hook_id": "hook-missing-step-ts",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "timing": {
+                "started_at": "2025-01-05T10:00:00.000000Z",
+                "duration_ms": 5000,
+            },
+            "workflow_steps": {
+                "step_with_timestamp": {
+                    "timestamp": "2025-01-05T10:00:01.000000Z",
+                    "status": "completed",
+                    "duration_ms": 1000,
+                },
+                "step_missing_timestamp": {
+                    # Missing timestamp field
+                    "status": "completed",
+                    "duration_ms": 500,
+                },
+            },
+        }
+
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [data_with_missing_step_timestamp])
+
+        # Should raise HTTPException 500 for malformed log entry
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.get_workflow_steps_json("hook-missing-step-ts")
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Malformed log entry"
+
     async def test_stream_json_log_entries_handles_file_read_errors(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test _stream_json_log_entries handles file read errors gracefully."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create a valid JSON log file
-        self.create_json_log_file(log_dir, "webhooks_valid.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_valid.json", [json_webhook_data_simple])
 
         # Create a file that will cause read error (simulate by making it unreadable)
         bad_file = log_dir / "webhooks_bad.json"
-        bad_file.write_text(json.dumps(sample_json_webhook_data))
+        bad_file.write_text(json.dumps(json_webhook_data_simple))
         bad_file.chmod(0o000)  # Remove all permissions
 
         try:
@@ -499,26 +519,26 @@ class TestLogViewerJSONMethods:
             bad_file.chmod(0o644)
 
     async def test_get_workflow_steps_json_with_multiple_entries_same_file(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, json_webhook_data_simple, create_json_log_file
     ):
         """Test get_workflow_steps_json finds correct entry in file with multiple hooks."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file with multiple hook entries (deep copy to avoid reference issues)
-        entry1 = copy.deepcopy(sample_json_webhook_data)
+        entry1 = copy.deepcopy(json_webhook_data_simple)
         entry1["hook_id"] = "hook-1"
         entry1["pr"]["number"] = 100
 
-        entry2 = copy.deepcopy(sample_json_webhook_data)
+        entry2 = copy.deepcopy(json_webhook_data_simple)
         entry2["hook_id"] = "target-hook"
         entry2["pr"]["number"] = 200
 
-        entry3 = copy.deepcopy(sample_json_webhook_data)
+        entry3 = copy.deepcopy(json_webhook_data_simple)
         entry3["hook_id"] = "hook-3"
         entry3["pr"]["number"] = 300
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry1, entry2, entry3])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry1, entry2, entry3])
 
         # Search for middle entry
         result = await controller.get_workflow_steps_json("target-hook")
@@ -768,11 +788,6 @@ class TestLogViewerGetLogEntries:
     """Test cases for get_log_entries method."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -978,11 +993,6 @@ class TestLogViewerExportLogs:
     """Test cases for export_logs method."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -1051,11 +1061,6 @@ class TestLogViewerShutdown:
     """Test cases for shutdown method."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -1111,11 +1116,6 @@ class TestLogViewerGetLogPage:
     """Test cases for get_log_page method."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -1150,11 +1150,6 @@ class TestLogViewerGetLogPage:
 
 class TestLogViewerHelpers:
     """Test cases for helper methods."""
-
-    @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
 
     @pytest.fixture
     def controller(self, mock_logger, tmp_path):
@@ -1253,11 +1248,6 @@ class TestLogViewerGetStepLogs:
     """Test cases for get_step_logs method."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger for testing."""
-        return Mock()
-
-    @pytest.fixture
     def controller(self, mock_logger, tmp_path):
         """Create a LogViewerController instance with mocked config."""
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
@@ -1266,70 +1256,15 @@ class TestLogViewerGetStepLogs:
             mock_config.return_value = mock_config_instance
             return LogViewerController(logger=mock_logger)
 
-    @pytest.fixture
-    def sample_json_webhook_data(self) -> dict:
-        """Create sample JSON webhook log data with workflow steps."""
-        return {
-            "hook_id": "test-hook-123",
-            "event_type": "pull_request",
-            "action": "opened",
-            "repository": "org/test-repo",
-            "sender": "test-user",
-            "pr": {
-                "number": 456,
-                "title": "Test PR",
-                "url": "https://github.com/org/test-repo/pull/456",
-            },
-            "timing": {
-                "started_at": "2025-01-05T10:00:00.000000Z",
-                "completed_at": "2025-01-05T10:00:05.000000Z",
-                "duration_ms": 5000,
-            },
-            "workflow_steps": {
-                "clone_repository": {
-                    "timestamp": "2025-01-05T10:00:01.000000Z",
-                    "status": "completed",
-                    "duration_ms": 1500,
-                },
-                "assign_reviewers": {
-                    "timestamp": "2025-01-05T10:00:02.500000Z",
-                    "status": "completed",
-                    "duration_ms": 800,
-                },
-                "apply_labels": {
-                    "timestamp": "2025-01-05T10:00:03.500000Z",
-                    "status": "failed",
-                    "duration_ms": 200,
-                    "error": {"type": "ValueError", "message": "Label not found"},
-                },
-            },
-            "token_spend": 35,
-            "success": False,
-        }
-
-    def create_json_log_file(self, log_dir: Path, filename: str, entries: list[dict]) -> Path:
-        """Create a test JSON log file with entries."""
-        log_file = log_dir / filename
-        with open(log_file, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
-        return log_file
-
-    def create_text_log_file(self, log_dir: Path, filename: str, log_lines: list[str]) -> Path:
-        """Create a test text log file with log lines."""
-        log_file = log_dir / filename
-        with open(log_file, "w", encoding="utf-8") as f:
-            for line in log_lines:
-                f.write(line + "\n")
-        return log_file
-
-    async def test_get_step_logs_returns_step_metadata_and_logs(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_step_logs_returns_step_metadata_and_logs(
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file, create_text_log_file
+    ):
         """Test get_step_logs returns step metadata and associated log entries."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Create text log file with entries during clone_repository step
         log_lines = [
@@ -1341,7 +1276,7 @@ class TestLogViewerGetStepLogs:
             "2025-01-05T10:00:05.000000 GithubWebhook INFO org/test-repo "
             "[pull_request][test-hook-123][test-user][PR 456]: Processing complete",
         ]
-        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+        create_text_log_file(log_dir, "webhook-server.log", log_lines)
 
         # Get logs for clone_repository step
         result = await controller.get_step_logs("test-hook-123", "clone_repository")
@@ -1361,13 +1296,15 @@ class TestLogViewerGetStepLogs:
         assert any("Cloning repository" in msg for msg in log_messages)
         assert any("Clone completed" in msg for msg in log_messages)
 
-    async def test_get_step_logs_hook_id_not_found(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_step_logs_hook_id_not_found(
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file
+    ):
         """Test get_step_logs raises 404 when hook_id is not found."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file with different hook_id
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Try to get logs for non-existent hook_id
         with pytest.raises(HTTPException) as exc:
@@ -1376,13 +1313,15 @@ class TestLogViewerGetStepLogs:
         assert exc.value.status_code == 404
         assert "No JSON log entry found" in str(exc.value.detail)
 
-    async def test_get_step_logs_step_name_not_found(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_step_logs_step_name_not_found(
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file
+    ):
         """Test get_step_logs raises 404 when step_name is not found."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Try to get logs for non-existent step_name
         with pytest.raises(HTTPException) as exc:
@@ -1391,13 +1330,15 @@ class TestLogViewerGetStepLogs:
         assert exc.value.status_code == 404
         assert "Step 'non_existent_step' not found" in str(exc.value.detail)
 
-    async def test_get_step_logs_with_failed_step(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_step_logs_with_failed_step(
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file
+    ):
         """Test get_step_logs returns error information for failed step."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Get logs for failed step
         result = await controller.get_step_logs("test-hook-123", "apply_labels")
@@ -1407,7 +1348,9 @@ class TestLogViewerGetStepLogs:
         assert result["step"]["status"] == "failed"
         assert result["step"]["error"]["message"] == "Label not found"
 
-    async def test_get_step_logs_uses_default_duration_when_missing(self, controller, tmp_path):
+    async def test_get_step_logs_uses_default_duration_when_missing(
+        self, controller, tmp_path, create_json_log_file, create_text_log_file
+    ):
         """Test get_step_logs uses 60 second default when duration_ms is missing."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -1431,7 +1374,7 @@ class TestLogViewerGetStepLogs:
             },
         }
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
 
         # Create text log with entry within 60 second default window
         log_lines = [
@@ -1441,7 +1384,7 @@ class TestLogViewerGetStepLogs:
             "2025-01-05T10:02:00.000000 GithubWebhook INFO org/repo "
             "[pull_request][test-hook-456][user][PR 789]: Outside window",
         ]
-        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+        create_text_log_file(log_dir, "webhook-server.log", log_lines)
 
         result = await controller.get_step_logs("test-hook-456", "step_no_duration")
 
@@ -1451,7 +1394,7 @@ class TestLogViewerGetStepLogs:
         assert result["log_count"] == 1
         assert "Within default window" in result["logs"][0]["message"]
 
-    async def test_get_step_logs_raises_on_invalid_timestamp(self, controller, tmp_path):
+    async def test_get_step_logs_raises_on_invalid_timestamp(self, controller, tmp_path, create_json_log_file):
         """Test get_step_logs raises HTTPException for invalid step timestamp."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -1475,7 +1418,7 @@ class TestLogViewerGetStepLogs:
             },
         }
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
 
         # Should raise HTTPException 500 for invalid timestamp
         with pytest.raises(HTTPException) as exc:
@@ -1485,8 +1428,13 @@ class TestLogViewerGetStepLogs:
         assert "Invalid timestamp 'invalid-timestamp'" in exc.value.detail
         assert "step_bad_timestamp" in exc.value.detail
 
-    async def test_get_step_logs_raises_on_missing_timestamp(self, controller, tmp_path):
-        """Test get_step_logs raises HTTPException for missing step timestamp."""
+    async def test_get_step_logs_raises_on_missing_timestamp(self, controller, tmp_path, create_json_log_file):
+        """Test get_step_logs raises HTTPException for missing step timestamp.
+
+        Note: Steps missing timestamps are caught during early validation in
+        _transform_json_entry_to_timeline and return a generic "Malformed log entry"
+        error to avoid exposing internal details.
+        """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
@@ -1508,25 +1456,24 @@ class TestLogViewerGetStepLogs:
             },
         }
 
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
 
-        # Should raise HTTPException 500 for missing timestamp
+        # Should raise HTTPException 500 for malformed log entry (missing timestamp caught early)
         with pytest.raises(HTTPException) as exc:
             await controller.get_step_logs("test-hook-missing", "step_no_timestamp")
 
         assert exc.value.status_code == 500
-        assert "has no timestamp" in exc.value.detail
-        assert "step_no_timestamp" in exc.value.detail
+        assert exc.value.detail == "Malformed log entry"
 
     async def test_get_step_logs_empty_logs_when_no_entries_in_window(
-        self, controller, tmp_path, sample_json_webhook_data
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file, create_text_log_file
     ):
         """Test get_step_logs returns empty logs when no entries match time window."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Create text log file with entries outside step time window
         log_lines = [
@@ -1537,7 +1484,7 @@ class TestLogViewerGetStepLogs:
             "2025-01-05T10:00:10.000000 GithubWebhook INFO org/test-repo "
             "[pull_request][test-hook-123][test-user][PR 456]: After step",
         ]
-        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+        create_text_log_file(log_dir, "webhook-server.log", log_lines)
 
         result = await controller.get_step_logs("test-hook-123", "clone_repository")
 
@@ -1546,13 +1493,15 @@ class TestLogViewerGetStepLogs:
         assert result["log_count"] == 0
         assert result["logs"] == []
 
-    async def test_get_step_logs_filters_by_hook_id(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_get_step_logs_filters_by_hook_id(
+        self, controller, tmp_path, sample_json_webhook_data, create_json_log_file, create_text_log_file
+    ):
         """Test get_step_logs only returns logs matching the hook_id."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON log file
-        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+        create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
 
         # Create text log file with entries from different hook_ids
         log_lines = [
@@ -1561,7 +1510,7 @@ class TestLogViewerGetStepLogs:
             "2025-01-05T10:00:01.200000 GithubWebhook INFO org/test-repo "
             "[pull_request][other-hook-999][other-user][PR 789]: Wrong hook",
         ]
-        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+        create_text_log_file(log_dir, "webhook-server.log", log_lines)
 
         result = await controller.get_step_logs("test-hook-123", "clone_repository")
 

@@ -769,6 +769,9 @@ class LogViewerController:
                 raise ValueError(f"Malformed log entry for hook_id {hook_id}: step_data for {step_name} is not a dict")
 
             step_timestamp = step_data.get("timestamp")
+            # Fail fast if timestamp is missing - don't flow bad data to UI
+            if not step_timestamp:
+                raise ValueError(f"Malformed log entry for hook_id {hook_id}: step '{step_name}' is missing timestamp")
             step_status = step_data.get("status", "unknown")
             step_duration_ms = step_data.get("duration_ms")
             step_error = step_data.get("error")
