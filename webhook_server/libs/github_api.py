@@ -595,14 +595,33 @@ class GithubWebhook:
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
-        for _api, _ in apis_and_tokens:
-            if _api.rate_limiting[-1] == 60:
+        for _api, _token in apis_and_tokens:
+            token_suffix = f"...{_token[-4:]}" if _token else "unknown"
+            try:
+                rate_limit_remaining = _api.rate_limiting[-1]
+            except GithubException as ex:
                 self.logger.warning(
-                    f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token, skipping"
+                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
+                    f"skipping. {ex}"
                 )
                 continue
 
-            self.auto_verified_and_merged_users.append(_api.get_user().login)
+            if rate_limit_remaining == 60:
+                self.logger.warning(
+                    f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
+                    f"(token ending in '{token_suffix}'), skipping"
+                )
+                continue
+
+            try:
+                _api_user = _api.get_user().login
+            except GithubException as ex:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
+                )
+                continue
+
+            self.auto_verified_and_merged_users.append(_api_user)
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         return prepare_log_prefix(
