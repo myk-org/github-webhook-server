@@ -597,8 +597,17 @@ class GithubWebhook:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _token in apis_and_tokens:
             token_suffix = f"...{_token[-4:]}" if _token else "unknown"
-            if _api.rate_limiting[-1] == 60:
-                self.logger.exception(
+            try:
+                rate_limit_remaining = _api.rate_limiting[-1]
+            except GithubException as ex:
+                self.logger.warning(
+                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
+                    f"skipping. {ex}"
+                )
+                continue
+
+            if rate_limit_remaining == 60:
+                self.logger.warning(
                     f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
                     f"(token ending in '{token_suffix}'), skipping"
                 )
