@@ -598,7 +598,7 @@ class GithubWebhook:
         for _api, _token in apis_and_tokens:
             token_suffix = f"...{_token[-4:]}" if _token else "unknown"
             if _api.rate_limiting[-1] == 60:
-                self.logger.warning(
+                self.logger.error(
                     f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
                     f"(token ending in '{token_suffix}'), skipping"
                 )
@@ -607,7 +607,7 @@ class GithubWebhook:
             try:
                 _api_user = _api.get_user().login
             except GithubException as ex:
-                self.logger.warning(
+                self.logger.error(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
                 )
                 continue
