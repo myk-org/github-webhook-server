@@ -688,7 +688,7 @@ class TestGithubWebhook:
         mock_user = Mock()
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
-        mock_get_apis.return_value = [(mock_api, "token")]
+        mock_get_apis.return_value = [(mock_api, TEST_GITHUB_TOKEN)]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         await gh.add_api_users_to_auto_verified_and_merged_users()
         assert "test-user" in gh.auto_verified_and_merged_users

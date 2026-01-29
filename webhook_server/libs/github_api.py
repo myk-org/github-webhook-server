@@ -598,33 +598,38 @@ class GithubWebhook:
 
     async def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
-        for _api, _token in apis_and_tokens:
-            token_suffix = f"...{_token[-4:]}" if _token else "unknown"
+
+        async def check_token(api: github.Github, token: str) -> str | None:
+            """Check a single API token and return the user login if valid, None otherwise."""
+            token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                rate_limit_remaining = await asyncio.to_thread(lambda api: api.rate_limiting[-1], _api)
+                rate_limit_remaining = await asyncio.to_thread(lambda: api.rate_limiting[-1])
             except GithubException as ex:
                 self.logger.warning(
                     f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
                     f"skipping. {ex}"
                 )
-                continue
+                return None
 
             if rate_limit_remaining == 60:
                 self.logger.warning(
                     f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
                     f"(token ending in '{token_suffix}'), skipping"
                 )
-                continue
+                return None
 
             try:
-                _api_user = await asyncio.to_thread(lambda api: api.get_user().login, _api)
+                _api_user = await asyncio.to_thread(lambda: api.get_user().login)
             except GithubException as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
                 )
-                continue
+                return None
 
-            self.auto_verified_and_merged_users.append(_api_user)
+            return _api_user
+
+        results = await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
+        self.auto_verified_and_merged_users.extend(user for user in results if user is not None)
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         return prepare_log_prefix(
