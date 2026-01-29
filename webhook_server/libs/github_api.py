@@ -178,8 +178,8 @@ class GithubWebhook:
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
         self._repo_cloned: bool = False  # Track if repository has been cloned
-        # Initialize auto-verified users from API users
-        self.add_api_users_to_auto_verified_and_merged_users()
+        # Note: auto-verified users from API users are initialized in process()
+        # because the method is async and requires asyncio.to_thread() for blocking calls
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.issue_url_for_welcome_msg: str = (
@@ -408,6 +408,9 @@ class GithubWebhook:
             raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
     async def process(self) -> Any:
+        # Initialize auto-verified users from API users (async operation)
+        await self.add_api_users_to_auto_verified_and_merged_users()
+
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         # Start webhook routing context step
@@ -593,12 +596,12 @@ class GithubWebhook:
             await self._update_context_metrics()
             return None
 
-    def add_api_users_to_auto_verified_and_merged_users(self) -> None:
+    async def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _token in apis_and_tokens:
             token_suffix = f"...{_token[-4:]}" if _token else "unknown"
             try:
-                rate_limit_remaining = _api.rate_limiting[-1]
+                rate_limit_remaining = await asyncio.to_thread(lambda api: api.rate_limiting[-1], _api)
             except GithubException as ex:
                 self.logger.warning(
                     f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
@@ -614,7 +617,7 @@ class GithubWebhook:
                 continue
 
             try:
-                _api_user = _api.get_user().login
+                _api_user = await asyncio.to_thread(lambda api: api.get_user().login, _api)
             except GithubException as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"

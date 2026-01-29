@@ -621,13 +621,14 @@ class TestGithubWebhook:
         assert gh.repository is None
         assert not hasattr(gh, "repository_by_github_app")
 
+    @pytest.mark.asyncio
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
-    def test_add_api_users_to_auto_verified_and_merged_users(
+    async def test_add_api_users_to_auto_verified_and_merged_users(
         self,
         mock_get_apis,
         mock_color,
@@ -639,7 +640,7 @@ class TestGithubWebhook:
         minimal_headers,
         logger,
     ) -> None:
-        """Test the add_api_users_to_auto_verified_and_merged_users property."""
+        """Test the add_api_users_to_auto_verified_and_merged_users method."""
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
         mock_get_api.return_value = (Mock(), "token", "apiuser")
@@ -689,7 +690,7 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
         mock_get_apis.return_value = [(mock_api, "token")]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        _ = gh.add_api_users_to_auto_verified_and_merged_users
+        await gh.add_api_users_to_auto_verified_and_merged_users()
         assert "test-user" in gh.auto_verified_and_merged_users
 
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
