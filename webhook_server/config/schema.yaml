@@ -83,6 +83,15 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  allow-commands-on-draft-prs:
+    type: array
+    items:
+      type: string
+    description: |
+      List of commands allowed on draft PRs.
+      - Not set (default): commands blocked on draft PRs
+      - Empty list []: all commands allowed on draft PRs
+      - List with commands: only specified commands allowed (e.g., ["build-and-push-container", "retest"])
   labels:
     type: object
     description: Configure which labels are enabled and their colors
@@ -332,6 +341,15 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        allow-commands-on-draft-prs:
+          type: array
+          items:
+            type: string
+          description: |
+            List of commands allowed on draft PRs.
+            - Not set (default): commands blocked on draft PRs
+            - Empty list []: all commands allowed on draft PRs
+            - List with commands: only specified commands allowed (e.g., ["build-and-push-container", "retest"])
         labels:
           type: object
           description: Configure which labels are enabled and their colors
