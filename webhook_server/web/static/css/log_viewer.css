@@ -1151,3 +1151,302 @@ body {
 .task-group-steps .flow-step-container.nested::before {
   left: -1px;
 }
+
+/* Step Details Styles - for workflow step metadata display */
+.step-details-entry {
+  background: var(--container-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.step-details-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.step-details-timestamp {
+  color: var(--timestamp-color);
+  font-size: 12px;
+}
+
+.step-details-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-color);
+}
+
+.step-details-status-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.step-details-badge {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.step-status-completed,
+.step-status-success {
+  background: rgba(40, 167, 69, 0.15);
+  color: #28a745;
+  border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+.step-status-failed,
+.step-status-error {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.3);
+}
+
+.step-status-in_progress,
+.step-status-processing,
+.step-status-step {
+  background: rgba(0, 123, 255, 0.15);
+  color: #007bff;
+  border: 1px solid rgba(0, 123, 255, 0.3);
+}
+
+.step-status-warning {
+  background: rgba(255, 193, 7, 0.15);
+  color: #856404;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.step-status-info {
+  background: var(--level-info-bg);
+  color: var(--level-info-border);
+  border: 1px solid var(--level-info-border);
+}
+
+.step-details-duration {
+  color: var(--level-info-border);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.step-details-message {
+  color: var(--text-color);
+  padding: 12px;
+  background: var(--log-debug-bg);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.step-details-error {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  border-left: 4px solid #dc3545;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.step-details-error-label {
+  color: #dc3545;
+  font-weight: 700;
+}
+
+.step-details-error-text {
+  color: var(--text-color);
+  word-break: break-word;
+}
+
+.step-details-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.step-details-metadata span {
+  padding: 4px 8px;
+  background: var(--tag-bg);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.step-meta-repository {
+  color: var(--level-info-border) !important;
+}
+
+.step-meta-pr_number {
+  color: #28a745 !important;
+}
+
+.step-meta-github_user {
+  color: #6f42c1 !important;
+}
+
+.step-meta-hook_id {
+  color: var(--timestamp-color) !important;
+}
+
+/* Flow in-progress status */
+.flow-in-progress {
+  background: rgba(0, 123, 255, 0.1);
+  border: 1px solid #007bff;
+  border-left: 4px solid #007bff;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  margin-top: 24px;
+}
+
+.flow-in-progress h3 {
+  color: #007bff;
+  margin: 0;
+  font-size: 18px;
+}
+
+/* Step Logs Styles - for fetched log entries within workflow steps */
+.step-logs-loading {
+  padding: 16px;
+  text-align: center;
+  color: var(--timestamp-color);
+  font-style: italic;
+  background: var(--log-debug-bg);
+  border-radius: 4px;
+  margin-top: 12px;
+}
+
+.step-logs-list {
+  margin-top: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--container-bg);
+}
+
+.step-logs-header {
+  padding: 10px 16px;
+  background: var(--tag-bg);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.step-log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--log-entry-border);
+  font-family: monospace;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.step-log-entry:last-child {
+  border-bottom: none;
+}
+
+.step-log-entry:hover {
+  background-color: var(--log-entry-border);
+}
+
+.step-log-entry.log-level-error {
+  background-color: rgba(220, 53, 69, 0.05);
+}
+
+.step-log-entry.log-level-warning {
+  background-color: rgba(255, 193, 7, 0.05);
+}
+
+.step-log-entry.log-level-success {
+  background-color: rgba(40, 167, 69, 0.05);
+}
+
+.step-log-timestamp {
+  flex-shrink: 0;
+  width: 80px;
+  color: var(--timestamp-color);
+  font-size: 11px;
+}
+
+.step-log-level {
+  flex-shrink: 0;
+  width: 60px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.log-level-badge-info {
+  background: var(--level-info-bg);
+  color: var(--level-info-border);
+}
+
+.log-level-badge-error {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+}
+
+.log-level-badge-warning {
+  background: rgba(255, 193, 7, 0.15);
+  color: #856404;
+}
+
+.log-level-badge-debug {
+  background: var(--tag-bg);
+  color: var(--text-secondary);
+}
+
+.log-level-badge-step {
+  background: rgba(0, 123, 255, 0.15);
+  color: #007bff;
+}
+
+.log-level-badge-success {
+  background: rgba(40, 167, 69, 0.15);
+  color: #28a745;
+}
+
+.step-log-message {
+  flex: 1;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  color: var(--text-color);
+  line-height: 1.4;
+}
+
+.step-logs-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--timestamp-color);
+  font-style: italic;
+  background: var(--log-debug-bg);
+  border-radius: 4px;
+  margin-top: 12px;
+}
+
+.step-logs-error {
+  padding: 12px 16px;
+  margin-top: 12px;
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  border-left: 4px solid #dc3545;
+  border-radius: 4px;
+  color: #dc3545;
+  font-size: 13px;
+}
