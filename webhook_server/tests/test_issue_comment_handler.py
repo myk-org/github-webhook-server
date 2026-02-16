@@ -1316,6 +1316,33 @@ class TestIssueCommentHandler:
             mock_reaction.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_user_commands_draft_pr_no_config_blocks_all(
+        self,
+        issue_comment_handler: IssueCommentHandler,
+    ) -> None:
+        """Test that all commands are blocked on draft PRs when allow-commands-on-draft-prs is not configured."""
+        mock_pull_request = Mock()
+        mock_pull_request.draft = True
+
+        # Config returns None (not configured)
+        issue_comment_handler.github_webhook.config.get_value = Mock(return_value=None)
+
+        with (
+            patch.object(mock_pull_request, "create_issue_comment") as mock_comment,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_CHECK_CAN_MERGE_STR,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=True,
+            )
+            # Command should be silently blocked (no comment posted, just return)
+            mock_comment.assert_not_called()
+            mock_reaction.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_user_commands_draft_pr_command_allowed(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test that commands in allow-commands-on-draft-prs list are allowed on draft PRs."""
         mock_pull_request = Mock()

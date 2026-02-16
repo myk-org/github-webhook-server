@@ -168,8 +168,14 @@ class IssueCommentHandler:
         # Check if command is allowed on draft PRs
         if is_draft:
             allow_commands_on_draft = self.github_webhook.config.get_value("allow-commands-on-draft-prs")
+            if not isinstance(allow_commands_on_draft, list):
+                self.logger.debug(
+                    f"{self.log_prefix} Command {_command} blocked: "
+                    "draft PR and allow-commands-on-draft-prs not configured"
+                )
+                return
             # Empty list means all commands allowed; non-empty list means only those commands
-            if isinstance(allow_commands_on_draft, list) and len(allow_commands_on_draft) > 0:
+            if len(allow_commands_on_draft) > 0:
                 # Sanitize: ensure all entries are strings for safe join and comparison
                 allow_commands_on_draft = [str(cmd) for cmd in allow_commands_on_draft]
                 if _command not in allow_commands_on_draft:
