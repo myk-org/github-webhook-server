@@ -800,11 +800,12 @@ class LogViewerController:
                 "repository": repository,
                 "event_type": event_type,
                 "pr_number": pr_number,
-                "task_id": step_data.get("task_id"),
+                "task_id": step_name,
                 "task_type": step_data.get("task_type"),
                 "task_status": step_status,
                 "duration_ms": step_duration_ms,
                 "error": step_error,
+                "step_details": step_data,
                 "relative_time_ms": 0,  # Will be calculated below
             })
 

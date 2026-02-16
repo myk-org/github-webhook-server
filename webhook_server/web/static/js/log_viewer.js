@@ -1851,6 +1851,116 @@ function renderStepDetails(step) {
     detailsContainer.appendChild(metadataRow);
   }
 
+  // Step details as log-like entries (from step_details metadata)
+  const stepData = step.step_details;
+  if (stepData && typeof stepData === "object") {
+    const logsDiv = document.createElement("div");
+    logsDiv.className = "step-logs-list";
+
+    const header = document.createElement("div");
+    header.className = "step-logs-header";
+    header.textContent = "Step execution details";
+    logsDiv.appendChild(header);
+
+    // Show step start
+    if (stepData.timestamp) {
+      const startEntry = document.createElement("div");
+      startEntry.className = "step-log-entry log-level-info";
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      ts.textContent = new Date(stepData.timestamp).toLocaleTimeString();
+
+      const lvl = document.createElement("span");
+      lvl.className = "step-log-level log-level-badge-step";
+      lvl.textContent = "STEP";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      msg.textContent = `${step.step_name || "step"}: started`;
+
+      startEntry.appendChild(ts);
+      startEntry.appendChild(lvl);
+      startEntry.appendChild(msg);
+      logsDiv.appendChild(startEntry);
+    }
+
+    // Show additional metadata fields as log entries
+    const skipFields = new Set([
+      "timestamp",
+      "status",
+      "duration_ms",
+      "error",
+      "task_id",
+      "task_type",
+    ]);
+
+    Object.entries(stepData).forEach(([key, value]) => {
+      if (skipFields.has(key) || value === null || value === undefined) return;
+
+      const entry = document.createElement("div");
+      entry.className = "step-log-entry log-level-info";
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      ts.textContent = "";
+
+      const lvl = document.createElement("span");
+      lvl.className = "step-log-level log-level-badge-info";
+      lvl.textContent = "INFO";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      if (typeof value === "object") {
+        msg.textContent = `${key}: ${JSON.stringify(value)}`;
+      } else {
+        msg.textContent = `${key}: ${value}`;
+      }
+
+      entry.appendChild(ts);
+      entry.appendChild(lvl);
+      entry.appendChild(msg);
+      logsDiv.appendChild(entry);
+    });
+
+    // Show completion entry
+    if (stepData.status) {
+      const endEntry = document.createElement("div");
+      const isError = stepData.status === "failed";
+      endEntry.className = `step-log-entry log-level-${isError ? "error" : "success"}`;
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      if (stepData.timestamp && stepData.duration_ms) {
+        const endTime = new Date(
+          new Date(stepData.timestamp).getTime() + stepData.duration_ms,
+        );
+        ts.textContent = endTime.toLocaleTimeString();
+      }
+
+      const lvl = document.createElement("span");
+      lvl.className = `step-log-level log-level-badge-${isError ? "error" : "success"}`;
+      lvl.textContent = isError ? "ERROR" : "DONE";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      const durationText =
+        stepData.duration_ms != null
+          ? stepData.duration_ms >= 1000
+            ? ` in ${(stepData.duration_ms / 1000).toFixed(2)}s`
+            : ` in ${stepData.duration_ms}ms`
+          : "";
+      msg.textContent = `${step.step_name || "step"}: ${stepData.status}${durationText}`;
+
+      endEntry.appendChild(ts);
+      endEntry.appendChild(lvl);
+      endEntry.appendChild(msg);
+      logsDiv.appendChild(endEntry);
+    }
+
+    detailsContainer.appendChild(logsDiv);
+  }
+
   return detailsContainer;
 }
 
