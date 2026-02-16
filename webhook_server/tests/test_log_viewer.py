@@ -766,6 +766,56 @@ class TestLogViewerJSONMethods:
         # Should yield nothing
         assert len(entries) == 0
 
+    async def test_get_step_logs_returns_step_data(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs returns step metadata for a valid hook_id and step_name."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file with workflow steps
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Get step logs for an existing step
+        result = await controller.get_step_logs("test-hook-123", "step1")
+
+        # Should return step metadata
+        assert result["step"]["name"] == "step1"
+        assert result["step"]["status"] == "completed"
+        assert result["step"]["timestamp"] == "2025-01-05T10:00:01.000000Z"
+        assert result["step"]["duration_ms"] == 1000
+        assert result["step"]["error"] is None
+        assert result["logs"] == []
+        assert result["log_count"] == 0
+
+    async def test_get_step_logs_hook_not_found(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs raises HTTPException 404 when hook_id doesn't exist."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file with a different hook_id
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Try to get step logs for non-existent hook_id
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("non-existent-hook", "step1")
+
+        assert exc.value.status_code == 404
+        assert "non-existent-hook" in str(exc.value.detail)
+
+    async def test_get_step_logs_step_not_found(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs raises HTTPException 404 when step_name doesn't exist."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Try to get step logs for non-existent step name
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("test-hook-123", "non_existent_step")
+
+        assert exc.value.status_code == 404
+        assert "non_existent_step" in str(exc.value.detail)
+
 
 class TestLogViewerGetLogEntries:
     """Test cases for get_log_entries method."""

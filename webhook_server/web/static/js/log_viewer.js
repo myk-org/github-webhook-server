@@ -839,14 +839,40 @@ function showFlowModal(hookId) {
   fetch(`/logs/api/workflow-steps/${encodeURIComponent(hookId)}`, {
     signal: currentFlowController.signal,
   })
-    .then((response) => {
+    .then(async (response) => {
       if (!response.ok) {
-        if (response.status === 404) {
-          console.log("No flow data found for hook ID:", hookId);
-          showFlowModalError("No workflow data found for this hook");
+        const status = response.status;
+
+        // Try to parse error detail from JSON response
+        let errorDetail = null;
+        try {
+          const errorData = await response.json();
+          errorDetail = errorData.detail;
+        } catch {
+          // JSON parsing failed, use default messages
+        }
+
+        if (status === 404) {
+          const message = errorDetail || "No workflow data found for this hook";
+          console.log("No flow data found for hook ID:", hookId, message);
+          showFlowModalError(message);
+          return;
+        } else if (status === 400) {
+          const message = errorDetail || "Invalid request";
+          console.error("Bad request for hook ID:", hookId, message);
+          showFlowModalError(message);
+          return;
+        } else if (status >= 500) {
+          console.error("Server error for hook ID:", hookId, errorDetail);
+          showFlowModalError("Server error occurred. Please try again later.");
+          return;
+        } else {
+          const message =
+            errorDetail || `HTTP ${status}: ${response.statusText}`;
+          console.error("Error fetching flow data:", message);
+          showFlowModalError(message);
           return;
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return response.json();
     })
@@ -1706,248 +1732,208 @@ async function filterByStep(stepIndex) {
   await showStepLogsInModal(step, logsContainer);
 }
 
-function renderStepDetails(step, container) {
-  // --- Metadata card ---
-  const card = document.createElement("div");
-  card.style.cssText =
-    "background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 12px;";
+/**
+ * Renders step details as a formatted log-like entry.
+ * Displays the step's own metadata (status, duration, error) instead of searching logs.
+ *
+ * @param {Object} step - The step object from workflow_steps
+ * @returns {HTMLElement} - The rendered step details element
+ */
+function renderStepDetails(step) {
+  const detailsContainer = document.createElement("div");
+  detailsContainer.className = "step-details-entry";
 
-  // Header row: step name + status badge
-  const header = document.createElement("div");
-  header.style.cssText =
-    "display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;";
-
-  const stepName = document.createElement("div");
-  stepName.style.cssText =
-    "font-weight: 600; font-size: 15px; color: var(--text-color);";
-  stepName.textContent = step.step_name || step.task_id || "Unknown step";
-
-  const statusBadge = document.createElement("span");
-  const status = step.task_status || "unknown";
-  const isCompleted = status === "completed";
-  const isFailed = status === "failed";
-  const badgeColor = isFailed ? "#dc3545" : isCompleted ? "#28a745" : "#ffc107";
-  statusBadge.style.cssText =
-    `padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; color: ${isFailed || isCompleted ? "#fff" : "#333"}; background: ` +
-    badgeColor +
-    ";";
-  statusBadge.textContent = status;
-
-  header.appendChild(stepName);
-  header.appendChild(statusBadge);
-  card.appendChild(header);
-
-  // Info grid: duration + timestamp
-  const infoGrid = document.createElement("div");
-  infoGrid.style.cssText =
-    "display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;";
-
-  if (step.duration_ms != null) {
-    const durationItem = document.createElement("div");
-
-    const durationLabel = document.createElement("span");
-    durationLabel.style.cssText =
-      "color: var(--timestamp-color); margin-right: 6px;";
-    durationLabel.textContent = "Duration:";
-
-    const durationValue = document.createElement("span");
-    durationValue.style.cssText = "font-weight: 600; color: var(--text-color);";
-    durationValue.textContent = (step.duration_ms / 1000).toFixed(2) + "s";
-
-    durationItem.appendChild(durationLabel);
-    durationItem.appendChild(durationValue);
-    infoGrid.appendChild(durationItem);
-  }
+  // Header row with timestamp and step name
+  const headerRow = document.createElement("div");
+  headerRow.className = "step-details-header";
 
   if (step.timestamp) {
-    const timeItem = document.createElement("div");
-
-    const timeLabel = document.createElement("span");
-    timeLabel.style.cssText =
-      "color: var(--timestamp-color); margin-right: 6px;";
-    timeLabel.textContent = "Timestamp:";
-
-    const timeValue = document.createElement("span");
-    timeValue.style.cssText = "color: var(--text-color);";
-    timeValue.textContent = new Date(step.timestamp).toLocaleString();
-
-    timeItem.appendChild(timeLabel);
-    timeItem.appendChild(timeValue);
-    infoGrid.appendChild(timeItem);
+    const timestampSpan = document.createElement("span");
+    timestampSpan.className = "step-details-timestamp";
+    timestampSpan.textContent = new Date(step.timestamp).toLocaleString();
+    headerRow.appendChild(timestampSpan);
   }
 
-  card.appendChild(infoGrid);
-  container.appendChild(card);
+  const stepNameSpan = document.createElement("span");
+  stepNameSpan.className = "step-details-name";
+  const stepName = step.step_name || "unknown_step";
+  stepNameSpan.textContent = stepName;
+  headerRow.appendChild(stepNameSpan);
 
-  // --- Error details (prominent, if present) ---
-  if (step.error) {
-    const errorCard = document.createElement("div");
-    errorCard.style.cssText =
-      "background: var(--log-error-bg); border: 1px solid #dc3545; border-radius: 8px; padding: 16px; margin-bottom: 12px;";
+  detailsContainer.appendChild(headerRow);
 
-    const errorTitle = document.createElement("div");
-    errorTitle.style.cssText =
-      "font-weight: 600; color: #dc3545; margin-bottom: 8px; font-size: 14px;";
-    errorTitle.textContent = "Error";
-    errorCard.appendChild(errorTitle);
+  // Status row
+  const statusRow = document.createElement("div");
+  statusRow.className = "step-details-status-row";
 
-    if (typeof step.error === "object") {
-      const errorFields = ["type", "message", "traceback"];
-      errorFields.forEach((field) => {
-        if (!step.error[field]) return;
+  const statusBadge = document.createElement("span");
+  const status = step.task_status || step.step_status || step.level || "INFO";
+  statusBadge.className = `step-details-badge step-status-${status.toLowerCase()}`;
+  statusBadge.textContent = status.toUpperCase();
+  statusRow.appendChild(statusBadge);
 
-        const row = document.createElement("div");
-        row.style.cssText = "margin-bottom: 6px;";
-
-        const label = document.createElement("span");
-        label.style.cssText = "font-weight: 600; color: var(--text-color);";
-        label.textContent = field.charAt(0).toUpperCase() + field.slice(1) + ": ";
-        row.appendChild(label);
-
-        if (field === "traceback") {
-          const pre = document.createElement("pre");
-          pre.style.cssText =
-            "margin: 4px 0 0 0; padding: 8px; background: var(--log-debug-bg); border-radius: 4px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: var(--text-color);";
-          pre.textContent = step.error[field];
-          row.appendChild(pre);
-        } else {
-          const value = document.createElement("span");
-          value.style.cssText = "color: var(--text-color);";
-          value.textContent = step.error[field];
-          row.appendChild(value);
-        }
-
-        errorCard.appendChild(row);
-      });
+  const durationMs = step.step_duration_ms || step.duration_ms;
+  if (durationMs !== undefined && durationMs !== null) {
+    const durationSpan = document.createElement("span");
+    durationSpan.className = "step-details-duration";
+    if (durationMs >= 1000) {
+      durationSpan.textContent = `Duration: ${(durationMs / 1000).toFixed(2)}s`;
     } else {
-      const errorText = document.createElement("div");
-      errorText.style.cssText = "color: var(--text-color);";
-      errorText.textContent = String(step.error);
-      errorCard.appendChild(errorText);
+      durationSpan.textContent = `Duration: ${durationMs}ms`;
     }
-
-    container.appendChild(errorCard);
+    statusRow.appendChild(durationSpan);
   }
 
-  // --- Step details (key-value pairs from step_details) ---
-  if (step.step_details && typeof step.step_details === "object") {
-    const skipFields = new Set([
-      "timestamp",
-      "status",
-      "error",
-      "duration_ms",
-    ]);
-    const detailKeys = Object.keys(step.step_details).filter(
-      (k) => !skipFields.has(k),
-    );
+  detailsContainer.appendChild(statusRow);
 
-    if (detailKeys.length > 0) {
-      const detailsCard = document.createElement("div");
-      detailsCard.style.cssText =
-        "background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;";
+  // Message (if different from step_name)
+  if (step.message && step.message !== stepName) {
+    const messageRow = document.createElement("div");
+    messageRow.className = "step-details-message";
+    messageRow.textContent = step.message;
+    detailsContainer.appendChild(messageRow);
+  }
 
-      const detailsTitle = document.createElement("div");
-      detailsTitle.style.cssText =
-        "font-weight: 600; color: var(--text-color); margin-bottom: 10px; font-size: 14px;";
-      detailsTitle.textContent = "Step Details";
-      detailsCard.appendChild(detailsTitle);
+  // Error details (if step failed)
+  const stepError = step.step_error || step.error;
+  if (stepError) {
+    const errorRow = document.createElement("div");
+    errorRow.className = "step-details-error";
 
-      detailKeys.forEach((key) => {
-        const value = step.step_details[key];
-        const row = document.createElement("div");
-        row.style.cssText =
-          "display: flex; padding: 4px 0; border-bottom: 1px solid var(--log-entry-border); font-size: 13px;";
+    const errorLabel = document.createElement("span");
+    errorLabel.className = "step-details-error-label";
+    errorLabel.textContent = "Error: ";
+    errorRow.appendChild(errorLabel);
 
-        const keyEl = document.createElement("span");
-        keyEl.style.cssText =
-          "color: var(--timestamp-color); min-width: 140px; flex-shrink: 0; font-weight: 500;";
-        keyEl.textContent = key;
-        row.appendChild(keyEl);
+    const errorText = document.createElement("span");
+    errorText.className = "step-details-error-text";
+    let errorMessage;
+    if (typeof stepError === "string") {
+      errorMessage = stepError;
+    } else if (stepError.message) {
+      errorMessage = stepError.message;
+    } else {
+      errorMessage = JSON.stringify(stepError);
+    }
+    errorText.textContent = errorMessage;
+    errorRow.appendChild(errorText);
 
-        const valueEl = document.createElement("span");
-        valueEl.style.cssText =
-          "color: var(--text-color); word-break: break-word;";
-        if (value != null && typeof value === "object") {
-          const pre = document.createElement("pre");
-          pre.style.cssText =
-            "margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-word;";
-          pre.textContent = JSON.stringify(value, null, 2);
-          valueEl.appendChild(pre);
-        } else {
-          valueEl.textContent = value != null ? String(value) : "null";
-        }
+    detailsContainer.appendChild(errorRow);
+  }
 
-        row.appendChild(valueEl);
-        detailsCard.appendChild(row);
-      });
+  // Additional metadata
+  const metadataFields = ["repository", "pr_number", "github_user", "hook_id"];
+  const metadataRow = document.createElement("div");
+  metadataRow.className = "step-details-metadata";
 
-      // Remove border from last row
-      const lastRow = detailsCard.lastElementChild;
-      if (lastRow) {
-        lastRow.style.borderBottom = "none";
+  metadataFields.forEach((field) => {
+    if (step[field]) {
+      const metaSpan = document.createElement("span");
+      metaSpan.className = `step-meta-${field}`;
+      if (field === "pr_number") {
+        metaSpan.textContent = `[PR: #${step[field]}]`;
+      } else if (field === "github_user") {
+        metaSpan.textContent = `[User: ${step[field]}]`;
+      } else if (field === "hook_id") {
+        metaSpan.textContent = `[Hook: ${step[field]}]`;
+      } else {
+        metaSpan.textContent = `[${step[field]}]`;
       }
-
-      container.appendChild(detailsCard);
+      metadataRow.appendChild(metaSpan);
     }
+  });
+
+  if (metadataRow.children.length > 0) {
+    detailsContainer.appendChild(metadataRow);
   }
+
+  return detailsContainer;
 }
 
 async function showStepLogsInModal(step, logsContainer) {
   if (!logsContainer) return;
 
-  // Show loading state
-  logsContainer.style.display = "block";
-  logsContainer.textContent = "Loading logs...";
-
-  // Cancel previous fetch if still in progress
+  // Cancel any previous step logs fetch
   if (currentStepLogsController) {
     currentStepLogsController.abort();
   }
-
-  // Create new AbortController for this fetch
   currentStepLogsController = new AbortController();
 
-  try {
-    // Using full message for precision to avoid ambiguous matches
-    const searchText = step.message;
-    const hookId = currentFlowData.hook_id;
+  // Show the container and display step details immediately
+  logsContainer.style.display = "block";
+  logsContainer.textContent = "";
 
-    const params = new URLSearchParams({
-      hook_id: hookId,
-      search: searchText,
-      limit: "100",
-    });
+  // Render the step's own data first - this is the primary information
+  const stepDetails = renderStepDetails(step);
+  logsContainer.appendChild(stepDetails);
 
-    const response = await fetch(`/logs/api/entries?${params}`, {
-      signal: currentStepLogsController.signal,
-    });
-    if (!response.ok) throw new Error("Failed to fetch logs");
+  // Fetch actual log entries for this step
+  const stepName = step.step_name;
+  const hookId = currentFlowData?.hook_id;
 
-    const data = await response.json();
+  if (stepName && hookId) {
+    try {
+      const response = await fetch(
+        `/logs/api/step-logs/${encodeURIComponent(hookId)}/${encodeURIComponent(stepName)}`,
+        { signal: currentStepLogsController.signal },
+      );
 
-    // Clear and display logs using safe DOM methods
-    logsContainer.textContent = "";
+      if (response.ok) {
+        const data = await response.json();
+        if (data.logs && data.logs.length > 0) {
+          // Create container for logs
+          const logsDiv = document.createElement("div");
+          logsDiv.className = "step-logs-list";
 
-    if (data.entries.length === 0) {
-      renderStepDetails(step, logsContainer);
-      return;
+          // Add header
+          const header = document.createElement("div");
+          header.className = "step-logs-header";
+          header.textContent = `Log entries during step (${data.log_count} found)`;
+          logsDiv.appendChild(header);
+
+          // Render each log entry
+          data.logs.forEach((log) => {
+            const logEntry = document.createElement("div");
+            const levelLower = (log.level || "info").toLowerCase();
+            logEntry.className = `step-log-entry log-level-${levelLower}`;
+
+            const timestamp = document.createElement("span");
+            timestamp.className = "step-log-timestamp";
+            timestamp.textContent = new Date(log.timestamp).toLocaleTimeString();
+
+            const level = document.createElement("span");
+            level.className = `step-log-level log-level-badge-${levelLower}`;
+            level.textContent = log.level || "INFO";
+
+            const message = document.createElement("span");
+            message.className = "step-log-message";
+            message.textContent = log.message;
+
+            logEntry.appendChild(timestamp);
+            logEntry.appendChild(level);
+            logEntry.appendChild(message);
+            logsDiv.appendChild(logEntry);
+          });
+
+          logsContainer.appendChild(logsDiv);
+        }
+        // When logs are empty: step details are already shown above - no message needed
+      } else if (response.status !== 404) {
+        // Only show error for non-404 failures (404 just means no extra logs available)
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "step-logs-error";
+        errorDiv.textContent = `Could not load logs: ${response.status}`;
+        logsContainer.appendChild(errorDiv);
+      }
+    } catch (error) {
+      if (error.name === "AbortError") {
+        return;
+      }
+      // Network errors are non-critical - step details are already shown
+      console.error("Error fetching step logs:", error);
     }
-
-    // Render log entries
-    data.entries.forEach((entry) => {
-      // Reuse the main log entry creator for consistency
-      const logEntry = createLogEntryElement(entry);
-      logsContainer.appendChild(logEntry);
-    });
-
-    // Scroll to the logs container
-    logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  } catch (error) {
-    if (error.name === "AbortError") {
-      // Request was cancelled, ignore silently
-      return;
-    }
-    console.error("Error fetching step logs:", error);
-    logsContainer.textContent = "Error loading logs";
   }
+
+  // Scroll to the logs container
+  logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }

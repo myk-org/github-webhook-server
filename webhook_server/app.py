@@ -17,6 +17,7 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Path,
     Query,
     Request,
     Response,
@@ -1142,6 +1143,20 @@ async def get_workflow_steps(hook_id: str, controller: LogViewerController = con
     - Real-time step data for in-progress workflows
     """
     return await get_workflow_steps_core(controller=controller, hook_id=hook_id)
+
+
+@FASTAPI_APP.get(
+    "/logs/api/step-logs/{hook_id}/{step_name}",
+    operation_id="get_step_logs",
+    dependencies=[Depends(require_log_server_enabled)],
+)
+async def get_step_logs(
+    hook_id: str = Path(min_length=1, max_length=100),
+    step_name: str = Path(min_length=1, max_length=100),
+    controller: LogViewerController = controller_dependency,
+) -> dict[str, Any]:
+    """Retrieve detailed log entries for a specific workflow step within a webhook execution."""
+    return await controller.get_step_logs(hook_id=hook_id, step_name=step_name)
 
 
 @FASTAPI_APP.websocket("/logs/ws")

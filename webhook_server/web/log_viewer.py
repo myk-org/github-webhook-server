@@ -759,6 +759,56 @@ class LogViewerController:
             self.logger.error(f"Error getting workflow steps: {e}")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
+    async def get_step_logs(self, hook_id: str, step_name: str) -> dict[str, Any]:
+        """Get detailed log entries for a specific workflow step within a webhook execution.
+
+        Args:
+            hook_id: The hook ID to look up
+            step_name: The workflow step name to retrieve
+
+        Returns:
+            Dictionary with step metadata and logs array
+
+        Raises:
+            HTTPException: 404 if hook_id or step_name not found, 500 on internal error
+        """
+        try:
+            async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+                if entry.get("hook_id") == hook_id:
+                    workflow_steps_dict: dict[str, Any] = entry.get("workflow_steps") or {}
+                    if step_name not in workflow_steps_dict:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Step '{step_name}' not found in workflow data for hook ID: {hook_id}",
+                        )
+
+                    step_data = workflow_steps_dict[step_name]
+                    return {
+                        "step": {
+                            "name": step_name,
+                            "status": step_data.get("status", "unknown"),
+                            "timestamp": step_data.get("timestamp"),
+                            "duration_ms": step_data.get("duration_ms"),
+                            "error": step_data.get("error"),
+                        },
+                        "logs": [],
+                        "log_count": 0,
+                    }
+
+            raise HTTPException(
+                status_code=404,
+                detail=f"No log entry found for hook ID: {hook_id}",
+            )
+
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting step logs: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
+
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
         """Build timeline data from workflow step entries.
 
