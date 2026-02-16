@@ -101,8 +101,16 @@ class TestLogViewerJSONMethods:
                 "duration_ms": 5000,
             },
             "workflow_steps": {
-                "step1": {"status": "completed", "duration_ms": 1000},
-                "step2": {"status": "completed", "duration_ms": 2000},
+                "step1": {
+                    "status": "completed",
+                    "duration_ms": 1000,
+                    "timestamp": "2025-01-05T10:00:01.000000Z",
+                },
+                "step2": {
+                    "status": "completed",
+                    "duration_ms": 2000,
+                    "timestamp": "2025-01-05T10:00:03.000000Z",
+                },
             },
             "token_spend": 35,
             "success": True,
@@ -284,10 +292,35 @@ class TestLogViewerJSONMethods:
         assert result["repository"] == "org/test-repo"
         assert result["sender"] == "test-user"
         assert result["pr"]["number"] == 456
-        assert result["timing"]["duration_ms"] == 5000
-        assert result["steps"] == sample_json_webhook_data["workflow_steps"]
         assert result["token_spend"] == 35
         assert result["success"] is True
+
+        # Verify steps converted from dict to sorted array
+        assert result["step_count"] == 2
+        assert result["start_time"] == "2025-01-05T10:00:01.000000Z"
+        assert result["total_duration_ms"] == 5000  # from timing.duration_ms
+
+        steps = result["steps"]
+        assert isinstance(steps, list)
+        assert len(steps) == 2
+
+        # Steps should be sorted by timestamp (step1 before step2)
+        assert steps[0]["step_name"] == "step1"
+        assert steps[0]["task_status"] == "completed"
+        assert steps[0]["duration_ms"] == 1000
+        assert steps[0]["message"] == "step1: completed (1000ms)"
+        assert steps[0]["level"] == "INFO"
+        assert steps[0]["repository"] == "org/test-repo"
+        assert steps[0]["event_type"] == "pull_request"
+        assert steps[0]["pr_number"] == 456
+        assert steps[0]["task_id"] == "step1"
+        assert steps[0]["relative_time_ms"] == 0
+        assert steps[0]["step_details"]["status"] == "completed"
+
+        assert steps[1]["step_name"] == "step2"
+        assert steps[1]["task_status"] == "completed"
+        assert steps[1]["duration_ms"] == 2000
+        assert steps[1]["relative_time_ms"] == 2000  # 2 seconds after step1
 
     async def test_get_workflow_steps_json_returns_none_for_unknown_hook_id(
         self, controller, tmp_path, sample_json_webhook_data
@@ -434,8 +467,10 @@ class TestLogViewerJSONMethods:
         assert result["repository"] is None
         assert result["sender"] is None
         assert result["pr"] is None
-        assert result["timing"] is None
-        assert result["steps"] == {}  # Default to empty dict
+        assert result["steps"] == []  # Default to empty list
+        assert result["step_count"] == 0
+        assert result["start_time"] is None
+        assert result["total_duration_ms"] is None
         assert result["token_spend"] is None
         assert result["success"] is None
         assert result["error"] is None

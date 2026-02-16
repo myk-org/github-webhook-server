@@ -548,13 +548,22 @@ class LogViewerController:
         """Get workflow steps directly from JSON logs for a specific hook ID.
 
         This is more efficient than parsing text logs since JSON logs contain
-        the full structured workflow data.
+        the full structured workflow data. Converts the workflow_steps dict into
+        an array format matching the structure from _build_workflow_timeline,
+        so the JavaScript frontend can render it consistently.
 
         Args:
             hook_id: The hook ID to get workflow steps for
 
         Returns:
-            Dictionary with workflow steps from JSON log
+            Dictionary with:
+                - hook_id, event_type, action, repository, sender, pr, token_spend, success, error
+                - steps: array of step objects sorted by timestamp, each with timestamp,
+                  step_name, message, level, repository, event_type, pr_number, task_id,
+                  task_type, task_status, duration_ms, error, relative_time_ms, step_details
+                - step_count: number of steps
+                - start_time: earliest step timestamp
+                - total_duration_ms: total workflow duration
 
         Raises:
             HTTPException: 404 if hook ID not found
@@ -563,19 +572,73 @@ class LogViewerController:
             # Search JSON logs for this hook_id
             async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
                 if entry.get("hook_id") == hook_id:
-                    # Found the entry - return structured workflow data
+                    # Backward compat: older log files may store these as None
+                    workflow_steps_dict: dict[str, Any] = entry.get("workflow_steps") or {}
+                    timing: dict[str, Any] = entry.get("timing") or {}
+                    repository = entry.get("repository")
+                    event_type = entry.get("event_type")
+                    pr_data = entry.get("pr") or {}
+                    pr_number = pr_data.get("number")
+
+                    # Convert workflow_steps dict to sorted array of step objects
+                    steps: list[dict[str, Any]] = []
+                    for step_name, step_data in workflow_steps_dict.items():
+                        status = step_data.get("status", "unknown")
+                        duration_ms = step_data.get("duration_ms")
+                        duration_str = f" ({duration_ms}ms)" if duration_ms is not None else ""
+                        steps.append({
+                            "timestamp": step_data.get("timestamp"),
+                            "step_name": step_name,
+                            "message": f"{step_name}: {status}{duration_str}",
+                            "level": "ERROR" if status == "failed" else "INFO",
+                            "repository": repository,
+                            "event_type": event_type,
+                            "pr_number": pr_number,
+                            "task_id": step_name,
+                            "task_type": None,
+                            "task_status": status,
+                            "duration_ms": duration_ms,
+                            "error": step_data.get("error"),
+                            "relative_time_ms": 0,
+                            "step_details": step_data,
+                        })
+
+                    # Sort steps by timestamp; None-timestamp steps sort to the end
+                    steps.sort(key=lambda s: (s["timestamp"] is None, s["timestamp"] or ""))
+
+                    # Parse earliest timestamp once for reuse in both relative_time_ms and total_duration_ms
+                    first_ts: datetime.datetime | None = None
+                    if steps and steps[0]["timestamp"]:
+                        first_ts = datetime.datetime.fromisoformat(steps[0]["timestamp"])
+
+                    # Calculate relative_time_ms from the earliest step
+                    if first_ts is not None:
+                        for step in steps:
+                            if step["timestamp"]:
+                                step_ts = datetime.datetime.fromisoformat(step["timestamp"])
+                                step["relative_time_ms"] = int((step_ts - first_ts).total_seconds() * 1000)
+
+                    # Determine start_time and total_duration_ms
+                    start_time = steps[0]["timestamp"] if steps and steps[0]["timestamp"] else timing.get("started_at")
+                    total_duration_ms = timing.get("duration_ms")
+                    if total_duration_ms is None and first_ts is not None and len(steps) > 1 and steps[-1]["timestamp"]:
+                        last_ts = datetime.datetime.fromisoformat(steps[-1]["timestamp"])
+                        total_duration_ms = int((last_ts - first_ts).total_seconds() * 1000)
+
                     return {
                         "hook_id": hook_id,
-                        "event_type": entry.get("event_type"),
+                        "event_type": event_type,
                         "action": entry.get("action"),
-                        "repository": entry.get("repository"),
+                        "repository": repository,
                         "sender": entry.get("sender"),
                         "pr": entry.get("pr"),
-                        "timing": entry.get("timing"),
-                        "steps": entry.get("workflow_steps") or {},
                         "token_spend": entry.get("token_spend"),
                         "success": entry.get("success"),
                         "error": entry.get("error"),
+                        "steps": steps,
+                        "step_count": len(steps),
+                        "start_time": start_time,
+                        "total_duration_ms": total_duration_ms,
                     }
 
             raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")

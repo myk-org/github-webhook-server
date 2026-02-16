@@ -1692,18 +1692,204 @@ async function filterByStep(stepIndex) {
   // Toggle: if this step's logs are already showing, hide them
   if (logsContainer.style.display === "block") {
     logsContainer.style.display = "none";
-    logsContainer.innerHTML = "";
+    logsContainer.replaceChildren();
     return;
   }
 
   // Hide all other step logs
   document.querySelectorAll(".step-logs-container").forEach((container) => {
     container.style.display = "none";
-    container.innerHTML = "";
+    container.replaceChildren();
   });
 
   // Show logs for this step
   await showStepLogsInModal(step, logsContainer);
+}
+
+function renderStepDetails(step, container) {
+  // --- Metadata card ---
+  const card = document.createElement("div");
+  card.style.cssText =
+    "background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 12px;";
+
+  // Header row: step name + status badge
+  const header = document.createElement("div");
+  header.style.cssText =
+    "display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;";
+
+  const stepName = document.createElement("div");
+  stepName.style.cssText =
+    "font-weight: 600; font-size: 15px; color: var(--text-color);";
+  stepName.textContent = step.step_name || step.task_id || "Unknown step";
+
+  const statusBadge = document.createElement("span");
+  const status = step.task_status || "unknown";
+  const isCompleted = status === "completed";
+  const isFailed = status === "failed";
+  const badgeColor = isFailed ? "#dc3545" : isCompleted ? "#28a745" : "#ffc107";
+  statusBadge.style.cssText =
+    `padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; color: ${isFailed || isCompleted ? "#fff" : "#333"}; background: ` +
+    badgeColor +
+    ";";
+  statusBadge.textContent = status;
+
+  header.appendChild(stepName);
+  header.appendChild(statusBadge);
+  card.appendChild(header);
+
+  // Info grid: duration + timestamp
+  const infoGrid = document.createElement("div");
+  infoGrid.style.cssText =
+    "display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;";
+
+  if (step.duration_ms != null) {
+    const durationItem = document.createElement("div");
+
+    const durationLabel = document.createElement("span");
+    durationLabel.style.cssText =
+      "color: var(--timestamp-color); margin-right: 6px;";
+    durationLabel.textContent = "Duration:";
+
+    const durationValue = document.createElement("span");
+    durationValue.style.cssText = "font-weight: 600; color: var(--text-color);";
+    durationValue.textContent = (step.duration_ms / 1000).toFixed(2) + "s";
+
+    durationItem.appendChild(durationLabel);
+    durationItem.appendChild(durationValue);
+    infoGrid.appendChild(durationItem);
+  }
+
+  if (step.timestamp) {
+    const timeItem = document.createElement("div");
+
+    const timeLabel = document.createElement("span");
+    timeLabel.style.cssText =
+      "color: var(--timestamp-color); margin-right: 6px;";
+    timeLabel.textContent = "Timestamp:";
+
+    const timeValue = document.createElement("span");
+    timeValue.style.cssText = "color: var(--text-color);";
+    timeValue.textContent = new Date(step.timestamp).toLocaleString();
+
+    timeItem.appendChild(timeLabel);
+    timeItem.appendChild(timeValue);
+    infoGrid.appendChild(timeItem);
+  }
+
+  card.appendChild(infoGrid);
+  container.appendChild(card);
+
+  // --- Error details (prominent, if present) ---
+  if (step.error) {
+    const errorCard = document.createElement("div");
+    errorCard.style.cssText =
+      "background: var(--log-error-bg); border: 1px solid #dc3545; border-radius: 8px; padding: 16px; margin-bottom: 12px;";
+
+    const errorTitle = document.createElement("div");
+    errorTitle.style.cssText =
+      "font-weight: 600; color: #dc3545; margin-bottom: 8px; font-size: 14px;";
+    errorTitle.textContent = "Error";
+    errorCard.appendChild(errorTitle);
+
+    if (typeof step.error === "object") {
+      const errorFields = ["type", "message", "traceback"];
+      errorFields.forEach((field) => {
+        if (!step.error[field]) return;
+
+        const row = document.createElement("div");
+        row.style.cssText = "margin-bottom: 6px;";
+
+        const label = document.createElement("span");
+        label.style.cssText = "font-weight: 600; color: var(--text-color);";
+        label.textContent = field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+        row.appendChild(label);
+
+        if (field === "traceback") {
+          const pre = document.createElement("pre");
+          pre.style.cssText =
+            "margin: 4px 0 0 0; padding: 8px; background: var(--log-debug-bg); border-radius: 4px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: var(--text-color);";
+          pre.textContent = step.error[field];
+          row.appendChild(pre);
+        } else {
+          const value = document.createElement("span");
+          value.style.cssText = "color: var(--text-color);";
+          value.textContent = step.error[field];
+          row.appendChild(value);
+        }
+
+        errorCard.appendChild(row);
+      });
+    } else {
+      const errorText = document.createElement("div");
+      errorText.style.cssText = "color: var(--text-color);";
+      errorText.textContent = String(step.error);
+      errorCard.appendChild(errorText);
+    }
+
+    container.appendChild(errorCard);
+  }
+
+  // --- Step details (key-value pairs from step_details) ---
+  if (step.step_details && typeof step.step_details === "object") {
+    const skipFields = new Set([
+      "timestamp",
+      "status",
+      "error",
+      "duration_ms",
+    ]);
+    const detailKeys = Object.keys(step.step_details).filter(
+      (k) => !skipFields.has(k),
+    );
+
+    if (detailKeys.length > 0) {
+      const detailsCard = document.createElement("div");
+      detailsCard.style.cssText =
+        "background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;";
+
+      const detailsTitle = document.createElement("div");
+      detailsTitle.style.cssText =
+        "font-weight: 600; color: var(--text-color); margin-bottom: 10px; font-size: 14px;";
+      detailsTitle.textContent = "Step Details";
+      detailsCard.appendChild(detailsTitle);
+
+      detailKeys.forEach((key) => {
+        const value = step.step_details[key];
+        const row = document.createElement("div");
+        row.style.cssText =
+          "display: flex; padding: 4px 0; border-bottom: 1px solid var(--log-entry-border); font-size: 13px;";
+
+        const keyEl = document.createElement("span");
+        keyEl.style.cssText =
+          "color: var(--timestamp-color); min-width: 140px; flex-shrink: 0; font-weight: 500;";
+        keyEl.textContent = key;
+        row.appendChild(keyEl);
+
+        const valueEl = document.createElement("span");
+        valueEl.style.cssText =
+          "color: var(--text-color); word-break: break-word;";
+        if (value != null && typeof value === "object") {
+          const pre = document.createElement("pre");
+          pre.style.cssText =
+            "margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-word;";
+          pre.textContent = JSON.stringify(value, null, 2);
+          valueEl.appendChild(pre);
+        } else {
+          valueEl.textContent = value != null ? String(value) : "null";
+        }
+
+        row.appendChild(valueEl);
+        detailsCard.appendChild(row);
+      });
+
+      // Remove border from last row
+      const lastRow = detailsCard.lastElementChild;
+      if (lastRow) {
+        lastRow.style.borderBottom = "none";
+      }
+
+      container.appendChild(detailsCard);
+    }
+  }
 }
 
 async function showStepLogsInModal(step, logsContainer) {
@@ -1743,12 +1929,7 @@ async function showStepLogsInModal(step, logsContainer) {
     logsContainer.textContent = "";
 
     if (data.entries.length === 0) {
-      const emptyMsg = document.createElement("div");
-      emptyMsg.textContent = "No logs found for this step";
-      emptyMsg.style.textAlign = "center";
-      emptyMsg.style.color = "var(--timestamp-color)";
-      emptyMsg.style.padding = "12px";
-      logsContainer.appendChild(emptyMsg);
+      renderStepDetails(step, logsContainer);
       return;
     }
 
