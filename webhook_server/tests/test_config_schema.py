@@ -76,6 +76,7 @@ class TestConfigSchema:
                     "branch-protection": {"strict": False, "required_approving_review_count": 1},
                     "set-auto-merge-prs": ["main"],
                     "can-be-merged-required-labels": ["ready"],
+                    "allow-commands-on-draft-prs": ["wip", "hold"],
                     "conventional-title": "feat,fix,docs",
                     "minimum-lgtm": 2,
                     "custom-check-runs": [
@@ -139,6 +140,9 @@ class TestConfigSchema:
             assert repo_data["name"] == "org/test-repo"
             assert repo_data["minimum-lgtm"] == 2
             assert repo_data["conventional-title"] == "feat,fix,docs"
+
+            # Test allow-commands-on-draft-prs
+            assert repo_data["allow-commands-on-draft-prs"] == ["wip", "hold"]
 
             # Test custom-check-runs structure
             custom_check_runs = repo_data["custom-check-runs"]
@@ -737,5 +741,77 @@ class TestConfigSchema:
 
             config = Config()
             assert config.root_data["labels"]["enabled-labels"] == []
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_allow_commands_on_draft_prs_valid_array(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that allow-commands-on-draft-prs accepts a valid array of command strings at global level."""
+        config = valid_minimal_config.copy()
+        config["allow-commands-on-draft-prs"] = ["build-and-push-container", "retest", "wip"]
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert config_obj.root_data["allow-commands-on-draft-prs"] == [
+                "build-and-push-container",
+                "retest",
+                "wip",
+            ]
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_allow_commands_on_draft_prs_empty_array(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that empty allow-commands-on-draft-prs array is valid (allows all commands on draft PRs)."""
+        config = valid_minimal_config.copy()
+        config["allow-commands-on-draft-prs"] = []
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert config_obj.root_data["allow-commands-on-draft-prs"] == []
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_allow_commands_on_draft_prs_omitted(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that omitting allow-commands-on-draft-prs is valid (default: commands blocked on draft PRs)."""
+        config = valid_minimal_config.copy()
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert "allow-commands-on-draft-prs" not in config_obj.root_data
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_allow_commands_on_draft_prs_repository_level(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that allow-commands-on-draft-prs works at repository level."""
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["allow-commands-on-draft-prs"] = ["hold", "retest"]
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            repo_data = config_obj.root_data["repositories"]["test-repo"]
+            assert repo_data["allow-commands-on-draft-prs"] == ["hold", "retest"]
         finally:
             shutil.rmtree(temp_dir)

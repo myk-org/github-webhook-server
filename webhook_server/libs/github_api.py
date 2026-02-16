@@ -475,14 +475,31 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             if await asyncio.to_thread(lambda: pull_request.draft):
-                self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
-                token_metrics = await self._get_token_metrics()
-                self.logger.info(
-                    f"{self.log_prefix} Webhook processing completed successfully: "
-                    f"draft PR (skipped) - {token_metrics}",
+                allow_commands_on_draft = self.config.get_value("allow-commands-on-draft-prs")
+
+                # Validate type: must be a list, treat invalid types as None (default-deny)
+                if allow_commands_on_draft is not None and not isinstance(allow_commands_on_draft, list):
+                    self.logger.warning(
+                        f"{self.log_prefix} allow-commands-on-draft-prs has invalid type "
+                        f"{type(allow_commands_on_draft).__name__}, expected list. Treating as not configured."
+                    )
+                    allow_commands_on_draft = None
+
+                # Only allow issue_comment events when config is explicitly set
+                if allow_commands_on_draft is None or self.github_event != "issue_comment":
+                    self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} Webhook processing completed successfully: "
+                        f"draft PR (skipped) - {token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
+                self.logger.debug(
+                    f"{self.log_prefix} Pull request is draft, but allow-commands-on-draft-prs is "
+                    "configured, processing issue_comment"
                 )
-                await self._update_context_metrics()
-                return None
 
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
