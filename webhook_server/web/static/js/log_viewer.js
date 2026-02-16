@@ -1927,12 +1927,8 @@ async function showStepLogsInModal(step, logsContainer) {
           });
 
           logsContainer.appendChild(logsDiv);
-        } else {
-          const noLogs = document.createElement("div");
-          noLogs.className = "step-logs-empty";
-          noLogs.textContent = "No log entries found during this step's execution.";
-          logsContainer.appendChild(noLogs);
         }
+        // When logs are empty: step details are already shown above - no message needed
       } else if (response.status === 404) {
         // Step not found - show as empty state rather than error
         const notFoundDiv = document.createElement("div");
