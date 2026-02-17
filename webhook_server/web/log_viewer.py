@@ -22,6 +22,13 @@ from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 class LogViewerController:
     """Controller for log viewer functionality."""
 
+    # Maximum log entries to return for a single step to prevent unbounded responses
+    _MAX_STEP_LOGS = 500
+
+    # Default time window in milliseconds when step duration is unknown
+    # 60 seconds provides a reasonable maximum window for log correlation
+    _DEFAULT_STEP_DURATION_MS = 60000
+
     # Workflow stage patterns for PR flow analysis
     # These patterns match log messages to identify workflow stages and can be updated
     # when log message formats change without modifying the analysis logic
@@ -40,6 +47,7 @@ class LogViewerController:
 
         Args:
             logger: Logger instance for this controller
+
         """
         self.logger = logger
         self.config = Config(logger=self.logger)
@@ -54,7 +62,7 @@ class LogViewerController:
         close all WebSocket connections and prevent resource leaks.
         """
         self.logger.info(
-            f"Shutting down LogViewerController with {len(self._websocket_connections)} active connections"
+            f"Shutting down LogViewerController with {len(self._websocket_connections)} active connections",
         )
 
         # Create a copy of the connections set to avoid modification during iteration
@@ -80,6 +88,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 500 for other errors
+
         """
         try:
             html_content = await self._get_log_viewer_html()
@@ -143,6 +152,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 400 for invalid parameters, 500 for file access errors
+
         """
         try:
             # Validate parameters
@@ -176,7 +186,16 @@ class LogViewerController:
 
                 # Apply filters early to reduce memory usage
                 if not self._entry_matches_filters(
-                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                    entry,
+                    hook_id,
+                    pr_number,
+                    repository,
+                    event_type,
+                    github_user,
+                    level,
+                    start_time,
+                    end_time,
+                    search,
                 ):
                     continue
 
@@ -246,6 +265,7 @@ class LogViewerController:
 
         Returns:
             True if entry matches all filters, False otherwise
+
         """
         if hook_id is not None and entry.hook_id != hook_id:
             return False
@@ -302,6 +322,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 400 for invalid format, 413 if result set too large
+
         """
         try:
             if format_type != "json":
@@ -330,7 +351,16 @@ class LogViewerController:
 
             async for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
-                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                    entry,
+                    hook_id,
+                    pr_number,
+                    repository,
+                    event_type,
+                    github_user,
+                    level,
+                    start_time,
+                    end_time,
+                    search,
                 ):
                     continue
 
@@ -377,11 +407,10 @@ class LogViewerController:
             if "Result set too large" in str(e):
                 self.logger.warning(f"Export request too large: {e}")
                 raise HTTPException(status_code=413, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid export parameters: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning(f"Invalid export parameters: {e}")
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error generating export: {e}")
+            self.logger.exception("Error generating export")
             raise HTTPException(status_code=500, detail="Export generation failed") from e
 
     async def handle_websocket(
@@ -404,6 +433,7 @@ class LogViewerController:
             event_type: Filter by GitHub event type
             github_user: Filter by GitHub user (api_user)
             level: Filter by log level
+
         """
         await websocket.accept()
         self._websocket_connections.add(websocket)
@@ -445,8 +475,8 @@ class LogViewerController:
 
         except WebSocketDisconnect:
             self.logger.info("WebSocket client disconnected")
-        except Exception as e:
-            self.logger.error(f"Error in WebSocket handler: {e}")
+        except Exception:
+            self.logger.exception("Error in WebSocket handler")
             try:
                 await websocket.close(code=1011, reason="Internal server error")
             except Exception:
@@ -465,6 +495,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 404 if no data found for hook_id
+
         """
         try:
             # Parse hook_id to determine if it's a hook ID or PR number
@@ -506,11 +537,10 @@ class LogViewerController:
             if "No data found" in str(e):
                 self.logger.warning(f"PR flow data not found: {e}")
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid PR flow hook_id: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning(f"Invalid PR flow hook_id: {e}")
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error getting PR flow data: {e}")
+            self.logger.exception("Error getting PR flow data")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_log_prefix_from_context(
@@ -532,6 +562,7 @@ class LogViewerController:
 
         Returns:
             Formatted log prefix string
+
         """
         log_prefix_parts = []
         if repository:
@@ -544,107 +575,278 @@ class LogViewerController:
             log_prefix_parts.append(f"[PR {pr_number}]")
         return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
 
+    async def get_step_logs(self, hook_id: str, step_name: str) -> dict[str, Any]:
+        """Get log entries that occurred during a specific workflow step's execution.
+
+        Args:
+            hook_id: The hook ID to get step logs for
+            step_name: The name of the workflow step to get logs for
+
+        Returns:
+            Dictionary with step metadata and associated log entries:
+            - step: The step metadata (name, status, timestamp, duration_ms, error)
+            - logs: Array of log entries that occurred during the step
+            - log_count: Number of logs found
+
+        Raises:
+            HTTPException: 404 if hook_id not found or step_name not found in workflow steps
+
+        """
+        # Get workflow steps data
+        workflow_data = await self.get_workflow_steps_json(hook_id)
+
+        # Find the step with matching step_name
+        steps = workflow_data.get("steps", [])
+        matching_step: dict[str, Any] | None = None
+        for step in steps:
+            if step.get("step_name") == step_name:
+                matching_step = step
+                break
+
+        if matching_step is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Step '{step_name}' not found for hook ID: {hook_id}",
+            )
+
+        # Extract step metadata
+        step_timestamp = matching_step.get("timestamp")
+        step_duration_ms = matching_step.get("duration_ms")
+        step_status = matching_step.get("task_status", "unknown")
+        step_error = matching_step.get("error")
+
+        # Calculate time window
+        duration_ms = step_duration_ms if step_duration_ms is not None else self._DEFAULT_STEP_DURATION_MS
+
+        # Parse timestamps for time window filtering - fail fast if invalid
+        if not step_timestamp:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Step '{step_name}' has no timestamp - cannot determine log time window",
+            )
+
+        try:
+            step_start = datetime.datetime.fromisoformat(step_timestamp.replace("Z", "+00:00"))
+            step_end = step_start + datetime.timedelta(milliseconds=duration_ms)
+        except (ValueError, TypeError) as ex:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid timestamp '{step_timestamp}' for step '{step_name}': {ex}",
+            ) from ex
+
+        # Collect log entries within the time window
+        log_entries: list[dict[str, Any]] = []
+
+        async for entry in self._stream_text_log_entries(max_files=25, max_entries=50000):
+            # Filter by hook_id
+            if not self._entry_matches_filters(entry, hook_id=hook_id):
+                continue
+
+            # Filter by time window
+            if entry.timestamp < step_start or entry.timestamp > step_end:
+                continue
+
+            log_entries.append(entry.to_dict())
+            if len(log_entries) >= self._MAX_STEP_LOGS:
+                break
+
+        # Build step metadata for response
+        step_metadata = {
+            "name": step_name,
+            "status": step_status,
+            "timestamp": step_timestamp,
+            "duration_ms": step_duration_ms,
+            "error": step_error,
+        }
+
+        return {
+            "step": step_metadata,
+            "logs": log_entries,
+            "log_count": len(log_entries),
+        }
+
     async def get_workflow_steps_json(self, hook_id: str) -> dict[str, Any]:
         """Get workflow steps directly from JSON logs for a specific hook ID.
 
         This is more efficient than parsing text logs since JSON logs contain
-        the full structured workflow data. Converts the workflow_steps dict into
-        an array format matching the structure from _build_workflow_timeline,
-        so the JavaScript frontend can render it consistently.
+        the full structured workflow data.
 
         Args:
             hook_id: The hook ID to get workflow steps for
 
         Returns:
-            Dictionary with:
-                - hook_id, event_type, action, repository, sender, pr, token_spend, success, error
-                - steps: array of step objects sorted by timestamp, each with timestamp,
-                  step_name, message, level, repository, event_type, pr_number, task_id,
-                  task_type, task_status, duration_ms, error, relative_time_ms, step_details
-                - step_count: number of steps
-                - start_time: earliest step timestamp
-                - total_duration_ms: total workflow duration
+            Dictionary with workflow steps in the format expected by the frontend:
+            - hook_id: The hook ID
+            - start_time: ISO timestamp of when processing started
+            - total_duration_ms: Total processing duration in milliseconds
+            - step_count: Number of workflow steps
+            - steps: Array of step objects with timestamp, message, level, etc.
+            - token_spend: Optional token consumption count
+            - event_type: GitHub event type (str, e.g., "pull_request", "check_run")
+            - action: Event action (str, e.g., "opened", "synchronize")
+            - repository: Repository name (str, owner/repo format)
+            - sender: GitHub username who triggered the event (str)
+            - pr: Pull request info dict with number, title, etc. (dict or None)
+            - success: Whether processing succeeded (bool)
+            - error: Error message if processing failed (str or None)
 
         Raises:
             HTTPException: 404 if hook ID not found
+
         """
-        try:
-            # Search JSON logs for this hook_id
-            async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
-                if entry.get("hook_id") == hook_id:
-                    # Backward compat: older log files may store these as None
-                    workflow_steps_dict: dict[str, Any] = entry.get("workflow_steps") or {}
-                    timing: dict[str, Any] = entry.get("timing") or {}
-                    repository = entry.get("repository")
-                    event_type = entry.get("event_type")
-                    pr_data = entry.get("pr") or {}
-                    pr_number = pr_data.get("number")
+        # Search JSON logs for this hook_id
+        async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+            if entry.get("hook_id") == hook_id:
+                # Found the entry - transform to frontend-expected format
+                try:
+                    return self._transform_json_entry_to_timeline(entry, hook_id)
+                except ValueError:
+                    # Malformed log entry - log and return 500
+                    self.logger.exception(f"Malformed log entry for hook ID: {hook_id}")
+                    raise HTTPException(status_code=500, detail="Malformed log entry") from None
 
-                    # Convert workflow_steps dict to sorted array of step objects
-                    steps: list[dict[str, Any]] = []
-                    for step_name, step_data in workflow_steps_dict.items():
-                        status = step_data.get("status", "unknown")
-                        duration_ms = step_data.get("duration_ms")
-                        duration_str = f" ({duration_ms}ms)" if duration_ms is not None else ""
-                        steps.append({
-                            "timestamp": step_data.get("timestamp"),
-                            "step_name": step_name,
-                            "message": f"{step_name}: {status}{duration_str}",
-                            "level": "ERROR" if status == "failed" else "INFO",
-                            "repository": repository,
-                            "event_type": event_type,
-                            "pr_number": pr_number,
-                            "task_id": step_name,
-                            "task_type": None,
-                            "task_status": status,
-                            "duration_ms": duration_ms,
-                            "error": step_data.get("error"),
-                            "relative_time_ms": 0,
-                            "step_details": step_data,
-                        })
+        # Hook ID not found in any log file
+        raise HTTPException(status_code=404, detail=f"No JSON log entry found for hook ID: {hook_id}")
 
-                    # Sort steps by timestamp; None-timestamp steps sort to the end
-                    steps.sort(key=lambda s: (s["timestamp"] is None, s["timestamp"] or ""))
+    def _transform_json_entry_to_timeline(self, entry: dict[str, Any], hook_id: str) -> dict[str, Any]:
+        """Transform JSON log entry to the timeline format expected by the frontend.
 
-                    # Parse earliest timestamp once for reuse in both relative_time_ms and total_duration_ms
-                    first_ts: datetime.datetime | None = None
-                    if steps and steps[0]["timestamp"]:
-                        first_ts = datetime.datetime.fromisoformat(steps[0]["timestamp"])
+        Converts the workflow_steps dict format from JSON logs into the array format
+        that matches the output of _build_workflow_timeline().
 
-                    # Calculate relative_time_ms from the earliest step
-                    if first_ts is not None:
-                        for step in steps:
-                            if step["timestamp"]:
-                                step_ts = datetime.datetime.fromisoformat(step["timestamp"])
-                                step["relative_time_ms"] = int((step_ts - first_ts).total_seconds() * 1000)
+        Args:
+            entry: JSON log entry with workflow_steps dict
+            hook_id: The hook ID for this entry
 
-                    # Determine start_time and total_duration_ms
-                    start_time = steps[0]["timestamp"] if steps and steps[0]["timestamp"] else timing.get("started_at")
-                    total_duration_ms = timing.get("duration_ms")
-                    if total_duration_ms is None and first_ts is not None and len(steps) > 1 and steps[-1]["timestamp"]:
-                        last_ts = datetime.datetime.fromisoformat(steps[-1]["timestamp"])
-                        total_duration_ms = int((last_ts - first_ts).total_seconds() * 1000)
+        Returns:
+            Dictionary in the format expected by renderFlowModal():
+            - hook_id: The webhook delivery ID
+            - start_time: ISO timestamp when processing started
+            - total_duration_ms: Total processing duration in milliseconds
+            - step_count: Number of workflow steps
+            - steps: Array of step objects with timestamp, message, level, etc.
+            - token_spend: Optional token consumption count
+            - event_type: GitHub event type (e.g., "pull_request", "check_run")
+            - action: Event action (e.g., "opened", "synchronize")
+            - repository: Repository name (owner/repo)
+            - sender: GitHub username who triggered the event
+            - pr: Pull request info dict with number, title, etc. (or None)
+            - success: Boolean indicating if processing succeeded
+            - error: Error message if processing failed (or None)
 
-                    return {
-                        "hook_id": hook_id,
-                        "event_type": event_type,
-                        "action": entry.get("action"),
-                        "repository": repository,
-                        "sender": entry.get("sender"),
-                        "pr": entry.get("pr"),
-                        "token_spend": entry.get("token_spend"),
-                        "success": entry.get("success"),
-                        "error": entry.get("error"),
-                        "steps": steps,
-                        "step_count": len(steps),
-                        "start_time": start_time,
-                        "total_duration_ms": total_duration_ms,
-                    }
+        """
+        timing = entry.get("timing")
+        workflow_steps = entry.get("workflow_steps")
 
-            raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")
+        # Fail-fast validation: required fields must be present and non-empty
+        if not timing or not isinstance(timing, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: missing or invalid 'timing' field")
+        if not workflow_steps or not isinstance(workflow_steps, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: missing or invalid 'workflow_steps' field")
+        if "started_at" not in timing:
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: timing missing 'started_at' field")
+        if "duration_ms" not in timing:
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: timing missing 'duration_ms' field")
 
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
+        repository = entry.get("repository")
+        event_type = entry.get("event_type")
+        pr_info = entry.get("pr")
+        # Validate pr_info type: None is valid (no PR), dict is valid, anything else is malformed
+        if pr_info is not None and not isinstance(pr_info, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: 'pr' field is not a dict")
+        pr_number = pr_info.get("number") if pr_info else None
+
+        # Extract timing info
+        start_time = timing["started_at"]
+        total_duration_ms = timing["duration_ms"]
+
+        # Transform workflow_steps dict to array format
+        # Sort by timestamp to maintain execution order
+        steps_list = []
+        for step_name, step_data in workflow_steps.items():
+            # Validate step_data is a dict before accessing its fields
+            if not isinstance(step_data, dict):
+                raise ValueError(f"Malformed log entry for hook_id {hook_id}: step_data for {step_name} is not a dict")
+
+            step_timestamp = step_data.get("timestamp")
+            # Fail fast if timestamp is missing - don't flow bad data to UI
+            if not step_timestamp:
+                raise ValueError(f"Malformed log entry for hook_id {hook_id}: step '{step_name}' is missing timestamp")
+            step_status = step_data.get("status", "unknown")
+            step_duration_ms = step_data.get("duration_ms")
+            step_error = step_data.get("error")
+
+            # Build message from step name and status
+            if step_error:
+                error_msg = step_error.get("message", "") if isinstance(step_error, dict) else str(step_error)
+                message = f"{step_name}: {step_status} - {error_msg}"
+            elif step_duration_ms is not None:
+                message = f"{step_name}: {step_status} ({step_duration_ms}ms)"
+            else:
+                message = f"{step_name}: {step_status}"
+
+            # Determine log level from status
+            level = "INFO"
+            if step_status == "failed":
+                level = "ERROR"
+            elif step_status == "started":
+                level = "DEBUG"
+
+            steps_list.append({
+                "timestamp": step_timestamp,
+                "step_name": step_name,
+                "message": message,
+                "level": level,
+                "repository": repository,
+                "event_type": event_type,
+                "pr_number": pr_number,
+                "task_id": step_name,
+                "task_type": step_data.get("task_type"),
+                "task_status": step_status,
+                "duration_ms": step_duration_ms,
+                "error": step_error,
+                "step_details": step_data,
+                "relative_time_ms": 0,  # Will be calculated below
+            })
+
+        # Sort steps by timestamp and calculate relative times
+        steps_list.sort(key=lambda x: x.get("timestamp") or "")
+        if steps_list and start_time:
+            # Track current step for error reporting
+            current_step: dict[str, Any] | None = None
+            current_step_ts: str | None = None
+            try:
+                base_time = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                for step in steps_list:
+                    current_step = step
+                    current_step_ts = step.get("timestamp")
+                    if current_step_ts:
+                        step_time = datetime.datetime.fromisoformat(current_step_ts.replace("Z", "+00:00"))
+                        step["relative_time_ms"] = int((step_time - base_time).total_seconds() * 1000)
+            except (ValueError, TypeError) as ex:
+                # Log parse failure for troubleshooting, keep relative_time_ms as 0
+                failed_step_name = current_step.get("message", "unknown") if current_step else "unknown"
+                failed_timestamp = current_step_ts or start_time
+                self.logger.debug(
+                    f"Failed to parse timestamp for relative time calculation: {ex}. "
+                    f"hook_id={hook_id}, step={failed_step_name}, timestamp={failed_timestamp}",
+                )
+
+        return {
+            "hook_id": hook_id,
+            "start_time": start_time,
+            "total_duration_ms": total_duration_ms,
+            "step_count": len(steps_list),
+            "steps": steps_list,
+            "token_spend": entry.get("token_spend"),
+            "event_type": event_type,
+            "action": entry.get("action"),
+            "repository": repository,
+            "sender": entry.get("sender"),
+            "pr": entry.get("pr"),
+            "success": entry.get("success"),
+            "error": entry.get("error"),
+        }
 
     async def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
@@ -657,6 +859,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 404 if no steps found for hook ID
+
         """
         try:
             # First try JSON logs (more efficient and complete)
@@ -703,11 +906,15 @@ class LogViewerController:
                 token_spend = entries_with_token_spend[-1].token_spend
                 # Format log message using prepare_log_prefix format so it's parseable and clickable
                 log_prefix = self._build_log_prefix_from_context(
-                    repository, event_type, hook_id, github_user, pr_number
+                    repository,
+                    event_type,
+                    hook_id,
+                    github_user,
+                    pr_number,
                 )
                 self.logger.info(
                     f"{log_prefix}Found token spend {token_spend} for hook {hook_id} "
-                    f"from {len(entries_with_token_spend)} entries"
+                    f"from {len(entries_with_token_spend)} entries",
                 )
             else:
                 # Check if any entries contain "token" or "API calls" in message (for debugging)
@@ -717,12 +924,16 @@ class LogViewerController:
                 if entries_with_token_keywords:
                     # Format log message using prepare_log_prefix format
                     log_prefix = self._build_log_prefix_from_context(
-                        repository, event_type, hook_id, github_user, pr_number
+                        repository,
+                        event_type,
+                        hook_id,
+                        github_user,
+                        pr_number,
                     )
                     self.logger.warning(
                         f"{log_prefix}Found {len(entries_with_token_keywords)} entries with token keywords "
                         f"for hook {hook_id}, but token_spend is None. "
-                        f"Sample: {entries_with_token_keywords[0].message[:150]}"
+                        f"Sample: {entries_with_token_keywords[0].message[:150]}",
                     )
                     # Try to extract token spend directly from the message as fallback
                     for entry in reversed(entries_with_token_keywords):
@@ -731,11 +942,15 @@ class LogViewerController:
                             token_spend = extracted
                             # Format log message using prepare_log_prefix format
                             log_prefix = self._build_log_prefix_from_context(
-                                repository, event_type, hook_id, github_user, pr_number
+                                repository,
+                                event_type,
+                                hook_id,
+                                github_user,
+                                pr_number,
                             )
                             self.logger.info(
                                 f"{log_prefix}Extracted token spend {token_spend} directly from message "
-                                f"for hook {hook_id}"
+                                f"for hook {hook_id}",
                             )
                             break
 
@@ -752,61 +967,10 @@ class LogViewerController:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
                 self.logger.warning(f"Workflow steps not found: {e}")
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid hook ID: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning(f"Invalid hook ID: {e}")
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error getting workflow steps: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error") from e
-
-    async def get_step_logs(self, hook_id: str, step_name: str) -> dict[str, Any]:
-        """Get detailed log entries for a specific workflow step within a webhook execution.
-
-        Args:
-            hook_id: The hook ID to look up
-            step_name: The workflow step name to retrieve
-
-        Returns:
-            Dictionary with step metadata and logs array
-
-        Raises:
-            HTTPException: 404 if hook_id or step_name not found, 500 on internal error
-        """
-        try:
-            async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
-                if entry.get("hook_id") == hook_id:
-                    workflow_steps_dict: dict[str, Any] = entry.get("workflow_steps") or {}
-                    if step_name not in workflow_steps_dict:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Step '{step_name}' not found in workflow data for hook ID: {hook_id}",
-                        )
-
-                    step_data = workflow_steps_dict[step_name]
-                    return {
-                        "step": {
-                            "name": step_name,
-                            "status": step_data.get("status", "unknown"),
-                            "timestamp": step_data.get("timestamp"),
-                            "duration_ms": step_data.get("duration_ms"),
-                            "error": step_data.get("error"),
-                        },
-                        "logs": [],
-                        "log_count": 0,
-                    }
-
-            raise HTTPException(
-                status_code=404,
-                detail=f"No log entry found for hook ID: {hook_id}",
-            )
-
-        except asyncio.CancelledError:
-            self.logger.debug("Operation cancelled")
-            raise
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting step logs: {e}")
+            self.logger.exception("Error getting workflow steps")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
@@ -818,6 +982,7 @@ class LogViewerController:
 
         Returns:
             Dictionary with timeline data structure including task correlation fields
+
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -859,7 +1024,10 @@ class LogViewerController:
         }
 
     async def _stream_log_entries(
-        self, max_files: int = 10, _chunk_size: int = 1000, max_entries: int = 50000
+        self,
+        max_files: int = 10,
+        _chunk_size: int = 1000,
+        max_entries: int = 50000,
     ) -> AsyncGenerator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
@@ -875,6 +1043,7 @@ class LogViewerController:
 
         Yields:
             LogEntry objects in timestamp order (newest first)
+
         """
         log_dir = self._get_log_directory()
 
@@ -945,8 +1114,71 @@ class LogViewerController:
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")
 
+    async def _stream_text_log_entries(self, max_files: int = 25, max_entries: int = 50000) -> AsyncGenerator[LogEntry]:
+        """Stream log entries from text .log files only (not JSON webhook summaries).
+
+        Text log files contain detailed per-operation logs with hook_ids embedded
+        in the message, while JSON files only contain one summary per webhook.
+
+        Args:
+            max_files: Maximum number of log files to process (newest first)
+            max_entries: Maximum total entries to yield (safety limit)
+
+        Yields:
+            LogEntry objects from text log files
+
+        """
+        log_dir = self._get_log_directory()
+
+        if not log_dir.exists():
+            return
+
+        # Find only text log files (not JSON webhook summaries)
+        log_files: list[Path] = []
+        log_files.extend(log_dir.glob("*.log"))
+        log_files.extend(log_dir.glob("*.log.*"))
+
+        if not log_files:
+            return
+
+        # Sort by modification time (newest first)
+        log_files.sort(key=lambda f: -f.stat().st_mtime)
+        log_files = log_files[:max_files]
+
+        total_yielded = 0
+
+        for log_file in log_files:
+            if total_yielded >= max_entries:
+                break
+
+            try:
+                remaining_capacity = max_entries - total_yielded
+                if remaining_capacity <= 0:
+                    break
+
+                buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
+
+                async with aiofiles.open(log_file, encoding="utf-8") as f:
+                    async for line in f:
+                        entry = self.log_parser.parse_log_entry(line)
+                        if entry:
+                            buffer.append(entry)
+
+                for entry in reversed(buffer):
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger.warning(f"Error streaming text log file {log_file}: {e}")
+
     async def _stream_json_log_entries(
-        self, max_files: int = 10, max_entries: int = 50000
+        self,
+        max_files: int = 10,
+        max_entries: int = 50000,
     ) -> AsyncGenerator[dict[str, Any]]:
         """Stream raw JSON log entries from webhooks_*.json files.
 
@@ -959,6 +1191,7 @@ class LogViewerController:
 
         Yields:
             Raw JSON dictionaries from log files (newest first)
+
         """
         log_dir = self._get_log_directory()
 
@@ -1010,6 +1243,7 @@ class LogViewerController:
 
         Returns:
             List of parsed log entries (limited to prevent memory exhaustion)
+
         """
         # Use streaming with reasonable limits to prevent memory issues
         entries = [entry async for entry in self._stream_log_entries(max_files=10, max_entries=10000)]
@@ -1021,6 +1255,7 @@ class LogViewerController:
 
         Returns:
             Path to log directory
+
         """
         # Use the same log directory as the main application
         log_dir_path = os.path.join(self.config.data_dir, "logs")
@@ -1035,6 +1270,7 @@ class LogViewerController:
         Raises:
             FileNotFoundError: If template file cannot be found
             IOError: If template file cannot be read
+
         """
         template_path = Path(__file__).parent / "templates" / "log_viewer.html"
 
@@ -1053,6 +1289,7 @@ class LogViewerController:
 
         Returns:
             Basic HTML page with error message
+
         """
         return """<!DOCTYPE html>
 <html lang="en">
@@ -1108,6 +1345,7 @@ class LogViewerController:
 
         Returns:
             JSON content as string
+
         """
         export_data = {
             "export_metadata": {
@@ -1129,6 +1367,7 @@ class LogViewerController:
 
         Returns:
             Dictionary with flow stages and timing data
+
         """
         # Sort entries by timestamp
         sorted_entries = sorted(entries, key=lambda x: x.timestamp)
@@ -1198,6 +1437,7 @@ class LogViewerController:
 
         Returns:
             String representing estimated total log count
+
         """
         try:
             log_dir = self._get_log_directory()
@@ -1232,11 +1472,10 @@ class LogViewerController:
 
             # Return formatted string
             if total_estimate > 1000000:
-                return f"{total_estimate // 1000000:.1f}M"
-            elif total_estimate > 1000:
-                return f"{total_estimate // 1000:.1f}K"
-            else:
-                return str(total_estimate)
+                return f"{total_estimate / 1000000:.1f}M"
+            if total_estimate > 1000:
+                return f"{total_estimate / 1000:.1f}K"
+            return str(total_estimate)
 
         except Exception as e:
             self.logger.warning(f"Error estimating total log count: {e}")
