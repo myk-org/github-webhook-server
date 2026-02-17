@@ -1517,3 +1517,564 @@ class TestLogViewerGetStepLogs:
         # Should only include entries with matching hook_id
         assert result["log_count"] == 1
         assert "Correct hook" in result["logs"][0]["message"]
+
+
+class TestStreamTextLogEntries:
+    """Test cases for _stream_text_log_entries method."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    async def test_stream_text_log_entries_reads_only_log_files(self, controller, tmp_path, create_text_log_file):
+        """Test that _stream_text_log_entries reads .log files and ignores .json files."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create a text .log file with valid log lines
+        text_log_lines = [
+            "2026-02-17T13:31:35.126591 GithubWebhook INFO openshift-virtualization-tests "
+            "[pull_request][test-hook-123][testuser][PR 42]: Processing webhook",
+            "2026-02-17T13:31:36.000000 GithubWebhook INFO openshift-virtualization-tests "
+            "[pull_request][test-hook-123][testuser][PR 42]: Validation complete",
+            "2026-02-17T13:31:37.000000 GithubWebhook ERROR openshift-virtualization-tests "
+            "[pull_request][test-hook-456][otheruser][PR 99]: Something failed",
+        ]
+        create_text_log_file(log_dir, "webhook-server.log", text_log_lines)
+
+        # Create a .json file that should NOT be read by _stream_text_log_entries
+        json_file = log_dir / "webhooks_2026-02-17.json"
+        json_file.write_text('{"hook_id": "json-hook-999", "event_type": "push"}\n')
+
+        # Collect all entries from the async generator
+        entries = [entry async for entry in controller._stream_text_log_entries(max_files=10, max_entries=100)]
+
+        # Should have found entries from the .log file
+        assert len(entries) == 3
+
+        # Entries are yielded in reverse order (newest first within a file)
+        assert entries[0].hook_id == "test-hook-456"
+        assert entries[1].hook_id == "test-hook-123"
+        assert entries[2].hook_id == "test-hook-123"
+
+        # Verify no entry came from the .json file
+        all_hook_ids = {entry.hook_id for entry in entries}
+        assert "json-hook-999" not in all_hook_ids
+
+    async def test_stream_text_log_entries_no_log_directory(self, controller, tmp_path):
+        """Test _stream_text_log_entries when log directory does not exist."""
+        # Do NOT create the logs directory
+        entries = [entry async for entry in controller._stream_text_log_entries(max_files=10, max_entries=100)]
+        assert entries == []
+
+    async def test_stream_text_log_entries_empty_directory(self, controller, tmp_path):
+        """Test _stream_text_log_entries with empty directory (no .log files)."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        # No .log files in directory
+        entries = [entry async for entry in controller._stream_text_log_entries(max_files=10, max_entries=100)]
+        assert entries == []
+
+    async def test_stream_text_log_entries_respects_max_entries(self, controller, tmp_path, create_text_log_file):
+        """Test _stream_text_log_entries stops at max_entries limit."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        lines = [
+            f"2025-01-05T10:00:{i:02d}.000000 GithubWebhook INFO org/repo "
+            f"[pull_request][hook-{i}][user][PR {i}]: Line {i}"
+            for i in range(20)
+        ]
+        create_text_log_file(log_dir, "webhook-server.log", lines)
+
+        entries = [entry async for entry in controller._stream_text_log_entries(max_files=10, max_entries=5)]
+        assert len(entries) == 5
+
+    async def test_stream_text_log_entries_handles_file_errors(self, controller, tmp_path):
+        """Test _stream_text_log_entries handles unreadable files gracefully."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        bad_file = log_dir / "bad.log"
+        bad_file.write_text("some content")
+        bad_file.chmod(0o000)
+
+        try:
+            entries = [entry async for entry in controller._stream_text_log_entries(max_files=10, max_entries=100)]
+            # Should not raise, just skip the bad file
+            assert isinstance(entries, list)
+        finally:
+            bad_file.chmod(0o644)
+
+
+class TestAnalyzePrFlow:
+    """Test cases for _analyze_pr_flow method."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    def test_analyze_pr_flow_empty_entries(self, controller):
+        """Test _analyze_pr_flow returns error structure for empty entry list."""
+        result = controller._analyze_pr_flow([], "hook-empty")
+
+        assert result["identifier"] == "hook-empty"
+        assert result["stages"] == []
+        assert result["total_duration_ms"] == 0
+        assert result["success"] is False
+        assert result["error"] == "No log entries found"
+
+    def test_analyze_pr_flow_matches_stages(self, controller):
+        """Test _analyze_pr_flow matches workflow stage patterns in log messages."""
+        base_time = datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC)
+        entries = [
+            LogEntry(
+                timestamp=base_time,
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Processing webhook for org/repo",
+                hook_id="hook-1",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=base_time + datetime.timedelta(seconds=1),
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Added reviewer user1 to PR",
+                hook_id="hook-1",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=base_time + datetime.timedelta(seconds=2),
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Processing completed successfully",
+                hook_id="hook-1",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+        ]
+
+        result = controller._analyze_pr_flow(entries, "hook-1")
+
+        assert result["identifier"] == "hook-1"
+        assert result["success"] is True
+        assert result["total_duration_ms"] == 2000
+        assert len(result["stages"]) > 0
+
+        stage_names = [s["name"] for s in result["stages"]]
+        assert "Webhook Received" in stage_names or "Validation Complete" in stage_names
+        assert "error" not in result
+
+    def test_analyze_pr_flow_with_error_entry(self, controller):
+        """Test _analyze_pr_flow detects error entries and reports failure."""
+        base_time = datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC)
+        entries = [
+            LogEntry(
+                timestamp=base_time,
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Processing webhook for org/repo",
+                hook_id="hook-err",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=base_time + datetime.timedelta(seconds=1),
+                level="ERROR",
+                logger_name="GithubWebhook",
+                message="check failed with exception",
+                hook_id="hook-err",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+        ]
+
+        result = controller._analyze_pr_flow(entries, "hook-err")
+
+        assert result["success"] is False
+        assert "error" in result
+        assert result["total_duration_ms"] == 1000
+
+    def test_analyze_pr_flow_error_in_stage_pattern(self, controller):
+        """Test _analyze_pr_flow detects errors within a matched stage."""
+        base_time = datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC)
+        entries = [
+            LogEntry(
+                timestamp=base_time,
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Processing webhook",
+                hook_id="hook-stage-err",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=base_time + datetime.timedelta(seconds=2),
+                level="ERROR",
+                logger_name="GithubWebhook",
+                message="label application error",
+                hook_id="hook-stage-err",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+        ]
+
+        result = controller._analyze_pr_flow(entries, "hook-stage-err")
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_analyze_pr_flow_no_matching_patterns(self, controller):
+        """Test _analyze_pr_flow with entries that do not match any stage pattern."""
+        base_time = datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC)
+        entries = [
+            LogEntry(
+                timestamp=base_time,
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Some unrelated message",
+                hook_id="hook-nomatch",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=base_time + datetime.timedelta(seconds=3),
+                level="INFO",
+                logger_name="GithubWebhook",
+                message="Another unrelated message",
+                hook_id="hook-nomatch",
+                repository="org/repo",
+                event_type="pull_request",
+            ),
+        ]
+
+        result = controller._analyze_pr_flow(entries, "hook-nomatch")
+
+        assert result["identifier"] == "hook-nomatch"
+        assert result["stages"] == []
+        assert result["success"] is True
+        assert result["total_duration_ms"] == 3000
+        assert "error" not in result
+
+
+class TestGetPrFlowData:
+    """Test cases for get_pr_flow_data method."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    async def test_get_pr_flow_data_with_hook_prefix(self, controller, tmp_path, create_text_log_file):
+        """Test get_pr_flow_data parses hook-<id> prefix correctly."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        create_text_log_file(
+            log_dir,
+            "webhook-server.log",
+            [
+                "2025-01-05T10:00:00.000000 GithubWebhook INFO org/repo "
+                "[pull_request][abc123][user][PR 1]: Processing webhook",
+            ],
+        )
+
+        result = await controller.get_pr_flow_data("hook-abc123")
+        assert result["identifier"] == "hook-abc123"
+
+    async def test_get_pr_flow_data_with_pr_prefix(self, controller, tmp_path, create_text_log_file):
+        """Test get_pr_flow_data parses pr-<number> prefix correctly."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        create_text_log_file(
+            log_dir,
+            "webhook-server.log",
+            [
+                "2025-01-05T10:00:00.000000 GithubWebhook INFO org/repo "
+                "[pull_request][hook-1][user][PR 42]: Processing webhook",
+            ],
+        )
+
+        result = await controller.get_pr_flow_data("pr-42")
+        assert result["identifier"] == "pr-42"
+
+    async def test_get_pr_flow_data_with_numeric_string(self, controller, tmp_path, create_text_log_file):
+        """Test get_pr_flow_data parses bare numeric PR number."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        create_text_log_file(
+            log_dir,
+            "webhook-server.log",
+            [
+                "2025-01-05T10:00:00.000000 GithubWebhook INFO org/repo "
+                "[pull_request][hook-1][user][PR 99]: Processing webhook",
+            ],
+        )
+
+        result = await controller.get_pr_flow_data("99")
+        assert result["identifier"] == "99"
+
+    async def test_get_pr_flow_data_with_plain_hook_id(self, controller, tmp_path, create_text_log_file):
+        """Test get_pr_flow_data with plain hook ID string (no prefix)."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        create_text_log_file(
+            log_dir,
+            "webhook-server.log",
+            [
+                "2025-01-05T10:00:00.000000 GithubWebhook INFO org/repo "
+                "[pull_request][my-plain-hook][user][PR 1]: Processing webhook",
+            ],
+        )
+
+        result = await controller.get_pr_flow_data("my-plain-hook")
+        assert result["identifier"] == "my-plain-hook"
+
+    async def test_get_pr_flow_data_not_found(self, controller, tmp_path):
+        """Test get_pr_flow_data raises 404 when no entries match."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Empty log directory
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_pr_flow_data("hook-nonexistent")
+
+        assert exc.value.status_code == 404
+
+    async def test_get_pr_flow_data_generic_exception(self, controller, monkeypatch):
+        """Test get_pr_flow_data raises 500 on unexpected exceptions."""
+
+        async def mock_stream(*a, **kw):
+            raise RuntimeError("unexpected failure")
+            yield  # make it async gen
+
+        monkeypatch.setattr(controller, "_stream_log_entries", mock_stream)
+
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_pr_flow_data("hook-x")
+
+        assert exc.value.status_code == 500
+
+
+class TestEstimateLogCountFormatting:
+    """Test _estimate_total_log_count K and M formatting branches."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    def test_estimate_returns_k_format(self, controller, tmp_path):
+        """Test that log count > 1000 returns K format."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create a single log file large enough for >1000 estimated lines
+        # Average ~200 bytes/line, so 200*1500 = 300K should give ~1500 estimate
+        log_file = log_dir / "webhook-server.log"
+        # Write 300KB of data
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write("x" * 300_000)
+
+        estimate = controller._estimate_total_log_count()
+        assert "K" in estimate
+
+    def test_estimate_returns_m_format(self, controller, tmp_path):
+        """Test that log count > 1_000_000 returns M format."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create a log file large enough: 200_000_000+ bytes for >1M estimated lines
+        # That is too large; instead create many files to trigger extrapolation
+        # With >10 files, extrapolation multiplies estimate.
+        # 12 files * (200KB each) = 2.4M bytes total, each ~1000 est lines
+        # extrapolation = 12/10 = 1.2, total = 12000 * 1.2 = ~14.4K
+        # To get M we need a single large file. 200_000_001 bytes = 1_000_000 lines
+        log_file = log_dir / "webhook-server.log"
+        # Create a sparse-ish file: write enough for > 1M lines estimate (200MB)
+        # That's too slow. Instead, use extrapolation:
+        # Create 100 files, sample first 10. Each file = 20MB = 100K lines est.
+        # 10 files * 100K = 1M. extrapolation = 100/10 = 10. total = 10M.
+        # Still too slow. Let's just test with a single huge write.
+        # Actually, let's just use a modest approach:
+        # 1 file with 200_200_000 bytes -> 1_001_000 estimated lines -> "1.0M"
+        # Writing 200MB is slow. Use truncate to create a sparse file.
+        with open(log_file, "wb") as f:
+            f.truncate(200_200_000)
+
+        estimate = controller._estimate_total_log_count()
+        assert "M" in estimate
+
+    def test_estimate_with_extrapolation(self, controller, tmp_path):
+        """Test that >10 log files triggers extrapolation."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create 15 log files (> 10 to trigger extrapolation branch)
+        for i in range(15):
+            log_file = log_dir / f"webhook-server.log.{i}"
+            with open(log_file, "w", encoding="utf-8") as f:
+                # Write ~2000 bytes -> ~10 lines estimated per file
+                f.write("x" * 2000)
+
+        estimate = controller._estimate_total_log_count()
+        # Should be a numeric string (small enough to not have K or M)
+        assert estimate != "0"
+        assert estimate != "Unknown"
+
+    def test_estimate_handles_exception(self, controller, monkeypatch):
+        """Test _estimate_total_log_count returns Unknown on unexpected errors."""
+
+        def broken_get_log_dir():
+            raise RuntimeError("broken")
+
+        monkeypatch.setattr(controller, "_get_log_directory", broken_get_log_dir)
+
+        estimate = controller._estimate_total_log_count()
+        assert estimate == "Unknown"
+
+    def test_estimate_handles_unreadable_file(self, controller, tmp_path):
+        """Test _estimate_total_log_count skips unreadable files."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create a readable and an unreadable log file
+        good = log_dir / "good.log"
+        good.write_text("x" * 2000)
+
+        bad = log_dir / "bad.log"
+        bad.write_text("y" * 2000)
+        bad.chmod(0o000)
+
+        try:
+            estimate = controller._estimate_total_log_count()
+            # Should still produce a result from the readable file
+            assert estimate != "Unknown"
+        finally:
+            bad.chmod(0o644)
+
+
+class TestGetLogViewerHtmlErrors:
+    """Test _get_log_viewer_html error handling paths."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    async def test_get_log_viewer_html_file_not_found(self, controller):
+        """Test _get_log_viewer_html returns fallback when template is missing."""
+        with patch("webhook_server.web.log_viewer.aiofiles.open", side_effect=FileNotFoundError("not found")):
+            result = await controller._get_log_viewer_html()
+        assert "Log Viewer Template Error" in result
+
+    async def test_get_log_viewer_html_os_error(self, controller):
+        """Test _get_log_viewer_html returns fallback on OS error."""
+        with patch("webhook_server.web.log_viewer.aiofiles.open", side_effect=OSError("disk error")):
+            result = await controller._get_log_viewer_html()
+        assert "Log Viewer Template Error" in result
+
+    async def test_get_log_page_internal_error(self, controller, monkeypatch):
+        """Test get_log_page raises 500 on unexpected error."""
+
+        async def mock_get_html():
+            raise RuntimeError("unexpected")
+
+        monkeypatch.setattr(controller, "_get_log_viewer_html", mock_get_html)
+
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_log_page()
+        assert exc.value.status_code == 500
+
+
+class TestEntryMatchesFiltersBranches:
+    """Test _entry_matches_filters for github_user and time range branches."""
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    def test_filter_by_github_user(self, controller):
+        """Test filtering entries by github_user."""
+        entry = LogEntry(
+            timestamp=datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC),
+            level="INFO",
+            logger_name="GithubWebhook",
+            message="test",
+            hook_id="hook-1",
+            repository="org/repo",
+            event_type="pull_request",
+            github_user="alice",
+        )
+
+        assert controller._entry_matches_filters(entry, github_user="alice") is True
+        assert controller._entry_matches_filters(entry, github_user="bob") is False
+
+    def test_filter_by_start_time(self, controller):
+        """Test filtering entries by start_time."""
+        entry = LogEntry(
+            timestamp=datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC),
+            level="INFO",
+            logger_name="GithubWebhook",
+            message="test",
+            hook_id="hook-1",
+            repository="org/repo",
+            event_type="pull_request",
+        )
+
+        before = datetime.datetime(2025, 1, 5, 9, 0, 0, tzinfo=datetime.UTC)
+        after = datetime.datetime(2025, 1, 5, 11, 0, 0, tzinfo=datetime.UTC)
+
+        assert controller._entry_matches_filters(entry, start_time=before) is True
+        assert controller._entry_matches_filters(entry, start_time=after) is False
+
+    def test_filter_by_end_time(self, controller):
+        """Test filtering entries by end_time."""
+        entry = LogEntry(
+            timestamp=datetime.datetime(2025, 1, 5, 10, 0, 0, tzinfo=datetime.UTC),
+            level="INFO",
+            logger_name="GithubWebhook",
+            message="test",
+            hook_id="hook-1",
+            repository="org/repo",
+            event_type="pull_request",
+        )
+
+        before = datetime.datetime(2025, 1, 5, 9, 0, 0, tzinfo=datetime.UTC)
+        after = datetime.datetime(2025, 1, 5, 11, 0, 0, tzinfo=datetime.UTC)
+
+        assert controller._entry_matches_filters(entry, end_time=after) is True
+        assert controller._entry_matches_filters(entry, end_time=before) is False

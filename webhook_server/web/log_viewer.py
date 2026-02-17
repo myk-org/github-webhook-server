@@ -637,7 +637,7 @@ class LogViewerController:
         # Collect log entries within the time window
         log_entries: list[dict[str, Any]] = []
 
-        async for entry in self._stream_log_entries(max_files=25, max_entries=50000):
+        async for entry in self._stream_text_log_entries(max_files=25, max_entries=50000):
             # Filter by hook_id
             if not self._entry_matches_filters(entry, hook_id=hook_id):
                 continue
@@ -1113,6 +1113,67 @@ class LogViewerController:
                 raise  # Always re-raise CancelledError
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")
+
+    async def _stream_text_log_entries(self, max_files: int = 25, max_entries: int = 50000) -> AsyncGenerator[LogEntry]:
+        """Stream log entries from text .log files only (not JSON webhook summaries).
+
+        Text log files contain detailed per-operation logs with hook_ids embedded
+        in the message, while JSON files only contain one summary per webhook.
+
+        Args:
+            max_files: Maximum number of log files to process (newest first)
+            max_entries: Maximum total entries to yield (safety limit)
+
+        Yields:
+            LogEntry objects from text log files
+
+        """
+        log_dir = self._get_log_directory()
+
+        if not log_dir.exists():
+            return
+
+        # Find only text log files (not JSON webhook summaries)
+        log_files: list[Path] = []
+        log_files.extend(log_dir.glob("*.log"))
+        log_files.extend(log_dir.glob("*.log.*"))
+
+        if not log_files:
+            return
+
+        # Sort by modification time (newest first)
+        log_files.sort(key=lambda f: -f.stat().st_mtime)
+        log_files = log_files[:max_files]
+
+        total_yielded = 0
+
+        for log_file in log_files:
+            if total_yielded >= max_entries:
+                break
+
+            try:
+                remaining_capacity = max_entries - total_yielded
+                if remaining_capacity <= 0:
+                    break
+
+                buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
+
+                async with aiofiles.open(log_file, encoding="utf-8") as f:
+                    async for line in f:
+                        entry = self.log_parser.parse_log_entry(line)
+                        if entry:
+                            buffer.append(entry)
+
+                for entry in reversed(buffer):
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger.warning(f"Error streaming text log file {log_file}: {e}")
 
     async def _stream_json_log_entries(
         self,
