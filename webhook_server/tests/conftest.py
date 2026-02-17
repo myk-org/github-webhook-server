@@ -1,7 +1,10 @@
+import json
 import logging as python_logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -200,3 +203,138 @@ def owners_files_test_data():
     Uses centralized OWNERS_TEST_DATA constant to ensure consistency.
     """
     return {path: yaml.dump(data) for path, data in OWNERS_TEST_DATA.items()}
+
+
+# === Log Viewer Shared Fixtures ===
+
+
+@pytest.fixture
+def mock_logger():
+    """Create a mock logger that mirrors production logger attributes."""
+    mock = Mock(spec=python_logging.Logger)
+    mock.name = "webhook_server.tests"
+    mock.level = python_logging.INFO
+    return mock
+
+
+@pytest.fixture
+def sample_json_webhook_data() -> dict:
+    """Create sample JSON webhook log data with workflow steps.
+
+    Used by test_log_viewer.py tests for JSON log parsing and workflow step retrieval.
+    """
+    return {
+        "hook_id": "test-hook-123",
+        "event_type": "pull_request",
+        "action": "opened",
+        "repository": "org/test-repo",
+        "sender": "test-user",
+        "pr": {
+            "number": 456,
+            "title": "Test PR",
+            "url": "https://github.com/org/test-repo/pull/456",
+        },
+        "timing": {
+            "started_at": "2025-01-05T10:00:00.000000Z",
+            "completed_at": "2025-01-05T10:00:05.000000Z",
+            "duration_ms": 5000,
+        },
+        "workflow_steps": {
+            "clone_repository": {
+                "timestamp": "2025-01-05T10:00:01.000000Z",
+                "status": "completed",
+                "duration_ms": 1500,
+            },
+            "assign_reviewers": {
+                "timestamp": "2025-01-05T10:00:02.500000Z",
+                "status": "completed",
+                "duration_ms": 800,
+            },
+            "apply_labels": {
+                "timestamp": "2025-01-05T10:00:03.500000Z",
+                "status": "failed",
+                "duration_ms": 200,
+                "error": {"type": "ValueError", "message": "Label not found"},
+            },
+        },
+        "token_spend": 35,
+        "success": False,
+        "error": {
+            "type": "TestError",
+            "message": "Test failure message for unit tests",
+        },
+    }
+
+
+@pytest.fixture
+def create_json_log_file():
+    """Factory fixture to create test JSON log files.
+
+    Returns a callable that accepts log_dir, filename, and entries parameters.
+    Tests pass their own tmp_path to the returned factory function.
+
+    Usage:
+        def test_example(create_json_log_file, tmp_path):
+            log_dir = tmp_path / "logs"
+            log_dir.mkdir()
+            create_json_log_file(log_dir, "webhooks_2025-01-05.json", [entry_dict])
+    """
+
+    def _create_json_log_file(log_dir: Path, filename: str, entries: list[dict]) -> Path:
+        """Create a test JSON log file with entries in JSONL format.
+
+        The log viewer expects JSONL format (JSON Lines): one compact JSON object per line.
+        This matches production behavior where each webhook log entry is written as a single
+        line for efficient streaming and parsing.
+
+        Args:
+            log_dir: Directory to create the log file in
+            filename: Name of the log file
+            entries: List of JSON webhook data dictionaries
+
+        Returns:
+            Path to created log file
+        """
+        log_file = log_dir / filename
+        with open(log_file, "w", encoding="utf-8") as f:
+            for entry in entries:
+                # JSONL format: one compact JSON object per line (no indentation)
+                # This matches production log format and log_viewer._stream_json_log_entries()
+                f.write(json.dumps(entry) + "\n")
+        return log_file
+
+    return _create_json_log_file
+
+
+@pytest.fixture
+def create_text_log_file():
+    """Factory fixture to create test text log files.
+
+    Returns a callable that accepts log_dir, filename, and log_lines parameters.
+    Tests pass their own tmp_path to the returned factory function.
+
+    Usage:
+        def test_example(create_text_log_file, tmp_path):
+            log_dir = tmp_path / "logs"
+            log_dir.mkdir()
+            create_text_log_file(log_dir, "webhook-server.log", ["line1", "line2"])
+    """
+
+    def _create_text_log_file(log_dir: Path, filename: str, log_lines: list[str]) -> Path:
+        """Create a test text log file with log lines.
+
+        Args:
+            log_dir: Directory to create the log file in
+            filename: Name of the log file
+            log_lines: List of log line strings
+
+        Returns:
+            Path to created log file
+        """
+        log_file = log_dir / filename
+        with open(log_file, "w", encoding="utf-8") as f:
+            for line in log_lines:
+                f.write(line + "\n")
+        return log_file
+
+    return _create_text_log_file

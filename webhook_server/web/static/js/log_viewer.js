@@ -839,14 +839,39 @@ function showFlowModal(hookId) {
   fetch(`/logs/api/workflow-steps/${encodeURIComponent(hookId)}`, {
     signal: currentFlowController.signal,
   })
-    .then((response) => {
+    .then(async (response) => {
       if (!response.ok) {
-        if (response.status === 404) {
-          console.log("No flow data found for hook ID:", hookId);
-          showFlowModalError("No workflow data found for this hook");
+        const status = response.status;
+
+        // Try to parse error detail from JSON response
+        let errorDetail = null;
+        try {
+          const errorData = await response.json();
+          errorDetail = errorData.detail;
+        } catch {
+          // JSON parsing failed, use default messages
+        }
+
+        if (status === 404) {
+          const message = errorDetail || "No workflow data found for this hook";
+          console.log("No flow data found for hook ID:", hookId, message);
+          showFlowModalError(message);
+          return;
+        } else if (status === 400) {
+          const message = errorDetail || "Invalid request";
+          console.error("Bad request for hook ID:", hookId, message);
+          showFlowModalError(message);
+          return;
+        } else if (status >= 500) {
+          console.error("Server error for hook ID:", hookId, errorDetail);
+          showFlowModalError("Server error occurred. Please try again later.");
+          return;
+        } else {
+          const message = errorDetail || `HTTP ${status}: ${response.statusText}`;
+          console.error("Error fetching flow data:", message);
+          showFlowModalError(message);
           return;
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return response.json();
     })
@@ -1706,67 +1731,340 @@ async function filterByStep(stepIndex) {
   await showStepLogsInModal(step, logsContainer);
 }
 
+/**
+ * Renders step details as a formatted log-like entry.
+ * Displays the step's own metadata (status, duration, error) instead of searching logs.
+ *
+ * @param {Object} step - The step object from workflow_steps
+ * @returns {HTMLElement} - The rendered step details element
+ */
+function renderStepDetails(step) {
+  const detailsContainer = document.createElement("div");
+  detailsContainer.className = "step-details-entry";
+
+  // Header row with timestamp and step name
+  const headerRow = document.createElement("div");
+  headerRow.className = "step-details-header";
+
+  // Timestamp
+  if (step.timestamp) {
+    const timestampSpan = document.createElement("span");
+    timestampSpan.className = "step-details-timestamp";
+    timestampSpan.textContent = new Date(step.timestamp).toLocaleString();
+    headerRow.appendChild(timestampSpan);
+  }
+
+  // Step name with status badge
+  const stepNameSpan = document.createElement("span");
+  stepNameSpan.className = "step-details-name";
+  const stepName = step.step_name || "unknown_step";
+  stepNameSpan.textContent = stepName;
+  headerRow.appendChild(stepNameSpan);
+
+  detailsContainer.appendChild(headerRow);
+
+  // Status row
+  const statusRow = document.createElement("div");
+  statusRow.className = "step-details-status-row";
+
+  // Status badge
+  const statusBadge = document.createElement("span");
+  const status = step.task_status || step.step_status || step.level || "INFO";
+  statusBadge.className = `step-details-badge step-status-${status.toLowerCase()}`;
+  statusBadge.textContent = status.toUpperCase();
+  statusRow.appendChild(statusBadge);
+
+  // Duration
+  const durationMs = step.step_duration_ms || step.duration_ms;
+  if (durationMs !== undefined && durationMs !== null) {
+    const durationSpan = document.createElement("span");
+    durationSpan.className = "step-details-duration";
+    if (durationMs >= 1000) {
+      durationSpan.textContent = `Duration: ${(durationMs / 1000).toFixed(2)}s`;
+    } else {
+      durationSpan.textContent = `Duration: ${durationMs}ms`;
+    }
+    statusRow.appendChild(durationSpan);
+  }
+
+  detailsContainer.appendChild(statusRow);
+
+  // Message (if different from step_name)
+  if (step.message && step.message !== stepName) {
+    const messageRow = document.createElement("div");
+    messageRow.className = "step-details-message";
+    messageRow.textContent = step.message;
+    detailsContainer.appendChild(messageRow);
+  }
+
+  // Error details (if step failed)
+  const stepError = step.step_error || step.error;
+  if (stepError) {
+    const errorRow = document.createElement("div");
+    errorRow.className = "step-details-error";
+
+    const errorLabel = document.createElement("span");
+    errorLabel.className = "step-details-error-label";
+    errorLabel.textContent = "Error: ";
+    errorRow.appendChild(errorLabel);
+
+    const errorText = document.createElement("span");
+    errorText.className = "step-details-error-text";
+    // Properly handle error objects to avoid "[object Object]"
+    let errorMessage;
+    if (typeof stepError === "string") {
+      errorMessage = stepError;
+    } else if (stepError.message) {
+      errorMessage = stepError.message;
+    } else {
+      errorMessage = JSON.stringify(stepError);
+    }
+    errorText.textContent = errorMessage;
+    errorRow.appendChild(errorText);
+
+    detailsContainer.appendChild(errorRow);
+  }
+
+  // Additional metadata (if present)
+  const metadataFields = ["repository", "pr_number", "github_user", "hook_id"];
+  const metadataRow = document.createElement("div");
+  metadataRow.className = "step-details-metadata";
+
+  metadataFields.forEach((field) => {
+    if (step[field]) {
+      const metaSpan = document.createElement("span");
+      metaSpan.className = `step-meta-${field}`;
+      if (field === "pr_number") {
+        metaSpan.textContent = `[PR: #${step[field]}]`;
+      } else if (field === "github_user") {
+        metaSpan.textContent = `[User: ${step[field]}]`;
+      } else if (field === "hook_id") {
+        metaSpan.textContent = `[Hook: ${step[field]}]`;
+      } else {
+        metaSpan.textContent = `[${step[field]}]`;
+      }
+      metadataRow.appendChild(metaSpan);
+    }
+  });
+
+  if (metadataRow.children.length > 0) {
+    detailsContainer.appendChild(metadataRow);
+  }
+
+  // Step details as log-like entries (from step_details metadata)
+  const stepData = step.step_details;
+  if (stepData && typeof stepData === "object") {
+    const logsDiv = document.createElement("div");
+    logsDiv.className = "step-logs-list";
+
+    const header = document.createElement("div");
+    header.className = "step-logs-header";
+    header.textContent = "Step execution details";
+    logsDiv.appendChild(header);
+
+    // Show step start
+    if (stepData.timestamp) {
+      const startEntry = document.createElement("div");
+      startEntry.className = "step-log-entry log-level-info";
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      ts.textContent = new Date(stepData.timestamp).toLocaleTimeString();
+
+      const lvl = document.createElement("span");
+      lvl.className = "step-log-level log-level-badge-step";
+      lvl.textContent = "STEP";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      msg.textContent = `${step.step_name || "step"}: started`;
+
+      startEntry.appendChild(ts);
+      startEntry.appendChild(lvl);
+      startEntry.appendChild(msg);
+      logsDiv.appendChild(startEntry);
+    }
+
+    // Show additional metadata fields as log entries
+    const skipFields = new Set([
+      "timestamp",
+      "status",
+      "duration_ms",
+      "error",
+      "task_id",
+      "task_type",
+    ]);
+
+    Object.entries(stepData).forEach(([key, value]) => {
+      if (skipFields.has(key) || value === null || value === undefined) return;
+
+      const entry = document.createElement("div");
+      entry.className = "step-log-entry log-level-info";
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      ts.textContent = "";
+
+      const lvl = document.createElement("span");
+      lvl.className = "step-log-level log-level-badge-info";
+      lvl.textContent = "INFO";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      if (typeof value === "object") {
+        msg.textContent = `${key}: ${JSON.stringify(value)}`;
+      } else {
+        msg.textContent = `${key}: ${value}`;
+      }
+
+      entry.appendChild(ts);
+      entry.appendChild(lvl);
+      entry.appendChild(msg);
+      logsDiv.appendChild(entry);
+    });
+
+    // Show completion entry
+    if (stepData.status) {
+      const endEntry = document.createElement("div");
+      const isError = stepData.status === "failed";
+      endEntry.className = `step-log-entry log-level-${isError ? "error" : "success"}`;
+
+      const ts = document.createElement("span");
+      ts.className = "step-log-timestamp";
+      if (stepData.timestamp && stepData.duration_ms) {
+        const endTime = new Date(
+          new Date(stepData.timestamp).getTime() + stepData.duration_ms,
+        );
+        ts.textContent = endTime.toLocaleTimeString();
+      }
+
+      const lvl = document.createElement("span");
+      lvl.className = `step-log-level log-level-badge-${isError ? "error" : "success"}`;
+      lvl.textContent = isError ? "ERROR" : "DONE";
+
+      const msg = document.createElement("span");
+      msg.className = "step-log-message";
+      const durationText =
+        stepData.duration_ms != null
+          ? stepData.duration_ms >= 1000
+            ? ` in ${(stepData.duration_ms / 1000).toFixed(2)}s`
+            : ` in ${stepData.duration_ms}ms`
+          : "";
+      msg.textContent = `${step.step_name || "step"}: ${stepData.status}${durationText}`;
+
+      endEntry.appendChild(ts);
+      endEntry.appendChild(lvl);
+      endEntry.appendChild(msg);
+      logsDiv.appendChild(endEntry);
+    }
+
+    detailsContainer.appendChild(logsDiv);
+  }
+
+  return detailsContainer;
+}
+
 async function showStepLogsInModal(step, logsContainer) {
   if (!logsContainer) return;
 
-  // Show loading state
-  logsContainer.style.display = "block";
-  logsContainer.textContent = "Loading logs...";
-
-  // Cancel previous fetch if still in progress
+  // Cancel any previous step logs fetch
   if (currentStepLogsController) {
     currentStepLogsController.abort();
   }
-
-  // Create new AbortController for this fetch
   currentStepLogsController = new AbortController();
 
-  try {
-    // Using full message for precision to avoid ambiguous matches
-    const searchText = step.message;
-    const hookId = currentFlowData.hook_id;
+  // Show the container and display step details immediately
+  logsContainer.style.display = "block";
+  logsContainer.textContent = "";
 
-    const params = new URLSearchParams({
-      hook_id: hookId,
-      search: searchText,
-      limit: "100",
-    });
+  // Render the step's own data first - this is the primary information
+  const stepDetails = renderStepDetails(step);
+  logsContainer.appendChild(stepDetails);
 
-    const response = await fetch(`/logs/api/entries?${params}`, {
-      signal: currentStepLogsController.signal,
-    });
-    if (!response.ok) throw new Error("Failed to fetch logs");
+  // Fetch actual log entries for this step
+  const stepName = step.step_name;
+  const hookId = currentFlowData?.hook_id;
 
-    const data = await response.json();
+  if (stepName && hookId) {
+    // Show loading indicator
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "step-logs-loading";
+    loadingDiv.textContent = "Loading logs...";
+    logsContainer.appendChild(loadingDiv);
 
-    // Clear and display logs using safe DOM methods
-    logsContainer.textContent = "";
+    try {
+      const response = await fetch(
+        `/logs/api/step-logs/${encodeURIComponent(hookId)}/${encodeURIComponent(stepName)}`,
+        { signal: currentStepLogsController.signal }
+      );
+      loadingDiv.remove();
 
-    if (data.entries.length === 0) {
-      const emptyMsg = document.createElement("div");
-      emptyMsg.textContent = "No logs found for this step";
-      emptyMsg.style.textAlign = "center";
-      emptyMsg.style.color = "var(--timestamp-color)";
-      emptyMsg.style.padding = "12px";
-      logsContainer.appendChild(emptyMsg);
-      return;
+      if (response.ok) {
+        const data = await response.json();
+        if (data.logs && data.logs.length > 0) {
+          // Create container for logs
+          const logsDiv = document.createElement("div");
+          logsDiv.className = "step-logs-list";
+
+          // Add header
+          const header = document.createElement("div");
+          header.className = "step-logs-header";
+          header.textContent = `Log entries during step (${data.log_count} found)`;
+          logsDiv.appendChild(header);
+
+          // Render each log entry
+          data.logs.forEach((log) => {
+            const logEntry = document.createElement("div");
+            const levelLower = (log.level || "info").toLowerCase();
+            logEntry.className = `step-log-entry log-level-${levelLower}`;
+
+            const timestamp = document.createElement("span");
+            timestamp.className = "step-log-timestamp";
+            timestamp.textContent = new Date(log.timestamp).toLocaleTimeString();
+
+            const level = document.createElement("span");
+            level.className = `step-log-level log-level-badge-${levelLower}`;
+            level.textContent = log.level || "INFO";
+
+            const message = document.createElement("span");
+            message.className = "step-log-message";
+            message.textContent = log.message;
+
+            logEntry.appendChild(timestamp);
+            logEntry.appendChild(level);
+            logEntry.appendChild(message);
+            logsDiv.appendChild(logEntry);
+          });
+
+          logsContainer.appendChild(logsDiv);
+        }
+        // When logs are empty: step details are already shown above - no message needed
+      } else if (response.status === 404) {
+        // Step not found - show as empty state rather than error
+        const notFoundDiv = document.createElement("div");
+        notFoundDiv.className = "step-logs-empty";
+        notFoundDiv.textContent = "Step not found in workflow data.";
+        logsContainer.appendChild(notFoundDiv);
+      } else {
+        // Handle other errors
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "step-logs-error";
+        errorDiv.textContent = `Could not load logs: ${response.status}`;
+        logsContainer.appendChild(errorDiv);
+      }
+    } catch (error) {
+      if (error.name === "AbortError") {
+        // Request was cancelled, ignore silently
+        return;
+      }
+      loadingDiv?.remove();
+      const errorDiv = document.createElement("div");
+      errorDiv.className = "step-logs-error";
+      errorDiv.textContent = `Error loading logs: ${error.message}`;
+      logsContainer.appendChild(errorDiv);
     }
-
-    // Render log entries
-    data.entries.forEach((entry) => {
-      // Reuse the main log entry creator for consistency
-      const logEntry = createLogEntryElement(entry);
-      logsContainer.appendChild(logEntry);
-    });
-
-    // Scroll to the logs container
-    logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  } catch (error) {
-    if (error.name === "AbortError") {
-      // Request was cancelled, ignore silently
-      return;
-    }
-    console.error("Error fetching step logs:", error);
-    logsContainer.textContent = "Error loading logs";
   }
+
+  // Scroll to the logs container
+  logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
