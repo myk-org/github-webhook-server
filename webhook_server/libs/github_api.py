@@ -621,7 +621,7 @@ class GithubWebhook:
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
                 rate_limit_remaining = await asyncio.to_thread(lambda: api.rate_limiting[-1])
-            except GithubException as ex:
+            except Exception as ex:
                 self.logger.warning(
                     f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
                     f"skipping. {ex}"
@@ -637,7 +637,7 @@ class GithubWebhook:
 
             try:
                 _api_user = await asyncio.to_thread(lambda: api.get_user().login)
-            except GithubException as ex:
+            except Exception as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
                 )
