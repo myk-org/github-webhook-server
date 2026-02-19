@@ -550,7 +550,10 @@ Your team can configure additional types in the repository settings.
                 on PR merge, False when triggered by a comment command.
         """
         if by_label:
-            requested_by = f"by {reviewed_user} with target-branch label"
+            if reviewed_user:
+                requested_by = f"by {reviewed_user} with target-branch label"
+            else:
+                requested_by = "by target-branch label"
         else:
             requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")

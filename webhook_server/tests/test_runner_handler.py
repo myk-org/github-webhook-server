@@ -963,10 +963,13 @@ class TestRunnerHandler:
                                     )
 
     @pytest.mark.asyncio
-    async def test_cherry_pick_assigns_to_pr_author_fallback(
+    async def test_cherry_pick_always_assigns_to_pr_author_when_flag_set(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test cherry_pick falls back to pull_request.user.login when reviewed_user is empty."""
+        """Test cherry_pick always uses pull_request.user.login as assignee.
+
+        When cherry_pick_assign_to_pr_author is True, regardless of reviewed_user.
+        """
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         runner_handler.github_webhook.cherry_pick_assign_to_pr_author = True
         mock_pull_request.user = Mock()
@@ -993,9 +996,9 @@ class TestRunnerHandler:
                                     mock_set_progress.assert_called_once()
                                     mock_set_success.assert_called_once()
                                     mock_comment.assert_called_once()
-                                    # Verify asyncio.to_thread was called (for user.login fallback)
+                                    # Verify asyncio.to_thread was called (for user.login access)
                                     assert mock_to_thread.call_count >= 1
-                                    # Verify the hub pull-request command includes -a with the pr author
+                                    # Verify assignee is always pull_request.user.login, not reviewed_user
                                     last_cmd = mock_run_cmd.call_args_list[-1]
                                     hub_command = last_cmd.kwargs.get(
                                         "command", last_cmd.args[0] if last_cmd.args else ""
