@@ -178,8 +178,8 @@ class GithubWebhook:
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
         self._repo_cloned: bool = False  # Track if repository has been cloned
-        # Initialize auto-verified users from API users
-        self.add_api_users_to_auto_verified_and_merged_users()
+        # Note: auto-verified users from API users are initialized in process()
+        # because the method is async and requires asyncio.to_thread() for blocking calls
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.issue_url_for_welcome_msg: str = (
@@ -408,6 +408,9 @@ class GithubWebhook:
             raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
     async def process(self) -> Any:
+        # Initialize auto-verified users from API users (async operation)
+        await self.add_api_users_to_auto_verified_and_merged_users()
+
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         # Start webhook routing context step
@@ -610,16 +613,40 @@ class GithubWebhook:
             await self._update_context_metrics()
             return None
 
-    def add_api_users_to_auto_verified_and_merged_users(self) -> None:
+    async def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
-        for _api, _ in apis_and_tokens:
-            if _api.rate_limiting[-1] == 60:
-                self.logger.warning(
-                    f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token, skipping"
-                )
-                continue
 
-            self.auto_verified_and_merged_users.append(_api.get_user().login)
+        async def check_token(api: github.Github, token: str) -> str | None:
+            """Check a single API token and return the user login if valid, None otherwise."""
+            token_suffix = f"...{token[-4:]}" if token else "unknown"
+            try:
+                rate_limit_remaining = await asyncio.to_thread(lambda: api.rate_limiting[-1])
+            except Exception as ex:
+                self.logger.warning(
+                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
+                    f"skipping. {ex}"
+                )
+                return None
+
+            if rate_limit_remaining == 60:
+                self.logger.warning(
+                    f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
+                    f"(token ending in '{token_suffix}'), skipping"
+                )
+                return None
+
+            try:
+                _api_user = await asyncio.to_thread(lambda: api.get_user().login)
+            except Exception as ex:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
+                )
+                return None
+
+            return _api_user
+
+        results = await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
+        self.auto_verified_and_merged_users.extend(user for user in results if user is not None)
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         return prepare_log_prefix(
