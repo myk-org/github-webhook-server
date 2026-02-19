@@ -79,6 +79,10 @@ properties:
     type: boolean
     description: Automatically verify cherry-picked PRs (default is true for backward compatibility)
     default: true
+  cherry-pick-assign-to-pr-author:
+    type: boolean
+    description: Assign cherry-picked PRs to the original PR author instead of the bot user
+    default: false
   create-issue-for-new-pr:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
@@ -273,6 +277,10 @@ properties:
           type: boolean
           description: Automatically verify cherry-picked PRs for this repository (default is true)
           default: true
+        cherry-pick-assign-to-pr-author:
+          type: boolean
+          description: Assign cherry-picked PRs to the original PR author for this repository
+          default: false
         github-tokens:
           type: array
           items:
