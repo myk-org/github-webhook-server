@@ -712,6 +712,9 @@ class GithubWebhook:
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )
+        self.cherry_pick_assign_to_pr_author: bool = self.config.get_value(
+            value="cherry-pick-assign-to-pr-author", return_on_none=False, extra_dict=repository_config
+        )
         _required_labels = self.config.get_value(
             value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )
