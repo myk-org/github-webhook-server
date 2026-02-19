@@ -536,9 +536,33 @@ Your team can configure additional types in the repository settings.
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
-    async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
-        requested_by = reviewed_user or "by target-branch label"
+    async def cherry_pick(
+        self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "", *, by_label: bool = False
+    ) -> None:
+        """Cherry-pick a merged PR to a target branch.
+
+        Args:
+            pull_request: The merged pull request to cherry-pick.
+            target_branch: Branch to cherry-pick into.
+            reviewed_user: The user who requested the cherry-pick via comment command,
+                or the PR author's login when triggered by label.
+            by_label: True when cherry-pick was triggered by a target-branch label
+                on PR merge, False when triggered by a comment command.
+        """
+        if by_label:
+            requested_by = f"by {reviewed_user} with target-branch label"
+        else:
+            requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
+
+        if self.github_webhook.cherry_pick_assign_to_pr_author:
+            if reviewed_user:
+                pr_author = reviewed_user
+            else:
+                pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+            assignee_flag = f" -a {shlex.quote(pr_author)}"
+        else:
+            assignee_flag = ""
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
@@ -563,7 +587,7 @@ Your team can configure additional types in the repository settings.
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} "
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL}{assignee_flag} "
                     f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
                     f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
                     f"into {target_branch}' -m 'requested-by {requested_by}'\"",

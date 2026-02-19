@@ -286,7 +286,10 @@ class TestPullRequestHandler:
                             )
                             mock_delete_tag.assert_called_once_with(pull_request=mock_pull_request)
                             mock_cherry_pick.assert_called_once_with(
-                                pull_request=mock_pull_request, target_branch="branch1"
+                                pull_request=mock_pull_request,
+                                target_branch="branch1",
+                                reviewed_user="owner1",
+                                by_label=True,
                             )
                             mock_build.assert_called_once_with(
                                 push=True,
