@@ -996,8 +996,8 @@ class TestRunnerHandler:
                                     mock_set_progress.assert_called_once()
                                     mock_set_success.assert_called_once()
                                     mock_comment.assert_called_once()
-                                    # Verify asyncio.to_thread was called (for user.login access)
-                                    assert mock_to_thread.call_count >= 1
+                                    # Exactly 2 calls: user.login + create_issue_comment
+                                    assert mock_to_thread.call_count == 2
                                     # Verify assignee is always pull_request.user.login, not reviewed_user
                                     last_cmd = mock_run_cmd.call_args_list[-1]
                                     hub_command = last_cmd.kwargs.get(
@@ -1044,6 +1044,49 @@ class TestRunnerHandler:
                                         "command", last_cmd.args[0] if last_cmd.args else ""
                                     )
                                     assert "requested-by by label-user with target-branch label" in hub_command
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_by_label_empty_reviewed_user_requested_by_format(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test cherry_pick by_label with empty reviewed_user produces clean requested-by string."""
+        runner_handler.github_webhook.pypi = {"token": "dummy"}
+        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = False
+        mock_pull_request.user = Mock()
+        mock_pull_request.user.login = "label-user"
+        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
+                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.run_command",
+                            new=AsyncMock(return_value=(True, "success", "")),
+                        ) as mock_run_cmd:
+                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
+                                with patch(
+                                    "asyncio.to_thread",
+                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+                                ):
+                                    await runner_handler.cherry_pick(
+                                        mock_pull_request, "main", reviewed_user="", by_label=True
+                                    )
+                                    mock_set_progress.assert_called_once()
+                                    mock_set_success.assert_called_once()
+                                    mock_comment.assert_called_once()
+                                    # Verify the hub command contains clean requested-by string
+                                    last_cmd = mock_run_cmd.call_args_list[-1]
+                                    hub_command = last_cmd.kwargs.get(
+                                        "command", last_cmd.args[0] if last_cmd.args else ""
+                                    )
+                                    # Should contain "requested-by by target-branch label" (no double space)
+                                    assert "requested-by by target-branch label" in hub_command
+                                    # The double-space bug: "by  with" should NOT appear
+                                    assert "by  with" not in hub_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_disabled_no_assignee(
