@@ -41,6 +41,7 @@ class TestConfigSchema:
             "docker": {"username": "dockeruser", "password": "dockerpass"},  # pragma: allowlist secret
             "default-status-checks": ["WIP", "build"],
             "auto-verified-and-merged-users": ["bot[bot]"],
+            "cherry-pick-assign-to-pr-author": True,
             "branch-protection": {
                 "strict": True,
                 "require_code_owner_reviews": True,
@@ -75,6 +76,7 @@ class TestConfigSchema:
                     "github-tokens": ["repo-token"],
                     "branch-protection": {"strict": False, "required_approving_review_count": 1},
                     "set-auto-merge-prs": ["main"],
+                    "cherry-pick-assign-to-pr-author": True,
                     "can-be-merged-required-labels": ["ready"],
                     "allow-commands-on-draft-prs": ["wip", "hold"],
                     "conventional-title": "feat,fix,docs",

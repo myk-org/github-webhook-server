@@ -73,6 +73,7 @@ class ConfigValidator:
             "disable-ssl-warnings",
             "mask-sensitive-data",
             "auto-verify-cherry-picked-prs",
+            "cherry-pick-assign-to-pr-author",
         ]
         for field in boolean_fields:
             if field in config and not isinstance(config[field], bool):
@@ -166,7 +167,13 @@ class ConfigValidator:
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a string")
 
         # Boolean fields
-        boolean_fields = ["verified-job", "pre-commit", "mask-sensitive-data", "auto-verify-cherry-picked-prs"]
+        boolean_fields = [
+            "verified-job",
+            "pre-commit",
+            "mask-sensitive-data",
+            "auto-verify-cherry-picked-prs",
+            "cherry-pick-assign-to-pr-author",
+        ]
         for field in boolean_fields:
             if field in repo_config and not isinstance(repo_config[field], bool):
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a boolean")
