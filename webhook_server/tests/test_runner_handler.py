@@ -1033,7 +1033,7 @@ class TestRunnerHandler:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
-                                ):
+                                ) as mock_to_thread:
                                     await runner_handler.cherry_pick(
                                         mock_pull_request, "main", reviewed_user="label-requester", by_label=True
                                     )
@@ -1047,6 +1047,7 @@ class TestRunnerHandler:
                                     )
                                     assert "requested-by by label-requester with target-branch label" in hub_command
                                     assert "-a 'pr-author-login'" in hub_command or "-a pr-author-login" in hub_command
+                                    assert mock_to_thread.call_count == 2
 
     @pytest.mark.asyncio
     async def test_cherry_pick_by_label_empty_reviewed_user_requested_by_format(
@@ -1055,8 +1056,6 @@ class TestRunnerHandler:
         """Test cherry_pick by_label with empty reviewed_user produces clean requested-by string."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         runner_handler.github_webhook.cherry_pick_assign_to_pr_author = False
-        mock_pull_request.user = Mock()
-        mock_pull_request.user.login = "label-user"
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
