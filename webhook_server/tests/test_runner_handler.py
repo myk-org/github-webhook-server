@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -11,6 +13,15 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
+
+
+@dataclass
+class CherryPickMocks:
+    set_progress: Mock
+    set_success: Mock
+    run_cmd: Mock
+    comment: Mock
+    to_thread: Mock
 
 
 class TestRunnerHandler:
@@ -919,15 +930,17 @@ class TestRunnerHandler:
                                 mock_set_failure.assert_called_once()
                                 mock_comment.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_cherry_pick_assigns_to_pr_author(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test cherry_pick assigns to the original PR author, not the requester."""
+    @staticmethod
+    @asynccontextmanager
+    async def cherry_pick_setup(
+        runner_handler: RunnerHandler,
+        mock_pull_request: Mock,
+        *,
+        assign_to_author: bool = False,
+    ):
+        """Common setup for cherry-pick tests."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = True
-        mock_pull_request.user = Mock()
-        mock_pull_request.user.login = "original-pr-author"
+        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = assign_to_author
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
@@ -946,23 +959,30 @@ class TestRunnerHandler:
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
                                 ) as mock_to_thread:
-                                    await runner_handler.cherry_pick(
-                                        mock_pull_request, "main", reviewed_user="cherry-requester"
+                                    yield CherryPickMocks(
+                                        set_progress=mock_set_progress,
+                                        set_success=mock_set_success,
+                                        run_cmd=mock_run_cmd,
+                                        comment=mock_comment,
+                                        to_thread=mock_to_thread,
                                     )
-                                    mock_set_progress.assert_called_once()
-                                    mock_set_success.assert_called_once()
-                                    mock_comment.assert_called_once()
-                                    # Exactly 2 calls: user.login + create_issue_comment
-                                    assert mock_to_thread.call_count == 2
-                                    # Verify the hub command assigns to the PR author, NOT the requester
-                                    last_cmd = mock_run_cmd.call_args_list[-1]
-                                    hub_command = last_cmd.kwargs.get(
-                                        "command", last_cmd.args[0] if last_cmd.args else ""
-                                    )
-                                    assert (
-                                        "-a 'original-pr-author'" in hub_command
-                                        or "-a original-pr-author" in hub_command
-                                    )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_assigns_to_pr_author(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test cherry_pick assigns to the original PR author, not the requester."""
+        mock_pull_request.user = Mock()
+        mock_pull_request.user.login = "original-pr-author"
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="cherry-requester")
+            mocks.set_progress.assert_called_once()
+            mocks.set_success.assert_called_once()
+            mocks.comment.assert_called_once()
+            assert mocks.to_thread.call_count == 2
+            last_cmd = mocks.run_cmd.call_args_list[-1]
+            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "-a 'original-pr-author'" in hub_command or "-a original-pr-author" in hub_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_always_assigns_to_pr_author_when_flag_set(
@@ -972,155 +992,65 @@ class TestRunnerHandler:
 
         When cherry_pick_assign_to_pr_author is True, regardless of reviewed_user.
         """
-        runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = True
         mock_pull_request.user = Mock()
         mock_pull_request.user.login = "pr-author-login"
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
-                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
-                        mock_checkout.return_value = AsyncMock()
-                        mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(True, "/tmp/worktree-path", "", "")
-                        )
-                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        with patch(
-                            "webhook_server.libs.handlers.runner_handler.run_command",
-                            new=AsyncMock(return_value=(True, "success", "")),
-                        ) as mock_run_cmd:
-                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                with patch(
-                                    "asyncio.to_thread",
-                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
-                                ) as mock_to_thread:
-                                    await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="")
-                                    mock_set_progress.assert_called_once()
-                                    mock_set_success.assert_called_once()
-                                    mock_comment.assert_called_once()
-                                    # Exactly 2 calls: user.login + create_issue_comment
-                                    assert mock_to_thread.call_count == 2
-                                    # Verify assignee is always pull_request.user.login, not reviewed_user
-                                    last_cmd = mock_run_cmd.call_args_list[-1]
-                                    hub_command = last_cmd.kwargs.get(
-                                        "command", last_cmd.args[0] if last_cmd.args else ""
-                                    )
-                                    assert "-a 'pr-author-login'" in hub_command or "-a pr-author-login" in hub_command
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="")
+            mocks.set_progress.assert_called_once()
+            mocks.set_success.assert_called_once()
+            mocks.comment.assert_called_once()
+            assert mocks.to_thread.call_count == 2
+            last_cmd = mocks.run_cmd.call_args_list[-1]
+            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "-a 'pr-author-login'" in hub_command or "-a pr-author-login" in hub_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_by_label_requested_by_format(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test cherry_pick by_label produces correct requested-by format in hub command."""
-        runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = True
         mock_pull_request.user = Mock()
         mock_pull_request.user.login = "pr-author-login"
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
-                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
-                        mock_checkout.return_value = AsyncMock()
-                        mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(True, "/tmp/worktree-path", "", "")
-                        )
-                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        with patch(
-                            "webhook_server.libs.handlers.runner_handler.run_command",
-                            new=AsyncMock(return_value=(True, "success", "")),
-                        ) as mock_run_cmd:
-                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                with patch(
-                                    "asyncio.to_thread",
-                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
-                                ) as mock_to_thread:
-                                    await runner_handler.cherry_pick(
-                                        mock_pull_request, "main", reviewed_user="label-requester", by_label=True
-                                    )
-                                    mock_set_progress.assert_called_once()
-                                    mock_set_success.assert_called_once()
-                                    mock_comment.assert_called_once()
-                                    # Verify the hub command's last -m contains the by_label format
-                                    last_cmd = mock_run_cmd.call_args_list[-1]
-                                    hub_command = last_cmd.kwargs.get(
-                                        "command", last_cmd.args[0] if last_cmd.args else ""
-                                    )
-                                    assert "requested-by by label-requester with target-branch label" in hub_command
-                                    assert "-a 'pr-author-login'" in hub_command or "-a pr-author-login" in hub_command
-                                    assert mock_to_thread.call_count == 2
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="label-requester", by_label=True)
+            mocks.set_progress.assert_called_once()
+            mocks.set_success.assert_called_once()
+            mocks.comment.assert_called_once()
+            last_cmd = mocks.run_cmd.call_args_list[-1]
+            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "requested-by by label-requester with target-branch label" in hub_command
+            assert "-a 'label-requester'" in hub_command or "-a label-requester" in hub_command
+            # Only 1 call (create_issue_comment) - user.login skipped via by_label optimization
+            assert mocks.to_thread.call_count == 1
 
     @pytest.mark.asyncio
     async def test_cherry_pick_by_label_empty_reviewed_user_requested_by_format(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test cherry_pick by_label with empty reviewed_user produces clean requested-by string."""
-        runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = False
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
-                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
-                        mock_checkout.return_value = AsyncMock()
-                        mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(True, "/tmp/worktree-path", "", "")
-                        )
-                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        with patch(
-                            "webhook_server.libs.handlers.runner_handler.run_command",
-                            new=AsyncMock(return_value=(True, "success", "")),
-                        ) as mock_run_cmd:
-                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                with patch(
-                                    "asyncio.to_thread",
-                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
-                                ):
-                                    await runner_handler.cherry_pick(
-                                        mock_pull_request, "main", reviewed_user="", by_label=True
-                                    )
-                                    mock_set_progress.assert_called_once()
-                                    mock_set_success.assert_called_once()
-                                    mock_comment.assert_called_once()
-                                    # Verify the hub command contains clean requested-by string
-                                    last_cmd = mock_run_cmd.call_args_list[-1]
-                                    hub_command = last_cmd.kwargs.get(
-                                        "command", last_cmd.args[0] if last_cmd.args else ""
-                                    )
-                                    # Should contain "requested-by by target-branch label" (no double space)
-                                    assert "requested-by by target-branch label" in hub_command
-                                    # The double-space bug: "by  with" should NOT appear
-                                    assert "by  with" not in hub_command
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="", by_label=True)
+            mocks.set_progress.assert_called_once()
+            mocks.set_success.assert_called_once()
+            mocks.comment.assert_called_once()
+            last_cmd = mocks.run_cmd.call_args_list[-1]
+            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "requested-by by target-branch label" in hub_command
+            assert "by  with" not in hub_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_disabled_no_assignee(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test cherry_pick does not include -a flag when cherry_pick_assign_to_pr_author is False."""
-        runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = False
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
-                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
-                        mock_checkout.return_value = AsyncMock()
-                        mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(True, "/tmp/worktree-path", "", "")
-                        )
-                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        with patch(
-                            "webhook_server.libs.handlers.runner_handler.run_command",
-                            new=AsyncMock(return_value=(True, "success", "")),
-                        ) as mock_run_cmd:
-                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                await runner_handler.cherry_pick(
-                                    mock_pull_request, "main", reviewed_user="cherry-requester"
-                                )
-                                mock_set_progress.assert_called_once()
-                                mock_set_success.assert_called_once()
-                                mock_comment.assert_called_once()
-                                # Verify the hub pull-request command does NOT contain -a flag
-                                last_cmd = mock_run_cmd.call_args_list[-1]
-                                hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-                                assert " -a " not in hub_command
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="cherry-requester")
+            mocks.set_progress.assert_called_once()
+            mocks.set_success.assert_called_once()
+            mocks.comment.assert_called_once()
+            last_cmd = mocks.run_cmd.call_args_list[-1]
+            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert " -a " not in hub_command
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_branch_already_checked_out(
