@@ -1372,6 +1372,29 @@ class TestPullRequestHandler:
                 await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
 
     @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_repo_not_found(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that null repository in response raises ValueError (fail-fast)."""
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
+
+        mock_response_data = {"data": {"repository": None}}
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="Repository test-org/test-repo not found or inaccessible"):
+                await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+    @pytest.mark.asyncio
     async def test_check_if_pr_approved_no_labels(self, pull_request_handler: PullRequestHandler) -> None:
         with (
             patch.object(

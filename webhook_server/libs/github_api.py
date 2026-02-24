@@ -737,7 +737,9 @@ class GithubWebhook:
 
         # Read required_conversation_resolution from branch-protection config
         _bp_key = "required_conversation_resolution"
-        _bp_default: bool = bool(DEFAULT_BRANCH_PROTECTION[_bp_key])
+        _bp_raw_default = DEFAULT_BRANCH_PROTECTION[_bp_key]
+        assert isinstance(_bp_raw_default, bool), f"DEFAULT_BRANCH_PROTECTION[{_bp_key!r}] must be bool"
+        _bp_default: bool = _bp_raw_default
         _global_bp: dict[str, Any] = self.config.get_value(value="branch-protection", return_on_none={})
         _global_bp = _global_bp if isinstance(_global_bp, dict) else {}
         _repo_bp: dict[str, Any] = self.config.get_value(
@@ -745,13 +747,17 @@ class GithubWebhook:
         )
         _repo_bp = _repo_bp if isinstance(_repo_bp, dict) else {}
         # Repository-level overrides global; default from DEFAULT_BRANCH_PROTECTION
-        self.required_conversation_resolution: bool
-        if _bp_key in _repo_bp:
-            self.required_conversation_resolution = bool(_repo_bp[_bp_key])
-        elif _bp_key in _global_bp:
-            self.required_conversation_resolution = bool(_global_bp[_bp_key])
-        else:
-            self.required_conversation_resolution = _bp_default
+        self.required_conversation_resolution: bool = _bp_default
+        for _bp_scope, _bp_dict in [("global", _global_bp), ("repository", _repo_bp)]:
+            if _bp_key in _bp_dict:
+                _bp_val = _bp_dict[_bp_key]
+                if isinstance(_bp_val, bool):
+                    self.required_conversation_resolution = _bp_val
+                else:
+                    self.logger.warning(
+                        f"{self.log_prefix} Invalid branch-protection.{_bp_key} value in {_bp_scope} config: "
+                        f"{_bp_val!r} (expected bool), using default: {_bp_default}"
+                    )
 
         # Load labels configuration
         _global_labels = self.config.get_value("labels", return_on_none={})
@@ -930,7 +936,11 @@ class GithubWebhook:
                 if "errors" in data:
                     raise ValueError(f"GraphQL errors: {data['errors']}")
 
-                pr_data = data["data"]["repository"]["pullRequest"]
+                repo_data = data["data"]["repository"]
+                if repo_data is None:
+                    raise ValueError(f"Repository {self.repository_full_name} not found or inaccessible")
+
+                pr_data = repo_data["pullRequest"]
                 if pr_data is None:
                     raise ValueError(f"Pull request #{pr_number} not found in {self.repository_full_name}")
 
