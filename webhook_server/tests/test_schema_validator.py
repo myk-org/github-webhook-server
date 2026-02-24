@@ -73,7 +73,6 @@ class ConfigValidator:
             "disable-ssl-warnings",
             "mask-sensitive-data",
             "auto-verify-cherry-picked-prs",
-            "cherry-pick-assign-to-pr-author",
         ]
         for field in boolean_fields:
             if field in config and not isinstance(config[field], bool):
@@ -172,7 +171,6 @@ class ConfigValidator:
             "pre-commit",
             "mask-sensitive-data",
             "auto-verify-cherry-picked-prs",
-            "cherry-pick-assign-to-pr-author",
         ]
         for field in boolean_fields:
             if field in repo_config and not isinstance(repo_config[field], bool):

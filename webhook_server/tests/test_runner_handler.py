@@ -55,7 +55,6 @@ class TestRunnerHandler:
         mock_webhook.container_command_args = []
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
-        mock_webhook.cherry_pick_assign_to_pr_author = False
         return mock_webhook
 
     @pytest.fixture
@@ -80,6 +79,8 @@ class TestRunnerHandler:
         mock_pr.head.ref = "feature-branch"
         mock_pr.merge_commit_sha = "abc123"
         mock_pr.html_url = "https://github.com/test/repo/pull/123"
+        mock_pr.user = Mock()
+        mock_pr.user.login = "test-pr-author"
         mock_pr.create_issue_comment = Mock()
         return mock_pr
 
@@ -659,7 +660,9 @@ class TestRunnerHandler:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
+                await runner_handler.cherry_pick(
+                    mock_pull_request, "non-existent-branch", reviewed_user="test-requester"
+                )
                 mock_comment.assert_called_once()
 
     @pytest.mark.asyncio
@@ -675,7 +678,7 @@ class TestRunnerHandler:
                             return_value=(False, "/tmp/worktree-path", "out", "err")
                         )
                         mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        await runner_handler.cherry_pick(mock_pull_request, "main")
+                        await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="test-requester")
                         mock_set_progress.assert_called_once()
                         assert mock_set_failure.call_count >= 1
 
@@ -696,7 +699,7 @@ class TestRunnerHandler:
                             "webhook_server.utils.helpers.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
                         ):
-                            await runner_handler.cherry_pick(mock_pull_request, "main")
+                            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="test-requester")
                             mock_set_progress.assert_called_once()
                             mock_set_failure.assert_called_once()
 
@@ -718,7 +721,9 @@ class TestRunnerHandler:
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                await runner_handler.cherry_pick(mock_pull_request, "main")
+                                await runner_handler.cherry_pick(
+                                    mock_pull_request, "main", reviewed_user="test-requester"
+                                )
                                 mock_set_progress.assert_called_once()
                                 mock_set_success.assert_called_once()
                                 mock_comment.assert_called_once()
@@ -925,7 +930,9 @@ class TestRunnerHandler:
                         # First command fails, triggers manual cherry-pick
                         with patch("webhook_server.utils.helpers.run_command", side_effect=[(False, "fail", "err")]):
                             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                await runner_handler.cherry_pick(mock_pull_request, "main")
+                                await runner_handler.cherry_pick(
+                                    mock_pull_request, "main", reviewed_user="test-requester"
+                                )
                                 mock_set_progress.assert_called_once()
                                 mock_set_failure.assert_called_once()
                                 mock_comment.assert_called_once()
@@ -935,12 +942,9 @@ class TestRunnerHandler:
     async def cherry_pick_setup(
         runner_handler: RunnerHandler,
         mock_pull_request: Mock,
-        *,
-        assign_to_author: bool = False,
     ):
         """Common setup for cherry-pick tests."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
-        runner_handler.github_webhook.cherry_pick_assign_to_pr_author = assign_to_author
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
@@ -968,50 +972,26 @@ class TestRunnerHandler:
                                     )
 
     @pytest.mark.asyncio
-    async def test_cherry_pick_assigns_to_pr_author(
+    async def test_cherry_pick_assigns_reviewed_user(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test cherry_pick assigns to the original PR author, not the requester."""
-        mock_pull_request.user = Mock()
-        mock_pull_request.user.login = "original-pr-author"
-        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
+        """Test cherry_pick assigns to reviewed_user (the requester or PR author passed by caller)."""
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
             await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="cherry-requester")
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
-            assert mocks.to_thread.call_count == 2
+            assert mocks.to_thread.call_count == 1
             last_cmd = mocks.run_cmd.call_args_list[-1]
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "-a 'original-pr-author'" in hub_command or "-a original-pr-author" in hub_command
-
-    @pytest.mark.asyncio
-    async def test_cherry_pick_always_assigns_to_pr_author_when_flag_set(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test cherry_pick always uses pull_request.user.login as assignee.
-
-        When cherry_pick_assign_to_pr_author is True, regardless of reviewed_user.
-        """
-        mock_pull_request.user = Mock()
-        mock_pull_request.user.login = "pr-author-login"
-        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="")
-            mocks.set_progress.assert_called_once()
-            mocks.set_success.assert_called_once()
-            mocks.comment.assert_called_once()
-            assert mocks.to_thread.call_count == 2
-            last_cmd = mocks.run_cmd.call_args_list[-1]
-            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "-a 'pr-author-login'" in hub_command or "-a pr-author-login" in hub_command
+            assert "-a 'cherry-requester'" in hub_command or "-a cherry-requester" in hub_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_by_label_requested_by_format(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test cherry_pick by_label produces correct requested-by format in hub command."""
-        mock_pull_request.user = Mock()
-        mock_pull_request.user.login = "pr-author-login"
-        async with self.cherry_pick_setup(runner_handler, mock_pull_request, assign_to_author=True) as mocks:
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
             await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="label-requester", by_label=True)
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
@@ -1020,37 +1000,8 @@ class TestRunnerHandler:
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
             assert "requested-by by label-requester with target-branch label" in hub_command
             assert "-a 'label-requester'" in hub_command or "-a label-requester" in hub_command
-            # Only 1 call (create_issue_comment) - user.login skipped via by_label optimization
+            # Only 1 call (create_issue_comment) - no user.login API call needed
             assert mocks.to_thread.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_cherry_pick_by_label_empty_reviewed_user_requested_by_format(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test cherry_pick by_label with empty reviewed_user produces clean requested-by string."""
-        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="", by_label=True)
-            mocks.set_progress.assert_called_once()
-            mocks.set_success.assert_called_once()
-            mocks.comment.assert_called_once()
-            last_cmd = mocks.run_cmd.call_args_list[-1]
-            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "requested-by by target-branch label" in hub_command
-            assert "by  with" not in hub_command
-
-    @pytest.mark.asyncio
-    async def test_cherry_pick_disabled_no_assignee(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test cherry_pick does not include -a flag when cherry_pick_assign_to_pr_author is False."""
-        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="cherry-requester")
-            mocks.set_progress.assert_called_once()
-            mocks.set_success.assert_called_once()
-            mocks.comment.assert_called_once()
-            last_cmd = mocks.run_cmd.call_args_list[-1]
-            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert " -a " not in hub_command
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_branch_already_checked_out(

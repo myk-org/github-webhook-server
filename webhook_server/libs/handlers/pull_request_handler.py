@@ -22,6 +22,7 @@ from webhook_server.utils.constants import (
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
     CHERRY_PICKED_LABEL,
+    COMMAND_CHERRY_PICK_STR,
     COMMENTED_BY_LABEL_PREFIX,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
@@ -128,12 +129,30 @@ class PullRequestHandler:
                 labels = await asyncio.to_thread(lambda: list(pull_request.labels))
                 cherry_pick_labels = [_label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)]
                 if cherry_pick_labels:
+                    comments = await asyncio.to_thread(lambda: list(pull_request.get_issue_comments()))
                     pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+
                     for _label in cherry_pick_labels:
+                        target_branch = _label.name.replace(CHERRY_PICK_LABEL_PREFIX, "")
+
+                        # Search comments (newest first) for /cherry-pick command matching this target branch
+                        command_prefix = f"/{COMMAND_CHERRY_PICK_STR}"
+                        requester = None
+                        for comment in reversed(comments):
+                            for line in comment.body.strip().splitlines():
+                                stripped = line.strip()
+                                if stripped.startswith(command_prefix):
+                                    args = stripped[len(command_prefix) :].strip()
+                                    if args != "cancel" and target_branch in args.split():
+                                        requester = comment.user.login
+                                        break
+                            if requester is not None:
+                                break
+
                         await self.runner_handler.cherry_pick(
                             pull_request=pull_request,
-                            target_branch=_label.name.replace(CHERRY_PICK_LABEL_PREFIX, ""),
-                            reviewed_user=pr_author,
+                            target_branch=target_branch,
+                            reviewed_user=requester or pr_author,
                             by_label=True,
                         )
 

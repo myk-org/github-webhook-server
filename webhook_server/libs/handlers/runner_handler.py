@@ -558,14 +558,7 @@ Your team can configure additional types in the repository settings.
             requested_by = reviewed_user or "unknown requester"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
-        if self.github_webhook.cherry_pick_assign_to_pr_author:
-            if by_label and reviewed_user:
-                pr_author = reviewed_user
-            else:
-                pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
-            assignee_flag = f" -a {shlex.quote(pr_author)}"
-        else:
-            assignee_flag = ""
+        assignee_flag = f" -a {shlex.quote(reviewed_user)}"
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
