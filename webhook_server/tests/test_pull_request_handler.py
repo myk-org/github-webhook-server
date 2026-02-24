@@ -10,6 +10,7 @@ from github.PullRequest import PullRequest
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     CAN_BE_MERGED_STR,
@@ -80,7 +81,7 @@ class TestPullRequestHandler:
         mock_webhook.pre_commit = True
         mock_webhook.python_module_install = False
         mock_webhook.pypi = False
-        mock_webhook.token = "test-token"  # pragma: allowlist secret
+        mock_webhook.token = TEST_GITHUB_TOKEN
         mock_webhook.auto_verify_cherry_picked_prs = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
@@ -807,7 +808,7 @@ class TestPullRequestHandler:
         """Test that get_unresolved_review_threads is NOT called when feature is disabled."""
         with (
             patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(mock_pull_request, "mergeable", new=True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
@@ -816,8 +817,8 @@ class TestPullRequestHandler:
                 "owners_data_for_changed_files",
                 _owners_data_coroutine(),
             ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", False),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=False),
             patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
@@ -855,7 +856,7 @@ class TestPullRequestHandler:
         """Test that PR can be merged when conversation resolution is enabled but no unresolved threads."""
         with (
             patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(mock_pull_request, "mergeable", new=True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
@@ -864,8 +865,8 @@ class TestPullRequestHandler:
                 "owners_data_for_changed_files",
                 _owners_data_coroutine(),
             ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
             patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
@@ -917,7 +918,7 @@ class TestPullRequestHandler:
         ]
         with (
             patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(mock_pull_request, "mergeable", new=True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
@@ -926,8 +927,8 @@ class TestPullRequestHandler:
                 "owners_data_for_changed_files",
                 _owners_data_coroutine(),
             ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
             patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
@@ -981,7 +982,7 @@ class TestPullRequestHandler:
         ]
         with (
             patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(mock_pull_request, "mergeable", new=True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
@@ -990,8 +991,8 @@ class TestPullRequestHandler:
                 "owners_data_for_changed_files",
                 _owners_data_coroutine(),
             ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
             patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
@@ -1092,7 +1093,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
             result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
@@ -1163,7 +1164,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
             result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
@@ -1241,7 +1242,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
             result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
@@ -1290,7 +1291,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
             result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
@@ -1308,7 +1309,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         mock_response = Mock()
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -1331,7 +1332,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         mock_response_data = {"errors": [{"message": "Field 'reviewThreads' doesn't exist on type 'PullRequest'"}]}
         mock_response = Mock()
@@ -1354,7 +1355,7 @@ class TestPullRequestHandler:
             GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
         )
         pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
-        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+        pull_request_handler.github_webhook.token = TEST_GITHUB_TOKEN
 
         mock_response_data = {"data": {"repository": {"pullRequest": None}}}
         mock_response = Mock()

@@ -43,6 +43,7 @@ from webhook_server.utils.constants import (
 )
 from webhook_server.utils.context import WebhookContext, get_context
 from webhook_server.utils.github_repository_settings import (
+    DEFAULT_BRANCH_PROTECTION,
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
@@ -735,20 +736,22 @@ class GithubWebhook:
         )
 
         # Read required_conversation_resolution from branch-protection config
+        _bp_key = "required_conversation_resolution"
+        _bp_default: bool = bool(DEFAULT_BRANCH_PROTECTION[_bp_key])
         _global_bp: dict[str, Any] = self.config.get_value(value="branch-protection", return_on_none={})
         _global_bp = _global_bp if isinstance(_global_bp, dict) else {}
         _repo_bp: dict[str, Any] = self.config.get_value(
             value="branch-protection", return_on_none={}, extra_dict=repository_config
         )
         _repo_bp = _repo_bp if isinstance(_repo_bp, dict) else {}
-        # Repository-level overrides global; default is False
+        # Repository-level overrides global; default from DEFAULT_BRANCH_PROTECTION
         self.required_conversation_resolution: bool
-        if "required_conversation_resolution" in _repo_bp:
-            self.required_conversation_resolution = _repo_bp["required_conversation_resolution"]
-        elif "required_conversation_resolution" in _global_bp:
-            self.required_conversation_resolution = _global_bp["required_conversation_resolution"]
+        if _bp_key in _repo_bp:
+            self.required_conversation_resolution = bool(_repo_bp[_bp_key])
+        elif _bp_key in _global_bp:
+            self.required_conversation_resolution = bool(_global_bp[_bp_key])
         else:
-            self.required_conversation_resolution = False
+            self.required_conversation_resolution = _bp_default
 
         # Load labels configuration
         _global_labels = self.config.get_value("labels", return_on_none={})
