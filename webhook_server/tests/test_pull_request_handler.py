@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 from github import GithubException
 from github.PullRequest import PullRequest
@@ -56,6 +57,7 @@ class TestPullRequestHandler:
         }
         mock_webhook.logger = MagicMock()
         mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository_full_name = "test-org/test-repo"
         mock_webhook.repository = Mock()
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.parent_committer = "test-user"
@@ -84,6 +86,7 @@ class TestPullRequestHandler:
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None  # Default: all labels enabled
         mock_webhook.custom_check_runs = []
+        mock_webhook.required_conversation_resolution = False
         return mock_webhook
 
     @pytest.fixture
@@ -796,6 +799,576 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+
+    @pytest.mark.asyncio
+    async def test_can_be_merged_conversation_resolution_disabled(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that get_unresolved_review_threads is NOT called when feature is disabled."""
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
+            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
+            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", False),
+            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "last_commit",
+                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "get_unresolved_review_threads",
+                new=AsyncMock(return_value=[]),
+            ) as mock_get_threads,
+        ):
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mock_get_threads.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_can_be_merged_no_unresolved_threads(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that PR can be merged when conversation resolution is enabled but no unresolved threads."""
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
+            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
+            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "last_commit",
+                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "get_unresolved_review_threads",
+                new=AsyncMock(return_value=[]),
+            ) as mock_get_threads,
+        ):
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mock_get_threads.assert_awaited_once_with(pr_number=mock_pull_request.number)
+
+    @pytest.mark.asyncio
+    async def test_can_be_merged_unresolved_threads_present(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that PR cannot be merged when unresolved review threads exist."""
+        unresolved_threads = [
+            {
+                "path": "src/main.py",
+                "line": 42,
+                "url": "https://github.com/test-org/test-repo/pull/123#discussion_r100",
+                "isOutdated": False,
+            },
+            {
+                "path": "src/utils.py",
+                "line": 10,
+                "url": "https://github.com/test-org/test-repo/pull/123#discussion_r101",
+                "isOutdated": False,
+            },
+        ]
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
+            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
+            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "last_commit",
+                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "get_unresolved_review_threads",
+                new=AsyncMock(return_value=unresolved_threads),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+            ) as mock_set_check_failure,
+        ):
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mock_set_check_failure.assert_awaited_once()
+            failure_output = mock_set_check_failure.call_args[1]["output"]["text"]
+            assert "2 unresolved review conversation(s)" in failure_output
+            assert "src/main.py:42" in failure_output
+            assert "https://github.com/test-org/test-repo/pull/123#discussion_r100" in failure_output
+
+    @pytest.mark.asyncio
+    async def test_can_be_merged_multiple_unresolved_threads(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that all unresolved threads are listed without truncation."""
+        unresolved_threads = [
+            {
+                "path": f"src/file{i}.py",
+                "line": i * 10,
+                "url": f"https://github.com/test-org/test-repo/pull/123#discussion_r{i}",
+                "isOutdated": False,
+            }
+            for i in range(7)
+        ]
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
+            patch.object(mock_pull_request, "mergeable", True),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
+            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", True),
+            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "last_commit",
+                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "get_unresolved_review_threads",
+                new=AsyncMock(return_value=unresolved_threads),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+            ) as mock_set_check_failure,
+        ):
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mock_set_check_failure.assert_awaited_once()
+            failure_output = mock_set_check_failure.call_args[1]["output"]["text"]
+            assert "7 unresolved review conversation(s)" in failure_output
+            # All 7 threads should be listed (no truncation)
+            for i in range(7):
+                assert f"src/file{i}.py:{i * 10}" in failure_output
+                assert f"discussion_r{i}" in failure_output
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_filters_resolved(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that resolved threads are filtered out."""
+        mock_response_data = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r1", "path": "file1.py", "line": 10}
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": True,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r2", "path": "file2.py", "line": 20}
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r3", "path": "file3.py", "line": 30}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+        # Use Mock (not AsyncMock) for response since httpx response.json() and
+        # response.raise_for_status() are synchronous methods.
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        # Bind the real method to the mock object
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+        assert len(result) == 2
+        assert result[0]["path"] == "file1.py"
+        assert result[0]["url"] == "https://github.com/test/pull/1#r1"
+        assert result[0]["isOutdated"] is False
+        assert result[1]["path"] == "file3.py"
+        assert result[1]["url"] == "https://github.com/test/pull/1#r3"
+        assert result[1]["isOutdated"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_filters_outdated(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that outdated unresolved threads are included with isOutdated flag."""
+        mock_response_data = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r1", "path": "file1.py", "line": 10}
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": True,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r2", "path": "file2.py", "line": 20}
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r3", "path": "file3.py", "line": 30}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+        assert len(result) == 3
+        assert result[0]["path"] == "file1.py"
+        assert result[0]["isOutdated"] is False
+        assert result[1]["path"] == "file2.py"
+        assert result[1]["isOutdated"] is True
+        assert result[2]["path"] == "file3.py"
+        assert result[2]["isOutdated"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_pagination(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that pagination fetches threads across multiple pages."""
+        page1_data = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": True, "endCursor": "cursor_abc"},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r1", "path": "page1.py", "line": 1}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+        page2_data = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {"url": "https://github.com/test/pull/1#r2", "path": "page2.py", "line": 2}
+                                        ]
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+
+        mock_response1 = Mock()
+        mock_response1.json.return_value = page1_data
+        mock_response1.raise_for_status = Mock()
+
+        mock_response2 = Mock()
+        mock_response2.json.return_value = page2_data
+        mock_response2.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = [mock_response1, mock_response2]
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+        assert len(result) == 2
+        assert result[0]["path"] == "page1.py"
+        assert result[0]["isOutdated"] is False
+        assert result[1]["path"] == "page2.py"
+        assert result[1]["isOutdated"] is False
+        assert mock_client.post.call_count == 2
+        # Verify second call used the cursor from first page
+        second_call_json = mock_client.post.call_args_list[1][1]["json"]
+        assert second_call_json["variables"]["cursor"] == "cursor_abc"
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_empty_comments(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that threads with empty comments arrays return None fields."""
+        mock_response_data = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {"nodes": []},
+                                },
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            result = await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+        assert len(result) == 1
+        assert result[0]["path"] is None
+        assert result[0]["line"] is None
+        assert result[0]["url"] is None
+        assert result[0]["isOutdated"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_api_error(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that HTTP errors propagate (fail-fast)."""
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        mock_response = Mock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "403 Forbidden", request=Mock(), response=Mock(status_code=403)
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(httpx.HTTPStatusError):
+                await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_graphql_errors(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that GraphQL errors raise ValueError (fail-fast)."""
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        mock_response_data = {"errors": [{"message": "Field 'reviewThreads' doesn't exist on type 'PullRequest'"}]}
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="GraphQL errors"):
+                await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
+
+    @pytest.mark.asyncio
+    async def test_get_unresolved_review_threads_pr_not_found(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that missing PR in response raises ValueError (fail-fast)."""
+        pull_request_handler.github_webhook.get_unresolved_review_threads = (
+            GithubWebhook.get_unresolved_review_threads.__get__(pull_request_handler.github_webhook)
+        )
+        pull_request_handler.github_webhook.repository_full_name = "test-org/test-repo"
+        pull_request_handler.github_webhook.token = "test-token"  # pragma: allowlist secret
+
+        mock_response_data = {"data": {"repository": {"pullRequest": None}}}
+        mock_response = Mock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("webhook_server.libs.github_api.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="Pull request #123 not found"):
+                await pull_request_handler.github_webhook.get_unresolved_review_threads(pr_number=123)
 
     @pytest.mark.asyncio
     async def test_check_if_pr_approved_no_labels(self, pull_request_handler: PullRequestHandler) -> None:
