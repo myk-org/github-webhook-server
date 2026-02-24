@@ -127,8 +127,9 @@ class PullRequestHandler:
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 labels = await asyncio.to_thread(lambda: list(pull_request.labels))
-                cherry_pick_labels = [_label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)]
-                if cherry_pick_labels:
+                if cherry_pick_labels := [
+                    _label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)
+                ]:
                     comments = await asyncio.to_thread(lambda: list(pull_request.get_issue_comments()))
                     pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
 
