@@ -545,20 +545,19 @@ Your team can configure additional types in the repository settings.
             pull_request: The merged pull request to cherry-pick.
             target_branch: Branch to cherry-pick into.
             reviewed_user: The user who requested the cherry-pick via comment command,
-                or the PR author's login when triggered by label.
+                or the PR author's login when triggered by label. Used for attribution only.
             by_label: True when cherry-pick was triggered by a target-branch label
                 on PR merge, False when triggered by a comment command.
         """
         if by_label:
-            if reviewed_user:
-                requested_by = f"by {reviewed_user} with target-branch label"
-            else:
-                requested_by = "by target-branch label"
+            requested_by = f"by {reviewed_user} with target-branch label" if reviewed_user else "by target-branch label"
         else:
             requested_by = reviewed_user or "unknown requester"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
-        assignee_flag = f" -a {shlex.quote(reviewed_user)}"
+        pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+        assignee_flag = f" -a {shlex.quote(pr_author)}"
+        self.logger.debug(f"{self.log_prefix} Cherry-pick PR assignee: {pr_author}")
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
