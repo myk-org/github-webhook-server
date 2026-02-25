@@ -760,7 +760,7 @@ class GithubWebhook:
                     _log_prefix = getattr(self, "log_prefix", "")
                     self.logger.warning(
                         f"{_log_prefix} Invalid branch-protection.{_bp_key} value in {_bp_scope} config: "
-                        f"{_bp_val!r} (expected bool), using default: {_bp_default}"
+                        f"{_bp_val!r} (expected bool), keeping current value: {self.required_conversation_resolution}"
                     )
 
         # Load labels configuration
@@ -968,10 +968,10 @@ class GithubWebhook:
 
                 cursor = page_info["endCursor"]
                 if not cursor:
-                    self.logger.warning(
-                        f"{self.log_prefix} GitHub API returned hasNextPage=True but null endCursor for PR #{pr_number}"
+                    raise ValueError(
+                        f"GitHub GraphQL pagination invariant broken for PR #{pr_number}: "
+                        "hasNextPage=True with null endCursor"
                     )
-                    break
 
         return unresolved_threads
 
