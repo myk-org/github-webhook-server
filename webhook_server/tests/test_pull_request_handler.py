@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -801,24 +803,44 @@ class TestPullRequestHandler:
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
 
-    @pytest.mark.asyncio
-    async def test_can_be_merged_conversation_resolution_disabled(
-        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test that get_unresolved_review_threads is NOT called when feature is disabled."""
+    @staticmethod
+    @contextmanager
+    def _can_be_merged_patch_context(
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        *,
+        required_conversation_resolution: bool,
+        unresolved_threads: list[dict[str, Any]] | None = None,
+    ) -> Generator[dict[str, AsyncMock]]:
+        """Shared patch context for check_if_can_be_merged tests.
+
+        Args:
+            pull_request_handler: The handler under test.
+            mock_pull_request: Mock PR object.
+            required_conversation_resolution: Whether the feature is enabled.
+            unresolved_threads: Return value for get_unresolved_review_threads.
+        """
+        if unresolved_threads is None:
+            unresolved_threads = []
+
         with (
             patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
             patch.object(mock_pull_request, "mergeable", new=True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
                 _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=False),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "required_conversation_resolution",
+                new=required_conversation_resolution,
+            ),
             patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
@@ -842,60 +864,42 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.github_webhook,
                 "get_unresolved_review_threads",
-                new=AsyncMock(return_value=[]),
+                new=AsyncMock(return_value=unresolved_threads),
             ) as mock_get_threads,
+            patch.object(
+                pull_request_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+            ) as mock_set_check_failure,
         ):
+            yield {
+                "add_label": mock_add_label,
+                "remove_label": mock_remove_label,
+                "get_threads": mock_get_threads,
+                "set_check_failure": mock_set_check_failure,
+            }
+
+    @pytest.mark.asyncio
+    async def test_can_be_merged_conversation_resolution_disabled(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that get_unresolved_review_threads is NOT called when feature is disabled."""
+        with self._can_be_merged_patch_context(
+            pull_request_handler, mock_pull_request, required_conversation_resolution=False
+        ) as mocks:
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
-            mock_get_threads.assert_not_awaited()
+            mocks["add_label"].assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mocks["get_threads"].assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_can_be_merged_no_unresolved_threads(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that PR can be merged when conversation resolution is enabled but no unresolved threads."""
-        with (
-            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", new=True),
-            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
-            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
-            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
-            patch.object(
-                pull_request_handler.owners_file_handler,
-                "owners_data_for_changed_files",
-                _owners_data_coroutine(),
-            ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
-            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_in_progress",
-                new=AsyncMock(return_value=("", [])),
-            ),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_failed_or_no_status",
-                new=AsyncMock(return_value=""),
-            ),
-            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
-            patch.object(
-                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "last_commit",
-                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "get_unresolved_review_threads",
-                new=AsyncMock(return_value=[]),
-            ) as mock_get_threads,
-        ):
+        with self._can_be_merged_patch_context(
+            pull_request_handler, mock_pull_request, required_conversation_resolution=True
+        ) as mocks:
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
-            mock_get_threads.assert_awaited_once_with(pr_number=mock_pull_request.number)
+            mocks["add_label"].assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mocks["get_threads"].assert_awaited_once_with(pr_number=mock_pull_request.number)
 
     @pytest.mark.asyncio
     async def test_can_be_merged_unresolved_threads_present(
@@ -916,52 +920,16 @@ class TestPullRequestHandler:
                 "isOutdated": False,
             },
         ]
-        with (
-            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", new=True),
-            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
-            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
-            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
-            patch.object(
-                pull_request_handler.owners_file_handler,
-                "owners_data_for_changed_files",
-                _owners_data_coroutine(),
-            ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
-            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_in_progress",
-                new=AsyncMock(return_value=("", [])),
-            ),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_failed_or_no_status",
-                new=AsyncMock(return_value=""),
-            ),
-            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
-            patch.object(
-                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "last_commit",
-                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "get_unresolved_review_threads",
-                new=AsyncMock(return_value=unresolved_threads),
-            ),
-            patch.object(
-                pull_request_handler.check_run_handler, "set_check_failure", new=AsyncMock()
-            ) as mock_set_check_failure,
-        ):
+        with self._can_be_merged_patch_context(
+            pull_request_handler,
+            mock_pull_request,
+            required_conversation_resolution=True,
+            unresolved_threads=unresolved_threads,
+        ) as mocks:
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
-            mock_set_check_failure.assert_awaited_once()
-            failure_output = mock_set_check_failure.call_args[1]["output"]["text"]
+            mocks["remove_label"].assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mocks["set_check_failure"].assert_awaited_once()
+            failure_output = mocks["set_check_failure"].call_args[1]["output"]["text"]
             assert "2 unresolved review conversation(s)" in failure_output
             assert "src/main.py:42" in failure_output
             assert "https://github.com/test-org/test-repo/pull/123#discussion_r100" in failure_output
@@ -980,54 +948,17 @@ class TestPullRequestHandler:
             }
             for i in range(7)
         ]
-        with (
-            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
-            patch.object(mock_pull_request, "mergeable", new=True),
-            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
-            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
-            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
-            patch.object(
-                pull_request_handler.owners_file_handler,
-                "owners_data_for_changed_files",
-                _owners_data_coroutine(),
-            ),
-            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", new=0),
-            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", new=True),
-            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_in_progress",
-                new=AsyncMock(return_value=("", [])),
-            ),
-            patch.object(
-                pull_request_handler.check_run_handler,
-                "required_check_failed_or_no_status",
-                new=AsyncMock(return_value=""),
-            ),
-            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
-            patch.object(
-                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "last_commit",
-                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
-            ),
-            patch.object(
-                pull_request_handler.github_webhook,
-                "get_unresolved_review_threads",
-                new=AsyncMock(return_value=unresolved_threads),
-            ),
-            patch.object(
-                pull_request_handler.check_run_handler, "set_check_failure", new=AsyncMock()
-            ) as mock_set_check_failure,
-        ):
+        with self._can_be_merged_patch_context(
+            pull_request_handler,
+            mock_pull_request,
+            required_conversation_resolution=True,
+            unresolved_threads=unresolved_threads,
+        ) as mocks:
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
-            mock_set_check_failure.assert_awaited_once()
-            failure_output = mock_set_check_failure.call_args[1]["output"]["text"]
+            mocks["remove_label"].assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mocks["set_check_failure"].assert_awaited_once()
+            failure_output = mocks["set_check_failure"].call_args[1]["output"]["text"]
             assert "7 unresolved review conversation(s)" in failure_output
-            # All 7 threads should be listed (no truncation)
             for i in range(7):
                 assert f"src/file{i}.py:{i * 10}" in failure_output
                 assert f"discussion_r{i}" in failure_output
