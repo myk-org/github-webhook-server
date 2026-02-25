@@ -738,7 +738,10 @@ class GithubWebhook:
         # Read required_conversation_resolution from branch-protection config
         _bp_key = "required_conversation_resolution"
         _bp_raw_default = DEFAULT_BRANCH_PROTECTION[_bp_key]
-        assert isinstance(_bp_raw_default, bool), f"DEFAULT_BRANCH_PROTECTION[{_bp_key!r}] must be bool"
+        if not isinstance(_bp_raw_default, bool):
+            raise TypeError(
+                f"DEFAULT_BRANCH_PROTECTION[{_bp_key!r}] must be bool, got {type(_bp_raw_default).__name__}"
+            )
         _bp_default: bool = _bp_raw_default
         _global_bp: dict[str, Any] = self.config.get_value(value="branch-protection", return_on_none={})
         _global_bp = _global_bp if isinstance(_global_bp, dict) else {}
@@ -754,8 +757,9 @@ class GithubWebhook:
                 if isinstance(_bp_val, bool):
                     self.required_conversation_resolution = _bp_val
                 else:
+                    _log_prefix = getattr(self, "log_prefix", "")
                     self.logger.warning(
-                        f"{self.log_prefix} Invalid branch-protection.{_bp_key} value in {_bp_scope} config: "
+                        f"{_log_prefix} Invalid branch-protection.{_bp_key} value in {_bp_scope} config: "
                         f"{_bp_val!r} (expected bool), using default: {_bp_default}"
                     )
 
