@@ -2322,22 +2322,13 @@ class TestPullRequestHandler:
     async def test_label_pull_request_by_merge_state_unknown(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test label_pull_request_by_merge_state when mergeable=None.
+        """Test label_pull_request_by_merge_state when mergeable=None after retries.
 
-        When mergeable=None (not yet computed), has_conflicts is False.
-        If Compare API shows behind_by > 0, needs-rebase label should be added.
+        When mergeable=None (not yet computed by GitHub) and TimeoutSampler
+        times out, the method should return without adding or removing any labels.
         """
         mock_pull_request.mergeable = None  # Not yet computed by GitHub
-        mock_pull_request.base.ref = "main"
-        mock_pull_request.head.user.login = "test-user"
-        mock_pull_request.head.ref = "feature-branch"
-
-        # Mock existing labels - PR has no labels currently
-        mock_pull_request.labels = []
-
-        # Mock Compare API response - behind by 5 commits
-        mock_compare_data = {"behind_by": 5, "status": "behind"}
-        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+        mock_pull_request.number = 123
 
         with (
             patch.object(
@@ -2345,11 +2336,48 @@ class TestPullRequestHandler:
                 "pull_request_labels_names",
                 new=AsyncMock(return_value=[]),
             ),
-            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.TimeoutSampler",
+                side_effect=TimeoutError("Timed out"),
+            ),
         ):
             await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
-            # Should add needs-rebase label since behind_by > 0 and no conflicts (mergeable=None means no conflict)
-            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+            # Neither add nor remove should be called when mergeable is None
+            mock_add_label.assert_not_awaited()
+            mock_remove_label.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_mergeable_none_with_existing_conflicts_label(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that has-conflicts label is NOT removed when mergeable is None after retries.
+
+        When mergeable=None (GitHub still computing) and has-conflicts label
+        already exists, the label must be preserved (not incorrectly removed)
+        even after TimeoutSampler times out.
+        """
+        mock_pull_request.mergeable = None  # Not yet computed by GitHub
+        mock_pull_request.number = 123
+
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.TimeoutSampler",
+                side_effect=TimeoutError("Timed out"),
+            ),
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+            # Neither add nor remove should be called when mergeable is None
+            mock_add_label.assert_not_awaited()
+            mock_remove_label.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_label_pull_request_by_merge_state_diverged(

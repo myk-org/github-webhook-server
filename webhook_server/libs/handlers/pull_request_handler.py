@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
+from timeout_sampler import TimeoutSampler
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -963,7 +964,36 @@ For more information, please refer to the project documentation or contact the m
             needs_rebase_label_exists = NEEDS_REBASE_LABEL_STR in current_labels
 
             # Step 1: Check for conflicts first
+            # GitHub may return mergeable=None while computing - poll until definitive
             mergeable = await asyncio.to_thread(lambda: pull_request.mergeable)
+
+            if mergeable is None:
+                self.logger.debug(
+                    f"{self.log_prefix} PR mergeable status is None, polling until GitHub computes status"
+                )
+                pr_number = pull_request.number
+                repository = self.github_webhook.repository
+
+                def _poll_mergeable() -> bool | None:
+                    for sample in TimeoutSampler(
+                        wait_timeout=15,
+                        sleep=3,
+                        func=lambda: repository.get_pull(pr_number).mergeable,
+                    ):
+                        if sample is not None:
+                            return sample
+                    return None  # pragma: no cover
+
+                try:
+                    mergeable = await asyncio.to_thread(_poll_mergeable)
+                except Exception:
+                    self.logger.warning(
+                        f"{self.log_prefix} PR mergeable status still None after retries, skipping label update"
+                    )
+                    if self.ctx:
+                        self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
+                    return
+
             has_conflicts = mergeable is False
 
             if has_conflicts:
