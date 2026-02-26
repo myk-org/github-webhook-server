@@ -1125,13 +1125,18 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_check_in_progress(name=CAN_BE_MERGED_STR)
-            # Fetch check runs and statuses in parallel (2 API calls → 1 concurrent operation)
-            _check_runs, _statuses = await asyncio.gather(
-                asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_check_runs())),
-                asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_statuses())),
-            )
-            last_commit_check_runs = _check_runs
-            last_commit_statuses = _statuses
+            # Fetch check runs, statuses, and optionally unresolved threads in parallel
+            _check_runs_task = asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_check_runs()))
+            _statuses_task = asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_statuses()))
+            _unresolved_threads: list[dict[str, Any]] = []
+
+            if self.github_webhook.required_conversation_resolution:
+                _threads_task = self.github_webhook.get_unresolved_review_threads(pr_number=pull_request.number)
+                last_commit_check_runs, last_commit_statuses, _unresolved_threads = await asyncio.gather(
+                    _check_runs_task, _statuses_task, _threads_task
+                )
+            else:
+                last_commit_check_runs, last_commit_statuses = await asyncio.gather(_check_runs_task, _statuses_task)
             self.logger.debug(
                 f"{self.log_prefix} Fetched {len(last_commit_check_runs)} check runs "
                 f"and {len(last_commit_statuses)} statuses"
@@ -1177,6 +1182,20 @@ For more information, please refer to the project documentation or contact the m
             if labels_failure_output:
                 failure_output += labels_failure_output
             self.logger.debug(f"{self.log_prefix} _check_labels_for_can_be_merged: {failure_output}")
+
+            if self.github_webhook.required_conversation_resolution and _unresolved_threads:
+                conversation_failure = f"PR has {len(_unresolved_threads)} unresolved review conversation(s):\n"
+                for thread in _unresolved_threads:
+                    path = thread.get("path", "unknown")
+                    line = thread.get("line", "N/A")
+                    url = thread.get("url")
+                    outdated = " (outdated)" if thread.get("isOutdated") else ""
+                    if url:
+                        conversation_failure += f"  - {path}:{line}{outdated} ({url})\n"
+                    else:
+                        conversation_failure += f"  - {path}:{line}{outdated}\n"
+                failure_output += conversation_failure
+            self.logger.debug(f"{self.log_prefix} unresolved_conversations: {failure_output}")
 
             pr_approvered_failure_output = await self._check_if_pr_approved(labels=_labels)
             if pr_approvered_failure_output:
