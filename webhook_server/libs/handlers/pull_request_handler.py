@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
-from timeout_sampler import TimeoutSampler
+from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -986,13 +986,28 @@ For more information, please refer to the project documentation or contact the m
 
                 try:
                     mergeable = await asyncio.to_thread(_poll_mergeable)
-                except Exception:
+                except asyncio.CancelledError:
+                    raise
+                except TimeoutExpiredError:
                     self.logger.warning(
                         f"{self.log_prefix} PR mergeable status still None after retries, skipping label update"
                     )
                     if self.ctx:
                         self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
                     return
+                except Exception as ex:
+                    self.logger.exception(f"{self.log_prefix} Unexpected error polling PR mergeable status")
+                    if self.ctx:
+                        self.ctx.fail_step("label_merge_state", exception=ex, traceback_str=traceback.format_exc())
+                    raise
+
+            if mergeable is None:
+                self.logger.warning(
+                    f"{self.log_prefix} PR mergeable status still None after polling, skipping label update"
+                )
+                if self.ctx:
+                    self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
+                return
 
             has_conflicts = mergeable is False
 
