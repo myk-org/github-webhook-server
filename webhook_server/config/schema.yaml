@@ -83,6 +83,10 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  cherry-pick-assign-to-pr-author:
+    type: boolean
+    description: Assign cherry-pick PRs to the original PR author (default true)
+    default: true
   allow-commands-on-draft-prs:
     type: array
     items:
@@ -340,6 +344,10 @@ properties:
         create-issue-for-new-pr:
           type: boolean
           description: Create a tracking issue for new pull requests
+          default: true
+        cherry-pick-assign-to-pr-author:
+          type: boolean
+          description: Assign cherry-pick PRs to the original PR author (overrides global setting)
           default: true
         allow-commands-on-draft-prs:
           type: array

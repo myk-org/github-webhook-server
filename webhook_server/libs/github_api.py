@@ -735,6 +735,17 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
+        # Load global cherry_pick_assign_to_pr_author setting as fallback
+        global_cherry_pick_assign: bool = self.config.get_value(
+            value="cherry-pick-assign-to-pr-author", return_on_none=True
+        )
+        # Repository-specific setting overrides global setting
+        self.cherry_pick_assign_to_pr_author: bool = self.config.get_value(
+            value="cherry-pick-assign-to-pr-author",
+            return_on_none=global_cherry_pick_assign,
+            extra_dict=repository_config,
+        )
+
         # Read required_conversation_resolution from branch-protection config
         _bp_key = "required_conversation_resolution"
         _bp_raw_default = DEFAULT_BRANCH_PROTECTION[_bp_key]

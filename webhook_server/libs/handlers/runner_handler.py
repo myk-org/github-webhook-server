@@ -537,27 +537,29 @@ Your team can configure additional types in the repository settings.
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
     async def cherry_pick(
-        self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "", *, by_label: bool = False
+        self,
+        pull_request: PullRequest,
+        target_branch: str,
+        reviewed_user: str = "",
+        *,
+        assign_to_pr_owner: bool = True,
     ) -> None:
         """Cherry-pick a merged PR to a target branch.
 
         Args:
             pull_request: The merged pull request to cherry-pick.
             target_branch: Branch to cherry-pick into.
-            reviewed_user: The user who requested the cherry-pick via comment command,
-                or the PR author's login when triggered by label. Used for attribution only.
-            by_label: True when cherry-pick was triggered by a target-branch label
-                on PR merge, False when triggered by a comment command.
+            reviewed_user: The user who triggered the cherry-pick. Used in PR description and logging.
+            assign_to_pr_owner: Assign the cherry-pick PR to the original PR owner. Default True.
         """
-        if by_label:
-            requested_by = f"by {reviewed_user} with target-branch label" if reviewed_user else "by target-branch label"
-        else:
-            requested_by = reviewed_user or "unknown requester"
-        self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
-
         pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
-        assignee_flag = f" -a {shlex.quote(pr_author)}"
-        self.logger.debug(f"{self.log_prefix} Cherry-pick PR assignee: {pr_author}")
+        self.logger.info(
+            f"{self.log_prefix} Cherry-pick to {target_branch} requested by {reviewed_user or pr_author}, "
+            f"PR owner: {pr_author}"
+        )
+
+        assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
+        self.logger.debug(f"{self.log_prefix} Cherry-pick PR assignee: {pr_author if assign_to_pr_owner else 'none'}")
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
@@ -571,6 +573,8 @@ Your team can configure additional types in the repository settings.
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
             github_token = self.github_webhook.token
+            source_branch = pull_request.base.ref
+            reviewed_user_or_author = reviewed_user or pr_author
 
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
@@ -584,8 +588,9 @@ Your team can configure additional types in the repository settings.
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
                     f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL}{assignee_flag} "
                     f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
-                    f"into {target_branch}' -m 'requested-by {requested_by}'\"",
+                    f"{commit_msg_striped}' -m 'Cherry-pick from {source_branch} "
+                    f"requested by {reviewed_user_or_author}, PR owner: {pr_author}' "
+                    f"-m '{pull_request_url}'\"",
                 ]
 
                 output: CheckRunOutput = {

@@ -985,18 +985,19 @@ class TestRunnerHandler:
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
 
     @pytest.mark.asyncio
-    async def test_cherry_pick_by_label_requested_by_format(
+    async def test_cherry_pick_requested_by_uses_pr_owner(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test cherry_pick by_label produces correct requested-by format in hub command."""
+        """Test cherry_pick PR description includes source branch, requester, and PR owner."""
         async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="label-requester", by_label=True)
+            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="label-requester")
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
             last_cmd = mocks.run_cmd.call_args_list[-1]
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "requested-by by label-requester with target-branch label" in hub_command
+            assert "Cherry-pick from main requested by label-requester, PR owner: test-pr-author" in hub_command
+            assert mock_pull_request.html_url in hub_command
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
             assert mocks.to_thread.call_count == 2
 

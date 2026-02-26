@@ -85,6 +85,7 @@ class TestPullRequestHandler:
         mock_webhook.pypi = False
         mock_webhook.token = TEST_GITHUB_TOKEN
         mock_webhook.auto_verify_cherry_picked_prs = True
+        mock_webhook.cherry_pick_assign_to_pr_author = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None  # Default: all labels enabled
@@ -275,20 +276,6 @@ class TestPullRequestHandler:
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.labels = [mock_label]
 
-        # Mock a comment from a different user requesting the cherry-pick
-        mock_request_comment = Mock()
-        mock_request_comment.body = "/cherry-pick branch1"
-        mock_request_comment.user = Mock()
-        mock_request_comment.user.login = "cherry-pick-requester"
-
-        # Cancel command (should be skipped - this is newer, found first in reversed order)
-        mock_cancel_comment = Mock()
-        mock_cancel_comment.body = "/cherry-pick cancel"
-        mock_cancel_comment.user = Mock()
-        mock_cancel_comment.user.login = "cancel-user"
-
-        mock_pull_request.get_issue_comments.return_value = [mock_request_comment, mock_cancel_comment]
-
         with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
             with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
                 with patch.object(
@@ -308,8 +295,7 @@ class TestPullRequestHandler:
                             mock_cherry_pick.assert_called_once_with(
                                 pull_request=mock_pull_request,
                                 target_branch="branch1",
-                                reviewed_user="cherry-pick-requester",
-                                by_label=True,
+                                assign_to_pr_owner=True,
                             )
                             mock_build.assert_called_once_with(
                                 push=True,
@@ -320,18 +306,18 @@ class TestPullRequestHandler:
                             mock_label_all.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_pull_request_cherry_pick_label_no_comment_falls_back_to_pr_author(
+    async def test_process_pull_request_cherry_pick_label_multiple_branches(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test cherry-pick by label falls back to PR author when no /cherry-pick comment found."""
+        """Test cherry-pick is triggered for each cherry-pick label on merge."""
         pull_request_handler.hook_data["action"] = "closed"
         pull_request_handler.hook_data["pull_request"]["merged"] = True
 
-        mock_label = Mock()
-        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
-        mock_pull_request.labels = [mock_label]
-        # No matching cherry-pick comment — label was added manually
-        mock_pull_request.get_issue_comments.return_value = []
+        mock_label1 = Mock()
+        mock_label1.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
+        mock_label2 = Mock()
+        mock_label2.name = f"{CHERRY_PICK_LABEL_PREFIX}branch2"
+        mock_pull_request.labels = [mock_label1, mock_label2]
 
         with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr"):
             with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr"):
@@ -345,11 +331,16 @@ class TestPullRequestHandler:
                             pull_request_handler, "label_all_opened_pull_requests_merge_state_after_merged"
                         ):
                             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                            mock_cherry_pick.assert_called_once_with(
+                            assert mock_cherry_pick.call_count == 2
+                            mock_cherry_pick.assert_any_call(
                                 pull_request=mock_pull_request,
                                 target_branch="branch1",
-                                reviewed_user="owner1",
-                                by_label=True,
+                                assign_to_pr_owner=True,
+                            )
+                            mock_cherry_pick.assert_any_call(
+                                pull_request=mock_pull_request,
+                                target_branch="branch2",
+                                assign_to_pr_owner=True,
                             )
 
     @pytest.mark.asyncio

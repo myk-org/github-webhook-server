@@ -43,6 +43,7 @@ class TestIssueCommentHandler:
         mock_webhook.current_pull_request_supported_retest = [TOX_STR, "pre-commit"]
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
+        mock_webhook.cherry_pick_assign_to_pr_author = True
         # Mock config for draft PR command filtering
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -853,6 +854,7 @@ class TestIssueCommentHandler:
                             pull_request=mock_pull_request,
                             target_branch="branch1",
                             reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_add_label.assert_called_once_with(
                             pull_request=mock_pull_request,
@@ -899,16 +901,19 @@ class TestIssueCommentHandler:
                             pull_request=mock_pull_request,
                             target_branch="branch1",
                             reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch2",
                             reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch3",
                             reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
 
                         # Verify labels were added exactly once for each branch (not duplicated)

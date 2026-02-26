@@ -33,6 +33,8 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+cherry-pick-assign-to-pr-author: true  # Default: true - assign cherry-pick PRs to the original PR author
+
 # Commands allowed on draft PRs (optional)
 # If not set: commands are blocked on draft PRs (default behavior)
 # If empty list []: all commands allowed on draft PRs
