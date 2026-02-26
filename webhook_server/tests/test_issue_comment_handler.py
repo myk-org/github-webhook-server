@@ -853,7 +853,6 @@ class TestIssueCommentHandler:
                         mock_cherry_pick.assert_called_once_with(
                             pull_request=mock_pull_request,
                             target_branch="branch1",
-                            reviewed_user="test-user",
                             assign_to_pr_owner=True,
                         )
                         mock_add_label.assert_called_once_with(
@@ -900,19 +899,16 @@ class TestIssueCommentHandler:
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch1",
-                            reviewed_user="test-user",
                             assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch2",
-                            reviewed_user="test-user",
                             assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch3",
-                            reviewed_user="test-user",
                             assign_to_pr_owner=True,
                         )
 

@@ -540,26 +540,14 @@ Your team can configure additional types in the repository settings.
         self,
         pull_request: PullRequest,
         target_branch: str,
-        reviewed_user: str = "",
-        *,
         assign_to_pr_owner: bool = True,
     ) -> None:
-        """Cherry-pick a merged PR to a target branch.
-
-        Args:
-            pull_request: The merged pull request to cherry-pick.
-            target_branch: Branch to cherry-pick into.
-            reviewed_user: The user who triggered the cherry-pick. Used in PR description and logging.
-            assign_to_pr_owner: Assign the cherry-pick PR to the original PR owner. Default True.
-        """
         pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
-        self.logger.info(
-            f"{self.log_prefix} Cherry-pick to {target_branch} requested by {reviewed_user or pr_author}, "
-            f"PR owner: {pr_author}"
-        )
+        source_branch = pull_request.base.ref
 
-        assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
-        self.logger.debug(f"{self.log_prefix} Cherry-pick PR assignee: {pr_author if assign_to_pr_owner else 'none'}")
+        self.logger.info(
+            f"{self.log_prefix} Cherry-pick from {source_branch} to {target_branch}, PR owner: {pr_author}"
+        )
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
@@ -573,12 +561,11 @@ Your team can configure additional types in the repository settings.
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
             github_token = self.github_webhook.token
-            source_branch = pull_request.base.ref
-            reviewed_user_or_author = reviewed_user or pr_author
 
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
                 hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+                assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
                 commands: list[str] = [
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
@@ -586,11 +573,10 @@ Your team can configure additional types in the repository settings.
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL}{assignee_flag} "
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} {assignee_flag} "
                     f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'Cherry-pick from {source_branch} "
-                    f"requested by {reviewed_user_or_author}, PR owner: {pr_author}' "
-                    f"-m '{pull_request_url}'\"",
+                    f"{commit_msg_striped}' -m 'Cherry-pick from {source_branch} branch, "
+                    f"original PR: {pull_request_url}, PR owner: {pr_author}'\"",
                 ]
 
                 output: CheckRunOutput = {

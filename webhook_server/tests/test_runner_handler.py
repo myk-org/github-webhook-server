@@ -660,9 +660,7 @@ class TestRunnerHandler:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                await runner_handler.cherry_pick(
-                    mock_pull_request, "non-existent-branch", reviewed_user="test-requester"
-                )
+                await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
                 mock_comment.assert_called_once()
 
     @pytest.mark.asyncio
@@ -678,7 +676,7 @@ class TestRunnerHandler:
                             return_value=(False, "/tmp/worktree-path", "out", "err")
                         )
                         mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
-                        await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="test-requester")
+                        await runner_handler.cherry_pick(mock_pull_request, "main")
                         mock_set_progress.assert_called_once()
                         assert mock_set_failure.call_count >= 1
 
@@ -699,7 +697,7 @@ class TestRunnerHandler:
                             "webhook_server.utils.helpers.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
                         ):
-                            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="test-requester")
+                            await runner_handler.cherry_pick(mock_pull_request, "main")
                             mock_set_progress.assert_called_once()
                             mock_set_failure.assert_called_once()
 
@@ -721,9 +719,7 @@ class TestRunnerHandler:
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                await runner_handler.cherry_pick(
-                                    mock_pull_request, "main", reviewed_user="test-requester"
-                                )
+                                await runner_handler.cherry_pick(mock_pull_request, "main")
                                 mock_set_progress.assert_called_once()
                                 mock_set_success.assert_called_once()
                                 mock_comment.assert_called_once()
@@ -930,9 +926,7 @@ class TestRunnerHandler:
                         # First command fails, triggers manual cherry-pick
                         with patch("webhook_server.utils.helpers.run_command", side_effect=[(False, "fail", "err")]):
                             with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
-                                await runner_handler.cherry_pick(
-                                    mock_pull_request, "main", reviewed_user="test-requester"
-                                )
+                                await runner_handler.cherry_pick(mock_pull_request, "main")
                                 mock_set_progress.assert_called_once()
                                 mock_set_failure.assert_called_once()
                                 mock_comment.assert_called_once()
@@ -975,7 +969,7 @@ class TestRunnerHandler:
     async def test_cherry_pick_assigns_pr_author(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick assigns to PR author, not the cherry-pick requester."""
         async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="cherry-requester")
+            await runner_handler.cherry_pick(mock_pull_request, "main")
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
@@ -988,16 +982,18 @@ class TestRunnerHandler:
     async def test_cherry_pick_requested_by_uses_pr_owner(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test cherry_pick PR description includes source branch, requester, and PR owner."""
+        """Test cherry_pick PR description includes source branch and PR owner."""
         async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
-            await runner_handler.cherry_pick(mock_pull_request, "main", reviewed_user="label-requester")
+            await runner_handler.cherry_pick(mock_pull_request, "main")
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
             last_cmd = mocks.run_cmd.call_args_list[-1]
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "Cherry-pick from main requested by label-requester, PR owner: test-pr-author" in hub_command
-            assert mock_pull_request.html_url in hub_command
+            expected_msg = (
+                f"Cherry-pick from main branch, original PR: {mock_pull_request.html_url}, PR owner: test-pr-author"
+            )
+            assert expected_msg in hub_command
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
             assert mocks.to_thread.call_count == 2
 

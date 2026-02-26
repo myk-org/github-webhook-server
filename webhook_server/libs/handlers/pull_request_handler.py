@@ -130,10 +130,9 @@ class PullRequestHandler:
                     _label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)
                 ]:
                     for _label in cherry_pick_labels:
-                        target_branch = _label.name.replace(CHERRY_PICK_LABEL_PREFIX, "")
                         await self.runner_handler.cherry_pick(
                             pull_request=pull_request,
-                            target_branch=target_branch,
+                            target_branch=_label.name.replace(CHERRY_PICK_LABEL_PREFIX, ""),
                             assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
                         )
 
