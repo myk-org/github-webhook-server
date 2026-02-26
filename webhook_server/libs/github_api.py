@@ -14,6 +14,7 @@ from asyncio import Task
 from typing import Any
 
 import github
+import httpx
 from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
@@ -42,6 +43,7 @@ from webhook_server.utils.constants import (
 )
 from webhook_server.utils.context import WebhookContext, get_context
 from webhook_server.utils.github_repository_settings import (
+    DEFAULT_BRANCH_PROTECTION,
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
@@ -733,6 +735,34 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
+        # Read required_conversation_resolution from branch-protection config
+        _bp_key = "required_conversation_resolution"
+        _bp_raw_default = DEFAULT_BRANCH_PROTECTION[_bp_key]
+        if not isinstance(_bp_raw_default, bool):
+            raise TypeError(
+                f"DEFAULT_BRANCH_PROTECTION[{_bp_key!r}] must be bool, got {type(_bp_raw_default).__name__}"
+            )
+        _bp_default: bool = _bp_raw_default
+        _global_bp: dict[str, Any] = self.config.get_value(value="branch-protection", return_on_none={})
+        _global_bp = _global_bp if isinstance(_global_bp, dict) else {}
+        _repo_bp: dict[str, Any] = self.config.get_value(
+            value="branch-protection", return_on_none={}, extra_dict=repository_config
+        )
+        _repo_bp = _repo_bp if isinstance(_repo_bp, dict) else {}
+        # Repository-level overrides global; default from DEFAULT_BRANCH_PROTECTION
+        self.required_conversation_resolution: bool = _bp_default
+        for _bp_scope, _bp_dict in [("global", _global_bp), ("repository", _repo_bp)]:
+            if _bp_key in _bp_dict:
+                _bp_val = _bp_dict[_bp_key]
+                if isinstance(_bp_val, bool):
+                    self.required_conversation_resolution = _bp_val
+                else:
+                    _log_prefix = getattr(self, "log_prefix", "")
+                    self.logger.warning(
+                        f"{_log_prefix} Invalid branch-protection.{_bp_key} value in {_bp_scope} config: "
+                        f"{_bp_val!r} (expected bool), keeping current value: {self.required_conversation_resolution}"
+                    )
+
         # Load labels configuration
         _global_labels = self.config.get_value("labels", return_on_none={})
         global_labels_config: dict[str, Any] = _global_labels if isinstance(_global_labels, dict) else {}
@@ -840,6 +870,110 @@ class GithubWebhook:
 
         self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None
+
+    async def get_unresolved_review_threads(self, pr_number: int) -> list[dict[str, Any]]:
+        """Fetch unresolved review threads for a PR using GitHub GraphQL API.
+
+        Paginates through all review threads and returns only those that are
+        unresolved (including outdated ones), with a URL link to the first comment.
+
+        Args:
+            pr_number: The pull request number.
+
+        Returns:
+            List of dicts with keys: path, line, url, isOutdated for each
+            unresolved thread.
+
+        Raises:
+            httpx.HTTPStatusError: If the GraphQL request fails.
+            ValueError: If the GraphQL response contains errors or PR not found.
+        """
+        owner, repo = self.repository_full_name.split("/")
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              reviewThreads(first: 100, after: $cursor) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  isResolved
+                  isOutdated
+                  comments(first: 1) {
+                    nodes {
+                      url
+                      path
+                      line
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        unresolved_threads: list[dict[str, Any]] = []
+        cursor: str | None = None
+
+        async with httpx.AsyncClient() as client:
+            while True:
+                variables: dict[str, Any] = {
+                    "owner": owner,
+                    "repo": repo,
+                    "prNumber": pr_number,
+                    "cursor": cursor,
+                }
+                response = await client.post(
+                    "https://api.github.com/graphql",
+                    json={"query": query, "variables": variables},
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if "errors" in data:
+                    raise ValueError(f"GraphQL errors: {data['errors']}")
+
+                repo_data = data["data"]["repository"]
+                if repo_data is None:
+                    raise ValueError(f"Repository {self.repository_full_name} not found or inaccessible")
+
+                pr_data = repo_data["pullRequest"]
+                if pr_data is None:
+                    raise ValueError(f"Pull request #{pr_number} not found in {self.repository_full_name}")
+
+                review_threads = pr_data["reviewThreads"]
+                threads: list[dict[str, Any]] = review_threads["nodes"]
+
+                for thread in threads:
+                    if not thread["isResolved"]:
+                        comments = thread.get("comments", {}).get("nodes", [])
+                        first_comment = comments[0] if comments else {}
+                        unresolved_threads.append({
+                            "path": first_comment.get("path"),
+                            "line": first_comment.get("line"),
+                            "url": first_comment.get("url"),
+                            "isOutdated": thread["isOutdated"],
+                        })
+
+                page_info = review_threads["pageInfo"]
+                if not page_info["hasNextPage"]:
+                    break
+
+                cursor = page_info["endCursor"]
+                if not cursor:
+                    raise ValueError(
+                        f"GitHub GraphQL pagination invariant broken for PR #{pr_number}: "
+                        "hasNextPage=True with null endCursor"
+                    )
+
+        return unresolved_threads
 
     async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
         _commits = await asyncio.to_thread(pull_request.get_commits)
