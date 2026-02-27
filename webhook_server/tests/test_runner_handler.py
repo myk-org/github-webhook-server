@@ -991,7 +991,7 @@ class TestRunnerHandler:
             last_cmd = mocks.run_cmd.call_args_list[-1]
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
             expected_msg = (
-                f"Cherry-pick from main branch, original PR: {mock_pull_request.html_url}, PR owner: test-pr-author"
+                f"Cherry-pick from `main` branch, original PR: {mock_pull_request.html_url}, PR owner: test-pr-author"
             )
             assert expected_msg in hub_command
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command

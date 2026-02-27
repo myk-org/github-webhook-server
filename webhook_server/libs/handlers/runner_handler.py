@@ -575,7 +575,7 @@ Your team can configure additional types in the repository settings.
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
                     f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} {assignee_flag} "
                     f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'Cherry-pick from {source_branch} branch, "
+                    f"{commit_msg_striped}' -m 'Cherry-pick from `{source_branch}` branch, "
                     f"original PR: {pull_request_url}, PR owner: {pr_author}'\"",
                 ]
 
