@@ -13,6 +13,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, Chec
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
@@ -100,6 +101,14 @@ class PullRequestHandler:
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
+
+            if hook_action == "opened":
+                await call_test_oracle(
+                    github_webhook=self.github_webhook,
+                    pull_request=pull_request,
+                    trigger="pr-opened",
+                )
+
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)
             return
@@ -115,6 +124,13 @@ class PullRequestHandler:
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+
+            await call_test_oracle(
+                github_webhook=self.github_webhook,
+                pull_request=pull_request,
+                trigger="pr-synchronized",
+            )
+
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)
             return
