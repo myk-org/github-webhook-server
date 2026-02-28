@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
     from webhook_server.libs.github_api import GithubWebhook
 
+# "approved" refers to the /approve command trigger, not GitHub's review approval state.
 DEFAULT_TRIGGERS: list[str] = ["approved"]
 
 
@@ -23,8 +24,9 @@ async def call_test_oracle(
     Args:
         github_webhook: The GithubWebhook instance with config and token.
         pull_request: The PyGithub PullRequest object.
-        trigger: The event trigger (e.g., "approved", "pr-opened"). None means
-                 command-triggered (always runs if configured).
+        trigger: The event trigger (e.g., "approved", "pr-opened").
+                 "approved" means the /approve command, not GitHub review state.
+                 None means command-triggered (always runs if configured).
     """
     config: dict[str, Any] | None = github_webhook.config.get_value("test-oracle")
     if not config:
@@ -61,8 +63,9 @@ async def call_test_oracle(
                 return
 
             # Build analyze payload
+            pr_url: str = await asyncio.to_thread(lambda: pull_request.html_url)
             payload: dict[str, Any] = {
-                "pr_url": pull_request.html_url,
+                "pr_url": pr_url,
                 "ai_provider": config["ai-provider"],
                 "ai_model": config["ai-model"],
                 # Token is required by the oracle server to fetch PR data and post reviews.
@@ -75,7 +78,7 @@ async def call_test_oracle(
 
             # Call analyze
             try:
-                github_webhook.logger.info(f"{log_prefix} Calling Test Oracle for {pull_request.html_url}")
+                github_webhook.logger.info(f"{log_prefix} Calling Test Oracle for {pr_url}")
                 response = await client.post("/analyze", json=payload, timeout=300.0)
                 response.raise_for_status()
 

@@ -144,7 +144,8 @@ class TestCallTestOracle:
             with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
                 await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
 
-                mock_to_thread.assert_not_called()
+                # asyncio.to_thread is called once for pull_request.html_url, but not for posting a comment
+                assert mock_to_thread.call_count == 1
                 mock_github_webhook.logger.error.assert_called()
 
     @pytest.mark.asyncio
@@ -161,7 +162,8 @@ class TestCallTestOracle:
             with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
                 await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
 
-                mock_to_thread.assert_not_called()
+                # asyncio.to_thread is called once for pull_request.html_url, but not for posting a comment
+                assert mock_to_thread.call_count == 1
                 mock_github_webhook.logger.error.assert_called()
 
     @pytest.mark.asyncio

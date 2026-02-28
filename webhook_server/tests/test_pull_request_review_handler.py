@@ -19,7 +19,7 @@ class TestPullRequestReviewHandler:
         mock_webhook = Mock()
         mock_webhook.hook_data = {
             "action": "submitted",
-            "review": {"user": {"login": "test-reviewer"}, "state": "approved", "body": "Great work! /approve"},
+            "review": {"user": {"login": "test-reviewer"}, "state": "approved", "body": "Great work!\n/approve"},
         }
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
@@ -262,7 +262,7 @@ class TestPullRequestReviewHandler:
         """Test processing pull request review webhook data with exact /approve match."""
         mock_pull_request = Mock(spec=PullRequest)
 
-        test_bodies = ["/approve", "Great work! /approve", "LGTM /approve thanks", "/approve this looks good"]
+        test_bodies = ["/approve", "Great work!\n/approve", "LGTM\n/approve\nthanks", "  /approve  "]
 
         for body in test_bodies:
             pull_request_review_handler.hook_data["review"]["body"] = body

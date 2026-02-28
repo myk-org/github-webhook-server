@@ -60,7 +60,7 @@ class PullRequestReviewHandler:
                     # In this project, "approved" means a maintainer uses the /approve command
                     # (which adds an approved-<user> label), NOT GitHub's review approval state.
                     # The oracle trigger fires only when /approve is found in the review body.
-                    if f"/{APPROVE_STR}" in body:
+                    if any(line.strip() == f"/{APPROVE_STR}" for line in body.splitlines()):
                         await self.labels_handler.label_by_user_comment(
                             pull_request=pull_request,
                             user_requested_label=APPROVE_STR,
