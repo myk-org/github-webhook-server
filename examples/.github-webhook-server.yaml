@@ -143,3 +143,15 @@ pr-size-thresholds:
   Extreme:
     threshold: inf     # PRs with 1000+ lines changed (unbounded largest category)
     color: black       # 'inf' means no upper limit - catches all PRs above 1000 lines
+
+# PR Test Oracle integration (overrides global config)
+# Analyzes PR diffs with AI and recommends which tests to run
+# See: https://github.com/myk-org/pr-test-oracle
+# test-oracle:
+#   server-url: "http://localhost:8000"
+#   ai-provider: "claude"        # claude | gemini | cursor
+#   ai-model: "sonnet"
+#   test-patterns:
+#     - "tests/**/*.py"
+#   triggers:
+#     - approved
