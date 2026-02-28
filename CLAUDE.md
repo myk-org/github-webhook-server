@@ -657,7 +657,7 @@ def mock_github_api():
 
 ### PR Test Oracle Integration
 
-External AI service integration for test recommendations. Configured via `test-oracle` in config (global or per-repo).
+External AI service integration for test recommendations via [pr-test-oracle](https://github.com/myk-org/pr-test-oracle). Configured via `test-oracle` in config (global or per-repo).
 
 **Config keys:** `server-url` (required), `ai-provider` (required: claude/gemini/cursor), `ai-model` (required), `test-patterns` (optional), `triggers` (optional, default: [approved])
 

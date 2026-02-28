@@ -594,7 +594,7 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 | **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`                                         |
 | **Pull Requests** | `minimum-lgtm`, `conventional-title`, `can-be-merged-required-labels`, `create-issue-for-new-pr` |
 | **Automation**    | `set-auto-merge-prs`, `auto-verified-and-merged-users`                                           |
-| **AI**            | `test-oracle` (`server-url`, `ai-provider`, `ai-model`, `test-patterns`, `triggers`)             |
+| **AI**            | [`test-oracle`](https://github.com/myk-org/pr-test-oracle) (`server-url`, `ai-provider`, `ai-model`, `test-patterns`, `triggers`) |
 | **Protection**    | `protected-branches`, `branch-protection`                                                        |
 
 ## Deployment
@@ -1239,7 +1239,7 @@ Users can interact with the webhook server through GitHub comments on pull reque
 | `/assign-reviewers` | Assign OWNERS-based reviewers                           | `/assign-reviewers` |
 | `/check-can-merge`  | Check merge readiness                                   | `/check-can-merge`  |
 | `/reprocess`        | Trigger complete PR workflow reprocessing (OWNERS only) | `/reprocess`        |
-| `/test-oracle`      | Request AI-powered test recommendations for PR changes  | `/test-oracle`      |
+| `/test-oracle`      | Request AI-powered test recommendations for PR changes ([pr-test-oracle](https://github.com/myk-org/pr-test-oracle)) | `/test-oracle`      |
 
 ### Workflow Management
 
@@ -1325,7 +1325,7 @@ auto-verify-cherry-picked-prs: true # Default: true (auto-verify). Set to false 
 | Command               | Description                                   | Example               |
 | --------------------- | --------------------------------------------- | --------------------- |
 | `/retest <test-name>` | Run specific tests like `tox` or `pre-commit` | `/retest <test-name>` |
-| `/test-oracle`        | Request AI-powered test recommendations        | `/test-oracle`        |
+| `/test-oracle`        | Request AI-powered test recommendations ([pr-test-oracle](https://github.com/myk-org/pr-test-oracle)) | `/test-oracle`        |
 
 ## OWNERS File Format
 

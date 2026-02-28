@@ -238,6 +238,7 @@ repositories:
       - main
 
     # PR Test Oracle (overrides global)
+    # See: https://github.com/myk-org/pr-test-oracle
     test-oracle:
       server-url: "http://localhost:8000"
       ai-provider: "claude"

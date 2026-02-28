@@ -97,6 +97,7 @@ properties:
     description: |
       PR Test Oracle integration. Sends PR data to an external AI service
       that analyzes diffs and recommends which tests to run.
+      See https://github.com/myk-org/pr-test-oracle for server setup.
       The /test-oracle comment command always works when configured (no trigger needed).
     properties:
       server-url:
@@ -451,6 +452,7 @@ properties:
           description: |
             PR Test Oracle integration. Sends PR data to an external AI service
             that analyzes diffs and recommends which tests to run.
+            See https://github.com/myk-org/pr-test-oracle for server setup.
             The /test-oracle comment command always works when configured (no trigger needed).
           properties:
             server-url:
