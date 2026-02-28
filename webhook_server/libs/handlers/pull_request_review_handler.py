@@ -6,6 +6,7 @@ from github.PullRequest import PullRequest
 
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 if TYPE_CHECKING:
@@ -60,6 +61,13 @@ class PullRequestReviewHandler:
                             remove=False,
                             reviewed_user=reviewed_user,
                         )
+
+                if review_state == "approved":
+                    await call_test_oracle(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="approved",
+                    )
         finally:
             if self.ctx:
                 self.ctx.complete_step("pr_review_handler")
