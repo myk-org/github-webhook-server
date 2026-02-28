@@ -41,6 +41,7 @@ COMMAND_ASSIGN_REVIEWER_STR: str = "assign-reviewer"
 COMMAND_ADD_ALLOWED_USER_STR: str = "add-allowed-user"
 COMMAND_AUTOMERGE_STR: str = "automerge"
 COMMAND_REGENERATE_WELCOME_STR: str = "regenerate-welcome"
+COMMAND_TEST_ORACLE_STR: str = "test-oracle"
 AUTOMERGE_LABEL_STR: str = "automerge"
 ROOT_APPROVERS_KEY: str = "root-approvers"
 
