@@ -1438,7 +1438,7 @@ class TestIssueCommentHandler:
             with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
                 with patch(
                     "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
-                    new_callable=Mock,
+                    new_callable=AsyncMock,
                 ) as mock_oracle:
                     with patch("asyncio.create_task") as mock_create_task:
                         await issue_comment_handler.user_commands(
@@ -1452,7 +1452,8 @@ class TestIssueCommentHandler:
                             github_webhook=issue_comment_handler.github_webhook,
                             pull_request=mock_pull_request,
                         )
-                        mock_create_task.assert_called_once_with(mock_oracle.return_value)
+                        mock_create_task.assert_called_once()
+                        assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
 
     @pytest.mark.asyncio
     async def test_approve_command_calls_test_oracle(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -1467,7 +1468,7 @@ class TestIssueCommentHandler:
                 ):
                     with patch(
                         "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
-                        new_callable=Mock,
+                        new_callable=AsyncMock,
                     ) as mock_oracle:
                         with patch("asyncio.create_task") as mock_create_task:
                             await issue_comment_handler.user_commands(
@@ -1482,4 +1483,5 @@ class TestIssueCommentHandler:
                                 pull_request=mock_pull_request,
                                 trigger="approved",
                             )
-                            mock_create_task.assert_called_once_with(mock_oracle.return_value)
+                            mock_create_task.assert_called_once()
+                            assert asyncio.iscoroutine(mock_create_task.call_args.args[0])

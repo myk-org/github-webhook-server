@@ -2663,7 +2663,7 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler, "set_pull_request_automerge"),
             patch(
                 "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
-                new_callable=Mock,
+                new_callable=AsyncMock,
             ) as mock_test_oracle,
             patch("asyncio.create_task") as mock_create_task,
         ):
@@ -2673,7 +2673,8 @@ class TestPullRequestHandler:
                 pull_request=mock_pull_request,
                 trigger="pr-opened",
             )
-            mock_create_task.assert_called_once_with(mock_test_oracle.return_value)
+            mock_create_task.assert_called_once()
+            assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
 
     @pytest.mark.asyncio
     async def test_process_synchronize_action_calls_test_oracle_with_pr_synchronized_trigger(
@@ -2690,7 +2691,7 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler, "remove_labels_when_pull_request_sync"),
             patch(
                 "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
-                new_callable=Mock,
+                new_callable=AsyncMock,
             ) as mock_test_oracle,
             patch("asyncio.create_task") as mock_create_task,
         ):
@@ -2700,7 +2701,8 @@ class TestPullRequestHandler:
                 pull_request=mock_pull_request,
                 trigger="pr-synchronized",
             )
-            mock_create_task.assert_called_once_with(mock_test_oracle.return_value)
+            mock_create_task.assert_called_once()
+            assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
 
     @pytest.mark.asyncio
     async def test_process_reopened_action_does_not_call_test_oracle(

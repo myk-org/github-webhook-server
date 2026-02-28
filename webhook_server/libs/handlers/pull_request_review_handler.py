@@ -57,6 +57,9 @@ class PullRequestReviewHandler:
 
                 if body := self.hook_data["review"]["body"]:
                     self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Found review body: {body}")
+                    # In this project, "approved" means a maintainer uses the /approve command
+                    # (which adds an approved-<user> label), NOT GitHub's review approval state.
+                    # The oracle trigger fires only when /approve is found in the review body.
                     if f"/{APPROVE_STR}" in body:
                         await self.labels_handler.label_by_user_comment(
                             pull_request=pull_request,

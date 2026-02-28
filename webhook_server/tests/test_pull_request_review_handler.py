@@ -1,5 +1,6 @@
 """Tests for webhook_server.libs.handlers.pull_request_review_handler module."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -308,7 +309,7 @@ class TestPullRequestReviewHandler:
             ):
                 with patch(
                     "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
-                    new_callable=Mock,
+                    new_callable=AsyncMock,
                 ) as mock_oracle:
                     with patch("asyncio.create_task") as mock_create_task:
                         await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
@@ -318,7 +319,30 @@ class TestPullRequestReviewHandler:
                             pull_request=mock_pull_request,
                             trigger="approved",
                         )
-                        mock_create_task.assert_called_once_with(mock_oracle.return_value)
+                        mock_create_task.assert_called_once()
+                        assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_test_oracle_on_github_approval_without_approve_command(
+        self, pull_request_review_handler: PullRequestReviewHandler
+    ) -> None:
+        """Test that GitHub review approval without /approve command does NOT trigger oracle."""
+        mock_pull_request = Mock(spec=PullRequest)
+        pull_request_review_handler.hook_data["review"]["state"] = "approved"
+        pull_request_review_handler.hook_data["review"]["body"] = ""
+
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ):
+            with patch.object(
+                pull_request_review_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+            ):
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ) as mock_oracle:
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                    mock_oracle.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_does_not_call_test_oracle_on_non_approval(

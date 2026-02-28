@@ -65,6 +65,8 @@ async def call_test_oracle(
                 "pr_url": pull_request.html_url,
                 "ai_provider": config["ai-provider"],
                 "ai_model": config["ai-model"],
+                # Token is required by the oracle server to fetch PR data and post reviews.
+                # Server URL is configured by the admin - they control the network setup.
                 "github_token": github_webhook.token,
             }
 
