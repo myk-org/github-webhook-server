@@ -654,3 +654,21 @@ def mock_github_api():
 2. Run `uv run pytest webhook_server/tests/test_config_schema.py -v`
 3. Update examples in `examples/config.yaml`
 4. Test with `uv run webhook_server/tests/test_schema_validator.py examples/config.yaml`
+
+### PR Test Oracle Integration
+
+External AI service integration for test recommendations. Configured via `test-oracle` in config (global or per-repo).
+
+**Config keys:** `server-url` (required), `ai-provider` (required: claude/gemini/cursor), `ai-model` (required), `test-patterns` (optional), `triggers` (optional, default: [approved])
+
+**Trigger events:** `approved`, `pr-opened`, `pr-synchronized`
+
+**Comment command:** `/test-oracle` (always works when configured, no trigger needed)
+
+**Module:** `webhook_server/libs/test_oracle.py` - `call_test_oracle()` shared helper
+
+**Error handling:**
+
+- Health check failure: PR comment posted, continue flow
+- Analyze errors: log only, no PR comment
+- Never breaks webhook processing
