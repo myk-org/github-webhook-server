@@ -14,6 +14,7 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
     TOX_STR,
@@ -1425,3 +1426,27 @@ class TestIssueCommentHandler:
             # Command should proceed because PR is not a draft
             mock_check.assert_called_once_with(pull_request=mock_pull_request)
             mock_reaction.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_test_oracle_command(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that /test-oracle command calls call_test_oracle."""
+        mock_pull_request = Mock()
+        mock_pull_request.draft = False
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
+                with patch(
+                    "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ) as mock_oracle:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request,
+                        command=COMMAND_TEST_ORACLE_STR,
+                        reviewed_user="test-user",
+                        issue_comment_id=456,
+                        is_draft=False,
+                    )
+                    mock_oracle.assert_called_once_with(
+                        github_webhook=issue_comment_handler.github_webhook,
+                        pull_request=mock_pull_request,
+                    )

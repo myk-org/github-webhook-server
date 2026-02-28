@@ -14,6 +14,7 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -26,6 +27,7 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
     USER_LABELS_DICT,
@@ -159,6 +161,7 @@ class IssueCommentHandler:
             COMMAND_ASSIGN_REVIEWER_STR,
             COMMAND_ADD_ALLOWED_USER_STR,
             COMMAND_REGENERATE_WELCOME_STR,
+            COMMAND_TEST_ORACLE_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -271,6 +274,12 @@ class IssueCommentHandler:
                 return
             self.logger.info(f"{self.log_prefix} Regenerating welcome message")
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
+
+        elif _command == COMMAND_TEST_ORACLE_STR:
+            await call_test_oracle(
+                github_webhook=self.github_webhook,
+                pull_request=pull_request,
+            )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
