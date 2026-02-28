@@ -43,6 +43,8 @@ if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
 
+_background_tasks: set[asyncio.Task[None]] = set()
+
 
 class PullRequestHandler:
     def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler):
@@ -103,13 +105,15 @@ class PullRequestHandler:
             await self.set_pull_request_automerge(pull_request=pull_request)
 
             if hook_action == "opened":
-                asyncio.create_task(
+                task = asyncio.create_task(
                     call_test_oracle(
                         github_webhook=self.github_webhook,
                         pull_request=pull_request,
                         trigger="pr-opened",
                     )
                 )
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)
@@ -127,13 +131,15 @@ class PullRequestHandler:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-            asyncio.create_task(
+            task = asyncio.create_task(
                 call_test_oracle(
                     github_webhook=self.github_webhook,
                     pull_request=pull_request,
                     trigger="pr-synchronized",
                 )
             )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)

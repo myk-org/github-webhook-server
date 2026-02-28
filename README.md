@@ -585,6 +585,7 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 | **Security** | `webhook-secret`, `verify-github-ips`, `verify-cloudflare-ips`, `disable-ssl-warnings`                              |
 | **GitHub**   | `github-app-id`, `github-tokens`, `webhook-ip`                                                                      |
 | **Defaults** | `docker`, `default-status-checks`, `auto-verified-and-merged-users`, `branch-protection`, `create-issue-for-new-pr` |
+| **AI**       | [`test-oracle`](https://github.com/myk-org/pr-test-oracle)                                                          |
 
 #### Repository Level Options
 

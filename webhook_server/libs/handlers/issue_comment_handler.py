@@ -16,6 +16,7 @@ from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
+    APPROVE_STR,
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
@@ -38,6 +39,8 @@ from webhook_server.utils.constants import (
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
+
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 class IssueCommentHandler:
@@ -276,12 +279,14 @@ class IssueCommentHandler:
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
 
         elif _command == COMMAND_TEST_ORACLE_STR:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 call_test_oracle(
                     github_webhook=self.github_webhook,
                     pull_request=pull_request,
                 )
             )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
@@ -350,6 +355,16 @@ class IssueCommentHandler:
                 remove=remove,
                 reviewed_user=reviewed_user,
             )
+            if _command == APPROVE_STR:
+                task = asyncio.create_task(
+                    call_test_oracle(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="approved",
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
         _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)

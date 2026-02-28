@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
 
+_background_tasks: set[asyncio.Task[None]] = set()
+
 
 class PullRequestReviewHandler:
     def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler) -> None:
@@ -62,15 +64,15 @@ class PullRequestReviewHandler:
                             remove=False,
                             reviewed_user=reviewed_user,
                         )
-
-                if review_state == "approved":
-                    asyncio.create_task(
-                        call_test_oracle(
-                            github_webhook=self.github_webhook,
-                            pull_request=pull_request,
-                            trigger="approved",
+                        task = asyncio.create_task(
+                            call_test_oracle(
+                                github_webhook=self.github_webhook,
+                                pull_request=pull_request,
+                                trigger="approved",
+                            )
                         )
-                    )
+                        _background_tasks.add(task)
+                        task.add_done_callback(_background_tasks.discard)
         finally:
             if self.ctx:
                 self.ctx.complete_step("pr_review_handler")

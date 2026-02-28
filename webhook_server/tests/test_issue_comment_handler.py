@@ -6,6 +6,7 @@ import pytest
 
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
+    APPROVE_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
@@ -1437,6 +1438,7 @@ class TestIssueCommentHandler:
             with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
                 with patch(
                     "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                    new_callable=Mock,
                 ) as mock_oracle:
                     with patch("asyncio.create_task") as mock_create_task:
                         await issue_comment_handler.user_commands(
@@ -1450,4 +1452,34 @@ class TestIssueCommentHandler:
                             github_webhook=issue_comment_handler.github_webhook,
                             pull_request=mock_pull_request,
                         )
-                        mock_create_task.assert_called_once()
+                        mock_create_task.assert_called_once_with(mock_oracle.return_value)
+
+    @pytest.mark.asyncio
+    async def test_approve_command_calls_test_oracle(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that /approve command fires call_test_oracle with trigger='approved' as a background task."""
+        mock_pull_request = Mock()
+        mock_pull_request.draft = False
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
+                with patch.object(
+                    issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+                ):
+                    with patch(
+                        "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                        new_callable=Mock,
+                    ) as mock_oracle:
+                        with patch("asyncio.create_task") as mock_create_task:
+                            await issue_comment_handler.user_commands(
+                                pull_request=mock_pull_request,
+                                command=APPROVE_STR,
+                                reviewed_user="test-user",
+                                issue_comment_id=456,
+                                is_draft=False,
+                            )
+                            mock_oracle.assert_called_once_with(
+                                github_webhook=issue_comment_handler.github_webhook,
+                                pull_request=mock_pull_request,
+                                trigger="approved",
+                            )
+                            mock_create_task.assert_called_once_with(mock_oracle.return_value)

@@ -308,6 +308,7 @@ class TestPullRequestReviewHandler:
             ):
                 with patch(
                     "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=Mock,
                 ) as mock_oracle:
                     with patch("asyncio.create_task") as mock_create_task:
                         await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
@@ -317,7 +318,7 @@ class TestPullRequestReviewHandler:
                             pull_request=mock_pull_request,
                             trigger="approved",
                         )
-                        mock_create_task.assert_called_once()
+                        mock_create_task.assert_called_once_with(mock_oracle.return_value)
 
     @pytest.mark.asyncio
     async def test_does_not_call_test_oracle_on_non_approval(
