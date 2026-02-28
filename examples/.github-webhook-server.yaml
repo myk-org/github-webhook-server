@@ -146,6 +146,7 @@ pr-size-thresholds:
 
 # PR Test Oracle integration (overrides global config)
 # Analyzes PR diffs with AI and recommends which tests to run
+# Place a TESTS_ORACLE.md file in your repository root to customize the AI prompt
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
