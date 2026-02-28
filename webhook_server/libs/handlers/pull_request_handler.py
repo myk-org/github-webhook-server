@@ -103,10 +103,12 @@ class PullRequestHandler:
             await self.set_pull_request_automerge(pull_request=pull_request)
 
             if hook_action == "opened":
-                await call_test_oracle(
-                    github_webhook=self.github_webhook,
-                    pull_request=pull_request,
-                    trigger="pr-opened",
+                asyncio.create_task(
+                    call_test_oracle(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="pr-opened",
+                    )
                 )
 
             if self.ctx:
@@ -125,10 +127,12 @@ class PullRequestHandler:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-            await call_test_oracle(
-                github_webhook=self.github_webhook,
-                pull_request=pull_request,
-                trigger="pr-synchronized",
+            asyncio.create_task(
+                call_test_oracle(
+                    github_webhook=self.github_webhook,
+                    pull_request=pull_request,
+                    trigger="pr-synchronized",
+                )
             )
 
             if self.ctx:

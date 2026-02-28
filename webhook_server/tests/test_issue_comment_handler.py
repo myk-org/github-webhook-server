@@ -1429,7 +1429,7 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_test_oracle_command(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test that /test-oracle command calls call_test_oracle."""
+        """Test that /test-oracle command fires call_test_oracle as a background task."""
         mock_pull_request = Mock()
         mock_pull_request.draft = False
 
@@ -1437,16 +1437,17 @@ class TestIssueCommentHandler:
             with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
                 with patch(
                     "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
-                    new_callable=AsyncMock,
                 ) as mock_oracle:
-                    await issue_comment_handler.user_commands(
-                        pull_request=mock_pull_request,
-                        command=COMMAND_TEST_ORACLE_STR,
-                        reviewed_user="test-user",
-                        issue_comment_id=456,
-                        is_draft=False,
-                    )
-                    mock_oracle.assert_called_once_with(
-                        github_webhook=issue_comment_handler.github_webhook,
-                        pull_request=mock_pull_request,
-                    )
+                    with patch("asyncio.create_task") as mock_create_task:
+                        await issue_comment_handler.user_commands(
+                            pull_request=mock_pull_request,
+                            command=COMMAND_TEST_ORACLE_STR,
+                            reviewed_user="test-user",
+                            issue_comment_id=456,
+                            is_draft=False,
+                        )
+                        mock_oracle.assert_called_once_with(
+                            github_webhook=issue_comment_handler.github_webhook,
+                            pull_request=mock_pull_request,
+                        )
+                        mock_create_task.assert_called_once()

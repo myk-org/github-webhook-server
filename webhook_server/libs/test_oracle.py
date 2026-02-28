@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -41,49 +42,61 @@ async def call_test_oracle(
     server_url: str = config["server-url"]
     log_prefix: str = github_webhook.log_prefix
 
-    async with httpx.AsyncClient(base_url=server_url) as client:
-        # Health check
-        try:
-            health_response = await client.get("/health", timeout=5.0)
-            if health_response.status_code != 200:
-                msg = (
-                    f"Test Oracle server at {server_url} is not responding"
-                    f" (status {health_response.status_code}), skipping test analysis"
-                )
+    # Secure transport check
+    parsed_url = urlparse(server_url)
+    is_local = parsed_url.hostname in {"localhost", "127.0.0.1", "::1"}
+    if parsed_url.scheme != "https" and not is_local:
+        github_webhook.logger.error(
+            f"{log_prefix} Insecure test-oracle server-url '{server_url}'. Use https or localhost http."
+        )
+        return
+
+    try:
+        async with httpx.AsyncClient(base_url=server_url) as client:
+            # Health check
+            try:
+                health_response = await client.get("/health", timeout=5.0)
+                health_response.raise_for_status()
+            except httpx.HTTPError as e:
+                status_info = ""
+                if isinstance(e, httpx.HTTPStatusError):
+                    status_info = f" (status {e.response.status_code})"
+
+                msg = f"Test Oracle server at {server_url} is not responding{status_info}, skipping test analysis"
                 github_webhook.logger.warning(f"{log_prefix} {msg}")
-                await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                try:
+                    await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                except Exception:
+                    github_webhook.logger.exception(f"{log_prefix} Failed to post health check comment")
                 return
-        except httpx.HTTPError:
-            msg = f"Test Oracle server at {server_url} is not responding, skipping test analysis"
-            github_webhook.logger.warning(f"{log_prefix} {msg}")
-            await asyncio.to_thread(pull_request.create_issue_comment, msg)
-            return
 
-        # Build analyze payload
-        payload: dict[str, Any] = {
-            "pr_url": pull_request.html_url,
-            "ai_provider": config["ai-provider"],
-            "ai_model": config["ai-model"],
-            "github_token": github_webhook.token,
-        }
+            # Build analyze payload
+            payload: dict[str, Any] = {
+                "pr_url": pull_request.html_url,
+                "ai_provider": config["ai-provider"],
+                "ai_model": config["ai-model"],
+                "github_token": github_webhook.token,
+            }
 
-        if "test-patterns" in config:
-            payload["test_patterns"] = config["test-patterns"]
+            if "test-patterns" in config:
+                payload["test_patterns"] = config["test-patterns"]
 
-        # Call analyze
-        try:
-            github_webhook.logger.info(f"{log_prefix} Calling Test Oracle for {pull_request.html_url}")
-            response = await client.post("/analyze", json=payload, timeout=300.0)
+            # Call analyze
+            try:
+                github_webhook.logger.info(f"{log_prefix} Calling Test Oracle for {pull_request.html_url}")
+                response = await client.post("/analyze", json=payload, timeout=300.0)
+                response.raise_for_status()
 
-            if response.status_code != 200:
-                github_webhook.logger.error(
-                    f"{log_prefix} Test Oracle analyze failed with status {response.status_code}: {response.text}"
+                result = response.json()
+                github_webhook.logger.info(
+                    f"{log_prefix} Test Oracle analysis complete: {result.get('summary', 'no summary')}"
                 )
-                return
-
-            result = response.json()
-            github_webhook.logger.info(
-                f"{log_prefix} Test Oracle analysis complete: {result.get('summary', 'no summary')}"
-            )
-        except httpx.HTTPError:
-            github_webhook.logger.error(f"{log_prefix} Test Oracle analyze request failed")
+            except httpx.HTTPError as e:
+                err_detail = f": {e.response.text}" if isinstance(e, httpx.HTTPStatusError) else ""
+                github_webhook.logger.error(f"{log_prefix} Test Oracle analyze request failed{err_detail}")
+            except ValueError:
+                github_webhook.logger.error(f"{log_prefix} Test Oracle returned invalid JSON response")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        github_webhook.logger.exception(f"{log_prefix} Test Oracle call failed unexpectedly")

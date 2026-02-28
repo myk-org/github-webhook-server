@@ -121,6 +121,8 @@ properties:
         description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
       triggers:
         type: array
+        default:
+          - approved
         items:
           type: string
           enum:
@@ -476,6 +478,8 @@ properties:
               description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
             triggers:
               type: array
+              default:
+                - approved
               items:
                 type: string
                 enum:

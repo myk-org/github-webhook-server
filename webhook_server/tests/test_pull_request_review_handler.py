@@ -297,7 +297,7 @@ class TestPullRequestReviewHandler:
 
     @pytest.mark.asyncio
     async def test_calls_test_oracle_on_approval(self, pull_request_review_handler: PullRequestReviewHandler) -> None:
-        """Test that test oracle is called when PR review is approved."""
+        """Test that test oracle is fired as a background task when PR review is approved."""
         mock_pull_request = Mock(spec=PullRequest)
 
         with patch.object(
@@ -308,15 +308,16 @@ class TestPullRequestReviewHandler:
             ):
                 with patch(
                     "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
-                    new_callable=AsyncMock,
                 ) as mock_oracle:
-                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                    with patch("asyncio.create_task") as mock_create_task:
+                        await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                    mock_oracle.assert_called_once_with(
-                        github_webhook=pull_request_review_handler.github_webhook,
-                        pull_request=mock_pull_request,
-                        trigger="approved",
-                    )
+                        mock_oracle.assert_called_once_with(
+                            github_webhook=pull_request_review_handler.github_webhook,
+                            pull_request=mock_pull_request,
+                            trigger="approved",
+                        )
+                        mock_create_task.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_does_not_call_test_oracle_on_non_approval(

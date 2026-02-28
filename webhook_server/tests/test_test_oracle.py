@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -73,7 +74,12 @@ class TestCallTestOracle:
             mock_client = AsyncMock()
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get.return_value = Mock(status_code=503)
+
+            mock_response = Mock(status_code=503)
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Server Error", request=Mock(), response=Mock(status_code=503)
+            )
+            mock_client.get.return_value = mock_response
 
             with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
                 await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
@@ -82,6 +88,7 @@ class TestCallTestOracle:
                 call_args = mock_to_thread.call_args
                 assert call_args[0][0] == mock_pull_request.create_issue_comment
                 assert "not responding" in call_args[0][1]
+                assert "(status 503)" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_successful_analyze_call(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
@@ -124,8 +131,15 @@ class TestCallTestOracle:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            mock_client.get.return_value = Mock(status_code=200)
-            mock_client.post.return_value = Mock(status_code=500, text="Internal Server Error")
+            mock_health = Mock()
+            mock_health.raise_for_status = Mock()
+            mock_client.get.return_value = mock_health
+
+            mock_analyze_response = Mock(status_code=500, text="Internal Server Error")
+            mock_analyze_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Server Error", request=Mock(), response=Mock(status_code=500, text="Internal Server Error")
+            )
+            mock_client.post.return_value = mock_analyze_response
 
             with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
                 await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
@@ -258,3 +272,149 @@ class TestCallTestOracle:
                 pull_request=mock_pull_request,
             )
             mock_client.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_insecure_url_rejected(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that non-localhost http URLs are rejected."""
+        mock_github_webhook.config.get_value = Mock(
+            return_value={
+                "server-url": "http://remote-server.example.com:8000",
+                "ai-provider": "claude",
+                "ai-model": "sonnet",
+            }
+        )
+
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_client_cls.assert_not_called()
+            mock_github_webhook.logger.error.assert_called_once()
+            error_msg = mock_github_webhook.logger.error.call_args[0][0]
+            assert "Insecure" in error_msg
+
+    @pytest.mark.asyncio
+    async def test_https_url_allowed(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that https URLs are always allowed."""
+        mock_github_webhook.config.get_value = Mock(
+            return_value={
+                "server-url": "https://remote-server.example.com:8000",
+                "ai-provider": "claude",
+                "ai-model": "sonnet",
+            }
+        )
+
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get.return_value = Mock(status_code=200)
+            mock_client.post.return_value = Mock(
+                status_code=200,
+                json=Mock(return_value={"summary": "ok", "review_posted": True}),
+            )
+
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_client_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_localhost_http_allowed(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that http://localhost URLs are allowed."""
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get.return_value = Mock(status_code=200)
+            mock_client.post.return_value = Mock(
+                status_code=200,
+                json=Mock(return_value={"summary": "ok", "review_posted": True}),
+            )
+
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_client_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_127_0_0_1_http_allowed(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that http://127.0.0.1 URLs are allowed."""
+        mock_github_webhook.config.get_value = Mock(
+            return_value={
+                "server-url": "http://127.0.0.1:8000",
+                "ai-provider": "claude",
+                "ai-model": "sonnet",
+            }
+        )
+
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get.return_value = Mock(status_code=200)
+            mock_client.post.return_value = Mock(
+                status_code=200,
+                json=Mock(return_value={"summary": "ok", "review_posted": True}),
+            )
+
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_client_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_outer_exception_caught_and_logged(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that unexpected exceptions are caught by the outer try/except."""
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.side_effect = RuntimeError("Unexpected failure")
+
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_github_webhook.logger.exception.assert_called_once()
+            exc_msg = mock_github_webhook.logger.exception.call_args[0][0]
+            assert "failed unexpectedly" in exc_msg
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_reraised(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that asyncio.CancelledError is re-raised, not swallowed."""
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.side_effect = asyncio.CancelledError()
+
+            with pytest.raises(asyncio.CancelledError):
+                await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_health_comment_failure_logged(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that failure to post health check PR comment is logged."""
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+
+            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                mock_to_thread.side_effect = RuntimeError("GitHub API error")
+
+                await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+                mock_github_webhook.logger.exception.assert_called_once()
+                exc_msg = mock_github_webhook.logger.exception.call_args[0][0]
+                assert "Failed to post health check comment" in exc_msg
+
+    @pytest.mark.asyncio
+    async def test_analyze_invalid_json_logged(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Test that invalid JSON response from analyze is logged."""
+        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            mock_client.get.return_value = Mock(status_code=200)
+
+            mock_analyze_response = Mock()
+            mock_analyze_response.raise_for_status = Mock()
+            mock_analyze_response.json.side_effect = ValueError("Invalid JSON")
+            mock_client.post.return_value = mock_analyze_response
+
+            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+            mock_github_webhook.logger.error.assert_called_once()
+            error_msg = mock_github_webhook.logger.error.call_args[0][0]
+            assert "invalid JSON" in error_msg

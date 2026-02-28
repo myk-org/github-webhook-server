@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from github.PullRequest import PullRequest
@@ -63,10 +64,12 @@ class PullRequestReviewHandler:
                         )
 
                 if review_state == "approved":
-                    await call_test_oracle(
-                        github_webhook=self.github_webhook,
-                        pull_request=pull_request,
-                        trigger="approved",
+                    asyncio.create_task(
+                        call_test_oracle(
+                            github_webhook=self.github_webhook,
+                            pull_request=pull_request,
+                            trigger="approved",
+                        )
                     )
         finally:
             if self.ctx:

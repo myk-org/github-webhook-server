@@ -169,7 +169,7 @@ class IssueCommentHandler:
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
         # Check if command is allowed on draft PRs
-        if is_draft:
+        if is_draft and _command != COMMAND_TEST_ORACLE_STR:
             allow_commands_on_draft = self.github_webhook.config.get_value("allow-commands-on-draft-prs")
             if not isinstance(allow_commands_on_draft, list):
                 self.logger.debug(
@@ -276,9 +276,11 @@ class IssueCommentHandler:
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
 
         elif _command == COMMAND_TEST_ORACLE_STR:
-            await call_test_oracle(
-                github_webhook=self.github_webhook,
-                pull_request=pull_request,
+            asyncio.create_task(
+                call_test_oracle(
+                    github_webhook=self.github_webhook,
+                    pull_request=pull_request,
+                )
             )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
