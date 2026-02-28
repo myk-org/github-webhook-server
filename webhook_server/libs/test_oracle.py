@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -41,15 +40,6 @@ async def call_test_oracle(
 
     server_url: str = config["server-url"]
     log_prefix: str = github_webhook.log_prefix
-
-    # Secure transport check
-    parsed_url = urlparse(server_url)
-    is_local = parsed_url.hostname in {"localhost", "127.0.0.1", "::1"}
-    if parsed_url.scheme != "https" and not is_local:
-        github_webhook.logger.error(
-            f"{log_prefix} Insecure test-oracle server-url '{server_url}'. Use https or localhost http."
-        )
-        return
 
     try:
         async with httpx.AsyncClient(base_url=server_url) as client:
