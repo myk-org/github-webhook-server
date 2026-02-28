@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
+
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 class PullRequestReviewHandler:
@@ -53,13 +57,25 @@ class PullRequestReviewHandler:
 
                 if body := self.hook_data["review"]["body"]:
                     self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Found review body: {body}")
-                    if f"/{APPROVE_STR}" in body:
+                    # In this project, "approved" means a maintainer uses the /approve command
+                    # (which adds an approved-<user> label), NOT GitHub's review approval state.
+                    # The oracle trigger fires only when /approve is found in the review body.
+                    if any(line.strip() == f"/{APPROVE_STR}" for line in body.splitlines()):
                         await self.labels_handler.label_by_user_comment(
                             pull_request=pull_request,
                             user_requested_label=APPROVE_STR,
                             remove=False,
                             reviewed_user=reviewed_user,
                         )
+                        task = asyncio.create_task(
+                            call_test_oracle(
+                                github_webhook=self.github_webhook,
+                                pull_request=pull_request,
+                                trigger="approved",
+                            )
+                        )
+                        _background_tasks.add(task)
+                        task.add_done_callback(_background_tasks.discard)
         finally:
             if self.ctx:
                 self.ctx.complete_step("pr_review_handler")

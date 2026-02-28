@@ -1,5 +1,6 @@
 """Tests for webhook_server.libs.handlers.pull_request_review_handler module."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -18,7 +19,7 @@ class TestPullRequestReviewHandler:
         mock_webhook = Mock()
         mock_webhook.hook_data = {
             "action": "submitted",
-            "review": {"user": {"login": "test-reviewer"}, "state": "approved", "body": "Great work! /approve"},
+            "review": {"user": {"login": "test-reviewer"}, "state": "approved", "body": "Great work!\n/approve"},
         }
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
@@ -53,20 +54,24 @@ class TestPullRequestReviewHandler:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
-                await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ):
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                mock_manage_label.assert_called_once_with(
-                    pull_request=mock_pull_request,
-                    review_state="approved",
-                    action=ADD_STR,
-                    reviewed_user="test-reviewer",
-                )
-                mock_label_comment.assert_called_once_with(
-                    pull_request=mock_pull_request,
-                    user_requested_label=APPROVE_STR,
-                    remove=False,
-                    reviewed_user="test-reviewer",
-                )
+                    mock_manage_label.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        review_state="approved",
+                        action=ADD_STR,
+                        reviewed_user="test-reviewer",
+                    )
+                    mock_label_comment.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        user_requested_label=APPROVE_STR,
+                        remove=False,
+                        reviewed_user="test-reviewer",
+                    )
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_non_submitted_action(
@@ -101,15 +106,19 @@ class TestPullRequestReviewHandler:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
-                await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ):
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                mock_manage_label.assert_called_once_with(
-                    pull_request=mock_pull_request,
-                    review_state="approved",
-                    action=ADD_STR,
-                    reviewed_user="test-reviewer",
-                )
-                mock_label_comment.assert_not_called()
+                    mock_manage_label.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        review_state="approved",
+                        action=ADD_STR,
+                        reviewed_user="test-reviewer",
+                    )
+                    mock_label_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_empty_body(
@@ -125,15 +134,19 @@ class TestPullRequestReviewHandler:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
-                await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ):
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                mock_manage_label.assert_called_once_with(
-                    pull_request=mock_pull_request,
-                    review_state="approved",
-                    action=ADD_STR,
-                    reviewed_user="test-reviewer",
-                )
-                mock_label_comment.assert_not_called()
+                    mock_manage_label.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        review_state="approved",
+                        action=ADD_STR,
+                        reviewed_user="test-reviewer",
+                    )
+                    mock_label_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_body_without_approve(
@@ -149,15 +162,19 @@ class TestPullRequestReviewHandler:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
-                await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ):
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                mock_manage_label.assert_called_once_with(
-                    pull_request=mock_pull_request,
-                    review_state="approved",
-                    action=ADD_STR,
-                    reviewed_user="test-reviewer",
-                )
-                mock_label_comment.assert_not_called()
+                    mock_manage_label.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        review_state="approved",
+                        action=ADD_STR,
+                        reviewed_user="test-reviewer",
+                    )
+                    mock_label_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_different_review_states(
@@ -177,24 +194,28 @@ class TestPullRequestReviewHandler:
                 with patch.object(
                     pull_request_review_handler.labels_handler, "label_by_user_comment"
                 ) as mock_label_comment:
-                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                    with patch(
+                        "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                        new_callable=AsyncMock,
+                    ):
+                        await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                    mock_manage_label.assert_called_once_with(
-                        pull_request=mock_pull_request,
-                        review_state=state,
-                        action=ADD_STR,
-                        reviewed_user="test-reviewer",
-                    )
-                    mock_label_comment.assert_called_once_with(
-                        pull_request=mock_pull_request,
-                        user_requested_label=APPROVE_STR,
-                        remove=False,
-                        reviewed_user="test-reviewer",
-                    )
+                        mock_manage_label.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            review_state=state,
+                            action=ADD_STR,
+                            reviewed_user="test-reviewer",
+                        )
+                        mock_label_comment.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            user_requested_label=APPROVE_STR,
+                            remove=False,
+                            reviewed_user="test-reviewer",
+                        )
 
-                    # Reset mocks for next iteration
-                    mock_manage_label.reset_mock()
-                    mock_label_comment.reset_mock()
+                        # Reset mocks for next iteration
+                        mock_manage_label.reset_mock()
+                        mock_label_comment.reset_mock()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_different_users(
@@ -214,21 +235,25 @@ class TestPullRequestReviewHandler:
                 with patch.object(
                     pull_request_review_handler.labels_handler, "label_by_user_comment"
                 ) as mock_label_comment:
-                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                    with patch(
+                        "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                        new_callable=AsyncMock,
+                    ):
+                        await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                    mock_manage_label.assert_called_once_with(
-                        pull_request=mock_pull_request, review_state="approved", action=ADD_STR, reviewed_user=user
-                    )
-                    mock_label_comment.assert_called_once_with(
-                        pull_request=mock_pull_request,
-                        user_requested_label=APPROVE_STR,
-                        remove=False,
-                        reviewed_user=user,
-                    )
+                        mock_manage_label.assert_called_once_with(
+                            pull_request=mock_pull_request, review_state="approved", action=ADD_STR, reviewed_user=user
+                        )
+                        mock_label_comment.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            user_requested_label=APPROVE_STR,
+                            remove=False,
+                            reviewed_user=user,
+                        )
 
-                    # Reset mocks for next iteration
-                    mock_manage_label.reset_mock()
-                    mock_label_comment.reset_mock()
+                        # Reset mocks for next iteration
+                        mock_manage_label.reset_mock()
+                        mock_label_comment.reset_mock()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_review_webhook_data_exact_approve_match(
@@ -237,7 +262,7 @@ class TestPullRequestReviewHandler:
         """Test processing pull request review webhook data with exact /approve match."""
         mock_pull_request = Mock(spec=PullRequest)
 
-        test_bodies = ["/approve", "Great work! /approve", "LGTM /approve thanks", "/approve this looks good"]
+        test_bodies = ["/approve", "Great work!\n/approve", "LGTM\n/approve\nthanks", "  /approve  "]
 
         for body in test_bodies:
             pull_request_review_handler.hook_data["review"]["body"] = body
@@ -248,21 +273,96 @@ class TestPullRequestReviewHandler:
                 with patch.object(
                     pull_request_review_handler.labels_handler, "label_by_user_comment"
                 ) as mock_label_comment:
+                    with patch(
+                        "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                        new_callable=AsyncMock,
+                    ):
+                        await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+
+                        mock_manage_label.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            review_state="approved",
+                            action=ADD_STR,
+                            reviewed_user="test-reviewer",
+                        )
+                        mock_label_comment.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            user_requested_label=APPROVE_STR,
+                            remove=False,
+                            reviewed_user="test-reviewer",
+                        )
+
+                        # Reset mocks for next iteration
+                        mock_manage_label.reset_mock()
+                        mock_label_comment.reset_mock()
+
+    @pytest.mark.asyncio
+    async def test_calls_test_oracle_on_approval(self, pull_request_review_handler: PullRequestReviewHandler) -> None:
+        """Test that test oracle is fired as a background task when PR review is approved."""
+        mock_pull_request = Mock(spec=PullRequest)
+
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ):
+            with patch.object(
+                pull_request_review_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+            ):
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ) as mock_oracle:
+                    with patch("asyncio.create_task") as mock_create_task:
+                        await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+
+                        mock_oracle.assert_called_once_with(
+                            github_webhook=pull_request_review_handler.github_webhook,
+                            pull_request=mock_pull_request,
+                            trigger="approved",
+                        )
+                        mock_create_task.assert_called_once()
+                        assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_test_oracle_on_github_approval_without_approve_command(
+        self, pull_request_review_handler: PullRequestReviewHandler
+    ) -> None:
+        """Test that GitHub review approval without /approve command does NOT trigger oracle."""
+        mock_pull_request = Mock(spec=PullRequest)
+        pull_request_review_handler.hook_data["review"]["state"] = "approved"
+        pull_request_review_handler.hook_data["review"]["body"] = ""
+
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ):
+            with patch.object(
+                pull_request_review_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+            ):
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ) as mock_oracle:
+                    await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
+                    mock_oracle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_test_oracle_on_non_approval(
+        self, pull_request_review_handler: PullRequestReviewHandler
+    ) -> None:
+        """Test that test oracle is NOT called for non-approval reviews."""
+        mock_pull_request = Mock(spec=PullRequest)
+        pull_request_review_handler.hook_data["review"]["state"] = "commented"
+        pull_request_review_handler.hook_data["review"]["body"] = "Looks good"
+
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ):
+            with patch.object(
+                pull_request_review_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+            ):
+                with patch(
+                    "webhook_server.libs.handlers.pull_request_review_handler.call_test_oracle",
+                    new_callable=AsyncMock,
+                ) as mock_oracle:
                     await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
-                    mock_manage_label.assert_called_once_with(
-                        pull_request=mock_pull_request,
-                        review_state="approved",
-                        action=ADD_STR,
-                        reviewed_user="test-reviewer",
-                    )
-                    mock_label_comment.assert_called_once_with(
-                        pull_request=mock_pull_request,
-                        user_requested_label=APPROVE_STR,
-                        remove=False,
-                        reviewed_user="test-reviewer",
-                    )
-
-                    # Reset mocks for next iteration
-                    mock_manage_label.reset_mock()
-                    mock_label_comment.reset_mock()
+                    mock_oracle.assert_not_called()
