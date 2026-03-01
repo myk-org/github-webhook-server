@@ -1501,11 +1501,13 @@ class TestIssueCommentHandler:
                         "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
                         new_callable=AsyncMock,
                     ) as mock_oracle:
-                        await issue_comment_handler.user_commands(
-                            pull_request=mock_pull_request,
-                            command=f"{APPROVE_STR} cancel",
-                            reviewed_user="test-user",
-                            issue_comment_id=456,
-                            is_draft=False,
-                        )
-                        mock_oracle.assert_not_called()
+                        with patch("asyncio.create_task") as mock_create_task:
+                            await issue_comment_handler.user_commands(
+                                pull_request=mock_pull_request,
+                                command=f"{APPROVE_STR} cancel",
+                                reviewed_user="test-user",
+                                issue_comment_id=456,
+                                is_draft=False,
+                            )
+                            mock_oracle.assert_not_called()
+                            mock_create_task.assert_not_called()
