@@ -355,7 +355,7 @@ class IssueCommentHandler:
                 remove=remove,
                 reviewed_user=reviewed_user,
             )
-            if _command == APPROVE_STR:
+            if _command == APPROVE_STR and not remove:
                 task = asyncio.create_task(
                     call_test_oracle(
                         github_webhook=self.github_webhook,
