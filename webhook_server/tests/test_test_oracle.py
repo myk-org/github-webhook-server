@@ -88,8 +88,7 @@ class TestCallTestOracle:
                 mock_to_thread.assert_called_once()
                 call_args = mock_to_thread.call_args
                 assert call_args[0][0] == mock_pull_request.create_issue_comment
-                assert "not responding" in call_args[0][1]
-                assert "(status 503)" in call_args[0][1]
+                assert call_args[0][1] == "Test Oracle server is not responding, skipping test analysis"
 
     @pytest.mark.asyncio
     async def test_successful_analyze_call(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
