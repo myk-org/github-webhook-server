@@ -91,6 +91,8 @@ class TestPullRequestHandler:
         mock_webhook.enabled_labels = None  # Default: all labels enabled
         mock_webhook.custom_check_runs = []
         mock_webhook.required_conversation_resolution = False
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
         return mock_webhook
 
     @pytest.fixture
@@ -2687,3 +2689,79 @@ class TestPullRequestHandler:
         mock_comment3.edit.assert_not_called()
         # Verify no new comment was created
         mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_opened_action_calls_test_oracle_with_pr_opened_trigger(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_test_oracle is fired as a background task with trigger='pr-opened' when a PR is opened."""
+        pull_request_handler.hook_data["action"] = "opened"
+
+        with (
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request"),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title"),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "set_pull_request_automerge"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ) as mock_test_oracle,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_test_oracle.assert_called_once_with(
+                github_webhook=pull_request_handler.github_webhook,
+                pull_request=mock_pull_request,
+                trigger="pr-opened",
+            )
+            mock_create_task.assert_called_once()
+            assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_process_synchronize_action_calls_test_oracle_with_pr_synchronized_trigger(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_test_oracle is fired as a background task.
+
+        Verifies trigger='pr-synchronized' when a PR is synchronized.
+        """
+        pull_request_handler.hook_data["action"] = "synchronize"
+
+        with (
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ) as mock_test_oracle,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_test_oracle.assert_called_once_with(
+                github_webhook=pull_request_handler.github_webhook,
+                pull_request=mock_pull_request,
+                trigger="pr-synchronized",
+            )
+            mock_create_task.assert_called_once()
+            assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_process_reopened_action_does_not_call_test_oracle(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_test_oracle is NOT called when a PR is reopened."""
+        pull_request_handler.hook_data["action"] = "reopened"
+
+        with (
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request"),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title"),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "set_pull_request_automerge"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+            ) as mock_test_oracle,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_test_oracle.assert_not_called()
+            mock_create_task.assert_not_called()

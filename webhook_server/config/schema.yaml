@@ -96,6 +96,53 @@ properties:
       - Not set (default): commands blocked on draft PRs
       - Empty list []: all commands allowed on draft PRs
       - List with commands: only specified commands allowed (e.g., ["build-and-push-container", "retest"])
+  test-oracle:
+    type: object
+    description: |
+      PR Test Oracle integration. Sends PR data to an external AI service
+      that analyzes diffs and recommends which tests to run.
+      See https://github.com/myk-org/pr-test-oracle for server setup.
+      The /test-oracle comment command always works when configured (no trigger needed).
+    properties:
+      server-url:
+        type: string
+        format: uri
+        description: URL of the pr-test-oracle server (e.g., http://localhost:8000)
+      ai-provider:
+        type: string
+        enum:
+          - claude
+          - gemini
+          - cursor
+        description: AI provider for test analysis
+      ai-model:
+        type: string
+        description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
+      test-patterns:
+        type: array
+        items:
+          type: string
+        description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
+      triggers:
+        type: array
+        default:
+          - approved
+        items:
+          type: string
+          enum:
+            - approved
+            - pr-opened
+            - pr-synchronized
+        description: |
+          When to automatically run test oracle analysis. Default: [approved].
+          - approved: Run when a PR review is approved
+          - pr-opened: Run when a new PR is opened
+          - pr-synchronized: Run when new commits are pushed to a PR
+    required:
+      - server-url
+      - ai-provider
+      - ai-model
+    additionalProperties: false
   labels:
     type: object
     description: Configure which labels are enabled and their colors
@@ -410,6 +457,53 @@ properties:
             required:
               - threshold
             additionalProperties: false
+        test-oracle:
+          type: object
+          description: |
+            PR Test Oracle integration. Sends PR data to an external AI service
+            that analyzes diffs and recommends which tests to run.
+            See https://github.com/myk-org/pr-test-oracle for server setup.
+            The /test-oracle comment command always works when configured (no trigger needed).
+          properties:
+            server-url:
+              type: string
+              format: uri
+              description: URL of the pr-test-oracle server (e.g., http://localhost:8000)
+            ai-provider:
+              type: string
+              enum:
+                - claude
+                - gemini
+                - cursor
+              description: AI provider for test analysis
+            ai-model:
+              type: string
+              description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
+            test-patterns:
+              type: array
+              items:
+                type: string
+              description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
+            triggers:
+              type: array
+              default:
+                - approved
+              items:
+                type: string
+                enum:
+                  - approved
+                  - pr-opened
+                  - pr-synchronized
+              description: |
+                When to automatically run test oracle analysis. Default: [approved].
+                - approved: Run when a PR review is approved
+                - pr-opened: Run when a new PR is opened
+                - pr-synchronized: Run when new commits are pushed to a PR
+          required:
+            - server-url
+            - ai-provider
+            - ai-model
+          additionalProperties: false
         custom-check-runs:
           type: array
           description: |
