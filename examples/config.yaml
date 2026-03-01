@@ -109,6 +109,7 @@ branch-protection:
 
 # PR Test Oracle integration
 # Analyzes PR diffs with AI and recommends which tests to run
+# Place a TESTS_ORACLE.md file in your repository root to customize the AI prompt
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
@@ -238,6 +239,7 @@ repositories:
       - main
 
     # PR Test Oracle (overrides global)
+    # Place a TESTS_ORACLE.md file in your repository root to customize the AI prompt
     # See: https://github.com/myk-org/pr-test-oracle
     test-oracle:
       server-url: "http://localhost:8000"
