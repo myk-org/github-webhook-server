@@ -921,6 +921,36 @@ class TestIssueCommentHandler:
                         mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch3")
 
     @pytest.mark.asyncio
+    async def test_process_cherry_pick_command_merged_pr_assign_disabled(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick on merged PR passes assign_to_pr_owner=False when config disabled."""
+        issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author = False
+        mock_pull_request = Mock()
+        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
+            with patch.object(issue_comment_handler.repository, "get_branch"):
+                with patch.object(
+                    issue_comment_handler.runner_handler,
+                    "cherry_pick",
+                    new_callable=AsyncMock,
+                ) as mock_cherry_pick:
+                    with patch.object(
+                        issue_comment_handler.labels_handler,
+                        "_add_label",
+                        new_callable=AsyncMock,
+                    ):
+                        await issue_comment_handler.process_cherry_pick_command(
+                            pull_request=mock_pull_request,
+                            command_args="branch1",
+                            reviewed_user="test-user",
+                        )
+                        mock_cherry_pick.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            target_branch="branch1",
+                            assign_to_pr_owner=False,
+                        )
+
+    @pytest.mark.asyncio
     async def test_process_retest_command_no_target_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with no target tests."""
         mock_pull_request = Mock()

@@ -543,7 +543,7 @@ Your team can configure additional types in the repository settings.
         assign_to_pr_owner: bool = True,
     ) -> None:
         pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
-        source_branch = pull_request.base.ref
+        source_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
 
         self.logger.info(
             f"{self.log_prefix} Cherry-pick from {source_branch} to {target_branch}, PR owner: {pr_author}"

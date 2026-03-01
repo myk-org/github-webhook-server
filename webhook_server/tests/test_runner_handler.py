@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, Mock, patch
@@ -936,7 +936,7 @@ class TestRunnerHandler:
     async def cherry_pick_setup(
         runner_handler: RunnerHandler,
         mock_pull_request: Mock,
-    ):
+    ) -> AsyncGenerator[CherryPickMocks]:
         """Common setup for cherry-pick tests."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
@@ -973,7 +973,7 @@ class TestRunnerHandler:
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
-            assert mocks.to_thread.call_count == 2
+            assert mocks.to_thread.call_count == 3
             last_cmd = mocks.run_cmd.call_args_list[-1]
             hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
@@ -995,7 +995,7 @@ class TestRunnerHandler:
             )
             assert expected_msg in hub_command
             assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
-            assert mocks.to_thread.call_count == 2
+            assert mocks.to_thread.call_count == 3
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_branch_already_checked_out(

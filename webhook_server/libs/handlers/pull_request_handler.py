@@ -156,9 +156,13 @@ class PullRequestHandler:
                     _label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)
                 ]:
                     for _label in cherry_pick_labels:
+                        target_branch = _label.name.removeprefix(CHERRY_PICK_LABEL_PREFIX)
+                        if not target_branch:
+                            self.logger.warning(f"{self.log_prefix} Skipping invalid cherry-pick label: {_label.name}")
+                            continue
                         await self.runner_handler.cherry_pick(
                             pull_request=pull_request,
-                            target_branch=_label.name.replace(CHERRY_PICK_LABEL_PREFIX, ""),
+                            target_branch=target_branch,
                             assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
                         )
 
