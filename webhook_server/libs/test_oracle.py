@@ -60,7 +60,7 @@ async def call_test_oracle(
                 try:
                     await asyncio.to_thread(
                         pull_request.create_issue_comment,
-                        "Test Oracle server is not responding, skipping test analysis",
+                        f"Test Oracle server is not responding{status_info}, skipping test analysis",
                     )
                 except Exception:
                     github_webhook.logger.exception(f"{log_prefix} Failed to post health check comment")
