@@ -14,7 +14,9 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
+    APPROVE_STR,
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
@@ -26,6 +28,7 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
     USER_LABELS_DICT,
@@ -36,6 +39,8 @@ from webhook_server.utils.constants import (
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
+
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 class IssueCommentHandler:
@@ -159,6 +164,7 @@ class IssueCommentHandler:
             COMMAND_ASSIGN_REVIEWER_STR,
             COMMAND_ADD_ALLOWED_USER_STR,
             COMMAND_REGENERATE_WELCOME_STR,
+            COMMAND_TEST_ORACLE_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -166,7 +172,7 @@ class IssueCommentHandler:
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
         # Check if command is allowed on draft PRs
-        if is_draft:
+        if is_draft and _command != COMMAND_TEST_ORACLE_STR:
             allow_commands_on_draft = self.github_webhook.config.get_value("allow-commands-on-draft-prs")
             if not isinstance(allow_commands_on_draft, list):
                 self.logger.debug(
@@ -272,6 +278,16 @@ class IssueCommentHandler:
             self.logger.info(f"{self.log_prefix} Regenerating welcome message")
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
 
+        elif _command == COMMAND_TEST_ORACLE_STR:
+            task = asyncio.create_task(
+                call_test_oracle(
+                    github_webhook=self.github_webhook,
+                    pull_request=pull_request,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
                 await self.runner_handler.run_build_container(
@@ -339,6 +355,16 @@ class IssueCommentHandler:
                 remove=remove,
                 reviewed_user=reviewed_user,
             )
+            if _command == APPROVE_STR:
+                task = asyncio.create_task(
+                    call_test_oracle(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="approved",
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
         _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)
