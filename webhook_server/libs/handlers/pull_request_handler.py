@@ -1021,10 +1021,8 @@ For more information, please refer to the project documentation or contact the m
                     if self.ctx:
                         self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
                     return
-                except Exception as ex:
+                except Exception:
                     self.logger.exception(f"{self.log_prefix} Unexpected error polling PR mergeable status")
-                    if self.ctx:
-                        self.ctx.fail_step("label_merge_state", exception=ex, traceback_str=traceback.format_exc())
                     raise
 
             if mergeable is None:
