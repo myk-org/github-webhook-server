@@ -1485,3 +1485,27 @@ class TestIssueCommentHandler:
                             )
                             mock_create_task.assert_called_once()
                             assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_approve_cancel_does_not_call_test_oracle(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that /approve cancel does NOT fire call_test_oracle."""
+        mock_pull_request = Mock()
+        mock_pull_request.draft = False
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
+                with patch.object(
+                    issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+                ):
+                    with patch(
+                        "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                        new_callable=AsyncMock,
+                    ) as mock_oracle:
+                        await issue_comment_handler.user_commands(
+                            pull_request=mock_pull_request,
+                            command=f"{APPROVE_STR} cancel",
+                            reviewed_user="test-user",
+                            issue_comment_id=456,
+                            is_draft=False,
+                        )
+                        mock_oracle.assert_not_called()
