@@ -121,6 +121,8 @@ minimum-lgtm: 2
 # Issue creation for new pull requests
 create-issue-for-new-pr: true  # Create tracking issues for new PRs
 
+cherry-pick-assign-to-pr-author: true  # Assign cherry-pick PRs to the original PR author (default: true)
+
 # Custom PR size labels for this repository (overrides global configuration)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer or 'inf' for unbounded largest category

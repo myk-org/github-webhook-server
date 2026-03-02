@@ -536,9 +536,18 @@ Your team can configure additional types in the repository settings.
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
-    async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
-        requested_by = reviewed_user or "by target-branch label"
-        self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
+    async def cherry_pick(
+        self,
+        pull_request: PullRequest,
+        target_branch: str,
+        assign_to_pr_owner: bool = True,
+    ) -> None:
+        pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+        source_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
+
+        self.logger.info(
+            f"{self.log_prefix} Cherry-pick from {source_branch} to {target_branch}, PR owner: {pr_author}"
+        )
 
         new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
@@ -556,6 +565,7 @@ Your team can configure additional types in the repository settings.
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
                 hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+                assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
                 commands: list[str] = [
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
@@ -563,10 +573,10 @@ Your team can configure additional types in the repository settings.
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} "
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} {assignee_flag} "
                     f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
-                    f"into {target_branch}' -m 'requested-by {requested_by}'\"",
+                    f"{commit_msg_striped}' -m 'Cherry-pick from `{source_branch}` branch, "
+                    f"original PR: {pull_request_url}, PR owner: {pr_author}'\"",
                 ]
 
                 output: CheckRunOutput = {

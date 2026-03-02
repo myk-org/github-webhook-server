@@ -41,6 +41,7 @@ class TestConfigSchema:
             "docker": {"username": "dockeruser", "password": "dockerpass"},  # pragma: allowlist secret
             "default-status-checks": ["WIP", "build"],
             "auto-verified-and-merged-users": ["bot[bot]"],
+            "cherry-pick-assign-to-pr-author": True,
             "branch-protection": {
                 "strict": True,
                 "require_code_owner_reviews": True,
