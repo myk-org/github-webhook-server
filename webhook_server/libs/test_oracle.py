@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -79,12 +78,6 @@ async def call_test_oracle(
 
             if "test-patterns" in config:
                 payload["test_patterns"] = config["test-patterns"]
-
-            # If TESTS_ORACLE.md exists in the repo, pass it as the prompt file
-            oracle_prompt_path = os.path.join(github_webhook.clone_repo_dir, "TESTS_ORACLE.md")
-            if os.path.isfile(oracle_prompt_path):
-                payload["prompt_file"] = oracle_prompt_path
-                github_webhook.logger.debug(f"{log_prefix} Using TESTS_ORACLE.md prompt from {oracle_prompt_path}")
 
             # Call analyze
             try:
