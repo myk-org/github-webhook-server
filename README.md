@@ -85,7 +85,7 @@ GitHub Events → Webhook Server → Repository Management
 - **PyPI package publishing** for Python projects
 - **Tox testing integration** with configurable test environments
 - **Pre-commit hook validation** for code quality assurance
-- **PR Test Oracle** - AI-powered test recommendations based on PR diff analysis (supports per-repo `TESTS_ORACLE.md` prompt customization)
+- **PR Test Oracle** - AI-powered test recommendations based on PR diff analysis
 
 ### 👥 User Commands
 
@@ -198,6 +198,9 @@ uv run entrypoint.py
 | `VERIFY_CLOUDFLARE_IPS`   | Verify Cloudflare IP addresses   | `false`             | No          |
 | `ENABLE_LOG_SERVER`       | Enable log viewer endpoints      | `false`             | No          |
 | `ENABLE_MCP_SERVER`       | Enable MCP server endpoints      | `false`             | No          |
+| `ANTHROPIC_API_KEY`       | API key for Claude Code CLI      | -                   | For test-oracle |
+| `GEMINI_API_KEY`          | API key for Gemini CLI           | -                   | For test-oracle |
+| `CURSOR_API_KEY`          | API key for Cursor Agent CLI     | -                   | For test-oracle |
 
 ### Minimal Configuration
 
@@ -598,6 +601,16 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 | **AI**            | [`test-oracle`](https://github.com/myk-org/pr-test-oracle) (`server-url`, `ai-provider`, `ai-model`, `test-patterns`, `triggers`) |
 | **Protection**    | `protected-branches`, `branch-protection`                                                        |
 
+### AI CLI Tools (Container)
+
+The container image includes the following AI CLI tools for [pr-test-oracle](https://github.com/myk-org/pr-test-oracle) integration:
+
+| Tool | Auth Method |
+|------|-------------|
+| [Claude Code](https://claude.ai) | `ANTHROPIC_API_KEY` environment variable |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `GEMINI_API_KEY` environment variable |
+| [Cursor Agent](https://cursor.com) | `CURSOR_API_KEY` environment variable, or interactive login: `docker exec -it <container> agent` (provides a login link) |
+
 ## Deployment
 
 ### Docker Compose (Recommended)
@@ -617,6 +630,11 @@ services:
       - WEBHOOK_SECRET=your-webhook-secret
       - VERIFY_GITHUB_IPS=1
       - VERIFY_CLOUDFLARE_IPS=1
+      # AI CLI API keys for pr-test-oracle integration
+      # - ANTHROPIC_API_KEY=sk-ant-xxx       # Claude Code
+      # - GEMINI_API_KEY=xxx                  # Gemini CLI
+      # - CURSOR_API_KEY=xxx                  # Cursor Agent (API key method)
+      # For Cursor interactive login: docker exec -it github-webhook-server agent
     healthcheck:
       test:
         [

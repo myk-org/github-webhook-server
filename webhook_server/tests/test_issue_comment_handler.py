@@ -45,6 +45,7 @@ class TestIssueCommentHandler:
         mock_webhook.current_pull_request_supported_retest = [TOX_STR, "pre-commit"]
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
+        mock_webhook.cherry_pick_assign_to_pr_author = True
         # Mock config for draft PR command filtering
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -854,7 +855,7 @@ class TestIssueCommentHandler:
                         mock_cherry_pick.assert_called_once_with(
                             pull_request=mock_pull_request,
                             target_branch="branch1",
-                            reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_add_label.assert_called_once_with(
                             pull_request=mock_pull_request,
@@ -900,17 +901,17 @@ class TestIssueCommentHandler:
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch1",
-                            reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch2",
-                            reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
                         mock_cherry_pick.assert_any_call(
                             pull_request=mock_pull_request,
                             target_branch="branch3",
-                            reviewed_user="test-user",
+                            assign_to_pr_owner=True,
                         )
 
                         # Verify labels were added exactly once for each branch (not duplicated)
@@ -918,6 +919,36 @@ class TestIssueCommentHandler:
                         mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch1")
                         mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch2")
                         mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch3")
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_command_merged_pr_assign_disabled(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick on merged PR passes assign_to_pr_owner=False when config disabled."""
+        issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author = False
+        mock_pull_request = Mock()
+        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
+            with patch.object(issue_comment_handler.repository, "get_branch"):
+                with patch.object(
+                    issue_comment_handler.runner_handler,
+                    "cherry_pick",
+                    new_callable=AsyncMock,
+                ) as mock_cherry_pick:
+                    with patch.object(
+                        issue_comment_handler.labels_handler,
+                        "_add_label",
+                        new_callable=AsyncMock,
+                    ):
+                        await issue_comment_handler.process_cherry_pick_command(
+                            pull_request=mock_pull_request,
+                            command_args="branch1",
+                            reviewed_user="test-user",
+                        )
+                        mock_cherry_pick.assert_called_once_with(
+                            pull_request=mock_pull_request,
+                            target_branch="branch1",
+                            assign_to_pr_owner=False,
+                        )
 
     @pytest.mark.asyncio
     async def test_process_retest_command_no_target_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -1485,3 +1516,29 @@ class TestIssueCommentHandler:
                             )
                             mock_create_task.assert_called_once()
                             assert asyncio.iscoroutine(mock_create_task.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_approve_cancel_does_not_call_test_oracle(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that /approve cancel does NOT fire call_test_oracle."""
+        mock_pull_request = Mock()
+        mock_pull_request.draft = False
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock):
+                with patch.object(
+                    issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
+                ):
+                    with patch(
+                        "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                        new_callable=AsyncMock,
+                    ) as mock_oracle:
+                        with patch("asyncio.create_task") as mock_create_task:
+                            await issue_comment_handler.user_commands(
+                                pull_request=mock_pull_request,
+                                command=f"{APPROVE_STR} cancel",
+                                reviewed_user="test-user",
+                                issue_comment_id=456,
+                                is_draft=False,
+                            )
+                            mock_oracle.assert_not_called()
+                            mock_create_task.assert_not_called()

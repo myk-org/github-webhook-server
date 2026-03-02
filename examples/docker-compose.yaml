@@ -18,6 +18,11 @@ services:
       - VERIFY_CLOUDFLARE_IPS=1 # Verify hook request is from Cloudflare IPs
       - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
       - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
+      # AI CLI API keys for pr-test-oracle integration
+      # - ANTHROPIC_API_KEY=sk-ant-xxx       # Claude Code
+      # - GEMINI_API_KEY=xxx                  # Gemini CLI
+      # - CURSOR_API_KEY=xxx                  # Cursor Agent (API key method)
+      # For Cursor interactive login: docker exec -it github-webhook-server agent
     ports:
       - "5000:5000"
     privileged: true

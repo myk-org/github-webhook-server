@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -58,7 +57,10 @@ async def call_test_oracle(
                 msg = f"Test Oracle server at {server_url} is not responding{status_info}, skipping test analysis"
                 github_webhook.logger.warning(f"{log_prefix} {msg}")
                 try:
-                    await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment,
+                        f"Test Oracle server is not responding{status_info}, skipping test analysis",
+                    )
                 except Exception:
                     github_webhook.logger.exception(f"{log_prefix} Failed to post health check comment")
                 return
@@ -76,12 +78,6 @@ async def call_test_oracle(
 
             if "test-patterns" in config:
                 payload["test_patterns"] = config["test-patterns"]
-
-            # If TESTS_ORACLE.md exists in the repo, pass it as the prompt file
-            oracle_prompt_path = os.path.join(github_webhook.clone_repo_dir, "TESTS_ORACLE.md")
-            if os.path.isfile(oracle_prompt_path):
-                payload["prompt_file"] = oracle_prompt_path
-                github_webhook.logger.debug(f"{log_prefix} Using TESTS_ORACLE.md prompt from {oracle_prompt_path}")
 
             # Call analyze
             try:

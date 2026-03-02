@@ -33,6 +33,8 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+cherry-pick-assign-to-pr-author: true  # Default: true - assign cherry-pick PRs to the original PR author
+
 # Commands allowed on draft PRs (optional)
 # If not set: commands are blocked on draft PRs (default behavior)
 # If empty list []: all commands allowed on draft PRs
@@ -109,7 +111,6 @@ branch-protection:
 
 # PR Test Oracle integration
 # Analyzes PR diffs with AI and recommends which tests to run
-# Place a TESTS_ORACLE.md file in your repository root to customize the AI prompt
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
@@ -239,7 +240,6 @@ repositories:
       - main
 
     # PR Test Oracle (overrides global)
-    # Place a TESTS_ORACLE.md file in your repository root to customize the AI prompt
     # See: https://github.com/myk-org/pr-test-oracle
     test-oracle:
       server-url: "http://localhost:8000"

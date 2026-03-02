@@ -355,7 +355,7 @@ class IssueCommentHandler:
                 remove=remove,
                 reviewed_user=reviewed_user,
             )
-            if _command == APPROVE_STR:
+            if _command == APPROVE_STR and not remove:
                 task = asyncio.create_task(
                     call_test_oracle(
                         github_webhook=self.github_webhook,
@@ -456,7 +456,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     await self.runner_handler.cherry_pick(
                         pull_request=pull_request,
                         target_branch=_exits_target_branch,
-                        reviewed_user=reviewed_user,
+                        assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
                     )
 
             for _cp_label in cp_labels:
