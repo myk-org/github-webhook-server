@@ -663,8 +663,6 @@ External AI service integration for test recommendations via [pr-test-oracle](ht
 
 **Trigger events:** `approved`, `pr-opened`, `pr-synchronized`
 
-**Prompt customization:** Place `TESTS_ORACLE.md` in the repository root to customize the AI analysis prompt.
-
 **Comment command:** `/test-oracle` (always works when configured, no trigger needed)
 
 **Module:** `webhook_server/libs/test_oracle.py` - `call_test_oracle()` shared helper

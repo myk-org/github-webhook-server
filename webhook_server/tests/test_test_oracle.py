@@ -22,7 +22,6 @@ class TestCallTestOracle:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.token = TEST_GITHUB_TOKEN
-        mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(
             return_value={
@@ -334,55 +333,3 @@ class TestCallTestOracle:
             mock_github_webhook.logger.error.assert_called_once()
             error_msg = mock_github_webhook.logger.error.call_args[0][0]
             assert "invalid JSON" in error_msg
-
-    @pytest.mark.asyncio
-    async def test_oracle_md_included_in_payload(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
-        """Test that TESTS_ORACLE.md path is included in payload when file exists."""
-        mock_github_webhook.clone_repo_dir = "/tmp/test-repo"
-
-        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get.return_value = Mock(status_code=200, raise_for_status=Mock())
-            mock_client.post.return_value = Mock(
-                status_code=200,
-                raise_for_status=Mock(),
-                json=Mock(return_value={"summary": "ok", "review_posted": True}),
-            )
-
-            with patch("webhook_server.libs.test_oracle.os.path.isfile", return_value=True):
-                with patch(
-                    "asyncio.to_thread", new_callable=AsyncMock, return_value="https://github.com/test/repo/pull/1"
-                ):
-                    await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
-
-            payload = mock_client.post.call_args[1]["json"]
-            assert payload["prompt_file"] == "/tmp/test-repo/TESTS_ORACLE.md"
-
-    @pytest.mark.asyncio
-    async def test_oracle_md_not_included_when_missing(
-        self, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test that prompt_file is not in payload when TESTS_ORACLE.md doesn't exist."""
-        mock_github_webhook.clone_repo_dir = "/tmp/test-repo"
-
-        with patch("webhook_server.libs.test_oracle.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get.return_value = Mock(status_code=200, raise_for_status=Mock())
-            mock_client.post.return_value = Mock(
-                status_code=200,
-                raise_for_status=Mock(),
-                json=Mock(return_value={"summary": "ok", "review_posted": True}),
-            )
-
-            with patch("webhook_server.libs.test_oracle.os.path.isfile", return_value=False):
-                with patch(
-                    "asyncio.to_thread", new_callable=AsyncMock, return_value="https://github.com/test/repo/pull/1"
-                ):
-                    await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
-
-            payload = mock_client.post.call_args[1]["json"]
-            assert "prompt_file" not in payload

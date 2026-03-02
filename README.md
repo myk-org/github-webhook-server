@@ -85,7 +85,7 @@ GitHub Events → Webhook Server → Repository Management
 - **PyPI package publishing** for Python projects
 - **Tox testing integration** with configurable test environments
 - **Pre-commit hook validation** for code quality assurance
-- **PR Test Oracle** - AI-powered test recommendations based on PR diff analysis (supports per-repo `TESTS_ORACLE.md` prompt customization)
+- **PR Test Oracle** - AI-powered test recommendations based on PR diff analysis
 
 ### 👥 User Commands
 
