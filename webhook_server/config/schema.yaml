@@ -1,5 +1,39 @@
 $schema: https://json-schema.org/draft-07/schema#
 title: Webhook Server Configuration
+$defs:
+  ai-features:
+    type: object
+    description: |
+      AI features configuration. Enables AI-powered enhancements such as
+      conventional title suggestions when validation fails.
+      Supported AI providers: claude, gemini, cursor.
+    properties:
+      ai-provider:
+        type: string
+        enum:
+          - claude
+          - gemini
+          - cursor
+        description: AI CLI provider to use
+      ai-model:
+        type: string
+        description: AI model identifier (e.g., claude-opus-4-6[1m], sonnet, gemini-2.5-pro)
+      conventional-title:
+        type: string
+        enum:
+          - "true"
+          - "false"
+          - "fix"
+        description: |
+          AI-powered conventional title suggestions.
+          - "true": Show AI-suggested title in check run output when validation fails
+          - "false": Disabled (default)
+          - "fix": Auto-fix PR title with AI suggestion when validation fails
+        default: "false"
+    required:
+      - ai-provider
+      - ai-model
+    additionalProperties: false
 type: object
 properties:
   log-level:
@@ -143,6 +177,8 @@ properties:
       - ai-provider
       - ai-model
     additionalProperties: false
+  ai-features:
+    $ref: '#/$defs/ai-features'
   labels:
     type: object
     description: Configure which labels are enabled and their colors
@@ -505,6 +541,8 @@ properties:
             - ai-provider
             - ai-model
           additionalProperties: false
+        ai-features:
+          $ref: '#/$defs/ai-features'
         custom-check-runs:
           type: array
           description: |

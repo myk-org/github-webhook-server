@@ -67,7 +67,7 @@ auto-verified-and-merged-users:
   - "trusted-user"
 
 # Auto-verify cherry-picked PRs (default: true)
-auto-verify-cherry-picked-prs: false  # Set to false to require manual verification for cherry-picked PRs
+auto-verify-cherry-picked-prs: false # Set to false to require manual verification for cherry-picked PRs
 
 # Repository-specific GitHub tokens
 github-tokens:
@@ -119,9 +119,9 @@ conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,rever
 minimum-lgtm: 2
 
 # Issue creation for new pull requests
-create-issue-for-new-pr: true  # Create tracking issues for new PRs
+create-issue-for-new-pr: true # Create tracking issues for new PRs
 
-cherry-pick-assign-to-pr-author: true  # Assign cherry-pick PRs to the original PR author (default: true)
+cherry-pick-assign-to-pr-author: true # Assign cherry-pick PRs to the original PR author (default: true)
 
 # Custom PR size labels for this repository (overrides global configuration)
 # Define custom categories based on total lines changed (additions + deletions)
@@ -131,28 +131,35 @@ cherry-pick-assign-to-pr-author: true  # Assign cherry-pick PRs to the original 
 #                   Always sorted last, regardless of definition order
 pr-size-thresholds:
   Quick:
-    threshold: 20      # PRs with 0-19 lines changed
+    threshold: 20 # PRs with 0-19 lines changed
     color: lightgreen
   Normal:
-    threshold: 100     # PRs with 20-99 lines changed
+    threshold: 100 # PRs with 20-99 lines changed
     color: green
   Complex:
-    threshold: 300     # PRs with 100-299 lines changed
+    threshold: 300 # PRs with 100-299 lines changed
     color: orange
   Critical:
-    threshold: 1000    # PRs with 300-999 lines changed
+    threshold: 1000 # PRs with 300-999 lines changed
     color: darkred
   Extreme:
-    threshold: inf     # PRs with 1000+ lines changed (unbounded largest category)
-    color: black       # 'inf' means no upper limit - catches all PRs above 1000 lines
+    threshold: inf # PRs with 1000+ lines changed (unbounded largest category)
+    color: black # 'inf' means no upper limit - catches all PRs above 1000 lines
+
+# AI Features configuration
+# Enables AI-powered enhancements (e.g., conventional title suggestions)
+ai-features:
+  ai-provider: "claude" # claude | gemini | cursor
+  ai-model: "claude-opus-4-6[1m]"
+  conventional-title: "true" # "true": suggest in checkrun | "false": disabled | "fix": auto-update PR title
 
 # PR Test Oracle integration (overrides global config)
 # Analyzes PR diffs with AI and recommends which tests to run
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
-  ai-provider: "claude"        # claude | gemini | cursor
-  ai-model: "sonnet"
+  ai-provider: "claude" # claude | gemini | cursor
+  ai-model: "claude-opus-4-6[1m]"
   test-patterns:
     - "tests/**/*.py"
   triggers:

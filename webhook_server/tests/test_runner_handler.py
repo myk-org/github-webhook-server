@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -55,6 +56,9 @@ class TestRunnerHandler:
         mock_webhook.container_command_args = []
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
+        mock_webhook.ai_features = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
         return mock_webhook
 
     @pytest.fixture
@@ -694,6 +698,242 @@ class TestRunnerHandler:
                                 f"Expected '{title}' to fail wildcard validation ({reason}), but it passed"
                             )
                             mock_set_success.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_failure_with_ai_suggestion(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that AI suggestion is included in failure output when ai-features configured."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "true",
+        }
+        runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                            return_value=(True, "fix: correct the bad title"),
+                        ) as mock_ai_cli:
+                            await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                            mock_set_failure.assert_awaited_once()
+                            output = mock_set_failure.call_args[1]["output"]
+                            assert "AI-Suggested Title" in output["text"]
+                            assert "fix: correct the bad title" in output["text"]
+
+                            # Verify cwd was passed to call_ai_cli
+                            mock_ai_cli.assert_awaited_once()
+                            call_kwargs = mock_ai_cli.call_args[1]
+                            assert call_kwargs["cwd"] == "/tmp/test-clone"
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_failure_without_ai_features(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that no AI suggestion when ai-features not configured."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = None
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                        mock_set_failure.assert_awaited_once()
+                        output = mock_set_failure.call_args[1]["output"]
+                        assert "AI-Suggested Title" not in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_fix_mode_updates_pr_title(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that fix mode auto-updates PR title with AI suggestion."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "fix",
+        }
+        runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                            return_value=(True, "fix: correct the title"),
+                        ):
+                            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                                await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                                # Verify PR title was updated
+                                mock_to_thread.assert_any_call(mock_pull_request.edit, title="fix: correct the title")
+                                # Verify check was set to failure (will re-run automatically on title change)
+                                mock_set_failure.assert_awaited_once()
+                                output = mock_set_failure.call_args[1]["output"]
+                                assert "AI Auto-Fix" in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_fix_mode_edit_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that fix mode handles PR title edit failure gracefully."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "fix",
+        }
+        runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                            return_value=(True, "fix: correct the title"),
+                        ):
+                            # Make edit raise an exception
+                            async def mock_to_thread_side_effect(func: Any, *args: Any, **kwargs: Any) -> Any:
+                                if func == mock_pull_request.edit:
+                                    raise Exception("GitHub API error")
+                                return func(*args, **kwargs)
+
+                            with patch(
+                                "asyncio.to_thread", new_callable=AsyncMock, side_effect=mock_to_thread_side_effect
+                            ):
+                                await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                                # Check should still be set to failure
+                                mock_set_failure.assert_awaited_once()
+                                output = mock_set_failure.call_args[1]["output"]
+                                assert "AI Auto-Fix Failed" in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_disabled_mode(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that conventional-title: "false" disables AI suggestion."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "false",
+        }
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                        ) as mock_ai:
+                            await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                            mock_ai.assert_not_called()
+                            mock_set_failure.assert_awaited_once()
+                            output = mock_set_failure.call_args[1]["output"]
+                            assert "AI-Suggested Title" not in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_ai_cli_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that AI CLI failure doesn't break the check flow."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "true",
+        }
+        runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                            return_value=(False, "CLI timeout"),
+                        ):
+                            await runner_handler.run_conventional_title_check(mock_pull_request)
+                            mock_set_failure.assert_awaited_once()
+                            output = mock_set_failure.call_args[1]["output"]
+                            assert "AI-Suggested Title" not in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_conventional_title_ai_cli_exception(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that AI CLI exception doesn't break the check flow."""
+        runner_handler.github_webhook.conventional_title = "feat,fix"
+        mock_pull_request.title = "bad title"
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "conventional-title": "true",
+        }
+        runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            new_callable=AsyncMock,
+                            side_effect=RuntimeError("boom"),
+                        ):
+                            await runner_handler.run_conventional_title_check(mock_pull_request)
+                            mock_set_failure.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:
