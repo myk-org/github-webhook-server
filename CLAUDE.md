@@ -672,3 +672,18 @@ External AI service integration for test recommendations via [pr-test-oracle](ht
 - Health check failure: PR comment posted, continue flow
 - Analyze errors: log only, no PR comment
 - Never breaks webhook processing
+
+### AI Features
+
+AI-powered enhancements controlled by `ai-features` config (global or per-repo).
+
+**Config keys:** `ai-provider` (required: claude/gemini/cursor), `ai-model` (required), `conventional-title` (optional: "true"/"false"/"fix", default: "false")
+
+**Conventional title modes:**
+- `"true"`: Show AI-suggested title in check run output when validation fails
+- `"false"`: Disabled (default)
+- `"fix"`: Auto-update PR title with AI suggestion when validation fails (suggestion is validated before applying)
+
+**On AI CLI failure:** Error is logged, flow continues without suggestion
+
+**Module:** `webhook_server/libs/ai_cli.py` - shared AI CLI wrapper

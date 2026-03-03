@@ -316,11 +316,7 @@ This pull request will be automatically processed with the following features:{a
 
 This PR will be automatically approved when the following conditions are met:
 
-1. **Approval**: `/approve` from at least one approver
-2. **LGTM Count**: Minimum {self.github_webhook.minimum_lgtm} `/lgtm` from reviewers
-3. **Status Checks**: All required status checks must pass
-{self._prepare_no_blockers_requirement}
-5. **Verified**: PR must be marked as verified (if verification is enabled)
+{self._prepare_merge_requirements}
 
 ### 📊 Review Process
 
@@ -497,23 +493,35 @@ For more information, please refer to the project documentation or contact the m
         return "\n".join(tips)
 
     @property
-    def _prepare_no_blockers_requirement(self) -> str:
-        """Prepare the No Blockers merge requirement line.
+    def _prepare_merge_requirements(self) -> str:
+        """Prepare the merge requirements section for the welcome comment.
 
-        Only mentions labels that are enabled.
+        Dynamically builds numbered list based on enabled features.
         """
+        requirements: list[str] = []
+
+        requirements.append("**Approval**: `/approve` from at least one approver")
+
+        if self.github_webhook.minimum_lgtm > 0:
+            requirements.append(f"**LGTM Count**: Minimum {self.github_webhook.minimum_lgtm} `/lgtm` from reviewers")
+
+        requirements.append("**Status Checks**: All required status checks must pass")
+
+        # No blockers (WIP, hold, conflict labels)
         blockers: list[str] = []
-
         if self.labels_handler.is_label_enabled(WIP_STR):
-            blockers.append("WIP")
-
+            blockers.append(WIP_STR)
         if self.labels_handler.is_label_enabled(HOLD_LABEL_STR):
-            blockers.append("hold")
+            blockers.append(HOLD_LABEL_STR)
+        if self.labels_handler.is_label_enabled(HAS_CONFLICTS_LABEL_STR):
+            blockers.append(HAS_CONFLICTS_LABEL_STR)
+        blockers_text = f"No {', '.join(blockers)} labels" if blockers else "No blocker labels"
+        requirements.append(f"**No Blockers**: {blockers_text} and PR must be mergeable (no conflicts)")
 
-        # Conflict labels (has-conflicts) are always shown since they're fundamental
-        blockers.append("conflict")
+        if self.github_webhook.verified_job:
+            requirements.append("**Verified**: PR must be marked as verified")
 
-        return f"4. **No Blockers**: No {', '.join(blockers)} labels"
+        return "\n".join(f"{i}. {req}" for i, req in enumerate(requirements, 1))
 
     @property
     def _prepare_automerge_command_line(self) -> str:

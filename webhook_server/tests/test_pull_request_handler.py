@@ -479,44 +479,91 @@ class TestPullRequestHandler:
         assert TOX_STR in result
         assert "pre-commit" in result
 
-    def test_prepare_no_blockers_requirement_all_enabled(self, pull_request_handler: PullRequestHandler) -> None:
-        """Test no blockers requirement when all labels are enabled."""
-        # Default: enabled_labels is None, so all are enabled
-        # Mock is_label_enabled to return True for all labels
+    def test_prepare_merge_requirements_all_enabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements when all features are enabled."""
         pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=True)
-        result = pull_request_handler._prepare_no_blockers_requirement
-        assert "No WIP, hold, conflict labels" in result
+        pull_request_handler.github_webhook.minimum_lgtm = 2
+        pull_request_handler.github_webhook.verified_job = True
+        result = pull_request_handler._prepare_merge_requirements
+        assert "1. **Approval**" in result
+        assert "2. **LGTM Count**: Minimum 2" in result
+        assert "3. **Status Checks**" in result
+        assert (
+            "4. **No Blockers**: No wip, hold, has-conflicts labels and PR must be mergeable (no conflicts)" in result
+        )
+        assert "5. **Verified**" in result
 
-    def test_prepare_no_blockers_requirement_wip_disabled(self, pull_request_handler: PullRequestHandler) -> None:
-        """Test no blockers requirement when wip is disabled."""
-        # Mock is_label_enabled: wip disabled, hold enabled
+    def test_prepare_merge_requirements_lgtm_zero(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements when minimum_lgtm is 0 (LGTM line omitted)."""
+        pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=True)
+        pull_request_handler.github_webhook.minimum_lgtm = 0
+        pull_request_handler.github_webhook.verified_job = True
+        result = pull_request_handler._prepare_merge_requirements
+        assert "LGTM Count" not in result
+        assert "1. **Approval**" in result
+        assert "2. **Status Checks**" in result
+        assert "3. **No Blockers**" in result
+        assert "4. **Verified**" in result
+
+    def test_prepare_merge_requirements_verified_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements when verified_job is disabled."""
+        pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=True)
+        pull_request_handler.github_webhook.minimum_lgtm = 1
+        pull_request_handler.github_webhook.verified_job = False
+        result = pull_request_handler._prepare_merge_requirements
+        assert "Verified" not in result
+        assert "1. **Approval**" in result
+        assert "2. **LGTM Count**" in result
+        assert "3. **Status Checks**" in result
+        assert "4. **No Blockers**" in result
+
+    def test_prepare_merge_requirements_wip_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements blockers when wip is disabled."""
         pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != WIP_STR)
-        result = pull_request_handler._prepare_no_blockers_requirement
-        assert "WIP" not in result
+        pull_request_handler.github_webhook.minimum_lgtm = 1
+        pull_request_handler.github_webhook.verified_job = False
+        result = pull_request_handler._prepare_merge_requirements
+        assert "wip" not in result
         assert "hold" in result
-        assert "conflict" in result
+        assert "has-conflicts" in result
 
-    def test_prepare_no_blockers_requirement_hold_disabled(self, pull_request_handler: PullRequestHandler) -> None:
-        """Test no blockers requirement when hold is disabled."""
-        # Mock is_label_enabled: hold disabled, wip enabled
+    def test_prepare_merge_requirements_hold_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements blockers when hold is disabled."""
         pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != HOLD_LABEL_STR)
-        result = pull_request_handler._prepare_no_blockers_requirement
-        assert "WIP" in result
+        pull_request_handler.github_webhook.minimum_lgtm = 1
+        pull_request_handler.github_webhook.verified_job = False
+        result = pull_request_handler._prepare_merge_requirements
+        assert "wip" in result
         assert "hold" not in result
-        assert "conflict" in result
+        assert "has-conflicts" in result
 
-    def test_prepare_no_blockers_requirement_both_disabled(self, pull_request_handler: PullRequestHandler) -> None:
-        """Test no blockers requirement when both wip and hold are disabled."""
-        # Mock is_label_enabled: both wip and hold disabled
+    def test_prepare_merge_requirements_both_blockers_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements blockers when both wip and hold are disabled."""
         pull_request_handler.labels_handler.is_label_enabled = Mock(
             side_effect=lambda label: label not in (WIP_STR, HOLD_LABEL_STR)
         )
-        result = pull_request_handler._prepare_no_blockers_requirement
-        assert "WIP" not in result
+        pull_request_handler.github_webhook.minimum_lgtm = 0
+        pull_request_handler.github_webhook.verified_job = False
+        result = pull_request_handler._prepare_merge_requirements
+        assert "wip" not in result
         assert "hold" not in result
-        assert "conflict" in result
-        # Only conflict should be present
-        assert "No conflict labels" in result
+        assert "has-conflicts" in result
+        assert "No has-conflicts labels and PR must be mergeable (no conflicts)" in result
+
+    def test_prepare_merge_requirements_minimal(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test merge requirements with minimum features (no LGTM, no verified)."""
+        pull_request_handler.labels_handler.is_label_enabled = Mock(
+            side_effect=lambda label: label not in (WIP_STR, HOLD_LABEL_STR)
+        )
+        pull_request_handler.github_webhook.minimum_lgtm = 0
+        pull_request_handler.github_webhook.verified_job = False
+        result = pull_request_handler._prepare_merge_requirements
+        assert "LGTM Count" not in result
+        assert "Verified" not in result
+        # Should have exactly 3 items numbered 1-3
+        assert "1. **Approval**" in result
+        assert "2. **Status Checks**" in result
+        assert "3. **No Blockers**" in result
 
     @pytest.mark.asyncio
     async def test_label_all_opened_pull_requests_merge_state_after_merged(

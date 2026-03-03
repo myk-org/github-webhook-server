@@ -29,11 +29,11 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
-auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cherry-picked PRs. Set to false to require manual verification.
+auto-verify-cherry-picked-prs: true # Default: true - automatically verify cherry-picked PRs. Set to false to require manual verification.
 
-create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
+create-issue-for-new-pr: true # Global default: create tracking issues for new PRs
 
-cherry-pick-assign-to-pr-author: true  # Default: true - assign cherry-pick PRs to the original PR author
+cherry-pick-assign-to-pr-author: true # Default: true - assign cherry-pick PRs to the original PR author
 
 # Commands allowed on draft PRs (optional)
 # If not set: commands are blocked on draft PRs (default behavior)
@@ -86,20 +86,20 @@ labels:
 #                   Always sorted last, regardless of definition order
 pr-size-thresholds:
   Tiny:
-    threshold: 10      # PRs with 0-9 lines changed
+    threshold: 10 # PRs with 0-9 lines changed
     color: lightgray
   Small:
-    threshold: 50      # PRs with 10-49 lines changed
+    threshold: 50 # PRs with 10-49 lines changed
     color: green
   Medium:
-    threshold: 150     # PRs with 50-149 lines changed
+    threshold: 150 # PRs with 50-149 lines changed
     color: orange
   Large:
-    threshold: 300     # PRs with 150-299 lines changed
+    threshold: 300 # PRs with 150-299 lines changed
     color: red
   Massive:
-    threshold: inf     # PRs with 300+ lines changed (unbounded largest category)
-    color: darkred     # 'inf' means no upper limit - catches all PRs above 300 lines
+    threshold: inf # PRs with 300+ lines changed (unbounded largest category)
+    color: darkred # 'inf' means no upper limit - catches all PRs above 300 lines
 
 branch-protection:
   strict: True
@@ -114,14 +114,21 @@ branch-protection:
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
-  ai-provider: "claude"        # claude | gemini | cursor
-  ai-model: "sonnet"
+  ai-provider: "claude" # claude | gemini | cursor
+  ai-model: "claude-opus-4-6[1m]"
   test-patterns:
     - "tests/**/*.py"
-  triggers:                    # Default: [approved]
-    - approved                 # Run when PR gets approved
+  triggers: # Default: [approved]
+    - approved # Run when /approve command is used
     # - pr-opened             # Run when PR is opened
     # - pr-synchronized       # Run when new commits pushed
+
+# AI Features configuration
+# Enables AI-powered enhancements (e.g., conventional title suggestions)
+ai-features:
+  ai-provider: "claude" # claude | gemini | cursor
+  ai-model: "claude-opus-4-6[1m]"
+  conventional-title: "true"    # "true": suggest in checkrun | "false": disabled | "fix": auto-update PR title
 
 repositories:
   my-repository:
@@ -169,7 +176,7 @@ repositories:
     auto-verified-and-merged-users: # override auto verified users per repository
       - "my[bot]"
 
-    auto-verify-cherry-picked-prs: false  # Disable auto-verification for cherry-picked PRs in this repository
+    auto-verify-cherry-picked-prs: false # Disable auto-verification for cherry-picked PRs in this repository
 
     github-tokens: # override GitHub tokens per repository
       - <GITHUB TOKEN1>
@@ -198,6 +205,9 @@ repositories:
     #   - my-title: custom type example
     #   - hotfix(api): resolve production issue
     #
+    # Use "*" to accept any type while enforcing the format
+    # conventional-title: "*"
+    #
     # Resources: https://www.conventionalcommits.org/en/v1.0.0/
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     branch-protection:
@@ -213,7 +223,7 @@ repositories:
 
     # Allow commands on draft PRs (overrides global setting)
     allow-commands-on-draft-prs:
-      - build-and-push-container  # Allow building containers on draft PRs
+      - build-and-push-container # Allow building containers on draft PRs
 
     # Repository-specific labels configuration (overrides global)
     labels:
@@ -227,17 +237,23 @@ repositories:
     # Repository-specific PR size labels (overrides global configuration)
     pr-size-thresholds:
       Express:
-        threshold: 25      # PRs with 0-24 lines changed
+        threshold: 25 # PRs with 0-24 lines changed
         color: lightblue
       Standard:
-        threshold: 100     # PRs with 25-99 lines changed
+        threshold: 100 # PRs with 25-99 lines changed
         color: green
       Premium:
-        threshold: 500     # PRs with 100-499 lines changed
-        color: orange      # PRs with 500+ lines changed get this category
+        threshold: 500 # PRs with 100-499 lines changed
+        color: orange # PRs with 500+ lines changed get this category
 
     set-auto-merge-prs:
       - main
+
+    # AI Features configuration (overrides global)
+    # Enables AI-powered enhancements (e.g., conventional title suggestions)
+    # ai-features:
+    #   ai-provider: "claude"        # claude | gemini | cursor
+    #   ai-model: "sonnet"
 
     # PR Test Oracle (overrides global)
     # See: https://github.com/myk-org/pr-test-oracle
