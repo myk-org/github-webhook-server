@@ -40,10 +40,6 @@ RUN mkdir -p $BIN_DIR \
   && mkdir -p $DATA_DIR \
   && mkdir -p $DATA_DIR/logs
 
-COPY entrypoint.py pyproject.toml uv.lock README.md $APP_DIR/
-COPY webhook_server $APP_DIR/webhook_server/
-COPY scripts $APP_DIR/scripts/
-
 RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
   && chown -R $USERNAME:$USERNAME $HOME_DIR
 
@@ -59,7 +55,7 @@ ENV UV_PYTHON=python3.13 \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek && uv tool install tox
 
-# Install AI CLI tools for pr-test-oracle integration
+# Install AI CLI tools
 # Claude Code CLI (installs to ~/.local/bin)
 RUN /bin/bash -o pipefail -c "curl -fsSL https://claude.ai/install.sh | bash"
 
@@ -79,9 +75,16 @@ RUN set -ex \
   && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --wildcards --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
   && chmod +x $BIN_DIR/hub
 
-WORKDIR $APP_DIR
+# Copy dependency manifests first for uv sync cache stability
+COPY --chown=$USERNAME:$USERNAME pyproject.toml uv.lock README.md $APP_DIR/
 
+WORKDIR $APP_DIR
 RUN uv sync
+
+# Copy application code after dependency install
+COPY --chown=$USERNAME:$USERNAME entrypoint.py $APP_DIR/
+COPY --chown=$USERNAME:$USERNAME webhook_server $APP_DIR/webhook_server/
+COPY --chown=$USERNAME:$USERNAME scripts $APP_DIR/scripts/
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
 

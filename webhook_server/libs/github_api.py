@@ -719,6 +719,9 @@ class GithubWebhook:
         )
         self.can_be_merged_required_labels: list[str] = _required_labels if isinstance(_required_labels, list) else []
         self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
+        self.ai_features: dict[str, Any] | None = self.config.get_value(
+            value="ai-features", return_on_none=None, extra_dict=repository_config
+        )
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )

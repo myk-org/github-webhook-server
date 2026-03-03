@@ -14,6 +14,7 @@ from github.Branch import Branch
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
+from webhook_server.libs.ai_cli import call_ai_cli, get_ai_config
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
@@ -518,7 +519,128 @@ Your team can configure additional types in the repository settings.
 **Resources:**
 - [Conventional Commits v1.0.0 Specification](https://www.conventionalcommits.org/en/v1.0.0/)
 """
+            # AI-suggested title (if ai-features configured)
+            ai_suggestion = await self._get_ai_title_suggestion(
+                title=title,
+                allowed_names=allowed_names,
+                is_wildcard=is_wildcard,
+            )
+
+            ai_mode = self._get_ai_conventional_title_mode()
+
+            if ai_suggestion and ai_mode == "fix":
+                # Validate the suggestion before applying
+                if is_wildcard:
+                    suggestion_valid = bool(re.match(r"^[\w-]+(\([^)]+\))?!?: .+", ai_suggestion))
+                else:
+                    suggestion_valid = any(
+                        re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", ai_suggestion) for _name in allowed_names
+                    )
+
+                if suggestion_valid and ai_suggestion != title:
+                    self.logger.info(f"{self.log_prefix} AI fixing PR title from '{title}' to '{ai_suggestion}'")
+                    try:
+                        await asyncio.to_thread(pull_request.edit, title=ai_suggestion)
+                        if output["text"] is not None:
+                            output["text"] += (
+                                f"\n\n---\n\n### AI Auto-Fix\n\n"
+                                f"Title updated to: `{ai_suggestion}`\n"
+                                f"Check will re-run automatically."
+                            )
+                    except Exception:
+                        self.logger.exception(f"{self.log_prefix} Failed to auto-fix PR title")
+                        if output["text"] is not None:
+                            output["text"] += (
+                                f"\n\n---\n\n### AI Auto-Fix Failed\n\n"
+                                f"Suggested title: `{ai_suggestion}`\n"
+                                f"Failed to update PR title automatically. Please update manually."
+                            )
+                else:
+                    self.logger.warning(
+                        f"{self.log_prefix} AI suggestion invalid or unchanged, skipping auto-fix: {ai_suggestion}"
+                    )
+                    if output["text"] is not None:
+                        output["text"] += (
+                            f"\n\n---\n\n### AI Auto-Fix Skipped\n\n"
+                            f"AI suggested: `{ai_suggestion}`\n"
+                            f"Suggestion was invalid or unchanged."
+                        )
+
+            elif ai_suggestion and ai_mode == "true" and output["text"] is not None:
+                output["text"] += f"\n\n---\n\n### AI-Suggested Title\n\n> {ai_suggestion}\n"
+
             await self.check_run_handler.set_check_failure(name=CONVENTIONAL_TITLE_STR, output=output)
+
+    def _get_ai_conventional_title_mode(self) -> str | None:
+        """Get the conventional-title AI mode from config.
+
+        Returns:
+            "true" for suggestion mode, "fix" for auto-fix mode, or None if disabled.
+        """
+        ai_config = self.github_webhook.ai_features
+        if not ai_config:
+            return None
+
+        ct_value = ai_config.get("conventional-title", "false")
+        if ct_value == "true":
+            return "true"
+        if ct_value == "fix":
+            return "fix"
+        return None
+
+    async def _get_ai_title_suggestion(self, title: str, allowed_names: list[str], *, is_wildcard: bool) -> str | None:
+        """Get an AI-suggested conventional title when validation fails.
+
+        Returns the suggestion string or None if AI features are not configured or on error.
+        """
+        mode = self._get_ai_conventional_title_mode()
+        if not mode:
+            return None
+
+        ai_result = get_ai_config(self.github_webhook.ai_features)
+        if not ai_result:
+            return None
+
+        ai_provider, ai_model = ai_result
+
+        if is_wildcard:
+            types_info = "Any type name is accepted (wildcard mode)."
+        else:
+            types_info = f"Allowed types: {', '.join(allowed_names)}"
+
+        # The repository clone is already checked out to the PR branch
+        # (done by _clone_repository in github_api.py), so the AI CLI has
+        # full access to the PR's commits and changes from the cwd.
+        prompt = (
+            "You are in a git repository checked out to a PR branch.\n"
+            "Look at the recent commits and changes to understand what this PR does.\n"
+            f"Current PR title: {title}\n"
+            f"{types_info}\n"
+            f"Format: <type>[optional scope]: <description>\n"
+            "Reply with ONLY the suggested title, nothing else."
+        )
+
+        try:
+            success, result = await call_ai_cli(
+                prompt=prompt,
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                cwd=self.github_webhook.clone_repo_dir,
+                logger=self.logger,
+            )
+
+            if success:
+                # Clean up the response - take first line, strip backticks/quotes
+                suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
+                self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
+                return suggestion
+
+            self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
+            return None
+
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} AI title suggestion failed unexpectedly")
+            return None
 
     async def run_custom_check(
         self,
