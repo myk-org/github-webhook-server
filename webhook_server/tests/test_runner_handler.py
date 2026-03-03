@@ -648,6 +648,54 @@ class TestRunnerHandler:
                     mock_set_success.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "title,should_pass,reason",
+        [
+            ("feat: add feature", True, "standard type with wildcard"),
+            ("custom-type: something new", True, "custom type accepted by wildcard"),
+            ("anything: goes here", True, "any word accepted as type"),
+            ("fix(scope): with scope", True, "scoped type with wildcard"),
+            ("type!: breaking change", True, "breaking change with wildcard"),
+            ("no-colon-space here", False, "missing colon-space separator"),
+            (": empty type", False, "empty type name"),
+            ("feat:", False, "missing description"),
+        ],
+    )
+    async def test_conventional_title_wildcard(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, title: str, should_pass: bool, reason: str
+    ) -> None:
+        """Test Conventional Commits validation with wildcard '*' accepting any type."""
+        runner_handler.github_webhook.conventional_title = "*"
+        mock_pull_request.title = title
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(
+                runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()
+            ) as mock_set_progress:
+                with patch.object(
+                    runner_handler.check_run_handler, "set_check_success", new=AsyncMock()
+                ) as mock_set_success:
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                        mock_set_progress.assert_awaited_once_with(name=CONVENTIONAL_TITLE_STR)
+
+                        if should_pass:
+                            assert mock_set_success.await_count == 1, (
+                                f"Expected '{title}' to pass wildcard validation ({reason}), but it failed"
+                            )
+                            mock_set_failure.assert_not_awaited()
+                        else:
+                            assert mock_set_failure.await_count == 1, (
+                                f"Expected '{title}' to fail wildcard validation ({reason}), but it passed"
+                            )
+                            mock_set_success.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:
         """Test is_branch_exists."""
         mock_branch = Mock()

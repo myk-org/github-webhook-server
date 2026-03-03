@@ -198,6 +198,9 @@ repositories:
     #   - my-title: custom type example
     #   - hotfix(api): resolve production issue
     #
+    # Use "*" to accept any type while enforcing the format
+    # conventional-title: "*"
+    #
     # Resources: https://www.conventionalcommits.org/en/v1.0.0/
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     branch-protection:

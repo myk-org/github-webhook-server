@@ -455,14 +455,34 @@ class RunnerHandler:
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
         await self.check_run_handler.set_check_in_progress(name=CONVENTIONAL_TITLE_STR)
-        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
         title = pull_request.title
+        is_wildcard = self.github_webhook.conventional_title.strip() == "*"
 
-        self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        # Use generator expression instead of list comprehension inside any() for efficiency
-        if any(re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names):
+        if is_wildcard:
+            allowed_names: list[str] = []
+            title_valid = bool(re.match(r"^[\w-]+(\([^)]+\))?!?: .+", title))
+            self.logger.debug(f"{self.log_prefix} Conventional title check (wildcard) for title: {title}")
+        else:
+            allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
+            title_valid = any(re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names)
+            self.logger.debug(
+                f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}"
+            )
+
+        if title_valid:
             await self.check_run_handler.set_check_success(name=CONVENTIONAL_TITLE_STR, output=output)
         else:
+            if is_wildcard:
+                types_display = "any valid type (wildcard `*` configured)"
+            else:
+                types_display = ", ".join(f"`{t}`" for t in allowed_names)
+
+            type_rule = (
+                "Type can be any valid token (wildcard `*` configured)"
+                if is_wildcard
+                else "Type must be one of the configured types"
+            )
+
             output["title"] = "❌ Conventional Title"
             output["summary"] = "Conventional Commit Format Violation"
             output["text"] = f"""## Conventional Commits Validation Failed
@@ -476,7 +496,7 @@ class RunnerHandler:
 ```
 
 **Configured types for this repository:**
-{", ".join(f"`{t}`" for t in allowed_names)}
+{types_display}
 
 **Valid examples:**
 - `feat: add user authentication`
@@ -486,7 +506,7 @@ class RunnerHandler:
 - `docs: update installation guide`
 
 **Format rules:**
-- Type must be one of the configured types
+- {type_rule}
 - Optional scope in parentheses: `(scope)`
 - Optional breaking change indicator: `!`
 - **Mandatory**: colon followed by space `: `
