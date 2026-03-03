@@ -983,8 +983,9 @@ For more information, please refer to the project documentation or contact the m
 
         Simple flow:
             1. Check pull_request.mergeable for conflicts
-            2. If has conflicts → add has-conflicts, exit
-            3. Else → remove has-conflicts, check Compare API for rebase status
+            2. If has conflicts → add has-conflicts label, exit
+            3. If mergeable unknown → skip has-conflicts update
+            4. If no conflicts → remove has-conflicts, check Compare API for rebase status
 
         Uses both GitHub APIs for accurate labeling:
         - has-conflicts: pull_request.mergeable == False (true merge conflict detection)
@@ -1017,8 +1018,8 @@ For more information, please refer to the project documentation or contact the m
 
                 def _poll_mergeable() -> bool | None:
                     for sample in TimeoutSampler(
-                        wait_timeout=15,
-                        sleep=3,
+                        wait_timeout=30,
+                        sleep=5,
                         func=lambda: repository.get_pull(pr_number).mergeable,
                     ):
                         if sample is not None:
@@ -1035,37 +1036,28 @@ For more information, please refer to the project documentation or contact the m
                     )
                     if self.ctx:
                         self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
-                    return
-                except Exception:
-                    self.logger.exception(f"{self.log_prefix} Unexpected error polling PR mergeable status")
-                    raise
 
-            if mergeable is None:
-                self.logger.warning(
-                    f"{self.log_prefix} PR mergeable status still None after polling, skipping label update"
-                )
-                if self.ctx:
-                    self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
-                return
+            if mergeable is not None:
+                has_conflicts = mergeable is False
 
-            has_conflicts = mergeable is False
+                if has_conflicts:
+                    # Has conflicts - add has-conflicts label and exit
+                    self.logger.debug(f"{self.log_prefix} PR has conflicts. {mergeable=}")
 
-            if has_conflicts:
-                # Has conflicts - add has-conflicts label and exit
-                self.logger.debug(f"{self.log_prefix} PR has conflicts. {mergeable=}")
+                    if not has_conflicts_label_exists:
+                        self.logger.debug(f"{self.log_prefix} Adding {HAS_CONFLICTS_LABEL_STR} label")
+                        await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
-                if not has_conflicts_label_exists:
-                    self.logger.debug(f"{self.log_prefix} Adding {HAS_CONFLICTS_LABEL_STR} label")
-                    await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+                    if self.ctx:
+                        self.ctx.complete_step("label_merge_state", has_conflicts=True)
+                    return  # Exit early - conflicts take precedence
 
-                if self.ctx:
-                    self.ctx.complete_step("label_merge_state", has_conflicts=True, needs_rebase=False)
-                return  # Exit early - conflicts take precedence
-
-            # Step 2: No conflicts - remove has-conflicts label if present
-            if has_conflicts_label_exists:
-                self.logger.debug(f"{self.log_prefix} Removing {HAS_CONFLICTS_LABEL_STR} label")
-                await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+                # Step 2: No conflicts - remove has-conflicts label if present
+                if has_conflicts_label_exists:
+                    self.logger.debug(f"{self.log_prefix} Removing {HAS_CONFLICTS_LABEL_STR} label")
+                    await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+            else:
+                self.logger.debug(f"{self.log_prefix} Mergeable status unknown, skipping has-conflicts label update")
 
             # Step 3: Check if needs rebase via Compare API
             base_ref, head_user_login, head_ref = await asyncio.gather(
