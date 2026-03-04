@@ -3,6 +3,15 @@ revision = 3
 requires-python = "==3.13.*"
 
 [[package]]
+name = "ai-cli-runner"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-simple-logger" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/bb/7ae7870b6e07bae5a322c29b27f06c62efb0323543cdc4be6e8e6f9106e0/ai_cli_runner-0.1.0.tar.gz", hash = "sha256:c40b1eb5ec14976d7ee23cdb015b1cce79aad39a205057c018986c361d5afafd", size = 20564, upload-time = "2026-03-04T11:51:39.335Z" }
+
+[[package]]
 name = "aiofiles"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -385,6 +394,7 @@ name = "github-webhook-server"
 version = "4.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "ai-cli-runner" },
     { name = "aiofiles" },
     { name = "asyncstdlib" },
     { name = "build" },
@@ -435,6 +445,7 @@ tests = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-cli-runner", specifier = ">=0.1.0" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "asyncstdlib", specifier = ">=3.13.1" },
     { name = "build", specifier = ">=1.2.2.post1" },

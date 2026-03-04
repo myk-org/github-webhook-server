@@ -733,7 +733,7 @@ class TestRunnerHandler:
                             assert "AI-Suggested Title" in output["text"]
                             assert "fix: correct the bad title" in output["text"]
 
-                            # Verify cwd was passed to call_ai_cli
+                            # Verify cwd was passed to call_ai_cli as str
                             mock_ai_cli.assert_awaited_once()
                             call_kwargs = mock_ai_cli.call_args[1]
                             assert call_kwargs["cwd"] == "/tmp/test-clone"
