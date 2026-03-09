@@ -620,13 +620,21 @@ Your team can configure additional types in the repository settings.
             "Reply with ONLY the suggested title, nothing else."
         )
 
+        cli_flags: list[str] = []
+        if ai_provider == "claude":
+            cli_flags = ["--dangerously-skip-permissions"]
+        elif ai_provider == "gemini":
+            cli_flags = ["--yolo"]
+        elif ai_provider == "cursor":
+            cli_flags = ["--force"]
+
         try:
             success, result = await call_ai_cli(
                 prompt=prompt,
                 ai_provider=ai_provider,
                 ai_model=ai_model,
                 cwd=self.github_webhook.clone_repo_dir,
-                logger=self.logger,
+                cli_flags=cli_flags,
             )
 
             if success:
