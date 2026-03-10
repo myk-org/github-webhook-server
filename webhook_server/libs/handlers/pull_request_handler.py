@@ -563,7 +563,7 @@ For more information, please refer to the project documentation or contact the m
         pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
         for pull_request in pulls:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            await self.label_pull_request_by_merge_state(pull_request=pull_request)
+            await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
@@ -978,14 +978,16 @@ For more information, please refer to the project documentation or contact the m
             self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
             return None
 
-    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+    async def label_pull_request_by_merge_state(self, pull_request: PullRequest, add_only: bool = False) -> None:
         """Label pull request based on merge state.
 
-        Simple flow:
+        Flow:
             1. Check pull_request.mergeable for conflicts
             2. If has conflicts → add has-conflicts label, exit
             3. If mergeable unknown → skip has-conflicts update
-            4. If no conflicts → remove has-conflicts, check Compare API for rebase status
+            4. If no conflicts and not add_only → remove has-conflicts
+            5. Check Compare API for rebase status
+            6. Update needs-rebase label (add only when add_only=True)
 
         Uses both GitHub APIs for accurate labeling:
         - has-conflicts: pull_request.mergeable == False (true merge conflict detection)
@@ -995,6 +997,8 @@ For more information, please refer to the project documentation or contact the m
 
         Args:
             pull_request: The GitHub pull request object to label.
+            add_only: When True, only add labels, never remove them. Used when
+                checking all open PRs after a merge, where GitHub data may be stale.
         """
         if self.ctx:
             self.ctx.start_step("label_merge_state")
@@ -1052,8 +1056,8 @@ For more information, please refer to the project documentation or contact the m
                         self.ctx.complete_step("label_merge_state", has_conflicts=True)
                     return  # Exit early - conflicts take precedence
 
-                # Step 2: No conflicts - remove has-conflicts label if present
-                if has_conflicts_label_exists:
+                # No conflicts - remove has-conflicts label if present (skip in add_only mode)
+                if has_conflicts_label_exists and not add_only:
                     self.logger.debug(f"{self.log_prefix} Removing {HAS_CONFLICTS_LABEL_STR} label")
                     await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
             else:
@@ -1088,7 +1092,7 @@ For more information, please refer to the project documentation or contact the m
             if needs_rebase and not needs_rebase_label_exists:
                 self.logger.debug(f"{self.log_prefix} Adding {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
-            elif not needs_rebase and needs_rebase_label_exists:
+            elif not needs_rebase and needs_rebase_label_exists and not add_only:
                 self.logger.debug(f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 

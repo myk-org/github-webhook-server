@@ -579,6 +579,8 @@ class TestPullRequestHandler:
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
                 with patch("asyncio.sleep", new=AsyncMock()):
                     await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                    mock_label.assert_any_await(pull_request=mock_pr1, add_only=True)
+                    mock_label.assert_any_await(pull_request=mock_pr2, add_only=True)
                     assert mock_label.await_count == 2
 
     @pytest.mark.asyncio
@@ -2768,6 +2770,68 @@ class TestPullRequestHandler:
         pull_request_handler.labels_handler._add_label.assert_called_once_with(
             pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR
         )
+
+    @pytest.mark.asyncio
+    async def test_label_merge_state_add_only_does_not_remove_has_conflicts(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that add_only=True prevents removal of has-conflicts label.
+
+        When mergeable=True and has-conflicts label exists, normal mode removes it.
+        With add_only=True, the label should be preserved (stale data protection).
+        """
+        mock_pull_request.mergeable = True
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - up-to-date (no rebase needed)
+        mock_compare_data = {"behind_by": 0, "status": "ahead"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request, add_only=True)
+            mock_remove_label.assert_not_awaited()
+            mock_add_label.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_label_merge_state_add_only_does_not_remove_needs_rebase(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that add_only=True prevents removal of needs-rebase label.
+
+        When Compare API shows no rebase needed and needs-rebase label exists,
+        normal mode removes it. With add_only=True, the label should be preserved.
+        """
+        mock_pull_request.mergeable = True
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - up-to-date (no rebase needed)
+        mock_compare_data = {"behind_by": 0, "status": "ahead"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[NEEDS_REBASE_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request, add_only=True)
+            mock_remove_label.assert_not_awaited()
+            mock_add_label.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_regenerate_welcome_message_existing_comment_updated(
