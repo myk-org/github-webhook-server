@@ -709,7 +709,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "true",
+            "conventional-title": {"enabled": True, "mode": "suggest"},
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
@@ -771,7 +771,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "fix",
+            "conventional-title": {"enabled": True, "mode": "fix"},
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
@@ -808,7 +808,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "fix",
+            "conventional-title": {"enabled": True, "mode": "fix"},
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
@@ -845,13 +845,13 @@ class TestRunnerHandler:
     async def test_conventional_title_disabled_mode(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test that conventional-title: "false" disables AI suggestion."""
+        """Test that conventional-title disabled disables AI suggestion."""
         runner_handler.github_webhook.conventional_title = "feat,fix"
         mock_pull_request.title = "bad title"
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "false",
+            "conventional-title": {"enabled": False},
         }
 
         with patch.object(
@@ -883,7 +883,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "true",
+            "conventional-title": {"enabled": True, "mode": "suggest"},
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
@@ -915,7 +915,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
-            "conventional-title": "true",
+            "conventional-title": {"enabled": True, "mode": "suggest"},
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 

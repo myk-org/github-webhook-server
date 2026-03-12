@@ -569,7 +569,7 @@ Your team can configure additional types in the repository settings.
                             f"Suggestion was invalid or unchanged."
                         )
 
-            elif ai_suggestion and ai_mode == "true" and output["text"] is not None:
+            elif ai_suggestion and ai_mode == "suggest" and output["text"] is not None:
                 output["text"] += f"\n\n---\n\n### AI-Suggested Title\n\n> {ai_suggestion}\n"
 
             await self.check_run_handler.set_check_failure(name=CONVENTIONAL_TITLE_STR, output=output)
@@ -578,18 +578,17 @@ Your team can configure additional types in the repository settings.
         """Get the conventional-title AI mode from config.
 
         Returns:
-            "true" for suggestion mode, "fix" for auto-fix mode, or None if disabled.
+            "suggest" for suggestion mode, "fix" for auto-fix mode, or None if disabled.
         """
         ai_config = self.github_webhook.ai_features
         if not ai_config:
             return None
 
-        ct_value = ai_config.get("conventional-title", "false")
-        if ct_value == "true":
-            return "true"
-        if ct_value == "fix":
-            return "fix"
-        return None
+        ct_config = ai_config.get("conventional-title")
+        if not isinstance(ct_config, dict) or not ct_config.get("enabled"):
+            return None
+
+        return ct_config.get("mode", "suggest")
 
     async def _get_ai_title_suggestion(self, title: str, allowed_names: list[str], *, is_wildcard: bool) -> str | None:
         """Get an AI-suggested conventional title when validation fails.
@@ -605,6 +604,10 @@ Your team can configure additional types in the repository settings.
             return None
 
         ai_provider, ai_model = ai_result
+
+        ai_config = self.github_webhook.ai_features
+        ct_config = ai_config.get("conventional-title", {}) if ai_config else {}
+        timeout_minutes = ct_config.get("timeout-minutes", 10) if isinstance(ct_config, dict) else 10
 
         if is_wildcard:
             types_info = "Any type name is accepted (wildcard mode)."
@@ -638,6 +641,7 @@ Your team can configure additional types in the repository settings.
                 ai_model=ai_model,
                 cwd=self.github_webhook.clone_repo_dir,
                 cli_flags=cli_flags,
+                timeout_minutes=timeout_minutes,
             )
 
             if success:
