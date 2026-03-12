@@ -14,6 +14,7 @@ from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 from webhook_server.utils.constants import (
+    AI_RESOLVED_CONFLICTS_LABEL,
     APPROVED_BY_LABEL_PREFIX,
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
@@ -812,18 +813,18 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL
+        mock_label.name = f"{CHERRY_PICKED_LABEL}-from-main"
         mock_pull_request.labels = [mock_label]
 
         with (
-            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", new=True),
             patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
             patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_set_success,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should auto-verify since auto_verify_cherry_picked_prs is True and user is in auto_verified list
-            mock_add_label.assert_called_once()
-            mock_set_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
+            mock_add_label.assert_awaited_once()
+            mock_set_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_process_verified_cherry_picked_pr_auto_verify_disabled(
@@ -833,18 +834,72 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL
+        mock_label.name = f"{CHERRY_PICKED_LABEL}-from-main"
         mock_pull_request.labels = [mock_label]
 
         with (
-            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", new=False),
             patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label,
             patch.object(pull_request_handler.check_run_handler, "set_check_queued") as mock_set_queued,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should NOT auto-verify since auto_verify_cherry_picked_prs is False
-            mock_add_label.assert_not_called()
-            mock_set_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
+            mock_add_label.assert_not_awaited()
+            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_set_queued.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_verified_skipped_for_ai_resolved_cherry_pick(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test that AI-resolved cherry-picks are never auto-verified."""
+
+        mock_pull_request = Mock(spec=PullRequest)
+        cherry_picked_label = Mock()
+        cherry_picked_label.name = f"{CHERRY_PICKED_LABEL}-from-main"
+        ai_resolved_label = Mock()
+        ai_resolved_label.name = AI_RESOLVED_CONFLICTS_LABEL
+        mock_pull_request.labels = [cherry_picked_label, ai_resolved_label]
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", new=True),
+            patch.object(pull_request_handler.labels_handler, "_add_label") as _mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label,
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued") as mock_set_queued,
+            patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_set_success,
+        ):
+            await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
+            # Should set check as queued (not success) since AI-resolved cherry-picks skip auto-verification
+            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_set_queued.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+            mock_set_success.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ai_resolved_takes_precedence_over_auto_verify(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that AI-resolved label takes precedence over auto-verify-cherry-picked-prs."""
+
+        mock_pull_request = Mock(spec=PullRequest)
+        cherry_picked_label = Mock()
+        cherry_picked_label.name = f"{CHERRY_PICKED_LABEL}-from-main"
+        ai_resolved_label = Mock()
+        ai_resolved_label.name = AI_RESOLVED_CONFLICTS_LABEL
+        mock_pull_request.labels = [cherry_picked_label, ai_resolved_label]
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", new=True),
+            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label,
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued") as mock_set_queued,
+            patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_set_success,
+        ):
+            await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
+            # AI-resolved should prevent auto-verification even though auto_verify_cherry_picked_prs is True
+            # and parent_committer is in auto_verified_and_merged_users
+            mock_add_label.assert_not_awaited()
+            mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_set_queued.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+            mock_set_success.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_add_pull_request_owner_as_assingee(

@@ -30,6 +30,25 @@ $defs:
           - "false": Disabled (default)
           - "fix": Auto-fix PR title with AI suggestion when validation fails
         default: "false"
+      resolve-cherry-pick-conflicts-with-ai:
+        type: object
+        description: |
+          AI-powered cherry-pick conflict resolution configuration.
+          When enabled and a cherry-pick has conflicts, the AI CLI will attempt
+          to resolve them with upstream-first priority. AI-resolved cherry-picks
+          are never auto-verified - manual review is required.
+        properties:
+          enabled:
+            type: boolean
+            description: Enable AI conflict resolution for cherry-picks
+          timeout-minutes:
+            type: integer
+            minimum: 1
+            description: Timeout in minutes for the AI CLI process (default 10)
+            default: 10
+        required:
+          - enabled
+        additionalProperties: false
     required:
       - ai-provider
       - ai-model

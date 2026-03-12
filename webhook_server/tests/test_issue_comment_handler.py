@@ -834,33 +834,33 @@ class TestIssueCommentHandler:
     async def test_process_cherry_pick_command_merged_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing cherry pick command for merged PR."""
         mock_pull_request = Mock()
-        # Patch is_merged as a method
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            with patch.object(issue_comment_handler.repository, "get_branch"):
+        # Set merged_at in hook_data to simulate a merged PR at comment time
+        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        with patch.object(issue_comment_handler.repository, "get_branch"):
+            with patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick:
                 with patch.object(
-                    issue_comment_handler.runner_handler,
-                    "cherry_pick",
+                    issue_comment_handler.labels_handler,
+                    "_add_label",
                     new_callable=AsyncMock,
-                ) as mock_cherry_pick:
-                    with patch.object(
-                        issue_comment_handler.labels_handler,
-                        "_add_label",
-                        new_callable=AsyncMock,
-                    ) as mock_add_label:
-                        await issue_comment_handler.process_cherry_pick_command(
-                            pull_request=mock_pull_request,
-                            command_args="branch1",
-                            reviewed_user="test-user",
-                        )
-                        mock_cherry_pick.assert_called_once_with(
-                            pull_request=mock_pull_request,
-                            target_branch="branch1",
-                            assign_to_pr_owner=True,
-                        )
-                        mock_add_label.assert_called_once_with(
-                            pull_request=mock_pull_request,
-                            label="cherry-pick-branch1",
-                        )
+                ) as mock_add_label:
+                    await issue_comment_handler.process_cherry_pick_command(
+                        pull_request=mock_pull_request,
+                        command_args="branch1",
+                        reviewed_user="test-user",
+                    )
+                    mock_cherry_pick.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        target_branch="branch1",
+                        assign_to_pr_owner=True,
+                    )
+                    mock_add_label.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        label="cherry-pick-branch1",
+                    )
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_merged_pr_multiple_branches(
@@ -876,49 +876,49 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
 
-        # Patch is_merged to return True (merged PR)
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            with patch.object(issue_comment_handler.repository, "get_branch"):
+        # Set merged_at in hook_data to simulate a merged PR at comment time
+        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        with patch.object(issue_comment_handler.repository, "get_branch"):
+            with patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick:
                 with patch.object(
-                    issue_comment_handler.runner_handler,
-                    "cherry_pick",
+                    issue_comment_handler.labels_handler,
+                    "_add_label",
                     new_callable=AsyncMock,
-                ) as mock_cherry_pick:
-                    with patch.object(
-                        issue_comment_handler.labels_handler,
-                        "_add_label",
-                        new_callable=AsyncMock,
-                    ) as mock_add_label:
-                        # Execute cherry-pick command with multiple branches
-                        await issue_comment_handler.process_cherry_pick_command(
-                            pull_request=mock_pull_request,
-                            command_args="branch1 branch2 branch3",
-                            reviewed_user="test-user",
-                        )
+                ) as mock_add_label:
+                    # Execute cherry-pick command with multiple branches
+                    await issue_comment_handler.process_cherry_pick_command(
+                        pull_request=mock_pull_request,
+                        command_args="branch1 branch2 branch3",
+                        reviewed_user="test-user",
+                    )
 
-                        # Verify cherry_pick was called for each branch
-                        assert mock_cherry_pick.call_count == 3
-                        mock_cherry_pick.assert_any_call(
-                            pull_request=mock_pull_request,
-                            target_branch="branch1",
-                            assign_to_pr_owner=True,
-                        )
-                        mock_cherry_pick.assert_any_call(
-                            pull_request=mock_pull_request,
-                            target_branch="branch2",
-                            assign_to_pr_owner=True,
-                        )
-                        mock_cherry_pick.assert_any_call(
-                            pull_request=mock_pull_request,
-                            target_branch="branch3",
-                            assign_to_pr_owner=True,
-                        )
+                    # Verify cherry_pick was called for each branch
+                    assert mock_cherry_pick.call_count == 3
+                    mock_cherry_pick.assert_any_call(
+                        pull_request=mock_pull_request,
+                        target_branch="branch1",
+                        assign_to_pr_owner=True,
+                    )
+                    mock_cherry_pick.assert_any_call(
+                        pull_request=mock_pull_request,
+                        target_branch="branch2",
+                        assign_to_pr_owner=True,
+                    )
+                    mock_cherry_pick.assert_any_call(
+                        pull_request=mock_pull_request,
+                        target_branch="branch3",
+                        assign_to_pr_owner=True,
+                    )
 
-                        # Verify labels were added exactly once for each branch (not duplicated)
-                        assert mock_add_label.call_count == 3
-                        mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch1")
-                        mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch2")
-                        mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch3")
+                    # Verify labels were added exactly once for each branch (not duplicated)
+                    assert mock_add_label.call_count == 3
+                    mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch1")
+                    mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch2")
+                    mock_add_label.assert_any_call(pull_request=mock_pull_request, label="cherry-pick-branch3")
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_merged_pr_assign_disabled(
@@ -927,28 +927,29 @@ class TestIssueCommentHandler:
         """Test cherry-pick on merged PR passes assign_to_pr_owner=False when config disabled."""
         issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author = False
         mock_pull_request = Mock()
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            with patch.object(issue_comment_handler.repository, "get_branch"):
+        # Set merged_at in hook_data to simulate a merged PR at comment time
+        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        with patch.object(issue_comment_handler.repository, "get_branch"):
+            with patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick:
                 with patch.object(
-                    issue_comment_handler.runner_handler,
-                    "cherry_pick",
+                    issue_comment_handler.labels_handler,
+                    "_add_label",
                     new_callable=AsyncMock,
-                ) as mock_cherry_pick:
-                    with patch.object(
-                        issue_comment_handler.labels_handler,
-                        "_add_label",
-                        new_callable=AsyncMock,
-                    ):
-                        await issue_comment_handler.process_cherry_pick_command(
-                            pull_request=mock_pull_request,
-                            command_args="branch1",
-                            reviewed_user="test-user",
-                        )
-                        mock_cherry_pick.assert_called_once_with(
-                            pull_request=mock_pull_request,
-                            target_branch="branch1",
-                            assign_to_pr_owner=False,
-                        )
+                ):
+                    await issue_comment_handler.process_cherry_pick_command(
+                        pull_request=mock_pull_request,
+                        command_args="branch1",
+                        reviewed_user="test-user",
+                    )
+                    mock_cherry_pick.assert_called_once_with(
+                        pull_request=mock_pull_request,
+                        target_branch="branch1",
+                        assign_to_pr_owner=False,
+                    )
 
     @pytest.mark.asyncio
     async def test_process_retest_command_no_target_tests(self, issue_comment_handler: IssueCommentHandler) -> None:

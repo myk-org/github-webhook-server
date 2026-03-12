@@ -4,7 +4,7 @@ from concurrent.futures import Future
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from github.GithubException import UnknownObjectException
+from github.GithubException import GithubException, UnknownObjectException
 
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
@@ -20,6 +20,7 @@ from webhook_server.utils.github_repository_settings import (
     get_branch_sampler,
     get_repo_branch_protection_rules,
     get_repository_github_app_api,
+    get_repository_github_app_token,
     get_required_status_checks,
     get_user_configures_status_checks,
     set_all_in_progress_check_runs_to_queued,
@@ -777,3 +778,68 @@ class TestGetRepositoryGithubAppApi:
                 assert result is None
                 mock_logger.error.assert_called_once()
                 assert "Repository owner/repo not found by manage-repositories-app" in mock_logger.error.call_args[0][0]
+
+    @patch("builtins.open", create=True)
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_get_repository_github_app_token_success(self, _mock_logger: Mock, mock_open: Mock) -> None:
+        """Test successful GitHub app token retrieval."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test/dir"
+        mock_config.root_data = {"github-app-id": 12345}
+
+        mock_file = Mock()
+        mock_file.read.return_value = "test-private-key"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        with patch("webhook_server.utils.github_repository_settings.Auth") as mock_auth:
+            with patch("webhook_server.utils.github_repository_settings.GithubIntegration") as mock_integration:
+                mock_app_auth = Mock()
+                mock_auth.AppAuth.return_value = mock_app_auth
+
+                mock_app_instance = Mock()
+                mock_integration.return_value = mock_app_instance
+
+                mock_installation = Mock()
+                mock_installation.id = 67890
+                mock_app_instance.get_repo_installation.return_value = mock_installation
+
+                mock_access_token = Mock()
+                mock_access_token.token = "fake-installation-token"  # pragma: allowlist secret
+                mock_app_instance.get_access_token.return_value = mock_access_token
+
+                result = get_repository_github_app_token(mock_config, "owner/repo")
+
+                assert result == "fake-installation-token"  # pragma: allowlist secret
+                mock_auth.AppAuth.assert_called_once_with(app_id=12345, private_key="test-private-key")
+                mock_app_instance.get_repo_installation.assert_called_once_with(owner="owner", repo="repo")
+                mock_app_instance.get_access_token.assert_called_once_with(67890)
+
+    @patch("builtins.open", create=True)
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_get_repository_github_app_token_failure(self, mock_logger: Mock, mock_open: Mock) -> None:
+        """Test GitHub app token retrieval when exception occurs."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test/dir"
+        mock_config.root_data = {"github-app-id": 12345}
+
+        mock_file = Mock()
+        mock_file.read.return_value = "test-private-key"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        with patch("webhook_server.utils.github_repository_settings.Auth") as mock_auth:
+            with patch("webhook_server.utils.github_repository_settings.GithubIntegration") as mock_integration:
+                mock_app_auth = Mock()
+                mock_auth.AppAuth.return_value = mock_app_auth
+
+                mock_app_instance = Mock()
+                mock_integration.return_value = mock_app_instance
+                mock_app_instance.get_repo_installation.side_effect = GithubException(404, "App not installed", None)
+
+                result = get_repository_github_app_token(mock_config, "owner/repo")
+
+                assert result is None
+                mock_logger.exception.assert_called_once()
+                assert (
+                    "Failed to get GitHub App installation token for owner/repo"
+                    in mock_logger.exception.call_args[0][0]
+                )

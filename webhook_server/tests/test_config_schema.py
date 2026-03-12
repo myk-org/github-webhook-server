@@ -816,3 +816,56 @@ class TestConfigSchema:
             assert repo_data["allow-commands-on-draft-prs"] == ["hold", "retest"]
         finally:
             shutil.rmtree(temp_dir)
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_ai_features_resolve_cherry_pick_conflicts_with_ai(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch, *, enabled: bool
+    ) -> None:
+        """Test that ai-features with resolve-cherry-pick-conflicts-with-ai passes schema validation."""
+        config = valid_minimal_config.copy()
+        config["ai-features"] = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": enabled, "timeout-minutes": 10},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            ai_features = config_obj.root_data["ai-features"]
+            assert ai_features["ai-provider"] == "claude"
+            assert ai_features["ai-model"] == "sonnet"
+            assert ai_features["resolve-cherry-pick-conflicts-with-ai"] == {"enabled": enabled, "timeout-minutes": 10}
+        finally:
+            shutil.rmtree(temp_dir)
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_ai_features_resolve_cherry_pick_conflicts_with_ai_repository_level(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch, *, enabled: bool
+    ) -> None:
+        """Test that ai-features with resolve-cherry-pick-conflicts-with-ai works at repository level."""
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["ai-features"] = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": enabled, "timeout-minutes": 10},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            repo_ai_features = config_obj.root_data["repositories"]["test-repo"]["ai-features"]
+            assert repo_ai_features["ai-provider"] == "claude"
+            assert repo_ai_features["ai-model"] == "sonnet"
+            assert repo_ai_features["resolve-cherry-pick-conflicts-with-ai"] == {
+                "enabled": enabled,
+                "timeout-minutes": 10,
+            }
+        finally:
+            shutil.rmtree(temp_dir)
