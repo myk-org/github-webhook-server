@@ -443,7 +443,7 @@ class IssueCommentHandler:
         ]
 
         if _exits_target_branches:
-            if not await asyncio.to_thread(pull_request.is_merged):
+            if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
                 info_msg: str = f"""
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged

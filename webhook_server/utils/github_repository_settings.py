@@ -430,3 +430,30 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
         )
 
         return None
+
+
+def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:
+    """Get a raw GitHub App installation token string for use with CLI tools.
+
+    Returns the token string or None if the app is not configured/installed.
+    """
+    LOGGER.debug(f"Getting GitHub App installation token for {repository_name}")
+
+    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
+        private_key = fd.read()
+
+    github_app_id: int = config_.root_data["github-app-id"]
+    auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
+    app_instance: GithubIntegration = GithubIntegration(auth=auth)
+    owner, repo = repository_name.split("/", maxsplit=1)
+
+    try:
+        installation = app_instance.get_repo_installation(owner=owner, repo=repo)
+        access_token = app_instance.get_access_token(installation.id)
+        return access_token.token
+    except GithubException:
+        LOGGER.exception(
+            f"Failed to get GitHub App installation token for {repository_name}, "
+            f"make sure the app is installed (https://github.com/apps/manage-repositories-app)"
+        )
+        return None
