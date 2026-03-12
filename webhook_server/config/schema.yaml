@@ -19,17 +19,32 @@ $defs:
         type: string
         description: AI model identifier (e.g., claude-opus-4-6[1m], sonnet, gemini-2.5-pro)
       conventional-title:
-        type: string
-        enum:
-          - "true"
-          - "false"
-          - "fix"
+        type: object
         description: |
-          AI-powered conventional title suggestions.
-          - "true": Show AI-suggested title in check run output when validation fails
-          - "false": Disabled (default)
-          - "fix": Auto-fix PR title with AI suggestion when validation fails
-        default: "false"
+          AI-powered conventional title configuration.
+          When enabled, suggests or auto-fixes PR titles that don't follow
+          Conventional Commits format.
+        properties:
+          enabled:
+            type: boolean
+            description: Enable AI conventional title suggestions
+          mode:
+            type: string
+            enum:
+              - suggest
+              - fix
+            description: |
+              - suggest: Show AI-suggested title in check run output when validation fails
+              - fix: Auto-fix PR title with AI suggestion when validation fails
+            default: suggest
+          timeout-minutes:
+            type: integer
+            minimum: 1
+            description: Timeout in minutes for the AI CLI process (default 10)
+            default: 10
+        required:
+          - enabled
+        additionalProperties: false
       resolve-cherry-pick-conflicts-with-ai:
         type: object
         description: |

@@ -1258,14 +1258,18 @@ AI-suggested fixes for PR titles that don't follow the Conventional Commits form
 ai-features:
   ai-provider: "claude"
   ai-model: "claude-opus-4-6[1m]"
-  conventional-title: "true"   # "true": suggest in check run | "false": disabled | "fix": auto-update PR title
+  conventional-title:
+    enabled: true
+    mode: suggest            # suggest | fix
+    timeout-minutes: 10      # default: 10
 ```
 
-| Mode | Behavior |
-|------|----------|
-| `"true"` | Shows AI-suggested title in check run output when validation fails |
-| `"false"` | Disabled (default) |
-| `"fix"` | Automatically updates the PR title with the AI suggestion |
+| Setting | Values | Description |
+|---------|--------|-------------|
+| `enabled` | `true` / `false` | Enable or disable AI conventional title suggestions |
+| `mode` | `suggest` (default) | Shows AI-suggested title in check run output when validation fails |
+| | `fix` | Automatically updates the PR title with the AI suggestion |
+| `timeout-minutes` | integer (default: `10`) | Timeout in minutes for the AI CLI process |
 
 ### Cherry-Pick Conflict Resolution
 
