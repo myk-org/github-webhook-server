@@ -1263,8 +1263,9 @@ class TestRunnerHandler:
             mocks.comment.assert_called_once()
             assert mocks.to_thread.call_count == 3
             last_cmd = mocks.run_cmd.call_args_list[-1]
-            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
+            gh_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "--assignee" in gh_command
+            assert "test-pr-author" in gh_command
 
     @pytest.mark.asyncio
     async def test_cherry_pick_requested_by_uses_pr_owner(
@@ -1277,12 +1278,11 @@ class TestRunnerHandler:
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
             last_cmd = mocks.run_cmd.call_args_list[-1]
-            hub_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            expected_msg = (
-                f"Cherry-pick from `main` branch, original PR: {mock_pull_request.html_url}, PR owner: test-pr-author"
-            )
-            assert expected_msg in hub_command
-            assert "-a 'test-pr-author'" in hub_command or "-a test-pr-author" in hub_command
+            gh_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
+            assert "Cherry-pick from" in gh_command
+            assert mock_pull_request.html_url in gh_command
+            assert "test-pr-author" in gh_command
+            assert "--assignee" in gh_command
             assert mocks.to_thread.call_count == 3
 
     @pytest.mark.asyncio

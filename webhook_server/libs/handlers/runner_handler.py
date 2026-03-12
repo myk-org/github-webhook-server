@@ -714,19 +714,25 @@ Your team can configure additional types in the repository settings.
 
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
-                hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={worktree_path} --git-dir={worktree_path}/.git"
-                assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
+                assignee_flag = f" --assignee {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
+                pr_title = f"{CHERRY_PICKED_LABEL}: [{target_branch}] {commit_msg_striped}"
+                pr_body = (
+                    f"Cherry-pick from `{source_branch}` branch, original PR: {pull_request_url}, PR owner: {pr_author}"
+                )
+                repo_full_name = self.github_webhook.repository_full_name
                 commands: list[str] = [
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
                     f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
-                    f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} {assignee_flag} "
-                    f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'Cherry-pick from `{source_branch}` branch, "
-                    f"original PR: {pull_request_url}, PR owner: {pr_author}'\"",
+                    f"GH_TOKEN={github_token} gh pr create --repo {shlex.quote(repo_full_name)}"
+                    f" --base {shlex.quote(target_branch)}"
+                    f" --head {shlex.quote(new_branch_name)}"
+                    f" --label {shlex.quote(CHERRY_PICKED_LABEL)}"
+                    f"{assignee_flag}"
+                    f" --title {shlex.quote(pr_title)}"
+                    f" --body {shlex.quote(pr_body)}",
                 ]
 
                 output: CheckRunOutput = {
