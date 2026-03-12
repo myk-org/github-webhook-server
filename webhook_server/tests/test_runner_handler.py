@@ -713,6 +713,12 @@ class TestRunnerHandler:
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
+        worktree_path = "/tmp/test-clone-worktree-abc123"
+
+        @asynccontextmanager
+        async def mock_checkout_worktree(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            yield (True, worktree_path, "", "")
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
@@ -726,17 +732,19 @@ class TestRunnerHandler:
                             new_callable=AsyncMock,
                             return_value=(True, "fix: correct the bad title"),
                         ) as mock_ai_cli:
-                            await runner_handler.run_conventional_title_check(mock_pull_request)
+                            with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
+                                await runner_handler.run_conventional_title_check(mock_pull_request)
 
-                            mock_set_failure.assert_awaited_once()
-                            output = mock_set_failure.call_args[1]["output"]
-                            assert "AI-Suggested Title" in output["text"]
-                            assert "fix: correct the bad title" in output["text"]
+                                mock_set_failure.assert_awaited_once()
+                                output = mock_set_failure.call_args[1]["output"]
+                                assert "AI-Suggested Title" in output["text"]
+                                assert "fix: correct the bad title" in output["text"]
 
-                            # Verify cwd was passed to call_ai_cli as str
-                            mock_ai_cli.assert_awaited_once()
-                            call_kwargs = mock_ai_cli.call_args[1]
-                            assert call_kwargs["cwd"] == "/tmp/test-clone"
+                                # Verify cwd was passed to call_ai_cli as worktree path
+                                mock_ai_cli.assert_awaited_once()
+                                call_kwargs = mock_ai_cli.call_args[1]
+                                assert call_kwargs["cwd"] == worktree_path
+                                assert call_kwargs["timeout_minutes"] == 10
 
     @pytest.mark.asyncio
     async def test_conventional_title_failure_without_ai_features(
@@ -775,11 +783,17 @@ class TestRunnerHandler:
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
+        @asynccontextmanager
+        async def mock_checkout_worktree(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            yield (True, "/tmp/test-clone-worktree-abc123", "", "")
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
-                with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                with patch.object(
+                    runner_handler.check_run_handler, "set_check_success", new=AsyncMock()
+                ) as mock_set_success:
                     with patch.object(
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
@@ -788,15 +802,19 @@ class TestRunnerHandler:
                             new_callable=AsyncMock,
                             return_value=(True, "fix: correct the title"),
                         ):
-                            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
-                                await runner_handler.run_conventional_title_check(mock_pull_request)
+                            with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
+                                with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                                    await runner_handler.run_conventional_title_check(mock_pull_request)
 
-                                # Verify PR title was updated
-                                mock_to_thread.assert_any_call(mock_pull_request.edit, title="fix: correct the title")
-                                # Verify check was set to failure (will re-run automatically on title change)
-                                mock_set_failure.assert_awaited_once()
-                                output = mock_set_failure.call_args[1]["output"]
-                                assert "AI Auto-Fix" in output["text"]
+                                    # Verify PR title was updated
+                                    mock_to_thread.assert_any_call(
+                                        mock_pull_request.edit, title="fix: correct the title"
+                                    )
+                                    # Verify check was set to success after auto-fix
+                                    mock_set_success.assert_awaited_once()
+                                    mock_set_failure.assert_not_awaited()
+                                    output = mock_set_success.call_args[1]["output"]
+                                    assert "AI Auto-Fix Applied" in output["text"]
 
     @pytest.mark.asyncio
     async def test_conventional_title_fix_mode_edit_failure(
@@ -812,6 +830,10 @@ class TestRunnerHandler:
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
+        @asynccontextmanager
+        async def mock_checkout_worktree(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            yield (True, "/tmp/test-clone-worktree-abc123", "", "")
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
@@ -825,21 +847,24 @@ class TestRunnerHandler:
                             new_callable=AsyncMock,
                             return_value=(True, "fix: correct the title"),
                         ):
-                            # Make edit raise an exception
-                            async def mock_to_thread_side_effect(func: Any, *args: Any, **kwargs: Any) -> Any:
-                                if func == mock_pull_request.edit:
-                                    raise Exception("GitHub API error")
-                                return func(*args, **kwargs)
+                            with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
+                                # Make edit raise an exception
+                                async def mock_to_thread_side_effect(func: Any, *args: Any, **kwargs: Any) -> Any:
+                                    if func == mock_pull_request.edit:
+                                        raise Exception("GitHub API error")
+                                    return func(*args, **kwargs)
 
-                            with patch(
-                                "asyncio.to_thread", new_callable=AsyncMock, side_effect=mock_to_thread_side_effect
-                            ):
-                                await runner_handler.run_conventional_title_check(mock_pull_request)
+                                with patch(
+                                    "asyncio.to_thread",
+                                    new_callable=AsyncMock,
+                                    side_effect=mock_to_thread_side_effect,
+                                ):
+                                    await runner_handler.run_conventional_title_check(mock_pull_request)
 
-                                # Check should still be set to failure
-                                mock_set_failure.assert_awaited_once()
-                                output = mock_set_failure.call_args[1]["output"]
-                                assert "AI Auto-Fix Failed" in output["text"]
+                                    # Check should still be set to failure
+                                    mock_set_failure.assert_awaited_once()
+                                    output = mock_set_failure.call_args[1]["output"]
+                                    assert "AI Auto-Fix Failed" in output["text"]
 
     @pytest.mark.asyncio
     async def test_conventional_title_disabled_mode(
@@ -887,6 +912,10 @@ class TestRunnerHandler:
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
+        @asynccontextmanager
+        async def mock_checkout_worktree(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            yield (True, "/tmp/test-clone-worktree-abc123", "", "")
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
@@ -900,10 +929,11 @@ class TestRunnerHandler:
                             new_callable=AsyncMock,
                             return_value=(False, "CLI timeout"),
                         ):
-                            await runner_handler.run_conventional_title_check(mock_pull_request)
-                            mock_set_failure.assert_awaited_once()
-                            output = mock_set_failure.call_args[1]["output"]
-                            assert "AI-Suggested Title" not in output["text"]
+                            with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
+                                await runner_handler.run_conventional_title_check(mock_pull_request)
+                                mock_set_failure.assert_awaited_once()
+                                output = mock_set_failure.call_args[1]["output"]
+                                assert "AI-Suggested Title" not in output["text"]
 
     @pytest.mark.asyncio
     async def test_conventional_title_ai_cli_exception(
@@ -919,6 +949,10 @@ class TestRunnerHandler:
         }
         runner_handler.github_webhook.clone_repo_dir = "/tmp/test-clone"
 
+        @asynccontextmanager
+        async def mock_checkout_worktree(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            yield (True, "/tmp/test-clone-worktree-abc123", "", "")
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
@@ -932,8 +966,9 @@ class TestRunnerHandler:
                             new_callable=AsyncMock,
                             side_effect=RuntimeError("boom"),
                         ):
-                            await runner_handler.run_conventional_title_check(mock_pull_request)
-                            mock_set_failure.assert_awaited_once()
+                            with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
+                                await runner_handler.run_conventional_title_check(mock_pull_request)
+                                mock_set_failure.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:

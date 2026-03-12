@@ -524,6 +524,7 @@ Your team can configure additional types in the repository settings.
 """
             # AI-suggested title (if ai-features configured)
             ai_suggestion = await self._get_ai_title_suggestion(
+                pull_request=pull_request,
                 title=title,
                 allowed_names=allowed_names,
                 is_wildcard=is_wildcard,
@@ -544,12 +545,16 @@ Your team can configure additional types in the repository settings.
                     self.logger.info(f"{self.log_prefix} AI fixing PR title from '{title}' to '{ai_suggestion}'")
                     try:
                         await asyncio.to_thread(pull_request.edit, title=ai_suggestion)
-                        if output["text"] is not None:
-                            output["text"] += (
-                                f"\n\n---\n\n### AI Auto-Fix\n\n"
-                                f"Title updated to: `{ai_suggestion}`\n"
-                                f"Check will re-run automatically."
-                            )
+                        output["title"] = "Conventional Title"
+                        output["summary"] = "PR title auto-fixed by AI"
+                        output["text"] = (
+                            f"**AI Auto-Fix Applied**\n\n"
+                            f"Title updated from: `{title}`\n"
+                            f"Title updated to: `{ai_suggestion}`\n"
+                        )
+                        return await self.check_run_handler.set_check_success(
+                            name=CONVENTIONAL_TITLE_STR, output=output
+                        )
                     except Exception:
                         self.logger.exception(f"{self.log_prefix} Failed to auto-fix PR title")
                         if output["text"] is not None:
@@ -588,9 +593,15 @@ Your team can configure additional types in the repository settings.
         if not isinstance(ct_config, dict) or not ct_config.get("enabled"):
             return None
 
-        return ct_config.get("mode", "suggest")
+        mode = ct_config.get("mode", "suggest")
+        if mode not in ("suggest", "fix"):
+            self.logger.warning(f"{self.log_prefix} Invalid conventional-title mode '{mode}', defaulting to 'suggest'")
+            return "suggest"
+        return mode
 
-    async def _get_ai_title_suggestion(self, title: str, allowed_names: list[str], *, is_wildcard: bool) -> str | None:
+    async def _get_ai_title_suggestion(
+        self, pull_request: PullRequest, title: str, allowed_names: list[str], *, is_wildcard: bool
+    ) -> str | None:
         """Get an AI-suggested conventional title when validation fails.
 
         Returns the suggestion string or None if AI features are not configured or on error.
@@ -614,16 +625,15 @@ Your team can configure additional types in the repository settings.
         else:
             types_info = f"Allowed types: {', '.join(allowed_names)}"
 
-        # The repository clone is already checked out to the PR branch
-        # (done by _clone_repository in github_api.py), so the AI CLI has
-        # full access to the PR's commits and changes from the cwd.
         prompt = (
             "You are in a git repository checked out to a PR branch.\n"
             "Look at the recent commits and changes to understand what this PR does.\n"
             f"Current PR title: {title}\n"
             f"{types_info}\n"
-            f"Format: <type>[optional scope]: <description>\n"
-            "Reply with ONLY the suggested title, nothing else."
+            f"Required format: <type>[optional scope]: <description>\n"
+            f"Output ONLY the corrected title on a single line.\n"
+            f"Do NOT include any explanation, reasoning, markdown, or quotes.\n"
+            f"Example output: feat: add user authentication"
         )
 
         cli_flags: list[str] = []
@@ -635,23 +645,28 @@ Your team can configure additional types in the repository settings.
             cli_flags = ["--force"]
 
         try:
-            success, result = await call_ai_cli(
-                prompt=prompt,
-                ai_provider=ai_provider,
-                ai_model=ai_model,
-                cwd=self.github_webhook.clone_repo_dir,
-                cli_flags=cli_flags,
-                timeout_minutes=timeout_minutes,
-            )
+            async with self._checkout_worktree(pull_request=pull_request) as (wt_success, worktree_path, _, _):
+                if not wt_success:
+                    self.logger.warning(f"{self.log_prefix} Failed to create worktree for AI title suggestion")
+                    return None
 
-            if success:
-                # Clean up the response - take first line, strip backticks/quotes
-                suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
-                self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
-                return suggestion
+                success, result = await call_ai_cli(
+                    prompt=prompt,
+                    ai_provider=ai_provider,
+                    ai_model=ai_model,
+                    cwd=worktree_path,
+                    cli_flags=cli_flags,
+                    timeout_minutes=timeout_minutes,
+                )
 
-            self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
-            return None
+                if success:
+                    # Clean up the response - take first line, strip backticks/quotes
+                    suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
+                    self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
+                    return suggestion
+
+                self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
+                return None
 
         except Exception:
             self.logger.exception(f"{self.log_prefix} AI title suggestion failed unexpectedly")
