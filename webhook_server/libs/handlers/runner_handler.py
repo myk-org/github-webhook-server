@@ -20,6 +20,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, Chec
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
+    AI_RESOLVED_CONFLICTS_LABEL,
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
@@ -28,6 +29,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
+from webhook_server.utils.github_repository_settings import get_repository_github_app_token
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
@@ -522,6 +524,7 @@ Your team can configure additional types in the repository settings.
 """
             # AI-suggested title (if ai-features configured)
             ai_suggestion = await self._get_ai_title_suggestion(
+                pull_request=pull_request,
                 title=title,
                 allowed_names=allowed_names,
                 is_wildcard=is_wildcard,
@@ -542,12 +545,16 @@ Your team can configure additional types in the repository settings.
                     self.logger.info(f"{self.log_prefix} AI fixing PR title from '{title}' to '{ai_suggestion}'")
                     try:
                         await asyncio.to_thread(pull_request.edit, title=ai_suggestion)
-                        if output["text"] is not None:
-                            output["text"] += (
-                                f"\n\n---\n\n### AI Auto-Fix\n\n"
-                                f"Title updated to: `{ai_suggestion}`\n"
-                                f"Check will re-run automatically."
-                            )
+                        output["title"] = "Conventional Title"
+                        output["summary"] = "PR title auto-fixed by AI"
+                        output["text"] = (
+                            f"**AI Auto-Fix Applied**\n\n"
+                            f"Title updated from: `{title}`\n"
+                            f"Title updated to: `{ai_suggestion}`\n"
+                        )
+                        return await self.check_run_handler.set_check_success(
+                            name=CONVENTIONAL_TITLE_STR, output=output
+                        )
                     except Exception:
                         self.logger.exception(f"{self.log_prefix} Failed to auto-fix PR title")
                         if output["text"] is not None:
@@ -567,7 +574,7 @@ Your team can configure additional types in the repository settings.
                             f"Suggestion was invalid or unchanged."
                         )
 
-            elif ai_suggestion and ai_mode == "true" and output["text"] is not None:
+            elif ai_suggestion and ai_mode == "suggest" and output["text"] is not None:
                 output["text"] += f"\n\n---\n\n### AI-Suggested Title\n\n> {ai_suggestion}\n"
 
             await self.check_run_handler.set_check_failure(name=CONVENTIONAL_TITLE_STR, output=output)
@@ -576,20 +583,25 @@ Your team can configure additional types in the repository settings.
         """Get the conventional-title AI mode from config.
 
         Returns:
-            "true" for suggestion mode, "fix" for auto-fix mode, or None if disabled.
+            "suggest" for suggestion mode, "fix" for auto-fix mode, or None if disabled.
         """
         ai_config = self.github_webhook.ai_features
         if not ai_config:
             return None
 
-        ct_value = ai_config.get("conventional-title", "false")
-        if ct_value == "true":
-            return "true"
-        if ct_value == "fix":
-            return "fix"
-        return None
+        ct_config = ai_config.get("conventional-title")
+        if not isinstance(ct_config, dict) or not ct_config.get("enabled"):
+            return None
 
-    async def _get_ai_title_suggestion(self, title: str, allowed_names: list[str], *, is_wildcard: bool) -> str | None:
+        mode = ct_config.get("mode", "suggest")
+        if mode not in ("suggest", "fix"):
+            self.logger.warning(f"{self.log_prefix} Invalid conventional-title mode '{mode}', defaulting to 'suggest'")
+            return "suggest"
+        return mode
+
+    async def _get_ai_title_suggestion(
+        self, pull_request: PullRequest, title: str, allowed_names: list[str], *, is_wildcard: bool
+    ) -> str | None:
         """Get an AI-suggested conventional title when validation fails.
 
         Returns the suggestion string or None if AI features are not configured or on error.
@@ -604,21 +616,24 @@ Your team can configure additional types in the repository settings.
 
         ai_provider, ai_model = ai_result
 
+        ai_config = self.github_webhook.ai_features
+        ct_config = ai_config.get("conventional-title", {}) if ai_config else {}
+        timeout_minutes = ct_config.get("timeout-minutes", 10) if isinstance(ct_config, dict) else 10
+
         if is_wildcard:
             types_info = "Any type name is accepted (wildcard mode)."
         else:
             types_info = f"Allowed types: {', '.join(allowed_names)}"
 
-        # The repository clone is already checked out to the PR branch
-        # (done by _clone_repository in github_api.py), so the AI CLI has
-        # full access to the PR's commits and changes from the cwd.
         prompt = (
             "You are in a git repository checked out to a PR branch.\n"
             "Look at the recent commits and changes to understand what this PR does.\n"
             f"Current PR title: {title}\n"
             f"{types_info}\n"
-            f"Format: <type>[optional scope]: <description>\n"
-            "Reply with ONLY the suggested title, nothing else."
+            f"Required format: <type>[optional scope]: <description>\n"
+            f"Output ONLY the corrected title on a single line.\n"
+            f"Do NOT include any explanation, reasoning, markdown, or quotes.\n"
+            f"Example output: feat: add user authentication"
         )
 
         cli_flags: list[str] = []
@@ -630,22 +645,28 @@ Your team can configure additional types in the repository settings.
             cli_flags = ["--force"]
 
         try:
-            success, result = await call_ai_cli(
-                prompt=prompt,
-                ai_provider=ai_provider,
-                ai_model=ai_model,
-                cwd=self.github_webhook.clone_repo_dir,
-                cli_flags=cli_flags,
-            )
+            async with self._checkout_worktree(pull_request=pull_request) as (wt_success, worktree_path, _, _):
+                if not wt_success:
+                    self.logger.warning(f"{self.log_prefix} Failed to create worktree for AI title suggestion")
+                    return None
 
-            if success:
-                # Clean up the response - take first line, strip backticks/quotes
-                suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
-                self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
-                return suggestion
+                success, result = await call_ai_cli(
+                    prompt=prompt,
+                    ai_provider=ai_provider,
+                    ai_model=ai_model,
+                    cwd=worktree_path,
+                    cli_flags=cli_flags,
+                    timeout_minutes=timeout_minutes,
+                )
 
-            self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
-            return None
+                if success:
+                    # Clean up the response - take first line, strip backticks/quotes
+                    suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
+                    self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
+                    return suggestion
+
+                self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
+                return None
 
         except Exception:
             self.logger.exception(f"{self.log_prefix} AI title suggestion failed unexpectedly")
@@ -687,6 +708,100 @@ Your team can configure additional types in the repository settings.
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
+    async def _resolve_cherry_pick_with_ai(
+        self,
+        worktree_path: str,
+        git_cmd: str,
+        github_token: str,
+    ) -> bool:
+        """Attempt to resolve cherry-pick conflicts using AI CLI.
+
+        Returns True if AI successfully resolved the conflicts, False otherwise.
+        """
+        ai_config = self.github_webhook.ai_features
+        if not ai_config:
+            self.logger.debug(f"{self.log_prefix} AI cherry-pick conflict resolution not enabled")
+            return False
+
+        cherry_pick_ai_config = ai_config.get("resolve-cherry-pick-conflicts-with-ai")
+        if not isinstance(cherry_pick_ai_config, dict) or not cherry_pick_ai_config.get("enabled"):
+            self.logger.debug(f"{self.log_prefix} AI cherry-pick conflict resolution not enabled")
+            return False
+
+        ai_result = get_ai_config(ai_config)
+        if not ai_result:
+            self.logger.debug(f"{self.log_prefix} AI features not fully configured (missing provider/model)")
+            return False
+
+        ai_provider, ai_model = ai_result
+
+        cli_flags: list[str] = []
+        if ai_provider == "claude":
+            cli_flags = ["--dangerously-skip-permissions"]
+        elif ai_provider == "gemini":
+            cli_flags = ["--yolo"]
+        elif ai_provider == "cursor":
+            cli_flags = ["--force"]
+
+        prompt = (
+            "You are in a git repository with cherry-pick merge conflicts. "
+            "The conflicted files contain git conflict markers (<<<<<<< HEAD, =======, >>>>>>>). "
+            "Resolve ALL conflicts in ALL files. "
+            "Priority: the target branch (HEAD/upstream) changes are the baseline. "
+            "Adapt the cherry-picked changes to fit the target branch's codebase. "
+            "If changes are incompatible, prefer the target branch version. "
+            "After resolving, ensure the code compiles/is syntactically valid."
+        )
+
+        self.logger.info(f"{self.log_prefix} Attempting AI conflict resolution with {ai_provider}/{ai_model}")
+
+        timeout_minutes = cherry_pick_ai_config.get("timeout-minutes", 10)
+
+        try:
+            success, result = await call_ai_cli(
+                prompt=prompt,
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                cwd=worktree_path,
+                cli_flags=cli_flags,
+                timeout_minutes=timeout_minutes,
+            )
+
+            if not success:
+                self.logger.warning(f"{self.log_prefix} AI conflict resolution failed: {result}")
+                return False
+
+            self.logger.info(f"{self.log_prefix} AI conflict resolution completed, finalizing cherry-pick")
+
+            # Stage resolved files
+            rc, _, err = await run_command(
+                command=f"{git_cmd} add -u",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                self.logger.error(f"{self.log_prefix} Failed to stage AI-resolved files: {err}")
+                return False
+
+            # Complete the cherry-pick
+            rc, _, err = await run_command(
+                command=f"{git_cmd} -c core.editor=true cherry-pick --continue",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
+                return False
+
+            self.logger.info(f"{self.log_prefix} AI successfully resolved cherry-pick conflicts")
+            return True
+
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} AI conflict resolution failed unexpectedly")
+            return False
+
     async def cherry_pick(
         self,
         pull_request: PullRequest,
@@ -721,22 +836,15 @@ Your team can configure additional types in the repository settings.
                     f"Cherry-pick from `{source_branch}` branch, original PR: {pull_request_url}, PR owner: {pr_author}"
                 )
                 repo_full_name = self.github_webhook.repository_full_name
-                git_commands: list[str] = [
+
+                setup_commands: list[str] = [
+                    f"{git_cmd} fetch origin {source_branch}",
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
                     f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
-                    f"{git_cmd} cherry-pick {commit_hash}",
-                    f"{git_cmd} push origin {new_branch_name}",
                 ]
-                gh_pr_command = (
-                    f"gh pr create --repo {shlex.quote(repo_full_name)}"
-                    f" --base {shlex.quote(target_branch)}"
-                    f" --head {shlex.quote(new_branch_name)}"
-                    f" --label {shlex.quote(CHERRY_PICKED_LABEL)}"
-                    f"{assignee_flag}"
-                    f" --title {shlex.quote(pr_title)}"
-                    f" --body {shlex.quote(pr_body)}"
-                )
+                cherry_pick_command = f"{git_cmd} cherry-pick {commit_hash}"
+                push_command = f"{git_cmd} push origin {new_branch_name}"
 
                 output: CheckRunOutput = {
                     "title": "Cherry-pick details",
@@ -748,7 +856,7 @@ Your team can configure additional types in the repository settings.
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
                     return
 
-                for cmd in git_commands:
+                for cmd in setup_commands:
                     rc, out, err = await run_command(
                         command=cmd,
                         log_prefix=self.log_prefix,
@@ -781,19 +889,125 @@ Your team can configure additional types in the repository settings.
                             f"git pull origin {target_branch}\n"
                             f"git checkout -b {local_branch_name}\n"
                             f"git cherry-pick {commit_hash}\n"
+                            f"# If the above fails with 'is a merge but no -m option', run:\n"
+                            f"# git cherry-pick -m 1 {commit_hash}\n"
                             f"git push origin {local_branch_name}\n"
                             "```",
                         )
                         return
 
-                # Run gh pr create with GH_TOKEN passed via env (not command prefix)
-                # Each subprocess gets its own env copy, safe for parallel execution
+                # Run cherry-pick separately to detect conflicts
                 rc, out, err = await run_command(
-                    command=gh_pr_command,
+                    command=cherry_pick_command,
                     log_prefix=self.log_prefix,
                     redact_secrets=[github_token],
                     mask_sensitive=self.github_webhook.mask_sensitive,
-                    env={**os.environ, "GH_TOKEN": github_token},
+                )
+
+                # Retry with -m 1 if the commit is a merge commit
+                if not rc and "is a merge but no -m option was given" in err:
+                    self.logger.info(f"{self.log_prefix} Merge commit detected, retrying cherry-pick with -m 1")
+                    cherry_pick_command_m1 = f"{git_cmd} cherry-pick -m 1 {commit_hash}"
+                    rc, out, err = await run_command(
+                        command=cherry_pick_command_m1,
+                        log_prefix=self.log_prefix,
+                        redact_secrets=[github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+
+                cherry_pick_had_conflicts = False
+                if not rc:
+                    # Only attempt AI resolution for actual merge conflicts
+                    is_conflict = "CONFLICT" in err or "CONFLICT" in out
+                    if is_conflict:
+                        ai_resolved = await self._resolve_cherry_pick_with_ai(
+                            worktree_path=worktree_path,
+                            git_cmd=git_cmd,
+                            github_token=github_token,
+                        )
+                    else:
+                        ai_resolved = False
+                    if not ai_resolved:
+                        # AI not configured, disabled, or failed — manual fallback
+                        output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                        await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                        redacted_out = _redact_secrets(
+                            out,
+                            [github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
+                        redacted_err = _redact_secrets(
+                            err,
+                            [github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
+                        self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
+                        local_branch_name = f"{pull_request.head.ref}-{target_branch}"
+                        await asyncio.to_thread(
+                            pull_request.create_issue_comment,
+                            f"**Manual cherry-pick is needed**\nCherry pick failed for "
+                            f"{commit_hash} to {target_branch}:\n"
+                            f"To cherry-pick run:\n"
+                            "```\n"
+                            f"git remote update\n"
+                            f"git checkout {target_branch}\n"
+                            f"git pull origin {target_branch}\n"
+                            f"git checkout -b {local_branch_name}\n"
+                            f"git cherry-pick {commit_hash}\n"
+                            f"# If the above fails with 'is a merge but no -m option', run:\n"
+                            f"# git cherry-pick -m 1 {commit_hash}\n"
+                            f"git push origin {local_branch_name}\n"
+                            "```",
+                        )
+                        return
+                    cherry_pick_had_conflicts = True
+
+                # Push the branch
+                rc, out, err = await run_command(
+                    command=push_command,
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                if not rc:
+                    output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    self.logger.error(f"{self.log_prefix} Cherry pick push failed")
+                    return
+
+                cherry_picked_label = f"{CHERRY_PICKED_LABEL}-from-{source_branch}"[:49]
+
+                gh_pr_command = (
+                    f"gh pr create --repo {shlex.quote(repo_full_name)}"
+                    f" --base {shlex.quote(target_branch)}"
+                    f" --head {shlex.quote(new_branch_name)}"
+                    f"{assignee_flag}"
+                    f" --title {shlex.quote(pr_title)}"
+                    f" --body {shlex.quote(pr_body)}"
+                )
+
+                # Use GitHub App installation token for PR creation
+                # so the PR is owned by the app bot, allowing repo collaborators to push
+                try:
+                    app_token = await asyncio.to_thread(
+                        get_repository_github_app_token,
+                        config_=self.github_webhook.config,
+                        repository_name=self.github_webhook.repository_full_name,
+                    )
+                except Exception:
+                    self.logger.exception(
+                        f"{self.log_prefix} Failed to get GitHub App token, falling back to webhook token"
+                    )
+                    app_token = None
+                pr_create_token = app_token or github_token
+
+                # Run gh pr create with GH_TOKEN passed via env
+                rc, out, err = await run_command(
+                    command=gh_pr_command,
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token, pr_create_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                    env={**os.environ, "GH_TOKEN": pr_create_token},
                 )
                 if not rc:
                     output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -807,19 +1021,20 @@ Your team can configure additional types in the repository settings.
                         f"gh pr create --repo {repo_full_name}"
                         f" --base {target_branch}"
                         f" --head {new_branch_name}"
-                        f" --label {CHERRY_PICKED_LABEL}"
-                        f" --title '{pr_title}'"
+                        f" --label {cherry_picked_label}"
+                        + (f" --label {AI_RESOLVED_CONFLICTS_LABEL}" if cherry_pick_had_conflicts else "")
+                        + f" --title '{pr_title}'"
                         f" --body '{pr_body}'\n"
                         "```",
                     )
                     redacted_out = _redact_secrets(
                         out,
-                        [github_token],
+                        [github_token, pr_create_token],
                         mask_sensitive=self.github_webhook.mask_sensitive,
                     )
                     redacted_err = _redact_secrets(
                         err,
-                        [github_token],
+                        [github_token, pr_create_token],
                         mask_sensitive=self.github_webhook.mask_sensitive,
                     )
                     self.logger.error(
@@ -827,12 +1042,79 @@ Your team can configure additional types in the repository settings.
                     )
                     return
 
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                # gh pr create outputs the PR URL (e.g., https://github.com/org/repo/pull/123)
+                cherry_pick_pr_url = out.strip()
 
+                # Get the cherry-pick PR object
+                try:
+                    pr_number = int(cherry_pick_pr_url.rstrip("/").split("/")[-1])
+                    cherry_pick_pr = await asyncio.to_thread(self.repository.get_pull, pr_number)
+                except Exception:
+                    self.logger.exception(
+                        f"{self.log_prefix} Failed to get cherry-pick PR from URL: {cherry_pick_pr_url}"
+                    )
+                    cherry_pick_pr = None
+
+                if cherry_pick_pr:
+                    # Add labels to the created PR via PyGithub (auto-creates labels if needed)
+                    try:
+                        labels_to_add = [cherry_picked_label]
+                        if cherry_pick_had_conflicts:
+                            labels_to_add.append(AI_RESOLVED_CONFLICTS_LABEL)
+                        await asyncio.to_thread(cherry_pick_pr.add_to_labels, *labels_to_add)
+                        self.logger.info(
+                            f"{self.log_prefix} Added labels {labels_to_add} to cherry-pick PR #{cherry_pick_pr.number}"
+                        )
+                    except Exception:
+                        self.logger.exception(f"{self.log_prefix} Failed to add labels to cherry-pick PR")
+                        # Labels are critical for auto-verify skip — warn if they couldn't be added
+                        try:
+                            await asyncio.to_thread(
+                                pull_request.create_issue_comment,
+                                f"**Warning:** Failed to add labels to cherry-pick PR {cherry_pick_pr_url}. "
+                                f"Please manually add the `{cherry_picked_label}` label"
+                                + (f" and `{AI_RESOLVED_CONFLICTS_LABEL}` label" if cherry_pick_had_conflicts else "")
+                                + " to ensure correct auto-verify behavior.",
+                            )
+                        except Exception:
+                            self.logger.exception(f"{self.log_prefix} Failed to post label warning comment")
+
+                    # Request review from original PR author (independent of label success)
+                    try:
+                        await asyncio.to_thread(cherry_pick_pr.create_review_request, reviewers=[pr_author])
+                    except Exception:
+                        self.logger.debug(
+                            f"{self.log_prefix} Could not request review from {pr_author} (may not be a collaborator)"
+                        )
+                else:
+                    # PR was created but we couldn't fetch it — labels/reviewer not added
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment,
+                        f"**Warning:** Cherry-pick PR was created ({cherry_pick_pr_url}) but failed to add labels. "
+                        f"Please manually add the `{cherry_picked_label}` label"
+                        + (f" and `{AI_RESOLVED_CONFLICTS_LABEL}` label" if cherry_pick_had_conflicts else "")
+                        + " to ensure correct auto-verify behavior.",
+                    )
+
+            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
             await self.check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL, output=output)
-            await asyncio.to_thread(
-                pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
-            )
+
+            if cherry_pick_had_conflicts:
+                ai_config = self.github_webhook.ai_features
+                ai_result = get_ai_config(ai_config)
+                ai_provider, ai_model = ai_result if ai_result else ("unknown", "unknown")
+                await asyncio.to_thread(
+                    pull_request.create_issue_comment,
+                    f"**Cherry-pick conflicts were resolved by AI**\n\n"
+                    f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
+                    f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
+                    f"**Manual verification is required** — please review the changes and test before merging.",
+                )
+            else:
+                await asyncio.to_thread(
+                    pull_request.create_issue_comment,
+                    f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}",
+                )
 
     async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:
         """Run the specified retests for a pull request.

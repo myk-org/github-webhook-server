@@ -16,6 +16,7 @@ from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
+    AI_RESOLVED_CONFLICTS_LABEL,
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
@@ -1114,7 +1115,16 @@ For more information, please refer to the project documentation or contact the m
 
         # Check if this is a cherry-picked PR
         labels = await asyncio.to_thread(lambda: list(pull_request.labels))
-        is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL for label in labels)
+
+        # AI-resolved cherry-picks are NEVER auto-verified (takes precedence over auto-verify-cherry-picked-prs)
+        is_ai_resolved = any(label.name == AI_RESOLVED_CONFLICTS_LABEL for label in labels)
+        if is_ai_resolved:
+            self.logger.info(f"{self.log_prefix} AI-resolved cherry-pick detected, skipping auto-verification")
+            await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+            await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
+            return
+
+        is_cherry_picked = any(label.name.startswith(CHERRY_PICKED_LABEL) for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
         if is_cherry_picked and not self.github_webhook.auto_verify_cherry_picked_prs:
@@ -1122,6 +1132,7 @@ For more information, please refer to the project documentation or contact the m
                 f"{self.log_prefix} Cherry-picked PR detected and auto-verify-cherry-picked-prs is disabled, "
                 "skipping auto-verification"
             )
+            await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
             return
 

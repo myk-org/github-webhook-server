@@ -128,7 +128,13 @@ test-oracle:
 ai-features:
   ai-provider: "claude" # claude | gemini | cursor
   ai-model: "claude-opus-4-6[1m]"
-  conventional-title: "true"    # "true": suggest in checkrun | "false": disabled | "fix": auto-update PR title
+  conventional-title:
+    enabled: true
+    mode: suggest  # suggest: show in checkrun | fix: auto-update PR title
+    timeout-minutes: 10
+  resolve-cherry-pick-conflicts-with-ai:
+    enabled: true
+    timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
 
 repositories:
   my-repository:

@@ -19,6 +19,7 @@ management and pull request workflows.
 - [Usage](#usage)
 - [API Reference](#api-reference)
 - [Log Viewer](#log-viewer)
+- [AI Features](#ai-features)
 - [User Commands](#user-commands)
 - [OWNERS File Format](#owners-file-format)
 - [Security](#security)
@@ -1239,6 +1240,57 @@ The MCP integration is built using the `fastapi-mcp` library and provides:
 - **Error handling**: Graceful error responses with helpful debugging information
 - **Performance optimization**: Efficient data access patterns for AI processing
 
+## AI Features
+
+Optional AI-powered enhancements. Requires `ai-features` configuration with a provider and model:
+
+```yaml
+ai-features:
+  ai-provider: "claude"           # claude | gemini | cursor
+  ai-model: "claude-opus-4-6[1m]"
+```
+
+### Conventional Title Validation
+
+AI-suggested fixes for PR titles that don't follow the Conventional Commits format:
+
+```yaml
+ai-features:
+  ai-provider: "claude"
+  ai-model: "claude-opus-4-6[1m]"
+  conventional-title:
+    enabled: true
+    mode: suggest            # suggest | fix
+    timeout-minutes: 10      # default: 10
+```
+
+| Setting | Values | Description |
+|---------|--------|-------------|
+| `enabled` | `true` / `false` | Enable or disable AI conventional title suggestions |
+| `mode` | `suggest` (default) | Shows AI-suggested title in check run output when validation fails |
+| | `fix` | Automatically updates the PR title with the AI suggestion |
+| `timeout-minutes` | integer (default: `10`) | Timeout in minutes for the AI CLI process |
+
+### Cherry-Pick Conflict Resolution
+
+When cherry-pick encounters merge conflicts, the AI CLI can automatically resolve them:
+
+```yaml
+ai-features:
+  ai-provider: "claude"
+  ai-model: "claude-opus-4-6[1m]"
+  resolve-cherry-pick-conflicts-with-ai:
+    enabled: true
+    timeout-minutes: 10  # Default: 10
+```
+
+When enabled:
+- The AI resolves conflicts with **upstream-first priority** (target branch changes are the baseline)
+- Cherry-picked PRs are labeled `CherryPicked-from-<source-branch>` (e.g., `CherryPicked-from-main`)
+- AI-resolved PRs get an additional `ai-resolved-conflicts` label
+- AI-resolved PRs are **never auto-verified** — manual review is always required
+- If AI fails, falls back to manual cherry-pick instructions
+
 ## User Commands
 
 Users can interact with the webhook server through GitHub comments on pull requests and issues.
@@ -1320,6 +1372,8 @@ Cherry-picked PRs can be automatically verified or require manual verification d
 ```yaml
 auto-verify-cherry-picked-prs: true # Default: true (auto-verify). Set to false to require manual verification
 ```
+
+**AI Conflict Resolution**: Cherry-pick conflicts can be automatically resolved by AI. See [AI Features](#ai-features) for configuration.
 
 ### Label Commands
 

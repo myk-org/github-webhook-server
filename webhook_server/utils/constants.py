@@ -22,6 +22,7 @@ APPROVE_STR: str = "approve"
 LABELS_SEPARATOR: str = "-"
 CHERRY_PICK_LABEL_PREFIX: str = f"cherry-pick{LABELS_SEPARATOR}"
 CHERRY_PICKED_LABEL: str = "CherryPicked"
+AI_RESOLVED_CONFLICTS_LABEL: str = "ai-resolved-conflicts"
 APPROVED_BY_LABEL_PREFIX: str = f"approved{LABELS_SEPARATOR}"
 LGTM_BY_LABEL_PREFIX: str = f"{LGTM_STR}{LABELS_SEPARATOR}"
 CHANGED_REQUESTED_BY_LABEL_PREFIX: str = f"changes-requested{LABELS_SEPARATOR}"
@@ -78,11 +79,13 @@ LABEL_CATEGORY_MAP: dict[str, str] = {
     NEEDS_REBASE_LABEL_STR: "needs-rebase",
     HAS_CONFLICTS_LABEL_STR: "has-conflicts",
     CAN_BE_MERGED_STR: "can-be-merged",
+    AI_RESOLVED_CONFLICTS_LABEL: "cherry-pick",
 }
 
 STATIC_LABELS_DICT: dict[str, str] = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL: "1D76DB",
+    AI_RESOLVED_CONFLICTS_LABEL: "FFA500",
     f"{SIZE_LABEL_PREFIX}L": "F5621C",
     f"{SIZE_LABEL_PREFIX}M": "F09C74",
     f"{SIZE_LABEL_PREFIX}S": "0E8A16",

@@ -151,7 +151,13 @@ pr-size-thresholds:
 ai-features:
   ai-provider: "claude" # claude | gemini | cursor
   ai-model: "claude-opus-4-6[1m]"
-  conventional-title: "true" # "true": suggest in checkrun | "false": disabled | "fix": auto-update PR title
+  conventional-title:
+    enabled: true
+    mode: suggest  # suggest: show in checkrun | fix: auto-update PR title
+    timeout-minutes: 10
+  resolve-cherry-pick-conflicts-with-ai:
+    enabled: true
+    timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
 
 # PR Test Oracle integration (overrides global config)
 # Analyzes PR diffs with AI and recommends which tests to run

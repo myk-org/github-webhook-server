@@ -101,7 +101,7 @@ class LabelsHandler:
             return "branch" in enabled_labels
 
         # Check cherry-pick labels
-        if label.startswith(CHERRY_PICK_LABEL_PREFIX) or label == CHERRY_PICKED_LABEL:
+        if label.startswith((CHERRY_PICK_LABEL_PREFIX, CHERRY_PICKED_LABEL)):
             return "cherry-pick" in enabled_labels
 
         # Unknown labels are allowed by default
