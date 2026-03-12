@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import re
 import shlex
 import shutil
@@ -714,20 +715,28 @@ Your team can configure additional types in the repository settings.
 
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
-                hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={worktree_path} --git-dir={worktree_path}/.git"
-                assignee_flag = f" -a {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
-                commands: list[str] = [
+                assignee_flag = f" --assignee {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
+                pr_title = f"{CHERRY_PICKED_LABEL}: [{target_branch}] {commit_msg_striped}"
+                pr_body = (
+                    f"Cherry-pick from `{source_branch}` branch, original PR: {pull_request_url}, PR owner: {pr_author}"
+                )
+                repo_full_name = self.github_webhook.repository_full_name
+                git_commands: list[str] = [
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
                     f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
-                    f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} {assignee_flag} "
-                    f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
-                    f"{commit_msg_striped}' -m 'Cherry-pick from `{source_branch}` branch, "
-                    f"original PR: {pull_request_url}, PR owner: {pr_author}'\"",
                 ]
+                gh_pr_command = (
+                    f"gh pr create --repo {shlex.quote(repo_full_name)}"
+                    f" --base {shlex.quote(target_branch)}"
+                    f" --head {shlex.quote(new_branch_name)}"
+                    f" --label {shlex.quote(CHERRY_PICKED_LABEL)}"
+                    f"{assignee_flag}"
+                    f" --title {shlex.quote(pr_title)}"
+                    f" --body {shlex.quote(pr_body)}"
+                )
 
                 output: CheckRunOutput = {
                     "title": "Cherry-pick details",
@@ -737,8 +746,9 @@ Your team can configure additional types in the repository settings.
                 if not success:
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    return
 
-                for cmd in commands:
+                for cmd in git_commands:
                     rc, out, err = await run_command(
                         command=cmd,
                         log_prefix=self.log_prefix,
@@ -775,6 +785,47 @@ Your team can configure additional types in the repository settings.
                             "```",
                         )
                         return
+
+                # Run gh pr create with GH_TOKEN passed via env (not command prefix)
+                # Each subprocess gets its own env copy, safe for parallel execution
+                rc, out, err = await run_command(
+                    command=gh_pr_command,
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                    env={**os.environ, "GH_TOKEN": github_token},
+                )
+                if not rc:
+                    output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment,
+                        f"**Cherry-pick branch created, but PR creation failed**\n"
+                        f"Branch `{new_branch_name}` was pushed to the repository.\n"
+                        f"Create the PR manually:\n"
+                        "```\n"
+                        f"gh pr create --repo {repo_full_name}"
+                        f" --base {target_branch}"
+                        f" --head {new_branch_name}"
+                        f" --label {CHERRY_PICKED_LABEL}"
+                        f" --title '{pr_title}'"
+                        f" --body '{pr_body}'\n"
+                        "```",
+                    )
+                    redacted_out = _redact_secrets(
+                        out,
+                        [github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                    redacted_err = _redact_secrets(
+                        err,
+                        [github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                    self.logger.error(
+                        f"{self.log_prefix} Cherry pick PR creation failed: {redacted_out} --- {redacted_err}"
+                    )
+                    return
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 

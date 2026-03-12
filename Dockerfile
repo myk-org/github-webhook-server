@@ -14,6 +14,7 @@ RUN systemd-machine-id-setup
 RUN  dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y install dnf-plugins-core \
   && dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y update \
   && dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y install \
+  gh \
   git \
   unzip \
   gcc \
@@ -71,9 +72,7 @@ RUN set -ex \
   && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
   && chmod +x $BIN_DIR/rosa \
   && curl --fail -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o $BIN_DIR/regctl \
-  && chmod +x $BIN_DIR/regctl \
-  && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --wildcards --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
-  && chmod +x $BIN_DIR/hub
+  && chmod +x $BIN_DIR/regctl
 
 # Copy dependency manifests first for uv sync cache stability
 COPY --chown=$USERNAME:$USERNAME pyproject.toml uv.lock README.md $APP_DIR/
