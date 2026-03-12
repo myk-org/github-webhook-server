@@ -746,6 +746,7 @@ Your team can configure additional types in the repository settings.
                 if not success:
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    return
 
                 for cmd in git_commands:
                     rc, out, err = await run_command(
@@ -797,6 +798,20 @@ Your team can configure additional types in the repository settings.
                 if not rc:
                     output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment,
+                        f"**Cherry-pick branch created, but PR creation failed**\n"
+                        f"Branch `{new_branch_name}` was pushed to the repository.\n"
+                        f"Create the PR manually:\n"
+                        "```\n"
+                        f"gh pr create --repo {repo_full_name}"
+                        f" --base {target_branch}"
+                        f" --head {new_branch_name}"
+                        f" --label {CHERRY_PICKED_LABEL}"
+                        f" --title '{pr_title}'"
+                        f" --body '{pr_body}'\n"
+                        "```",
+                    )
                     redacted_out = _redact_secrets(
                         out,
                         [github_token],
