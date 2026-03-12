@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import re
 import shlex
 import shutil
@@ -720,20 +721,22 @@ Your team can configure additional types in the repository settings.
                     f"Cherry-pick from `{source_branch}` branch, original PR: {pull_request_url}, PR owner: {pr_author}"
                 )
                 repo_full_name = self.github_webhook.repository_full_name
-                commands: list[str] = [
+                git_commands: list[str] = [
                     f"{git_cmd} checkout {target_branch}",
                     f"{git_cmd} pull origin {target_branch}",
                     f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
-                    f"GH_TOKEN={github_token} gh pr create --repo {shlex.quote(repo_full_name)}"
+                ]
+                gh_pr_command = (
+                    f"gh pr create --repo {shlex.quote(repo_full_name)}"
                     f" --base {shlex.quote(target_branch)}"
                     f" --head {shlex.quote(new_branch_name)}"
                     f" --label {shlex.quote(CHERRY_PICKED_LABEL)}"
                     f"{assignee_flag}"
                     f" --title {shlex.quote(pr_title)}"
-                    f" --body {shlex.quote(pr_body)}",
-                ]
+                    f" --body {shlex.quote(pr_body)}"
+                )
 
                 output: CheckRunOutput = {
                     "title": "Cherry-pick details",
@@ -744,7 +747,7 @@ Your team can configure additional types in the repository settings.
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
 
-                for cmd in commands:
+                for cmd in git_commands:
                     rc, out, err = await run_command(
                         command=cmd,
                         log_prefix=self.log_prefix,
@@ -781,6 +784,33 @@ Your team can configure additional types in the repository settings.
                             "```",
                         )
                         return
+
+                # Run gh pr create with GH_TOKEN passed via env (not command prefix)
+                # Each subprocess gets its own env copy, safe for parallel execution
+                rc, out, err = await run_command(
+                    command=gh_pr_command,
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                    env={**os.environ, "GH_TOKEN": github_token},
+                )
+                if not rc:
+                    output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                    redacted_out = _redact_secrets(
+                        out,
+                        [github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                    redacted_err = _redact_secrets(
+                        err,
+                        [github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                    self.logger.error(
+                        f"{self.log_prefix} Cherry pick PR creation failed: {redacted_out} --- {redacted_err}"
+                    )
+                    return
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
