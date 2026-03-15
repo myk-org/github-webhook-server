@@ -11,13 +11,19 @@ const CONFIG = {
 function updateConnectionStatus(connected) {
   const status = document.getElementById("connectionStatus");
   const statusText = document.getElementById("statusText");
+  const connectBtn = document.getElementById("connectBtn");
+  const disconnectBtn = document.getElementById("disconnectBtn");
 
   if (connected) {
     status.className = "status connected";
     statusText.textContent = "Connected - Real-time updates active";
+    if (connectBtn) connectBtn.style.display = "none";
+    if (disconnectBtn) disconnectBtn.style.display = "";
   } else {
     status.className = "status disconnected";
     statusText.textContent = "Disconnected - Real-time updates inactive";
+    if (connectBtn) connectBtn.style.display = "";
+    if (disconnectBtn) disconnectBtn.style.display = "none";
   }
 }
 

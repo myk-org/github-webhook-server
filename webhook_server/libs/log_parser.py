@@ -571,13 +571,41 @@ class LogParser:
                     # Not following, exit when no more data
                     break
 
-    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry]:
+    async def tail_json_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
+        """Tail a JSON log file and yield new LogEntry objects as they are added.
+
+        Args:
+            file_path: Path to the JSONL file to monitor
+            follow: Whether to continue monitoring for new entries
+
+        Yields:
+            LogEntry objects for new JSON log lines
+        """
+        if not file_path.exists():
+            return
+
+        with open(file_path, encoding="utf-8") as f:
+            # Move to end of file
+            f.seek(0, 2)
+
+            while True:
+                line = f.readline()
+                if line:
+                    entry = self.parse_json_log_entry(line)
+                    if entry:
+                        yield entry
+                elif follow:
+                    await asyncio.sleep(0.1)
+                else:
+                    break
+
+    async def monitor_log_directory(self, log_dir: Path, pattern: str = "webhooks_*.json") -> AsyncGenerator[LogEntry]:
         """
         Monitor a directory for log files and yield new entries from all files.
 
         Args:
             log_dir: Directory path containing log files
-            pattern: Glob pattern for log files (default: "*.log")
+            pattern: Glob pattern for log files (default: "webhooks_*.json")
 
         Yields:
             LogEntry objects from all monitored log files
@@ -601,8 +629,13 @@ class LogParser:
         current_log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         most_recent_file = current_log_files[0]
 
-        async for entry in self.tail_log_file(most_recent_file, follow=True):
-            yield entry
+        # Use appropriate tailer based on file type
+        if most_recent_file.suffix == ".json":
+            async for entry in self.tail_json_log_file(most_recent_file, follow=True):
+                yield entry
+        else:
+            async for entry in self.tail_log_file(most_recent_file, follow=True):
+                yield entry
 
 
 class LogFilter:

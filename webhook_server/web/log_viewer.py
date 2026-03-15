@@ -1089,14 +1089,9 @@ class LogViewerController:
                     # Use appropriate parser based on file type
                     if log_file.suffix == ".json":
                         # JSONL files: one compact JSON object per line
-                        # Skip "log_entry" records - those same events are already
-                        # in the *.log text files; only include "webhook_summary"
-                        # (or entries without a type field, for backward compat).
+                        # Process both "log_entry" and "webhook_summary" entries
                         async for line in f:
-                            raw = self.log_parser.get_raw_json_entry(line)
-                            if not raw or raw.get("type") == "log_entry":
-                                continue
-                            entry = self.log_parser._parse_json_webhook_summary(raw)
+                            entry = self.log_parser.parse_json_log_entry(line)
                             if entry:
                                 buffer.append(entry)
                     else:
@@ -1223,11 +1218,9 @@ class LogViewerController:
 
                 async with aiofiles.open(log_file, encoding="utf-8") as f:
                     # JSONL format: one JSON object per line
-                    # Filter during buffering so log_entry records don't evict
-                    # valid webhook_summary entries from the bounded deque.
                     async for line in f:
                         data = self.log_parser.get_raw_json_entry(line.rstrip("\n"))
-                        if data is not None and data.get("type") != "log_entry":
+                        if data is not None:
                             entry_buffer.append(data)
 
                 # Yield entries in reverse order (newest first)
