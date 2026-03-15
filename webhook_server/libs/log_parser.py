@@ -313,7 +313,9 @@ class LogParser:
     def parse_json_log_entry(self, json_line: str) -> LogEntry | None:
         """Parse a JSONL log entry into a LogEntry object.
 
-        Parses JSONL format (one compact JSON object per line).
+        Routes JSON entries by their ``type`` field:
+        - ``"log_entry"`` -> individual structured log line
+        - ``"webhook_summary"`` (or missing) -> legacy webhook summary
 
         Args:
             json_line: Raw JSON string from webhooks_*.json files (single line)
@@ -329,6 +331,74 @@ class LogParser:
         except json.JSONDecodeError:
             return None
 
+        entry_type = data.get("type", "webhook_summary")  # backward compat
+        if entry_type == "log_entry":
+            return self._parse_json_log_line(data)
+        return self._parse_json_webhook_summary(data)
+
+    def _parse_json_log_line(self, data: dict[str, Any]) -> LogEntry | None:
+        """Parse an individual JSON log line entry (type="log_entry") into a LogEntry.
+
+        Expected JSON format::
+
+            {
+                "type": "log_entry",
+                "timestamp": "ISO8601",
+                "level": "INFO",
+                "logger_name": "GithubWebhook",
+                "message": "Processing webhook",
+                "hook_id": "abc123",
+                "event_type": "pull_request",
+                "repository": "org/repo",
+                "pr_number": 123,
+                "api_user": "bot-user"
+            }
+
+        Args:
+            data: Parsed JSON dictionary with type="log_entry"
+
+        Returns:
+            LogEntry object if parsing successful, None otherwise
+        """
+        # Parse timestamp
+        timestamp_str = data.get("timestamp", "")
+        if not timestamp_str:
+            return None
+
+        try:
+            timestamp = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=datetime.UTC)
+        except (ValueError, TypeError):
+            return None
+
+        return LogEntry(
+            timestamp=timestamp,
+            level=data.get("level", "INFO"),
+            logger_name=data.get("logger_name", "GithubWebhook"),
+            message=data.get("message", ""),
+            hook_id=data.get("hook_id"),
+            event_type=data.get("event_type"),
+            repository=data.get("repository"),
+            pr_number=data.get("pr_number"),
+            github_user=data.get("api_user"),
+            task_id=None,
+            task_type=None,
+            task_status=None,
+            token_spend=None,
+        )
+
+    def _parse_json_webhook_summary(self, data: dict[str, Any]) -> LogEntry | None:
+        """Parse a webhook summary JSON entry into a LogEntry.
+
+        Handles legacy format where ``type`` is ``"webhook_summary"`` or missing.
+
+        Args:
+            data: Parsed JSON dictionary with type="webhook_summary" (or no type)
+
+        Returns:
+            LogEntry object if parsing successful, None otherwise
+        """
         # Parse timestamp from timing.started_at
         try:
             timing = data.get("timing", {})
@@ -359,7 +429,7 @@ class LogParser:
 
         return LogEntry(
             timestamp=timestamp,
-            level="INFO",  # JSON logs don't have levels, default to INFO
+            level=data.get("level", "INFO"),
             logger_name="GithubWebhook",
             message=message,
             hook_id=data.get("hook_id"),

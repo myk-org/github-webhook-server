@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import datetime
+import json
 import logging
 import tempfile
 import unittest.mock
@@ -781,6 +782,7 @@ class TestJSONLogParsing:
             "action": "opened",
             "repository": "org/test-repo",
             "api_user": "test-user",
+            "level": "INFO",
             "success": true,
             "token_spend": 35,
             "timing": {
@@ -819,6 +821,7 @@ class TestJSONLogParsing:
             "action": "created",
             "repository": "org/repo",
             "api_user": "user1",
+            "level": "ERROR",
             "success": false,
             "token_spend": 10,
             "timing": {
@@ -835,6 +838,7 @@ class TestJSONLogParsing:
         entry = parser.parse_json_log_entry(json_line)
 
         assert entry is not None
+        assert entry.level == "ERROR"
         assert entry.hook_id == "failed-hook"
         assert entry.task_status == "failed"
         assert entry.pr_number == 456
@@ -849,6 +853,7 @@ class TestJSONLogParsing:
             "event_type": "push",
             "repository": "org/repo",
             "api_user": "user2",
+            "level": "INFO",
             "success": true,
             "timing": {
                 "started_at": "2025-07-31T12:00:00Z"
@@ -918,6 +923,7 @@ class TestJSONLogParsing:
             "hook_id": "z-time",
             "event_type": "push",
             "repository": "org/repo",
+            "level": "INFO",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -930,6 +936,7 @@ class TestJSONLogParsing:
             "hook_id": "plus-time",
             "event_type": "push",
             "repository": "org/repo",
+            "level": "INFO",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00+00:00"}
         }"""
@@ -946,6 +953,7 @@ class TestJSONLogParsing:
             "action": "synchronize",
             "repository": "owner/repo-name",
             "api_user": "github-user",
+            "level": "INFO",
             "success": true,
             "token_spend": 42,
             "timing": {
@@ -982,12 +990,13 @@ class TestJSONLogParsing:
         # Each JSON object must be on a single line (JSON lines format)
         json_content = (
             '{"hook_id": "hook1", "event_type": "push", "repository": "org/repo1", '
-            '"api_user": "user1", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            '"api_user": "user1", "level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
             '{"hook_id": "hook2", "event_type": "pull_request", "action": "opened", '
-            '"repository": "org/repo2", "api_user": "user2", "success": true, '
+            '"repository": "org/repo2", "api_user": "user2", "level": "INFO", "success": true, '
             '"timing": {"started_at": "2025-07-31T10:01:00Z"}, "pr": {"number": 123}}\n'
             '{"hook_id": "hook3", "event_type": "issue_comment", "repository": "org/repo3", '
-            '"api_user": "user3", "success": false, "timing": {"started_at": "2025-07-31T10:02:00Z"}}\n'
+            '"api_user": "user3", "level": "ERROR", "success": false, '
+            '"timing": {"started_at": "2025-07-31T10:02:00Z"}}\n'
         )
         log_file = tmp_path / "webhooks_test.json"
         log_file.write_text(json_content)
@@ -1020,11 +1029,11 @@ class TestJSONLogParsing:
         # Each JSON object must be on a single line (JSON lines format)
         json_content = (
             '{"hook_id": "valid1", "event_type": "push", "repository": "org/repo", '
-            '"success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            '"level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
             "this is not valid json\n"
             "{incomplete json\n"
             '{"hook_id": "valid2", "event_type": "pull_request", "repository": "org/repo", '
-            '"success": true, "timing": {"started_at": "2025-07-31T10:01:00Z"}}\n'
+            '"level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:01:00Z"}}\n'
             '{"missing_timestamp": true}\n'
         )
         log_file = tmp_path / "mixed.json"
@@ -1133,6 +1142,7 @@ class TestJSONLogParsing:
             "event_type": "pull_request",
             "action": "synchronize",
             "repository": "org/repo",
+            "level": "INFO",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -1149,6 +1159,7 @@ class TestJSONLogParsing:
             "hook_id": "hook1",
             "event_type": "push",
             "repository": "org/repo",
+            "level": "INFO",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -1166,6 +1177,7 @@ class TestJSONLogParsing:
             "hook_id": "null-pr",
             "event_type": "push",
             "repository": "org/repo",
+            "level": "INFO",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"},
             "pr": null
@@ -1189,6 +1201,111 @@ class TestJSONLogParsing:
 
         entry = parser.parse_json_log_entry(json_line)
         assert entry is None
+
+    def test_parse_json_log_entry_type_log_entry(self) -> None:
+        """Test parsing a JSON entry with type='log_entry' routes to _parse_json_log_line."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2026-03-15T12:00:00+00:00",
+            "level": "WARNING",
+            "logger_name": "PullRequestHandler",
+            "message": "PR labels updated",
+            "hook_id": "delivery-999",
+            "event_type": "pull_request",
+            "repository": "org/my-repo",
+            "pr_number": 77,
+            "api_user": "bot-user",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.level == "WARNING"
+        assert entry.logger_name == "PullRequestHandler"
+        assert entry.message == "PR labels updated"
+        assert entry.hook_id == "delivery-999"
+        assert entry.event_type == "pull_request"
+        assert entry.repository == "org/my-repo"
+        assert entry.pr_number == 77
+        assert entry.github_user == "bot-user"
+        # Fields not present in log_entry type
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status is None
+        assert entry.token_spend is None
+
+    def test_parse_json_log_entry_type_routing_default(self) -> None:
+        """Test that entries without a 'type' field default to webhook_summary parsing."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "no-type-field",
+            "event_type": "push",
+            "action": "completed",
+            "repository": "org/repo",
+            "success": True,
+            "timing": {
+                "started_at": "2026-03-15T08:00:00+00:00",
+            },
+            "pr": None,
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        # Should have been routed through _parse_json_webhook_summary
+        assert entry.hook_id == "no-type-field"
+        assert entry.event_type == "push"
+        assert entry.repository == "org/repo"
+        assert entry.task_status == "completed"  # derived from success=True
+
+    def test_parse_json_log_entry_mixed_types(self, tmp_path: Path) -> None:
+        """Test parsing a file containing both log_entry and webhook_summary entries."""
+        parser = LogParser()
+
+        log_entry_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2026-03-15T09:00:00+00:00",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "Started processing",
+            "hook_id": "mixed-hook-1",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "pr_number": 10,
+            "api_user": "bot",
+        })
+
+        summary_line = json.dumps({
+            "type": "webhook_summary",
+            "hook_id": "mixed-hook-1",
+            "event_type": "pull_request",
+            "action": "opened",
+            "repository": "org/repo",
+            "success": True,
+            "timing": {
+                "started_at": "2026-03-15T09:00:00+00:00",
+                "completed_at": "2026-03-15T09:00:05+00:00",
+                "duration_ms": 5000,
+            },
+            "pr": {"number": 10, "title": "Test PR", "author": "dev"},
+            "level": "INFO",
+        })
+
+        log_file = tmp_path / "webhooks_2026-03-15.json"
+        log_file.write_text(f"{log_entry_line}\n{summary_line}\n")
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert len(entries) == 2
+        # First entry is a log_entry
+        assert entries[0].logger_name == "GithubWebhook"
+        assert entries[0].message == "Started processing"
+        assert entries[0].hook_id == "mixed-hook-1"
+        # Second entry is a webhook_summary
+        assert entries[1].hook_id == "mixed-hook-1"
+        assert entries[1].pr_number == 10
+        assert entries[1].task_status == "completed"  # derived from success=True
 
 
 class TestAdditionalCoverageTests:

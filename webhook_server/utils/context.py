@@ -331,6 +331,28 @@ class WebhookContext:
             f"[{_format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
         )
 
+    def _derive_level(self) -> str:
+        """Derive log level from execution context.
+
+        Returns:
+            Log level string: ERROR, WARNING, or INFO
+        """
+        if not self.success:
+            return "ERROR"
+
+        for step_data in self.workflow_steps.values():
+            # Explicit failure status
+            if step_data.get("status") == "failed":
+                return "WARNING"
+
+            # Steps completed with error indicators (e.g., compare_api_failed=True)
+            if step_data.get("status") == "completed" and any(
+                key.endswith("_failed") and value is True for key, value in step_data.items() if isinstance(value, bool)
+            ):
+                return "WARNING"
+
+        return "INFO"
+
     def to_dict(self) -> dict[str, Any]:
         """Convert context to dictionary for JSON serialization.
 
@@ -342,6 +364,7 @@ class WebhookContext:
         """
         return {
             "hook_id": self.hook_id,
+            "level": self._derive_level(),
             "event_type": self.event_type,
             "action": self.action,
             "sender": self.sender,

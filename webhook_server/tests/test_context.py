@@ -325,6 +325,9 @@ class TestWebhookContext:
         assert result["initial_rate_limit"] == 5000
         assert result["final_rate_limit"] == 4985
 
+        # Level
+        assert result["level"] == "INFO"
+
         # Status
         assert result["success"] is True
         assert result["error"] is None
@@ -391,10 +394,37 @@ class TestWebhookContext:
 
         result = ctx.to_dict()
 
+        assert result["level"] == "ERROR"
         assert result["success"] is False
         assert result["error"] is not None
         assert result["error"]["type"] == "ValueError"
         assert result["error"]["message"] == "Something went wrong"
+
+    def test_derive_level_warning_on_failed_step(self, mock_datetime):
+        """Test _derive_level returns WARNING when success=True but a step has status=failed."""
+        ctx = WebhookContext(
+            hook_id="hook-warning-1",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        # Context is successful overall, but a step explicitly failed
+        ctx.workflow_steps["some_step"] = {"status": "failed"}
+        assert ctx.success is True
+        assert ctx._derive_level() == "WARNING"
+
+    def test_derive_level_warning_on_failed_indicator(self, mock_datetime):
+        """Test _derive_level returns WARNING when a completed step has a _failed=True indicator."""
+        ctx = WebhookContext(
+            hook_id="hook-warning-2",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        # Context is successful overall, but a step has a failure indicator
+        ctx.workflow_steps["compare_step"] = {"status": "completed", "compare_api_failed": True}
+        assert ctx.success is True
+        assert ctx._derive_level() == "WARNING"
 
 
 class TestContextManagement:

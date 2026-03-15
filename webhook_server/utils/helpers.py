@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import datetime
 import json
+import logging
 import os
 import random
 import re
@@ -27,6 +28,7 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils.json_log_handler import JsonLogHandler
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
 # Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
@@ -87,7 +89,7 @@ def get_logger_with_params(
     # The original 'name' parameter is preserved in log records via the logger name.
     logger_cache_key = os.path.basename(log_file_path_resolved) if log_file_path_resolved else "console"
 
-    return get_logger(
+    logger = get_logger(
         name=logger_cache_key,
         filename=log_file_path_resolved,
         level=log_level,
@@ -96,6 +98,17 @@ def get_logger_with_params(
         mask_sensitive_patterns=mask_sensitive_patterns,
         console=True,  # Enable console output for docker logs with FORCE_COLOR support
     )
+
+    # Attach JsonLogHandler for writing log records to the webhook JSONL file.
+    # Only attach when a log file path is configured (skip console-only loggers)
+    # and only once per logger instance to avoid duplicate handlers.
+    if log_file_path_resolved:
+        log_dir = os.path.dirname(log_file_path_resolved)
+        if not any(isinstance(h, JsonLogHandler) for h in logger.handlers):
+            json_handler = JsonLogHandler(log_dir=log_dir, level=getattr(logging, log_level.upper(), logging.DEBUG))
+            logger.addHandler(json_handler)
+
+    return logger
 
 
 def get_log_file_path(config: Config, log_file_name: str | None) -> str | None:

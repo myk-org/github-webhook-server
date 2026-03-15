@@ -108,6 +108,7 @@ class StructuredLogWriter:
 
         # Get context dict and update timing locally (without mutating context)
         context_dict = context.to_dict()
+        context_dict["type"] = "webhook_summary"
         if "timing" in context_dict:
             context_dict["timing"]["completed_at"] = completed_at.isoformat()
             if context.started_at:
@@ -213,6 +214,7 @@ class StructuredLogWriter:
             else:
                 # No context - create minimal error entry
                 error_entry = {
+                    "type": "webhook_summary",
                     "hook_id": hook_id,
                     "event_type": event_type,
                     "action": None,
@@ -230,6 +232,7 @@ class StructuredLogWriter:
                     "token_spend": None,
                     "initial_rate_limit": None,
                     "final_rate_limit": None,
+                    "level": "ERROR",
                     "success": False,
                     "error": {
                         "type": "WebhookProcessingError",
