@@ -345,10 +345,8 @@ class WebhookContext:
             if step_data.get("status") == "failed":
                 return "WARNING"
 
-            # Steps completed with error indicators (e.g., compare_api_failed=True)
-            if step_data.get("status") == "completed" and any(
-                key.endswith("_failed") and value is True for key, value in step_data.items() if isinstance(value, bool)
-            ):
+            # Steps completed with non-fatal failure indicators
+            if step_data.get("status") == "completed" and not self._detect_success(step_data):
                 return "WARNING"
 
         return "INFO"

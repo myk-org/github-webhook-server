@@ -136,7 +136,7 @@ class JsonLogHandler(logging.Handler):
         """
         log_file = self._get_log_file_path()
 
-        with open(log_file, "a") as fd:
+        with open(log_file, "a", encoding="utf-8") as fd:
             if HAS_FCNTL:
                 fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
             try:

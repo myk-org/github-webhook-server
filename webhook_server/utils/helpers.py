@@ -11,9 +11,11 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from collections.abc import AsyncGenerator
 from concurrent.futures import Future, as_completed
 from logging import Logger
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -34,6 +36,8 @@ from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 # Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
 # when backup log files are missing during rollover
 simple_logger.logger.RotatingFileHandler = SafeRotatingFileHandler
+
+_JSON_HANDLER_LOCK = threading.Lock()
 
 
 def get_logger_with_params(
@@ -102,11 +106,18 @@ def get_logger_with_params(
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
     # Only attach when a log file path is configured (skip console-only loggers)
     # and only once per logger instance to avoid duplicate handlers.
+    # Uses _config.data_dir/logs (same directory as StructuredLogWriter) instead
+    # of deriving from the text log file path, which may differ for absolute paths.
     if log_file_path_resolved:
-        log_dir = os.path.dirname(log_file_path_resolved)
-        if not any(isinstance(h, JsonLogHandler) for h in logger.handlers):
-            json_handler = JsonLogHandler(log_dir=log_dir, level=getattr(logging, log_level.upper(), logging.DEBUG))
-            logger.addHandler(json_handler)
+        log_dir = os.path.join(_config.data_dir, "logs")
+        with _JSON_HANDLER_LOCK:
+            if not any(isinstance(h, JsonLogHandler) and h.log_dir == Path(log_dir) for h in logger.handlers):
+                logger.addHandler(
+                    JsonLogHandler(
+                        log_dir=log_dir,
+                        level=getattr(logging, log_level.upper(), logging.DEBUG),
+                    )
+                )
 
     return logger
 

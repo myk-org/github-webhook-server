@@ -400,7 +400,7 @@ class TestWebhookContext:
         assert result["error"]["type"] == "ValueError"
         assert result["error"]["message"] == "Something went wrong"
 
-    def test_derive_level_warning_on_failed_step(self, mock_datetime):
+    def test_derive_level_warning_on_failed_step(self):
         """Test _derive_level returns WARNING when success=True but a step has status=failed."""
         ctx = WebhookContext(
             hook_id="hook-warning-1",
@@ -413,7 +413,7 @@ class TestWebhookContext:
         assert ctx.success is True
         assert ctx._derive_level() == "WARNING"
 
-    def test_derive_level_warning_on_failed_indicator(self, mock_datetime):
+    def test_derive_level_warning_on_failed_indicator(self):
         """Test _derive_level returns WARNING when a completed step has a _failed=True indicator."""
         ctx = WebhookContext(
             hook_id="hook-warning-2",
@@ -423,6 +423,30 @@ class TestWebhookContext:
         )
         # Context is successful overall, but a step has a failure indicator
         ctx.workflow_steps["compare_step"] = {"status": "completed", "compare_api_failed": True}
+        assert ctx.success is True
+        assert ctx._derive_level() == "WARNING"
+
+    def test_derive_level_warning_on_can_merge_false(self):
+        """Test _derive_level returns WARNING when a step has can_merge=False."""
+        ctx = WebhookContext(
+            hook_id="hook-warning-3",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["merge_check"] = {"status": "completed", "can_merge": False, "reason": "Missing approver"}
+        assert ctx.success is True
+        assert ctx._derive_level() == "WARNING"
+
+    def test_derive_level_warning_on_step_success_false(self):
+        """Test _derive_level returns WARNING when a step has success=False."""
+        ctx = WebhookContext(
+            hook_id="hook-warning-4",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["validation"] = {"status": "completed", "success": False}
         assert ctx.success is True
         assert ctx._derive_level() == "WARNING"
 

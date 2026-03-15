@@ -696,6 +696,8 @@ class LogViewerController:
         """
         # Search JSON logs for this hook_id
         async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+            if entry.get("type", "webhook_summary") != "webhook_summary":
+                continue
             if entry.get("hook_id") == hook_id:
                 # Found the entry - transform to frontend-expected format
                 try:
