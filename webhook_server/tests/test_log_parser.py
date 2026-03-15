@@ -884,6 +884,22 @@ class TestJSONLogParsing:
             entry = parser.parse_json_log_entry(line)
             assert entry is None
 
+    def test_parse_json_log_entry_non_dict_json(self) -> None:
+        """Test parsing valid JSON that is not a dict returns None."""
+        parser = LogParser()
+        non_dict_lines = [
+            "[]",
+            '"hello"',
+            "42",
+            "[1, 2, 3]",
+            "true",
+            "null",
+        ]
+
+        for line in non_dict_lines:
+            entry = parser.parse_json_log_entry(line)
+            assert entry is None, f"Expected None for non-dict JSON: {line}"
+
     def test_parse_json_log_entry_missing_timestamp(self) -> None:
         """Test parsing JSON without timing.started_at returns None."""
         parser = LogParser()
@@ -1104,6 +1120,22 @@ class TestJSONLogParsing:
         for line in invalid_lines:
             result = parser.get_raw_json_entry(line)
             assert result is None
+
+    def test_get_raw_json_entry_non_dict_json(self) -> None:
+        """Test get_raw_json_entry with valid JSON that is not a dict returns None."""
+        parser = LogParser()
+        non_dict_lines = [
+            "[]",
+            '"hello"',
+            "42",
+            "[1, 2, 3]",
+            "true",
+            "null",
+        ]
+
+        for line in non_dict_lines:
+            result = parser.get_raw_json_entry(line)
+            assert result is None, f"Expected None for non-dict JSON: {line}"
 
     def test_get_raw_json_entry_preserves_structure(self) -> None:
         """Test that get_raw_json_entry preserves complete JSON structure."""
@@ -1541,6 +1573,72 @@ class TestAdditionalCoverageTests:
         entry = parser.parse_json_log_entry(json_line)
         assert entry is None
 
+    def test_parse_json_log_line_extracts_task_fields(self) -> None:
+        """Test _parse_json_log_line extracts task_id/task_type/task_status from message."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2026-03-15T12:00:00+00:00",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "[task_id=check_tox] [task_type=ci_check] [task_status=started] Running tox checks",
+            "hook_id": "delivery-task",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "pr_number": 42,
+            "api_user": "bot",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.task_id == "check_tox"
+        assert entry.task_type == "ci_check"
+        assert entry.task_status == "started"
+        assert entry.message == "Running tox checks"
+
+    def test_parse_json_log_line_extracts_token_spend(self) -> None:
+        """Test _parse_json_log_line extracts token_spend from message."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2026-03-15T12:00:00+00:00",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "Token spend: 35 API calls (initial: 2831, final: 2796)",
+            "hook_id": "delivery-tokens",
+            "event_type": "push",
+            "repository": "org/repo",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.token_spend == 35
+
+    def test_parse_json_log_line_no_task_fields(self) -> None:
+        """Test _parse_json_log_line returns None for task fields when message has no tags."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2026-03-15T12:00:00+00:00",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "Just a plain message",
+            "hook_id": "delivery-plain",
+            "event_type": "push",
+            "repository": "org/repo",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status is None
+        assert entry.token_spend is None
+        assert entry.message == "Just a plain message"
+
     def test_parse_json_webhook_summary_naive_timestamp(self) -> None:
         """Test _parse_json_webhook_summary adds UTC to naive timestamp."""
         parser = LogParser()
@@ -1642,6 +1740,61 @@ class TestAdditionalCoverageTests:
         entry = parser.parse_json_log_entry(json_line)
         assert entry is not None
         assert entry.task_status == "failed"
+
+    def test_json_summary_message_partial_status(self) -> None:
+        """Test that partial status produces 'completed with partial failures' message."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "partial-hook",
+            "event_type": "pull_request",
+            "action": "opened",
+            "repository": "org/repo",
+            "status": "partial",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.task_status == "partial"
+        assert "completed with partial failures" in entry.message
+
+    def test_json_summary_message_success_status(self) -> None:
+        """Test that success status produces 'completed successfully' message."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "success-hook",
+            "event_type": "push",
+            "repository": "org/repo",
+            "status": "success",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert "completed successfully" in entry.message
+
+    def test_json_summary_message_failed_status(self) -> None:
+        """Test that failed status produces 'failed' message."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "failed-hook",
+            "event_type": "push",
+            "repository": "org/repo",
+            "status": "failed",
+            "success": False,
+            "error": {"type": "RuntimeError", "message": "boom"},
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert "failed" in entry.message
+        assert "RuntimeError" in entry.message
 
     def test_parse_json_log_file_pretty_printed_format(self, tmp_path: Path) -> None:
         """Test parsing JSON log file with pretty-printed entries separated by blank lines."""

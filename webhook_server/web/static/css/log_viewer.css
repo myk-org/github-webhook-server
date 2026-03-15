@@ -576,7 +576,7 @@ body {
 .log-entry.WARNING .level { background-color: var(--log-warning-bg); color: #856404; }
 .log-entry.DEBUG .level { background-color: var(--tag-bg); color: var(--text-secondary); }
 .log-entry.STEP .level { background-color: var(--log-step-bg); color: #0056b3; }
-.log-entry.SUCCESS .level { background-color: var(--log-success-bg); color: #155724; }
+.log-entry.SUCCESS .level { background-color: var(--log-success-bg); color: var(--status-connected-text); }
 
 .log-entry.COMPLETED { background-color: rgba(25, 135, 84, 0.05); }
 .log-entry.INFO { background-color: transparent; }

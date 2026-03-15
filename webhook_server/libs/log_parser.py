@@ -331,6 +331,9 @@ class LogParser:
         except json.JSONDecodeError:
             return None
 
+        if not isinstance(data, dict):
+            return None
+
         entry_type = data.get("type", "webhook_summary")  # backward compat
         if entry_type == "log_entry":
             return self._parse_json_log_line(data)
@@ -372,20 +375,23 @@ class LogParser:
         except (ValueError, TypeError):
             return None
 
+        task_id, task_type, task_status, cleaned_message = self._extract_task_fields(data.get("message", ""))
+        token_spend = self.extract_token_spend(cleaned_message)
+
         return LogEntry(
             timestamp=timestamp,
             level=data.get("level", "INFO"),
             logger_name=data.get("logger_name", "GithubWebhook"),
-            message=data.get("message", ""),
+            message=cleaned_message,
             hook_id=data.get("hook_id"),
             event_type=data.get("event_type"),
             repository=data.get("repository"),
             pr_number=data.get("pr_number"),
             github_user=data.get("api_user"),
-            task_id=None,
-            task_type=None,
-            task_status=None,
-            token_spend=None,
+            task_id=task_id,
+            task_type=task_type,
+            task_status=task_status,
+            token_spend=token_spend,
         )
 
     def _parse_json_webhook_summary(self, data: dict[str, Any]) -> LogEntry | None:
@@ -415,9 +421,6 @@ class LogParser:
         pr_data = data.get("pr") or {}
         pr_number = pr_data.get("number") if pr_data else None
 
-        # Create summary message
-        message = self._create_json_summary_message(data)
-
         # Read status from new field, fall back to deriving from success (backward compat)
         status = data.get("status")
         if status:
@@ -430,6 +433,9 @@ class LogParser:
                 task_status = "failed"
             else:
                 task_status = None
+
+        # Create summary message (after task_status resolution so it can use the status)
+        message = self._create_json_summary_message(data, task_status)
 
         return LogEntry(
             timestamp=timestamp,
@@ -447,11 +453,12 @@ class LogParser:
             token_spend=data.get("token_spend"),
         )
 
-    def _create_json_summary_message(self, data: dict[str, Any]) -> str:
+    def _create_json_summary_message(self, data: dict[str, Any], task_status: str | None = None) -> str:
         """Create a summary message from JSON log data.
 
         Args:
             data: Parsed JSON log data
+            task_status: Resolved task status ("success", "failed", "partial", or None)
 
         Returns:
             Human-readable summary message
@@ -473,7 +480,17 @@ class LogParser:
         if pr_data and pr_data.get("number"):
             parts.append(f"PR #{pr_data['number']}")
 
-        if data.get("success"):
+        if task_status == "partial":
+            parts.append("- completed with partial failures")
+        elif task_status == "success":
+            parts.append("- completed successfully")
+        elif task_status == "failed":
+            parts.append("- failed")
+            error = data.get("error")
+            error_type = error.get("type") if isinstance(error, dict) else None
+            if error_type:
+                parts.append(f"({error_type})")
+        elif data.get("success"):
             parts.append("- completed successfully")
         else:
             parts.append("- failed")
@@ -539,9 +556,14 @@ class LogParser:
             return None
 
         try:
-            return json.loads(json_line)
+            data = json.loads(json_line)
         except json.JSONDecodeError:
             return None
+
+        if not isinstance(data, dict):
+            return None
+
+        return data
 
     async def tail_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
         """
