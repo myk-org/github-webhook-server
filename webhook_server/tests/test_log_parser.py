@@ -782,7 +782,7 @@ class TestJSONLogParsing:
             "action": "opened",
             "repository": "org/test-repo",
             "api_user": "test-user",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "token_spend": 35,
             "timing": {
@@ -798,7 +798,7 @@ class TestJSONLogParsing:
 
         assert entry is not None
         assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000, tzinfo=datetime.UTC)
-        assert entry.level == "INFO"
+        assert entry.level == "COMPLETED"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "abc123-def456"
         assert entry.event_type == "pull_request"
@@ -821,7 +821,7 @@ class TestJSONLogParsing:
             "action": "created",
             "repository": "org/repo",
             "api_user": "user1",
-            "level": "ERROR",
+            "level": "COMPLETED",
             "success": false,
             "token_spend": 10,
             "timing": {
@@ -838,7 +838,7 @@ class TestJSONLogParsing:
         entry = parser.parse_json_log_entry(json_line)
 
         assert entry is not None
-        assert entry.level == "ERROR"
+        assert entry.level == "COMPLETED"
         assert entry.hook_id == "failed-hook"
         assert entry.task_status == "failed"
         assert entry.pr_number == 456
@@ -853,7 +853,7 @@ class TestJSONLogParsing:
             "event_type": "push",
             "repository": "org/repo",
             "api_user": "user2",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {
                 "started_at": "2025-07-31T12:00:00Z"
@@ -923,7 +923,7 @@ class TestJSONLogParsing:
             "hook_id": "z-time",
             "event_type": "push",
             "repository": "org/repo",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -936,7 +936,7 @@ class TestJSONLogParsing:
             "hook_id": "plus-time",
             "event_type": "push",
             "repository": "org/repo",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00+00:00"}
         }"""
@@ -953,7 +953,7 @@ class TestJSONLogParsing:
             "action": "synchronize",
             "repository": "owner/repo-name",
             "api_user": "github-user",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "token_spend": 42,
             "timing": {
@@ -971,7 +971,7 @@ class TestJSONLogParsing:
 
         assert entry is not None
         assert entry.timestamp == datetime.datetime(2025, 8, 1, 14, 30, 45, 678000, tzinfo=datetime.UTC)
-        assert entry.level == "INFO"
+        assert entry.level == "COMPLETED"
         assert entry.logger_name == "GithubWebhook"
         assert entry.message is not None
         assert entry.hook_id == "complete-hook"
@@ -990,12 +990,13 @@ class TestJSONLogParsing:
         # Each JSON object must be on a single line (JSON lines format)
         json_content = (
             '{"hook_id": "hook1", "event_type": "push", "repository": "org/repo1", '
-            '"api_user": "user1", "level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            '"api_user": "user1", "level": "COMPLETED", "success": true, '
+            '"timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
             '{"hook_id": "hook2", "event_type": "pull_request", "action": "opened", '
-            '"repository": "org/repo2", "api_user": "user2", "level": "INFO", "success": true, '
+            '"repository": "org/repo2", "api_user": "user2", "level": "COMPLETED", "success": true, '
             '"timing": {"started_at": "2025-07-31T10:01:00Z"}, "pr": {"number": 123}}\n'
             '{"hook_id": "hook3", "event_type": "issue_comment", "repository": "org/repo3", '
-            '"api_user": "user3", "level": "ERROR", "success": false, '
+            '"api_user": "user3", "level": "COMPLETED", "success": false, '
             '"timing": {"started_at": "2025-07-31T10:02:00Z"}}\n'
         )
         log_file = tmp_path / "webhooks_test.json"
@@ -1029,11 +1030,11 @@ class TestJSONLogParsing:
         # Each JSON object must be on a single line (JSON lines format)
         json_content = (
             '{"hook_id": "valid1", "event_type": "push", "repository": "org/repo", '
-            '"level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            '"level": "COMPLETED", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
             "this is not valid json\n"
             "{incomplete json\n"
             '{"hook_id": "valid2", "event_type": "pull_request", "repository": "org/repo", '
-            '"level": "INFO", "success": true, "timing": {"started_at": "2025-07-31T10:01:00Z"}}\n'
+            '"level": "COMPLETED", "success": true, "timing": {"started_at": "2025-07-31T10:01:00Z"}}\n'
             '{"missing_timestamp": true}\n'
         )
         log_file = tmp_path / "mixed.json"
@@ -1142,7 +1143,7 @@ class TestJSONLogParsing:
             "event_type": "pull_request",
             "action": "synchronize",
             "repository": "org/repo",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -1159,7 +1160,7 @@ class TestJSONLogParsing:
             "hook_id": "hook1",
             "event_type": "push",
             "repository": "org/repo",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"}
         }"""
@@ -1177,7 +1178,7 @@ class TestJSONLogParsing:
             "hook_id": "null-pr",
             "event_type": "push",
             "repository": "org/repo",
-            "level": "INFO",
+            "level": "COMPLETED",
             "success": true,
             "timing": {"started_at": "2025-07-31T10:00:00Z"},
             "pr": null
@@ -1289,7 +1290,7 @@ class TestJSONLogParsing:
                 "duration_ms": 5000,
             },
             "pr": {"number": 10, "title": "Test PR", "author": "dev"},
-            "level": "INFO",
+            "level": "COMPLETED",
         })
 
         log_file = tmp_path / "webhooks_2026-03-15.json"
@@ -1494,3 +1495,201 @@ class TestAdditionalCoverageTests:
         # Should have collected exactly 1 entry from the new content (not from rotated files)
         assert len(entries) == 1
         assert entries[0].message == "New entry after monitoring started"
+
+    def test_parse_json_log_line_empty_timestamp(self) -> None:
+        """Test _parse_json_log_line returns None when timestamp is empty."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "test",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+    def test_parse_json_log_line_naive_timestamp(self) -> None:
+        """Test _parse_json_log_line adds UTC to naive timestamp."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "2025-07-31T10:00:00",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "naive tz test",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.timestamp.tzinfo == datetime.UTC
+        assert entry.message == "naive tz test"
+
+    def test_parse_json_log_line_invalid_timestamp(self) -> None:
+        """Test _parse_json_log_line returns None for invalid timestamp."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "type": "log_entry",
+            "timestamp": "not-a-date",
+            "level": "INFO",
+            "logger_name": "GithubWebhook",
+            "message": "bad ts",
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+    def test_parse_json_webhook_summary_naive_timestamp(self) -> None:
+        """Test _parse_json_webhook_summary adds UTC to naive timestamp."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "naive-tz",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00"},
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.timestamp.tzinfo == datetime.UTC
+
+    def test_parse_json_webhook_summary_success_none(self) -> None:
+        """Test _parse_json_webhook_summary sets task_status to None when success is None."""
+        parser = LogParser()
+        json_line = json.dumps({
+            "hook_id": "null-success",
+            "event_type": "push",
+            "repository": "org/repo",
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.task_status is None
+
+    def test_parse_json_log_file_pretty_printed_format(self, tmp_path: Path) -> None:
+        """Test parsing JSON log file with pretty-printed entries separated by blank lines."""
+        parser = LogParser()
+        entry1 = json.dumps(
+            {
+                "hook_id": "pretty1",
+                "event_type": "push",
+                "repository": "org/repo",
+                "level": "COMPLETED",
+                "success": True,
+                "timing": {"started_at": "2025-07-31T10:00:00Z"},
+            },
+            indent=2,
+        )
+        entry2 = json.dumps(
+            {
+                "hook_id": "pretty2",
+                "event_type": "pull_request",
+                "action": "opened",
+                "repository": "org/repo",
+                "level": "COMPLETED",
+                "success": False,
+                "timing": {"started_at": "2025-07-31T10:01:00Z"},
+            },
+            indent=2,
+        )
+        # Separate entries with blank lines (pretty-printed format)
+        log_file = tmp_path / "webhooks_pretty.json"
+        log_file.write_text(f"{entry1}\n\n{entry2}")
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert len(entries) == 2
+        assert entries[0].hook_id == "pretty1"
+        assert entries[1].hook_id == "pretty2"
+
+    @pytest.mark.asyncio
+    async def test_tail_log_file_nonexistent(self, tmp_path: Path) -> None:
+        """Test tail_log_file returns immediately for non-existent file."""
+        parser = LogParser()
+        nonexistent = tmp_path / "does_not_exist.log"
+
+        entries = [entry async for entry in parser.tail_log_file(nonexistent, follow=False)]
+
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_tail_json_log_file_nonexistent(self, tmp_path: Path) -> None:
+        """Test tail_json_log_file returns immediately for non-existent file."""
+        parser = LogParser()
+        nonexistent = tmp_path / "does_not_exist.json"
+
+        entries = [entry async for entry in parser.tail_json_log_file(nonexistent, follow=False)]
+
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_tail_json_log_file_follow_false_breaks(self, tmp_path: Path) -> None:
+        """Test tail_json_log_file with follow=False breaks when no new data."""
+        parser = LogParser()
+        log_file = tmp_path / "webhooks_tail.json"
+        # Create file with some existing content (tail seeks past it)
+        log_file.write_text('{"hook_id":"old"}\n')
+
+        # With follow=False, after seeking to end, readline returns "" and it breaks
+        entries = [entry async for entry in parser.tail_json_log_file(log_file, follow=False)]
+
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_monitor_log_directory_json_file(self, tmp_path: Path) -> None:
+        """Test monitor_log_directory selects .json file and uses tail_json_log_file."""
+        parser = LogParser()
+
+        # Create a .json log file
+        json_log = tmp_path / "webhooks_2025-07-31.json"
+        json_log.write_text("")
+
+        entries: list[LogEntry] = []
+
+        async def collect_entries(async_gen: AsyncIterator[LogEntry], max_entries: int = 1) -> None:
+            count = 0
+            async for entry in async_gen:
+                entries.append(entry)
+                count += 1
+                if count >= max_entries:
+                    break
+
+        # Start monitoring
+        monitor_task = asyncio.create_task(
+            collect_entries(parser.monitor_log_directory(tmp_path, pattern="webhooks_*.json"), max_entries=1)
+        )
+
+        await asyncio.sleep(0.1)
+
+        # Append a valid JSON entry
+        json_entry = json.dumps({
+            "hook_id": "monitor-json",
+            "event_type": "push",
+            "repository": "org/repo",
+            "level": "COMPLETED",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+
+        def _append() -> None:
+            with open(json_log, "a") as f:
+                f.write(f"{json_entry}\n")
+                f.flush()
+
+        await asyncio.to_thread(_append)
+
+        try:
+            await asyncio.wait_for(monitor_task, timeout=2.0)
+        except TimeoutError:
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
+
+        assert len(entries) == 1
+        assert entries[0].hook_id == "monitor-json"

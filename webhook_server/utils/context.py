@@ -334,22 +334,14 @@ class WebhookContext:
     def _derive_level(self) -> str:
         """Derive log level from execution context.
 
+        Webhook summaries always return COMPLETED since the webhook
+        finished processing. Success/failure is tracked separately
+        in the success field and error field.
+
         Returns:
-            Log level string: ERROR, WARNING, or INFO
+            "COMPLETED" for webhook summary entries
         """
-        if not self.success:
-            return "ERROR"
-
-        for step_data in self.workflow_steps.values():
-            # Explicit failure status
-            if step_data.get("status") == "failed":
-                return "WARNING"
-
-            # Steps completed with non-fatal failure indicators
-            if step_data.get("status") == "completed" and not self._detect_success(step_data):
-                return "WARNING"
-
-        return "INFO"
+        return "COMPLETED"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert context to dictionary for JSON serialization.

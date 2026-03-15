@@ -232,7 +232,7 @@ class StructuredLogWriter:
                     "token_spend": None,
                     "initial_rate_limit": None,
                     "final_rate_limit": None,
-                    "level": "ERROR",
+                    "level": "COMPLETED",
                     "success": False,
                     "error": {
                         "type": "WebhookProcessingError",

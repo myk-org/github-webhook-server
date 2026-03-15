@@ -326,7 +326,7 @@ class TestWebhookContext:
         assert result["final_rate_limit"] == 4985
 
         # Level
-        assert result["level"] == "INFO"
+        assert result["level"] == "COMPLETED"
 
         # Status
         assert result["success"] is True
@@ -394,61 +394,34 @@ class TestWebhookContext:
 
         result = ctx.to_dict()
 
-        assert result["level"] == "ERROR"
+        assert result["level"] == "COMPLETED"
         assert result["success"] is False
         assert result["error"] is not None
         assert result["error"]["type"] == "ValueError"
         assert result["error"]["message"] == "Something went wrong"
 
-    def test_derive_level_warning_on_failed_step(self):
-        """Test _derive_level returns WARNING when success=True but a step has status=failed."""
+    def test_derive_level_always_returns_completed(self):
+        """Test _derive_level always returns COMPLETED regardless of step or context state."""
         ctx = WebhookContext(
-            hook_id="hook-warning-1",
+            hook_id="hook-level-1",
             event_type="pull_request",
             repository="owner/repo",
             repository_full_name="owner/repo",
         )
-        # Context is successful overall, but a step explicitly failed
+        # Default state (success=True, no steps)
+        assert ctx._derive_level() == "COMPLETED"
+
+        # With a failed step
         ctx.workflow_steps["some_step"] = {"status": "failed"}
-        assert ctx.success is True
-        assert ctx._derive_level() == "WARNING"
+        assert ctx._derive_level() == "COMPLETED"
 
-    def test_derive_level_warning_on_failed_indicator(self):
-        """Test _derive_level returns WARNING when a completed step has a _failed=True indicator."""
-        ctx = WebhookContext(
-            hook_id="hook-warning-2",
-            event_type="pull_request",
-            repository="owner/repo",
-            repository_full_name="owner/repo",
-        )
-        # Context is successful overall, but a step has a failure indicator
-        ctx.workflow_steps["compare_step"] = {"status": "completed", "compare_api_failed": True}
-        assert ctx.success is True
-        assert ctx._derive_level() == "WARNING"
+        # With success=False
+        ctx.success = False
+        assert ctx._derive_level() == "COMPLETED"
 
-    def test_derive_level_warning_on_can_merge_false(self):
-        """Test _derive_level returns WARNING when a step has can_merge=False."""
-        ctx = WebhookContext(
-            hook_id="hook-warning-3",
-            event_type="pull_request",
-            repository="owner/repo",
-            repository_full_name="owner/repo",
-        )
-        ctx.workflow_steps["merge_check"] = {"status": "completed", "can_merge": False, "reason": "Missing approver"}
-        assert ctx.success is True
-        assert ctx._derive_level() == "WARNING"
-
-    def test_derive_level_warning_on_step_success_false(self):
-        """Test _derive_level returns WARNING when a step has success=False."""
-        ctx = WebhookContext(
-            hook_id="hook-warning-4",
-            event_type="pull_request",
-            repository="owner/repo",
-            repository_full_name="owner/repo",
-        )
-        ctx.workflow_steps["validation"] = {"status": "completed", "success": False}
-        assert ctx.success is True
-        assert ctx._derive_level() == "WARNING"
+        # With can_merge=False step
+        ctx.workflow_steps["merge_check"] = {"status": "completed", "can_merge": False}
+        assert ctx._derive_level() == "COMPLETED"
 
 
 class TestContextManagement:

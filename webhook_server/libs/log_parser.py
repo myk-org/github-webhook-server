@@ -429,7 +429,7 @@ class LogParser:
 
         return LogEntry(
             timestamp=timestamp,
-            level=data.get("level", "INFO"),
+            level="COMPLETED",
             logger_name="GithubWebhook",
             message=message,
             hook_id=data.get("hook_id"),

@@ -180,6 +180,7 @@ function createLogEntryElement(entry) {
 
   // Whitelist of allowed log levels to prevent class-name injection
   const allowedLevels = [
+    "COMPLETED",
     "DEBUG",
     "INFO",
     "WARNING",
