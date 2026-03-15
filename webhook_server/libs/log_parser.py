@@ -313,7 +313,9 @@ class LogParser:
     def parse_json_log_entry(self, json_line: str) -> LogEntry | None:
         """Parse a JSONL log entry into a LogEntry object.
 
-        Parses JSONL format (one compact JSON object per line).
+        Routes JSON entries by their ``type`` field:
+        - ``"log_entry"`` -> individual structured log line
+        - ``"webhook_summary"`` (or missing) -> legacy webhook summary
 
         Args:
             json_line: Raw JSON string from webhooks_*.json files (single line)
@@ -329,6 +331,80 @@ class LogParser:
         except json.JSONDecodeError:
             return None
 
+        if not isinstance(data, dict):
+            return None
+
+        entry_type = data.get("type", "webhook_summary")  # backward compat
+        if entry_type == "log_entry":
+            return self._parse_json_log_line(data)
+        return self._parse_json_webhook_summary(data)
+
+    def _parse_json_log_line(self, data: dict[str, Any]) -> LogEntry | None:
+        """Parse an individual JSON log line entry (type="log_entry") into a LogEntry.
+
+        Expected JSON format::
+
+            {
+                "type": "log_entry",
+                "timestamp": "ISO8601",
+                "level": "INFO",
+                "logger_name": "GithubWebhook",
+                "message": "Processing webhook",
+                "hook_id": "abc123",
+                "event_type": "pull_request",
+                "repository": "org/repo",
+                "pr_number": 123,
+                "api_user": "bot-user"
+            }
+
+        Args:
+            data: Parsed JSON dictionary with type="log_entry"
+
+        Returns:
+            LogEntry object if parsing successful, None otherwise
+        """
+        # Parse timestamp
+        timestamp_str = data.get("timestamp", "")
+        if not timestamp_str:
+            return None
+
+        try:
+            timestamp = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=datetime.UTC)
+        except (ValueError, TypeError):
+            return None
+
+        task_id, task_type, task_status, cleaned_message = self._extract_task_fields(data.get("message", ""))
+        token_spend = self.extract_token_spend(cleaned_message)
+
+        return LogEntry(
+            timestamp=timestamp,
+            level=data.get("level", "INFO"),
+            logger_name=data.get("logger_name", "GithubWebhook"),
+            message=cleaned_message,
+            hook_id=data.get("hook_id"),
+            event_type=data.get("event_type"),
+            repository=data.get("repository"),
+            pr_number=data.get("pr_number"),
+            github_user=data.get("api_user"),
+            task_id=task_id,
+            task_type=task_type,
+            task_status=task_status,
+            token_spend=token_spend,
+        )
+
+    def _parse_json_webhook_summary(self, data: dict[str, Any]) -> LogEntry | None:
+        """Parse a webhook summary JSON entry into a LogEntry.
+
+        Handles legacy format where ``type`` is ``"webhook_summary"`` or missing.
+
+        Args:
+            data: Parsed JSON dictionary with type="webhook_summary" (or no type)
+
+        Returns:
+            LogEntry object if parsing successful, None otherwise
+        """
         # Parse timestamp from timing.started_at
         try:
             timing = data.get("timing", {})
@@ -345,21 +421,25 @@ class LogParser:
         pr_data = data.get("pr") or {}
         pr_number = pr_data.get("number") if pr_data else None
 
-        # Create summary message
-        message = self._create_json_summary_message(data)
-
-        # Derive task_status from success field
-        success = data.get("success")
-        if success is True:
-            task_status = "completed"
-        elif success is False:
-            task_status = "failed"
+        # Read status from new field, fall back to deriving from success (backward compat)
+        status = data.get("status")
+        if status:
+            task_status = status  # "success", "failed", "partial"
         else:
-            task_status = None
+            success = data.get("success")
+            if success is True:
+                task_status = "success"
+            elif success is False:
+                task_status = "failed"
+            else:
+                task_status = None
+
+        # Create summary message (after task_status resolution so it can use the status)
+        message = self._create_json_summary_message(data, task_status)
 
         return LogEntry(
             timestamp=timestamp,
-            level="INFO",  # JSON logs don't have levels, default to INFO
+            level=data.get("level", "COMPLETED"),
             logger_name="GithubWebhook",
             message=message,
             hook_id=data.get("hook_id"),
@@ -373,11 +453,12 @@ class LogParser:
             token_spend=data.get("token_spend"),
         )
 
-    def _create_json_summary_message(self, data: dict[str, Any]) -> str:
+    def _create_json_summary_message(self, data: dict[str, Any], task_status: str | None = None) -> str:
         """Create a summary message from JSON log data.
 
         Args:
             data: Parsed JSON log data
+            task_status: Resolved task status ("success", "failed", "partial", or None)
 
         Returns:
             Human-readable summary message
@@ -399,7 +480,17 @@ class LogParser:
         if pr_data and pr_data.get("number"):
             parts.append(f"PR #{pr_data['number']}")
 
-        if data.get("success"):
+        if task_status == "partial":
+            parts.append("- completed with partial failures")
+        elif task_status == "success":
+            parts.append("- completed successfully")
+        elif task_status == "failed":
+            parts.append("- failed")
+            error = data.get("error")
+            error_type = error.get("type") if isinstance(error, dict) else None
+            if error_type:
+                parts.append(f"({error_type})")
+        elif data.get("success"):
             parts.append("- completed successfully")
         else:
             parts.append("- failed")
@@ -465,9 +556,14 @@ class LogParser:
             return None
 
         try:
-            return json.loads(json_line)
+            data = json.loads(json_line)
         except json.JSONDecodeError:
             return None
+
+        if not isinstance(data, dict):
+            return None
+
+        return data
 
     async def tail_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
         """
@@ -501,13 +597,41 @@ class LogParser:
                     # Not following, exit when no more data
                     break
 
-    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry]:
+    async def tail_json_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
+        """Tail a JSON log file and yield new LogEntry objects as they are added.
+
+        Args:
+            file_path: Path to the JSONL file to monitor
+            follow: Whether to continue monitoring for new entries
+
+        Yields:
+            LogEntry objects for new JSON log lines
+        """
+        if not file_path.exists():
+            return
+
+        with open(file_path, encoding="utf-8") as f:
+            # Move to end of file
+            f.seek(0, 2)
+
+            while True:
+                line = f.readline()
+                if line:
+                    entry = self.parse_json_log_entry(line)
+                    if entry:
+                        yield entry
+                elif follow:
+                    await asyncio.sleep(0.1)
+                else:
+                    break
+
+    async def monitor_log_directory(self, log_dir: Path, pattern: str = "webhooks_*.json") -> AsyncGenerator[LogEntry]:
         """
         Monitor a directory for log files and yield new entries from all files.
 
         Args:
             log_dir: Directory path containing log files
-            pattern: Glob pattern for log files (default: "*.log")
+            pattern: Glob pattern for log files (default: "webhooks_*.json")
 
         Yields:
             LogEntry objects from all monitored log files
@@ -518,6 +642,9 @@ class LogParser:
         # Find all existing log files including rotated ones
         log_files: list[Path] = []
         log_files.extend(log_dir.glob(pattern))
+        # Backward-compatible fallback for deployments that still stream plain .log files
+        if not log_files and pattern == "webhooks_*.json":
+            log_files.extend(log_dir.glob("*.log"))
         # Only monitor current log file, not rotated ones for real-time
         current_log_files = [
             f for f in log_files if not any(f.name.endswith(ext) for ext in [".1", ".2", ".3", ".4", ".5"])
@@ -531,8 +658,13 @@ class LogParser:
         current_log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         most_recent_file = current_log_files[0]
 
-        async for entry in self.tail_log_file(most_recent_file, follow=True):
-            yield entry
+        # Use appropriate tailer based on file type
+        if most_recent_file.suffix == ".json":
+            async for entry in self.tail_json_log_file(most_recent_file, follow=True):
+                yield entry
+        else:
+            async for entry in self.tail_log_file(most_recent_file, follow=True):
+                yield entry
 
 
 class LogFilter:

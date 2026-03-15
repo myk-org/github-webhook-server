@@ -331,6 +331,37 @@ class WebhookContext:
             f"[{_format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
         )
 
+    def _derive_level(self) -> str:
+        """Derive log level from execution context.
+
+        Webhook summaries always return COMPLETED since the webhook
+        finished processing. Success/failure is tracked separately
+        in the success field and error field.
+
+        Returns:
+            "COMPLETED" for webhook summary entries
+        """
+        return "COMPLETED"
+
+    def _derive_status(self) -> str:
+        """Derive webhook processing status from execution context.
+
+        Returns:
+            "failed" if overall webhook failed,
+            "partial" if webhook succeeded but some steps failed,
+            "success" if everything succeeded
+        """
+        if not self.success:
+            return "failed"
+
+        for step_data in self.workflow_steps.values():
+            if step_data.get("status") == "failed":
+                return "partial"
+            if step_data.get("status") == "completed" and not self._detect_success(step_data):
+                return "partial"
+
+        return "success"
+
     def to_dict(self) -> dict[str, Any]:
         """Convert context to dictionary for JSON serialization.
 
@@ -342,6 +373,8 @@ class WebhookContext:
         """
         return {
             "hook_id": self.hook_id,
+            "level": self._derive_level(),
+            "status": self._derive_status(),
             "event_type": self.event_type,
             "action": self.action,
             "sender": self.sender,

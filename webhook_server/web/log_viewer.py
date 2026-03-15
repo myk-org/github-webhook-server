@@ -696,6 +696,8 @@ class LogViewerController:
         """
         # Search JSON logs for this hook_id
         async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+            if entry.get("type", "webhook_summary") != "webhook_summary":
+                continue
             if entry.get("hook_id") == hook_id:
                 # Found the entry - transform to frontend-expected format
                 try:
@@ -1089,6 +1091,7 @@ class LogViewerController:
                     # Use appropriate parser based on file type
                     if log_file.suffix == ".json":
                         # JSONL files: one compact JSON object per line
+                        # Process both "log_entry" and "webhook_summary" entries
                         async for line in f:
                             entry = self.log_parser.parse_json_log_entry(line)
                             if entry:
@@ -1213,22 +1216,22 @@ class LogViewerController:
             try:
                 # Stream JSONL entries incrementally without loading entire file
                 remaining = max_entries - total_yielded
-                line_buffer: deque[str] = deque(maxlen=remaining)
+                entry_buffer: deque[dict[str, Any]] = deque(maxlen=remaining)
 
                 async with aiofiles.open(log_file, encoding="utf-8") as f:
                     # JSONL format: one JSON object per line
                     async for line in f:
-                        line_buffer.append(line.rstrip("\n"))
+                        data = self.log_parser.get_raw_json_entry(line.rstrip("\n"))
+                        if data is not None:
+                            entry_buffer.append(data)
 
-                # Process lines in reverse order (newest first)
-                for line in reversed(line_buffer):
+                # Yield entries in reverse order (newest first)
+                for entry in reversed(entry_buffer):
                     if total_yielded >= max_entries:
                         break
 
-                    data = self.log_parser.get_raw_json_entry(line)
-                    if data:
-                        yield data
-                        total_yielded += 1
+                    yield entry
+                    total_yielded += 1
             except asyncio.CancelledError:
                 self.logger.debug("Operation cancelled")
                 raise  # Always re-raise CancelledError

@@ -325,7 +325,11 @@ class TestWebhookContext:
         assert result["initial_rate_limit"] == 5000
         assert result["final_rate_limit"] == 4985
 
-        # Status
+        # Level and status
+        assert result["level"] == "COMPLETED"
+        assert result["status"] == "success"
+
+        # Success
         assert result["success"] is True
         assert result["error"] is None
 
@@ -391,10 +395,105 @@ class TestWebhookContext:
 
         result = ctx.to_dict()
 
+        assert result["level"] == "COMPLETED"
+        assert result["status"] == "failed"
         assert result["success"] is False
         assert result["error"] is not None
         assert result["error"]["type"] == "ValueError"
         assert result["error"]["message"] == "Something went wrong"
+
+    def test_derive_level_always_returns_completed(self):
+        """Test _derive_level always returns COMPLETED regardless of step or context state."""
+        ctx = WebhookContext(
+            hook_id="hook-level-1",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        # Default state (success=True, no steps)
+        assert ctx._derive_level() == "COMPLETED"
+
+        # With a failed step
+        ctx.workflow_steps["some_step"] = {"status": "failed"}
+        assert ctx._derive_level() == "COMPLETED"
+
+        # With success=False
+        ctx.success = False
+        assert ctx._derive_level() == "COMPLETED"
+
+        # With can_merge=False step
+        ctx.workflow_steps["merge_check"] = {"status": "completed", "can_merge": False}
+        assert ctx._derive_level() == "COMPLETED"
+
+    def test_derive_status_returns_success_when_all_ok(self):
+        """Test _derive_status returns 'success' when overall success and all steps succeeded."""
+        ctx = WebhookContext(
+            hook_id="hook-status-1",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["step1"] = {"status": "completed", "can_merge": True}
+        ctx.workflow_steps["step2"] = {"status": "completed", "success": True}
+        assert ctx._derive_status() == "success"
+
+    def test_derive_status_returns_success_with_no_steps(self):
+        """Test _derive_status returns 'success' when there are no workflow steps."""
+        ctx = WebhookContext(
+            hook_id="hook-status-2",
+            event_type="push",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        assert ctx._derive_status() == "success"
+
+    def test_derive_status_returns_failed_when_success_is_false(self):
+        """Test _derive_status returns 'failed' when overall success is False."""
+        ctx = WebhookContext(
+            hook_id="hook-status-3",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.success = False
+        assert ctx._derive_status() == "failed"
+
+    def test_derive_status_returns_partial_when_step_failed(self):
+        """Test _derive_status returns 'partial' when webhook succeeded but a step failed."""
+        ctx = WebhookContext(
+            hook_id="hook-status-4",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["good_step"] = {"status": "completed", "success": True}
+        ctx.workflow_steps["bad_step"] = {"status": "failed"}
+        assert ctx._derive_status() == "partial"
+
+    def test_derive_status_returns_partial_when_completed_step_not_successful(self):
+        """Test _derive_status returns 'partial' when a completed step has failure indicators."""
+        ctx = WebhookContext(
+            hook_id="hook-status-5",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["merge_check"] = {"status": "completed", "can_merge": False}
+        assert ctx._derive_status() == "partial"
+
+    def test_derive_status_returns_partial_with_error_in_completed_step(self):
+        """Test _derive_status returns 'partial' when completed step has error field."""
+        ctx = WebhookContext(
+            hook_id="hook-status-6",
+            event_type="pull_request",
+            repository="owner/repo",
+            repository_full_name="owner/repo",
+        )
+        ctx.workflow_steps["step_with_error"] = {
+            "status": "completed",
+            "error": "something went wrong",
+        }
+        assert ctx._derive_status() == "partial"
 
 
 class TestContextManagement:

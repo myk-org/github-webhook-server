@@ -126,6 +126,7 @@ class TestStructuredLogWriter:
             content = f.read().strip()
             # Pretty-printed JSON is multi-line, parse the entire content as one JSON object
             log_entry = json.loads(content)
+            assert log_entry["type"] == "webhook_summary"
             assert log_entry["hook_id"] == "test-hook-123"
             assert log_entry["event_type"] == "pull_request"
             assert log_entry["repository"] == "org/repo"
@@ -377,6 +378,7 @@ class TestStructuredLogWriter:
         with open(log_file) as f:
             log_entry = json.loads(f.read().strip())
 
+        assert log_entry["type"] == "webhook_summary"
         assert log_entry["success"] is False
         assert log_entry["error"] is not None
         assert log_entry["error"]["message"] == "Early failure"
@@ -397,6 +399,7 @@ class TestStructuredLogWriter:
         with open(log_file) as f:
             log_entry = json.loads(f.read().strip())
 
+        assert log_entry["type"] == "webhook_summary"
         assert log_entry["hook_id"] == "test-hook-error"
         assert log_entry["event_type"] == "push"
         assert log_entry["repository"] == "org/repo"

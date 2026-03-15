@@ -570,13 +570,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+.log-entry.COMPLETED .level { background-color: var(--log-success-bg); color: var(--status-connected-text); }
 .log-entry.INFO .level { background-color: var(--level-info-bg); color: var(--level-info-border); }
 .log-entry.ERROR .level { background-color: var(--log-error-bg); color: #dc3545; }
 .log-entry.WARNING .level { background-color: var(--log-warning-bg); color: #856404; }
 .log-entry.DEBUG .level { background-color: var(--tag-bg); color: var(--text-secondary); }
 .log-entry.STEP .level { background-color: var(--log-step-bg); color: #0056b3; }
-.log-entry.SUCCESS .level { background-color: var(--log-success-bg); color: #155724; }
+.log-entry.SUCCESS .level { background-color: var(--log-success-bg); color: var(--status-connected-text); }
 
+.log-entry.COMPLETED { background-color: rgba(25, 135, 84, 0.05); }
 .log-entry.INFO { background-color: transparent; }
 .log-entry.ERROR { background-color: rgba(220, 53, 69, 0.05); }
 .log-entry.WARNING { background-color: rgba(255, 193, 7, 0.05); }
