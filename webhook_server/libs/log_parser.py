@@ -418,18 +418,22 @@ class LogParser:
         # Create summary message
         message = self._create_json_summary_message(data)
 
-        # Derive task_status from success field
-        success = data.get("success")
-        if success is True:
-            task_status = "completed"
-        elif success is False:
-            task_status = "failed"
+        # Read status from new field, fall back to deriving from success (backward compat)
+        status = data.get("status")
+        if status:
+            task_status = status  # "success", "failed", "partial"
         else:
-            task_status = None
+            success = data.get("success")
+            if success is True:
+                task_status = "success"
+            elif success is False:
+                task_status = "failed"
+            else:
+                task_status = None
 
         return LogEntry(
             timestamp=timestamp,
-            level="COMPLETED",
+            level=data.get("level", "COMPLETED"),
             logger_name="GithubWebhook",
             message=message,
             hook_id=data.get("hook_id"),
@@ -616,6 +620,9 @@ class LogParser:
         # Find all existing log files including rotated ones
         log_files: list[Path] = []
         log_files.extend(log_dir.glob(pattern))
+        # Backward-compatible fallback for deployments that still stream plain .log files
+        if not log_files and pattern == "webhooks_*.json":
+            log_files.extend(log_dir.glob("*.log"))
         # Only monitor current log file, not rotated ones for real-time
         current_log_files = [
             f for f in log_files if not any(f.name.endswith(ext) for ext in [".1", ".2", ".3", ".4", ".5"])

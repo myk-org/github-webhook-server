@@ -805,7 +805,7 @@ class TestJSONLogParsing:
         assert entry.repository == "org/test-repo"
         assert entry.pr_number == 123
         assert entry.github_user == "test-user"
-        assert entry.task_status == "completed"
+        assert entry.task_status == "success"
         assert entry.token_spend == 35
         assert "pull_request/opened" in entry.message
         assert "org/test-repo" in entry.message
@@ -981,7 +981,7 @@ class TestJSONLogParsing:
         assert entry.github_user == "github-user"
         assert entry.task_id is None
         assert entry.task_type is None
-        assert entry.task_status == "completed"
+        assert entry.task_status == "success"
         assert entry.token_spend == 42
 
     def test_parse_json_log_file_multiple_entries(self, tmp_path: Path) -> None:
@@ -1010,7 +1010,7 @@ class TestJSONLogParsing:
         assert entries[0].repository == "org/repo1"
         assert entries[1].hook_id == "hook2"
         assert entries[1].pr_number == 123
-        assert entries[1].task_status == "completed"
+        assert entries[1].task_status == "success"
         assert entries[2].hook_id == "hook3"
         assert entries[2].task_status == "failed"
 
@@ -1258,7 +1258,7 @@ class TestJSONLogParsing:
         assert entry.hook_id == "no-type-field"
         assert entry.event_type == "push"
         assert entry.repository == "org/repo"
-        assert entry.task_status == "completed"  # derived from success=True
+        assert entry.task_status == "success"  # derived from success=True
 
     def test_parse_json_log_entry_mixed_types(self, tmp_path: Path) -> None:
         """Test parsing a file containing both log_entry and webhook_summary entries."""
@@ -1306,7 +1306,7 @@ class TestJSONLogParsing:
         # Second entry is a webhook_summary
         assert entries[1].hook_id == "mixed-hook-1"
         assert entries[1].pr_number == 10
-        assert entries[1].task_status == "completed"  # derived from success=True
+        assert entries[1].task_status == "success"  # derived from success=True
 
 
 class TestAdditionalCoverageTests:
@@ -1571,6 +1571,77 @@ class TestAdditionalCoverageTests:
 
         assert entry is not None
         assert entry.task_status is None
+
+    def test_parse_json_webhook_summary_reads_status_field(self) -> None:
+        """Test _parse_json_webhook_summary reads 'status' field directly when present."""
+        parser = LogParser()
+
+        # Test "success" status
+        json_line = json.dumps({
+            "hook_id": "status-success",
+            "event_type": "push",
+            "repository": "org/repo",
+            "status": "success",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is not None
+        assert entry.task_status == "success"
+
+        # Test "partial" status
+        json_line = json.dumps({
+            "hook_id": "status-partial",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "status": "partial",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:01:00Z"},
+        })
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is not None
+        assert entry.task_status == "partial"
+
+        # Test "failed" status from field (overrides success boolean)
+        json_line = json.dumps({
+            "hook_id": "status-failed",
+            "event_type": "push",
+            "repository": "org/repo",
+            "status": "failed",
+            "success": False,
+            "timing": {"started_at": "2025-07-31T10:02:00Z"},
+        })
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is not None
+        assert entry.task_status == "failed"
+
+    def test_parse_json_webhook_summary_falls_back_to_success_boolean(self) -> None:
+        """Test _parse_json_webhook_summary falls back to success boolean when status not present."""
+        parser = LogParser()
+
+        # No status field, success=True -> "success"
+        json_line = json.dumps({
+            "hook_id": "no-status-true",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": True,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+        })
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is not None
+        assert entry.task_status == "success"
+
+        # No status field, success=False -> "failed"
+        json_line = json.dumps({
+            "hook_id": "no-status-false",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": False,
+            "timing": {"started_at": "2025-07-31T10:01:00Z"},
+        })
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is not None
+        assert entry.task_status == "failed"
 
     def test_parse_json_log_file_pretty_printed_format(self, tmp_path: Path) -> None:
         """Test parsing JSON log file with pretty-printed entries separated by blank lines."""

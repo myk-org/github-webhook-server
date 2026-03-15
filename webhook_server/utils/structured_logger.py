@@ -233,6 +233,7 @@ class StructuredLogWriter:
                     "initial_rate_limit": None,
                     "final_rate_limit": None,
                     "level": "COMPLETED",
+                    "status": "failed",
                     "success": False,
                     "error": {
                         "type": "WebhookProcessingError",

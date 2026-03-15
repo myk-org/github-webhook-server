@@ -570,7 +570,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-.log-entry.COMPLETED .level { background-color: var(--log-success-bg); color: #155724; }
+.log-entry.COMPLETED .level { background-color: var(--log-success-bg); color: var(--status-connected-text); }
 .log-entry.INFO .level { background-color: var(--level-info-bg); color: var(--level-info-border); }
 .log-entry.ERROR .level { background-color: var(--log-error-bg); color: #dc3545; }
 .log-entry.WARNING .level { background-color: var(--log-warning-bg); color: #856404; }
