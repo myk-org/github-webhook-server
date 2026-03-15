@@ -47,17 +47,22 @@ class JsonLogHandler(logging.Handler):
 
     Attributes:
         log_dir: Directory path for log files
+        fsync_on_write: Whether to call os.fsync() after each write
     """
 
-    def __init__(self, log_dir: str, level: int = logging.NOTSET) -> None:
+    def __init__(self, log_dir: str, level: int = logging.NOTSET, fsync_on_write: bool = False) -> None:
         """Initialize the JSON log handler.
 
         Args:
             log_dir: Directory path where JSONL log files are written
             level: Minimum log level to handle (default: NOTSET, handles all)
+            fsync_on_write: Whether to call os.fsync() after each write
+                (default: False). Enable for durability guarantees at the
+                cost of higher I/O latency.
         """
         super().__init__(level)
         self.log_dir: Path = Path(log_dir)
+        self.fsync_on_write = fsync_on_write
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_log_file_path(self) -> Path:
@@ -142,7 +147,8 @@ class JsonLogHandler(logging.Handler):
             try:
                 fd.write(f"{log_line}\n")
                 fd.flush()
-                os.fsync(fd.fileno())
+                if self.fsync_on_write:
+                    os.fsync(fd.fileno())
             finally:
                 if HAS_FCNTL:
                     fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
