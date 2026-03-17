@@ -57,14 +57,14 @@ def process_github_webhook(
 
             else:
                 # Check if events need updating
-                hook_events = sorted(_hook.events)
-                config_events = sorted(events)
+                hook_events = sorted(set(_hook.events))
+                config_events = sorted(set(events))
                 if hook_events != config_events:
                     LOGGER.info(
                         f"[API user {api_user}] - {full_repository_name}: "
                         f"Updating webhook events: {hook_events} -> {config_events}"
                     )
-                    _hook.edit(name="web", config=config_, events=events, active=True)
+                    _hook.edit(name="web", config=config_, events=config_events, active=True)
                     return (
                         True,
                         f"[API user {api_user}] - {full_repository_name}: "

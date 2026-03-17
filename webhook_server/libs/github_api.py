@@ -409,6 +409,20 @@ class GithubWebhook:
                 self.ctx.fail_step("repo_clone", ex, traceback.format_exc())
             raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
+    async def _recheck_merge_eligibility(self, pull_request: PullRequest) -> None:
+        """Clone repo and re-evaluate can-be-merged for the PR.
+
+        Clone required: check_if_can_be_merged evaluates ALL conditions
+        (approvals, OWNERS, labels, checks, conversations) on every call,
+        and OWNERS file processing requires a local checkout.
+        """
+        await self._clone_repository(pull_request=pull_request)
+        owners_file_handler = OwnersFileHandler(github_webhook=self)
+        owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+        await PullRequestHandler(github_webhook=self, owners_file_handler=owners_file_handler).check_if_can_be_merged(
+            pull_request=pull_request
+        )
+
     async def process(self) -> Any:
         # Initialize auto-verified users from API users (async operation)
         await self.add_api_users_to_auto_verified_and_merged_users()
@@ -637,16 +651,7 @@ class GithubWebhook:
                     f"re-evaluating can-be-merged"
                 )
 
-                # Clone required: check_if_can_be_merged evaluates ALL conditions
-                # (approvals, OWNERS, labels, checks, conversations) on every call,
-                # and OWNERS file processing requires a local checkout.
-                await self._clone_repository(pull_request=pull_request)
-
-                owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
-                await PullRequestHandler(
-                    github_webhook=self, owners_file_handler=owners_file_handler
-                ).check_if_can_be_merged(pull_request=pull_request)
+                await self._recheck_merge_eligibility(pull_request=pull_request)
 
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
@@ -660,16 +665,7 @@ class GithubWebhook:
                 action = self.hook_data["action"]
                 self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
 
-                # Clone required: check_if_can_be_merged evaluates ALL conditions
-                # (approvals, OWNERS, labels, checks, conversations) on every call,
-                # and OWNERS file processing requires a local checkout.
-                await self._clone_repository(pull_request=pull_request)
-
-                owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
-                await PullRequestHandler(
-                    github_webhook=self, owners_file_handler=owners_file_handler
-                ).check_if_can_be_merged(pull_request=pull_request)
+                await self._recheck_merge_eligibility(pull_request=pull_request)
 
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
