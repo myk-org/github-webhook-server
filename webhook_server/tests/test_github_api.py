@@ -935,6 +935,7 @@ class TestGithubWebhook:
                             result = await gh.get_pull_request()
                             assert result == mock_pr
                             mock_repo.get_pulls.assert_called_once_with(state="open")
+                            mock_repo.get_commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_pull_request_by_number(
