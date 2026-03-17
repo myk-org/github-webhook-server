@@ -2290,18 +2290,81 @@ class TestGithubWebhook:
                                             webhook = GithubWebhook(review_thread_data, headers, logger)
 
                                             with patch.object(
-                                                webhook, "get_pull_request", new_callable=AsyncMock
-                                            ) as mock_get_pr:
-                                                mock_get_pr.return_value = mock_pr
-                                                await webhook.process()
+                                                webhook,
+                                                "add_api_users_to_auto_verified_and_merged_users",
+                                                new_callable=AsyncMock,
+                                            ) as mock_add_api_users:
+                                                with patch.object(
+                                                    webhook, "get_pull_request", new_callable=AsyncMock
+                                                ) as mock_get_pr:
+                                                    mock_get_pr.return_value = mock_pr
+                                                    await webhook.process()
 
-                                                if should_recheck:
-                                                    mock_get_pr.assert_awaited()
-                                                    mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-                                                    mock_owners_instance.initialize.assert_awaited_once()
-                                                    mock_clone.assert_awaited_once()
-                                                else:
-                                                    mock_get_pr.assert_not_awaited()
-                                                    mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
-                                                    mock_owners_instance.initialize.assert_not_awaited()
-                                                    mock_clone.assert_not_awaited()
+                                                    if should_recheck:
+                                                        mock_add_api_users.assert_awaited_once()
+                                                        mock_get_pr.assert_awaited()
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                                        mock_owners_instance.initialize.assert_awaited_once()
+                                                        mock_clone.assert_awaited_once()
+                                                    else:
+                                                        # Early exit before add_api_users saves rate limit
+                                                        mock_add_api_users.assert_not_awaited()
+                                                        mock_get_pr.assert_not_awaited()
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                                        mock_owners_instance.initialize.assert_not_awaited()
+                                                        mock_clone.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "action",
+        ["resolved", "unresolved"],
+    )
+    async def test_process_review_thread_skips_when_conversation_resolution_disabled(self, action: str) -> None:
+        """Test review thread events skipped when required_conversation_resolution is disabled."""
+        logger = Mock()
+        review_thread_data = {
+            "action": action,
+            "pull_request": {"number": 42},
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
+        }
+        headers = Headers({"X-GitHub-Event": "pull_request_review_thread", "X-GitHub-Delivery": "abc"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("webhook_server.libs.github_api.Config") as mock_config:
+                mock_config.return_value.repository = True
+                mock_config.return_value.repository_local_data.return_value = {}
+                mock_config.return_value.data_dir = temp_dir
+
+                with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                    mock_repo = Mock()
+                    mock_repo.get_git_tree.return_value.tree = []
+                    with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                        mock_get_repo_api.return_value = mock_repo
+
+                        with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                            mock_get_app_api.return_value = Mock()
+
+                            with patch(
+                                "webhook_server.libs.github_api.get_apis_and_tokes_from_config"
+                            ) as mock_get_apis:
+                                mock_get_apis.return_value = []
+
+                                webhook = GithubWebhook(review_thread_data, headers, logger)
+                                # Override required_conversation_resolution to False
+                                webhook.required_conversation_resolution = False
+
+                                with patch.object(
+                                    webhook,
+                                    "add_api_users_to_auto_verified_and_merged_users",
+                                    new_callable=AsyncMock,
+                                ) as mock_add_api_users:
+                                    with patch.object(
+                                        webhook, "get_pull_request", new_callable=AsyncMock
+                                    ) as mock_get_pr:
+                                        await webhook.process()
+
+                                        # Early exit: no rate limit burned, no PR fetched
+                                        mock_add_api_users.assert_not_awaited()
+                                        mock_get_pr.assert_not_awaited()

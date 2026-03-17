@@ -424,6 +424,38 @@ class GithubWebhook:
         )
 
     async def process(self) -> Any:
+        # Early exit for pull_request_review_thread events that don't need processing.
+        # Must run BEFORE add_api_users_to_auto_verified_and_merged_users() to avoid
+        # burning rate limit on get_user() calls for skipped events.
+        if self.github_event == "pull_request_review_thread":
+            action = self.hook_data["action"]
+            if action not in ("resolved", "unresolved") or not self.required_conversation_resolution:
+                skip_reason = (
+                    f"action={action}, skipped"
+                    if action not in ("resolved", "unresolved")
+                    else "required_conversation_resolution disabled"
+                )
+                self.logger.info(
+                    f"{self.log_prefix} "
+                    f"Webhook processing completed successfully: pull_request_review_thread "
+                    f"({skip_reason}) - no metrics collected",
+                )
+                return None
+
+        # Early exit for status events with pending state — only terminal states
+        # (success, failure, error) need processing.
+        # Must run BEFORE add_api_users_to_auto_verified_and_merged_users() to avoid
+        # burning rate limit on get_user() calls for skipped events.
+        if self.github_event == "status":
+            state = self.hook_data["state"]
+            if state == "pending":
+                self.logger.info(
+                    f"{self.log_prefix} "
+                    f"Webhook processing completed successfully: status "
+                    f"(state=pending, skipped) - no metrics collected",
+                )
+                return None
+
         # Initialize auto-verified users from API users (async operation)
         await self.add_api_users_to_auto_verified_and_merged_users()
 
@@ -475,18 +507,6 @@ class GithubWebhook:
 
             await self._update_context_metrics()
             return None
-
-        if self.github_event == "pull_request_review_thread":
-            action = self.hook_data["action"]
-            if action not in ("resolved", "unresolved"):
-                token_metrics = await self._get_token_metrics()
-                self.logger.info(
-                    f"{self.log_prefix} "
-                    f"Webhook processing completed successfully: pull_request_review_thread "
-                    f"(action={action}, skipped) - {token_metrics}",
-                )
-                await self._update_context_metrics()
-                return None
 
         pull_request = await self.get_pull_request()
         if pull_request:
@@ -633,18 +653,8 @@ class GithubWebhook:
                 return None
 
             elif self.github_event == "status":
-                # Skip pending state — only terminal states (success, failure, error) trigger re-evaluation
+                # Pending state already filtered by early exit above — only terminal states reach here
                 state = self.hook_data["state"]
-                if state == "pending":
-                    token_metrics = await self._get_token_metrics()
-                    self.logger.info(
-                        f"{self.log_prefix} "
-                        f"Webhook processing completed successfully: status (state=pending, skipped) - "
-                        f"{token_metrics}",
-                    )
-                    await self._update_context_metrics()
-                    return None
-
                 context_name = self.hook_data["context"]
                 self.logger.info(
                     f"{self.log_prefix} Status check '{context_name}' reached terminal state ({state}), "
