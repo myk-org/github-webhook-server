@@ -508,8 +508,8 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            # For check_run events, cloning happens later only when needed
-            if self.github_event != "check_run":
+            # For check_run and status events, cloning happens later only when needed
+            if self.github_event not in ("check_run", "status"):
                 await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
@@ -601,6 +601,39 @@ class GithubWebhook:
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
                     f"{self.log_prefix} Webhook processing completed successfully: check_run - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            elif self.github_event == "status":
+                # Only re-evaluate can-be-merged when a status check succeeds
+                state = self.hook_data.get("state", "")
+                if state != "success":
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} "
+                        f"Webhook processing completed successfully: status (state={state}, skipped) - "
+                        f"{token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
+                context_name = self.hook_data.get("context", "")
+                self.logger.info(
+                    f"{self.log_prefix} Status check '{context_name}' succeeded, re-evaluating can-be-merged"
+                )
+
+                await self._clone_repository(pull_request=pull_request)
+
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                await PullRequestHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).check_if_can_be_merged(pull_request=pull_request)
+
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: status - {token_metrics}",
                 )
                 await self._update_context_metrics()
                 return None
@@ -881,6 +914,20 @@ class GithubWebhook:
                     )
                     return _pull_request
             self.logger.debug(f"{self.log_prefix} No open PR found matching check_run head SHA")
+
+        if self.github_event == "status":
+            sha = self.hook_data.get("sha", "")
+            if sha:
+                self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
+                for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
+                    if _pull_request.head.sha == sha:
+                        self.logger.debug(
+                            f"{self.log_prefix} Found pull request {_pull_request.title} "
+                            f"[{_pull_request.number}] for status context "
+                            f"{self.hook_data.get('context', 'unknown')}"
+                        )
+                        return _pull_request
+                self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
 
         self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None
