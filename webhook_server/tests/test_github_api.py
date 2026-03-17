@@ -876,16 +876,16 @@ class TestGithubWebhook:
                                 with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
-                                    with patch.object(
-                                        GithubWebhook,
-                                        "_clone_repository",
-                                        new=AsyncMock(return_value=None),
-                                    ) as mock_clone:
+                                    with patch(
+                                        "webhook_server.libs.github_api.OwnersFileHandler"
+                                    ) as mock_owners_handler:
+                                        mock_owners_instance = Mock()
+                                        mock_owners_instance.initialize = AsyncMock(return_value=mock_owners_instance)
+                                        mock_owners_handler.return_value = mock_owners_instance
+
                                         with patch.object(
-                                            OwnersFileHandler,
-                                            "initialize",
-                                            new=AsyncMock(return_value=None),
-                                        ) as mock_owners_init:
+                                            GithubWebhook, "_clone_repository", new_callable=AsyncMock
+                                        ) as mock_clone:
                                             webhook = GithubWebhook(status_data, headers, logger)
 
                                             with patch.object(
@@ -905,13 +905,18 @@ class TestGithubWebhook:
                                                         mock_add_api_users.assert_awaited_once()
                                                         mock_get_pr.assert_awaited()
                                                         mock_clone.assert_awaited_once()
-                                                        mock_owners_init.assert_awaited_once()
+                                                        mock_owners_instance.initialize.assert_awaited_once()
+                                                        mock_pr_handler.assert_called_once_with(
+                                                            github_webhook=webhook,
+                                                            owners_file_handler=mock_owners_instance,
+                                                        )
                                                         mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
                                                     else:
                                                         mock_add_api_users.assert_not_awaited()
                                                         mock_get_pr.assert_not_awaited()
                                                         mock_clone.assert_not_awaited()
-                                                        mock_owners_init.assert_not_awaited()
+                                                        mock_owners_instance.initialize.assert_not_awaited()
+                                                        mock_pr_handler.assert_not_called()
                                                         mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -2319,16 +2324,21 @@ class TestGithubWebhook:
                                                     if should_recheck:
                                                         mock_add_api_users.assert_awaited_once()
                                                         mock_get_pr.assert_awaited()
-                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-                                                        mock_owners_instance.initialize.assert_awaited_once()
                                                         mock_clone.assert_awaited_once()
+                                                        mock_owners_instance.initialize.assert_awaited_once()
+                                                        mock_pr_handler.assert_called_once_with(
+                                                            github_webhook=webhook,
+                                                            owners_file_handler=mock_owners_instance,
+                                                        )
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
                                                     else:
                                                         # Early exit before add_api_users saves rate limit
                                                         mock_add_api_users.assert_not_awaited()
                                                         mock_get_pr.assert_not_awaited()
-                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
-                                                        mock_owners_instance.initialize.assert_not_awaited()
                                                         mock_clone.assert_not_awaited()
+                                                        mock_owners_instance.initialize.assert_not_awaited()
+                                                        mock_pr_handler.assert_not_called()
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
