@@ -29,6 +29,17 @@ class LogViewerController:
     # 60 seconds provides a reasonable maximum window for log correlation
     _DEFAULT_STEP_DURATION_MS = 60000
 
+    # Logger names from infrastructure components (MCP server, log viewer itself) that
+    # should be excluded from webhook log queries. These loggers produce high-frequency
+    # noise entries without webhook context (hook_id, event_type are None) and would
+    # drown out actual webhook processing entries in unfiltered queries.
+    _INFRASTRUCTURE_LOGGERS: frozenset[str] = frozenset({
+        "mcp.server.streamable_http",
+        "logs_server.log",
+        "log_parser",
+        "mcp_server.log",
+    })
+
     # Workflow stage patterns for PR flow analysis
     # These patterns match log messages to identify workflow stages and can be updated
     # when log message formats change without modifying the analysis logic
@@ -287,6 +298,26 @@ class LogViewerController:
             return False
 
         return True
+
+    @staticmethod
+    def _is_infrastructure_noise(entry: LogEntry) -> bool:
+        """Check if a log entry is infrastructure noise that should be excluded.
+
+        Infrastructure loggers (MCP server, log viewer) produce high-frequency
+        entries without webhook context. These are filtered out to prevent them
+        from drowning actual webhook processing entries in unfiltered queries.
+
+        Only excludes entries that have NO webhook context (hook_id is None),
+        preserving any infrastructure log that happens to correlate with a webhook.
+
+        Args:
+            entry: LogEntry to check
+
+        Returns:
+            True if the entry is infrastructure noise and should be excluded
+
+        """
+        return entry.logger_name in LogViewerController._INFRASTRUCTURE_LOGGERS and entry.hook_id is None
 
     async def export_logs(
         self,
@@ -1092,15 +1123,17 @@ class LogViewerController:
                     if log_file.suffix == ".json":
                         # JSONL files: one compact JSON object per line
                         # Process both "log_entry" and "webhook_summary" entries
+                        # Skip infrastructure logger entries that lack webhook context
                         async for line in f:
                             entry = self.log_parser.parse_json_log_entry(line)
-                            if entry:
+                            if entry and not LogViewerController._is_infrastructure_noise(entry):
                                 buffer.append(entry)
                     else:
                         # Text log files: parse line by line
+                        # Skip infrastructure logger entries that lack webhook context
                         async for line in f:
                             entry = self.log_parser.parse_log_entry(line)
-                            if entry:
+                            if entry and not LogViewerController._is_infrastructure_noise(entry):
                                 buffer.append(entry)
 
                 for entry in reversed(buffer):
@@ -1162,9 +1195,10 @@ class LogViewerController:
                 buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
 
                 async with aiofiles.open(log_file, encoding="utf-8") as f:
+                    # Skip infrastructure logger entries that lack webhook context
                     async for line in f:
                         entry = self.log_parser.parse_log_entry(line)
-                        if entry:
+                        if entry and not LogViewerController._is_infrastructure_noise(entry):
                             buffer.append(entry)
 
                 for entry in reversed(buffer):

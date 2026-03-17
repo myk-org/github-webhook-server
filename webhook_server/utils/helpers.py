@@ -104,11 +104,16 @@ def get_logger_with_params(
     )
 
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
-    # Only attach when a log file path is configured (skip console-only loggers)
-    # and only once per logger instance to avoid duplicate handlers.
+    # Only attach when:
+    # - A log file path is configured (skip console-only loggers)
+    # - The logger is for the main webhook log (log_file_name not explicitly set)
+    #   Infrastructure loggers (mcp_server.log, logs_server.log) must NOT write
+    #   to webhooks_*.json because their entries lack webhook context (hook_id,
+    #   event_type, etc.) and pollute the webhook log with noise entries.
+    # - Only once per logger instance to avoid duplicate handlers.
     # Uses _config.data_dir/logs (same directory as StructuredLogWriter) instead
     # of deriving from the text log file path, which may differ for absolute paths.
-    if log_file_path_resolved:
+    if log_file_path_resolved and not log_file_name:
         log_dir = os.path.join(_config.data_dir, "logs")
         with _JSON_HANDLER_LOCK:
             if not any(isinstance(h, JsonLogHandler) and h.log_dir == Path(log_dir) for h in logger.handlers):
