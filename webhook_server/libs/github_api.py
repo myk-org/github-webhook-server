@@ -430,6 +430,8 @@ class GithubWebhook:
         if self.github_event == "pull_request_review_thread":
             action = self.hook_data["action"]
             if action not in ("resolved", "unresolved") or not self.required_conversation_resolution:
+                if self.ctx:
+                    self.ctx.start_step("webhook_routing", event_type=self.github_event)
                 skip_reason = (
                     f"action={action}, skipped"
                     if action not in ("resolved", "unresolved")
@@ -440,6 +442,7 @@ class GithubWebhook:
                     f"Webhook processing completed successfully: pull_request_review_thread "
                     f"({skip_reason}) - no metrics collected",
                 )
+                await self._update_context_metrics()
                 return None
 
         # Early exit for status events with pending state — only terminal states
@@ -449,11 +452,14 @@ class GithubWebhook:
         if self.github_event == "status":
             state = self.hook_data["state"]
             if state == "pending":
+                if self.ctx:
+                    self.ctx.start_step("webhook_routing", event_type=self.github_event)
                 self.logger.info(
                     f"{self.log_prefix} "
                     f"Webhook processing completed successfully: status "
                     f"(state=pending, skipped) - no metrics collected",
                 )
+                await self._update_context_metrics()
                 return None
 
         # Initialize auto-verified users from API users (async operation)

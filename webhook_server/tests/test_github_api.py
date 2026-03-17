@@ -887,16 +887,32 @@ class TestGithubWebhook:
                                             new=AsyncMock(return_value=None),
                                         ) as mock_owners_init:
                                             webhook = GithubWebhook(status_data, headers, logger)
-                                            await webhook.process()
 
-                                            if should_recheck:
-                                                mock_clone.assert_awaited_once()
-                                                mock_owners_init.assert_awaited_once()
-                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-                                            else:
-                                                mock_clone.assert_not_awaited()
-                                                mock_owners_init.assert_not_awaited()
-                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                            with patch.object(
+                                                webhook,
+                                                "add_api_users_to_auto_verified_and_merged_users",
+                                                new_callable=AsyncMock,
+                                            ) as mock_add_api_users:
+                                                with patch.object(
+                                                    webhook,
+                                                    "get_pull_request",
+                                                    new_callable=AsyncMock,
+                                                ) as mock_get_pr:
+                                                    mock_get_pr.return_value = mock_pr
+                                                    await webhook.process()
+
+                                                    if should_recheck:
+                                                        mock_add_api_users.assert_awaited_once()
+                                                        mock_get_pr.assert_awaited()
+                                                        mock_clone.assert_awaited_once()
+                                                        mock_owners_init.assert_awaited_once()
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                                    else:
+                                                        mock_add_api_users.assert_not_awaited()
+                                                        mock_get_pr.assert_not_awaited()
+                                                        mock_clone.assert_not_awaited()
+                                                        mock_owners_init.assert_not_awaited()
+                                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_pull_request_from_status_sha(self) -> None:
