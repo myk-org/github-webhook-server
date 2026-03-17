@@ -637,7 +637,13 @@ class GithubWebhook:
                     f"re-evaluating can-be-merged"
                 )
 
+                # Clone required: check_if_can_be_merged evaluates ALL conditions
+                # (approvals, OWNERS, labels, checks, conversations) on every call,
+                # and OWNERS file processing requires a local checkout.
+                await self._clone_repository(pull_request=pull_request)
+
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).check_if_can_be_merged(pull_request=pull_request)
@@ -654,6 +660,9 @@ class GithubWebhook:
                 action = self.hook_data["action"]
                 self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
 
+                # Clone required: check_if_can_be_merged evaluates ALL conditions
+                # (approvals, OWNERS, labels, checks, conversations) on every call,
+                # and OWNERS file processing requires a local checkout.
                 await self._clone_repository(pull_request=pull_request)
 
                 owners_file_handler = OwnersFileHandler(github_webhook=self)

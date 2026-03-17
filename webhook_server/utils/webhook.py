@@ -56,6 +56,22 @@ def process_github_webhook(
                 _hook.delete()
 
             else:
+                # Check if events need updating
+                hook_events = sorted(_hook.events)
+                config_events = sorted(events)
+                if hook_events != config_events:
+                    LOGGER.info(
+                        f"[API user {api_user}] - {full_repository_name}: "
+                        f"Updating webhook events: {hook_events} -> {config_events}"
+                    )
+                    _hook.edit(name="web", config=config_, events=events, active=True)
+                    return (
+                        True,
+                        f"[API user {api_user}] - {full_repository_name}: "
+                        f"Hook updated with new events - {_hook.config['url']}",
+                        LOGGER.info,
+                    )
+
                 return (
                     True,
                     f"[API user {api_user}] - {full_repository_name}: Hook already exists - {_hook.config['url']}",

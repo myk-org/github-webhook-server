@@ -122,10 +122,11 @@ class TestProcessGithubWebhook:
         apis_dict: dict[str, dict[str, Any]],
         mock_repo: Mock,
     ) -> None:
-        """Test when webhook already exists with same configuration."""
-        # Mock existing hook with matching URL
+        """Test when webhook already exists with same configuration and events."""
+        # Mock existing hook with matching URL and same events
         existing_hook = Mock()
         existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["push", "pull_request"]
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
@@ -137,9 +138,10 @@ class TestProcessGithubWebhook:
         assert "Hook already exists" in message
         assert "test-user" in message
 
-        # Verify no new hook was created
+        # Verify no new hook was created and no edit was called
         mock_repo.create_hook.assert_not_called()
         existing_hook.delete.assert_not_called()
+        existing_hook.edit.assert_not_called()
 
     @patch("webhook_server.utils.webhook.get_github_repo_api")
     def test_process_github_webhook_secret_mismatch_deletes_old_hook(
@@ -292,6 +294,7 @@ class TestProcessGithubWebhook:
         # Mock multiple existing hooks
         matching_hook = Mock()
         matching_hook.config = {"url": "http://example.com", "content_type": "json"}
+        matching_hook.events = ["push", "pull_request"]
 
         non_matching_hook = Mock()
         non_matching_hook.config = {"url": "http://different.com", "content_type": "json"}
@@ -306,9 +309,150 @@ class TestProcessGithubWebhook:
         assert success is True
         assert "Hook already exists" in message
 
-        # Verify no hooks were deleted or created
+        # Verify no hooks were deleted, edited, or created
         matching_hook.delete.assert_not_called()
+        matching_hook.edit.assert_not_called()
         non_matching_hook.delete.assert_not_called()
+        mock_repo.create_hook.assert_not_called()
+
+    @patch("webhook_server.utils.webhook.get_github_repo_api")
+    def test_process_github_webhook_existing_hook_different_events(
+        self,
+        mock_get_repo_api: Mock,
+        sample_data: dict[str, Any],
+        apis_dict: dict[str, dict[str, Any]],
+        mock_repo: Mock,
+    ) -> None:
+        """Test webhook update when existing hook has different events than configured."""
+        existing_hook = Mock()
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["push"]  # Missing "pull_request" from sample_data
+
+        mock_repo.get_hooks.return_value = [existing_hook]
+        mock_get_repo_api.return_value = mock_repo
+
+        success, message, _ = process_github_webhook(
+            repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
+        )
+
+        assert success is True
+        assert "Hook updated with new events" in message
+        assert "test-user" in message
+
+        # Verify hook was edited with the new events
+        existing_hook.edit.assert_called_once_with(
+            name="web",
+            config={"url": "http://example.com", "content_type": "json"},
+            events=["push", "pull_request"],
+            active=True,
+        )
+
+        # Verify no new hook was created and old hook was not deleted
+        mock_repo.create_hook.assert_not_called()
+        existing_hook.delete.assert_not_called()
+
+    @patch("webhook_server.utils.webhook.get_github_repo_api")
+    def test_process_github_webhook_existing_hook_wildcard_vs_specific_events(
+        self,
+        mock_get_repo_api: Mock,
+        apis_dict: dict[str, dict[str, Any]],
+        mock_repo: Mock,
+    ) -> None:
+        """Test webhook update when hook has wildcard events but config has specific events."""
+        existing_hook = Mock()
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["*"]
+
+        mock_repo.get_hooks.return_value = [existing_hook]
+        mock_get_repo_api.return_value = mock_repo
+
+        data_with_specific_events: dict[str, Any] = {"name": "owner/test-repo", "events": ["push", "pull_request"]}
+
+        success, message, _ = process_github_webhook(
+            repository_name="test-repo",
+            data=data_with_specific_events,
+            webhook_ip="http://example.com",
+            apis_dict=apis_dict,
+        )
+
+        assert success is True
+        assert "Hook updated with new events" in message
+
+        # Verify hook was edited with the specific events
+        existing_hook.edit.assert_called_once_with(
+            name="web",
+            config={"url": "http://example.com", "content_type": "json"},
+            events=["push", "pull_request"],
+            active=True,
+        )
+        mock_repo.create_hook.assert_not_called()
+
+    @patch("webhook_server.utils.webhook.get_github_repo_api")
+    def test_process_github_webhook_existing_hook_specific_vs_wildcard_events(
+        self,
+        mock_get_repo_api: Mock,
+        apis_dict: dict[str, dict[str, Any]],
+        mock_repo: Mock,
+    ) -> None:
+        """Test webhook update when hook has specific events but config has wildcard."""
+        existing_hook = Mock()
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["push", "pull_request"]
+
+        mock_repo.get_hooks.return_value = [existing_hook]
+        mock_get_repo_api.return_value = mock_repo
+
+        data_with_wildcard: dict[str, Any] = {"name": "owner/test-repo", "events": ["*"]}
+
+        success, message, _ = process_github_webhook(
+            repository_name="test-repo",
+            data=data_with_wildcard,
+            webhook_ip="http://example.com",
+            apis_dict=apis_dict,
+        )
+
+        assert success is True
+        assert "Hook updated with new events" in message
+
+        # Verify hook was edited with the wildcard events
+        existing_hook.edit.assert_called_once_with(
+            name="web",
+            config={"url": "http://example.com", "content_type": "json"},
+            events=["*"],
+            active=True,
+        )
+        mock_repo.create_hook.assert_not_called()
+
+    @patch("webhook_server.utils.webhook.get_github_repo_api")
+    def test_process_github_webhook_existing_hook_events_same_order_differs(
+        self,
+        mock_get_repo_api: Mock,
+        apis_dict: dict[str, dict[str, Any]],
+        mock_repo: Mock,
+    ) -> None:
+        """Test that events in different order are treated as equal (no update needed)."""
+        existing_hook = Mock()
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["pull_request", "push"]  # Reversed order
+
+        mock_repo.get_hooks.return_value = [existing_hook]
+        mock_get_repo_api.return_value = mock_repo
+
+        # sample_data has events ["push", "pull_request"]
+        data: dict[str, Any] = {"name": "owner/test-repo", "events": ["push", "pull_request"]}
+
+        success, message, _ = process_github_webhook(
+            repository_name="test-repo",
+            data=data,
+            webhook_ip="http://example.com",
+            apis_dict=apis_dict,
+        )
+
+        assert success is True
+        assert "Hook already exists" in message
+
+        # Verify no edit or create was called
+        existing_hook.edit.assert_not_called()
         mock_repo.create_hook.assert_not_called()
 
 

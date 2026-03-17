@@ -876,13 +876,27 @@ class TestGithubWebhook:
                                 with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
-                                    webhook = GithubWebhook(status_data, headers, logger)
-                                    await webhook.process()
+                                    with patch.object(
+                                        GithubWebhook,
+                                        "_clone_repository",
+                                        new=AsyncMock(return_value=None),
+                                    ) as mock_clone:
+                                        with patch.object(
+                                            OwnersFileHandler,
+                                            "initialize",
+                                            new=AsyncMock(return_value=None),
+                                        ) as mock_owners_init:
+                                            webhook = GithubWebhook(status_data, headers, logger)
+                                            await webhook.process()
 
-                                    if should_recheck:
-                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-                                    else:
-                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                            if should_recheck:
+                                                mock_clone.assert_awaited_once()
+                                                mock_owners_init.assert_awaited_once()
+                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                            else:
+                                                mock_clone.assert_not_awaited()
+                                                mock_owners_init.assert_not_awaited()
+                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_pull_request_from_status_sha(self) -> None:
