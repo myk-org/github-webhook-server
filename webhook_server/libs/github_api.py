@@ -508,8 +508,8 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            # For check_run events, cloning happens later only when needed
-            if self.github_event != "check_run":
+            # For check_run and status events, cloning happens later only when needed
+            if self.github_event not in ("check_run", "status"):
                 await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
@@ -601,6 +601,37 @@ class GithubWebhook:
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
                     f"{self.log_prefix} Webhook processing completed successfully: check_run - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            elif self.github_event == "status":
+                # Skip pending state — only terminal states (success, failure, error) trigger re-evaluation
+                state = self.hook_data["state"]
+                if state == "pending":
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} "
+                        f"Webhook processing completed successfully: status (state=pending, skipped) - "
+                        f"{token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
+                context_name = self.hook_data["context"]
+                self.logger.info(
+                    f"{self.log_prefix} Status check '{context_name}' reached terminal state ({state}), "
+                    f"re-evaluating can-be-merged"
+                )
+
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                await PullRequestHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).check_if_can_be_merged(pull_request=pull_request)
+
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: status - {token_metrics}",
                 )
                 await self._update_context_metrics()
                 return None
@@ -856,6 +887,39 @@ class GithubWebhook:
         else:
             self.logger.debug(f"{self.log_prefix} No PR data in webhook payload")
 
+        def _get_pr_head_sha(pr: PullRequest) -> str:
+            return pr.head.sha
+
+        if self.github_event == "check_run":
+            head_sha = self.hook_data["check_run"]["head_sha"]
+            self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
+            open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
+            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                if pr_head_sha == head_sha:
+                    self.logger.debug(
+                        f"{self.log_prefix} Found pull request {_pull_request.title} "
+                        f"[{_pull_request.number}] for check run "
+                        f"{self.hook_data['check_run']['name']}"
+                    )
+                    return _pull_request
+            self.logger.debug(f"{self.log_prefix} No open PR found matching check_run head SHA")
+
+        if self.github_event == "status":
+            sha = self.hook_data["sha"]
+            self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
+            open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
+            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                if pr_head_sha == sha:
+                    self.logger.debug(
+                        f"{self.log_prefix} Found pull request {_pull_request.title} "
+                        f"[{_pull_request.number}] for status context "
+                        f"{self.hook_data['context']}"
+                    )
+                    return _pull_request
+            self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
+
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
             self.logger.debug(f"{self.log_prefix} Attempting to get PR from commit SHA: {commit.get('sha', 'unknown')}")
@@ -868,19 +932,6 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} No PR found for commit SHA")
         else:
             self.logger.debug(f"{self.log_prefix} No commit data in webhook payload")
-
-        if self.github_event == "check_run":
-            head_sha = self.hook_data["check_run"]["head_sha"]
-            self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
-            for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
-                if _pull_request.head.sha == head_sha:
-                    self.logger.debug(
-                        f"{self.log_prefix} Found pull request {_pull_request.title} "
-                        f"[{_pull_request.number}] for check run "
-                        f"{self.hook_data['check_run']['name']}"
-                    )
-                    return _pull_request
-            self.logger.debug(f"{self.log_prefix} No open PR found matching check_run head SHA")
 
         self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None

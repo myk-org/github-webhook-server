@@ -817,6 +817,127 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("state", "should_recheck"),
+        [
+            ("success", True),
+            ("pending", False),
+            ("failure", True),
+            ("error", True),
+        ],
+    )
+    async def test_process_status_event(self, state: str, should_recheck: bool) -> None:
+        """Test processing status event with various states."""
+        logger = Mock()
+        status_data = {
+            "state": state,
+            "context": "pre-commit.ci",
+            "sha": "abc123",
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
+        }
+        headers = Headers({"X-GitHub-Event": "status", "X-GitHub-Delivery": "abc"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("webhook_server.libs.github_api.Config") as mock_config:
+                mock_config.return_value.repository = True
+                mock_config.return_value.repository_local_data.return_value = {}
+                mock_config.return_value.data_dir = temp_dir
+
+                with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                    mock_repo = Mock()
+                    mock_repo.get_git_tree.return_value.tree = []
+                    mock_pr = Mock()
+                    mock_pr.head.sha = "abc123"
+                    mock_pr.title = "Test PR"
+                    mock_pr.number = 42
+                    mock_pr.draft = False
+                    mock_pr.user.login = "testuser"
+                    mock_pr.base.ref = "main"
+                    mock_pr.get_commits.return_value = [Mock()]
+                    mock_pr.get_files.return_value = []
+                    mock_repo.get_pulls.return_value = [mock_pr]
+                    mock_repo.get_pull.return_value = mock_pr
+                    with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                        mock_get_repo_api.return_value = mock_repo
+
+                        with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                            mock_get_app_api.return_value = Mock()
+
+                            with patch(
+                                "webhook_server.libs.github_api.get_apis_and_tokes_from_config"
+                            ) as mock_get_apis:
+                                mock_api1 = Mock()
+                                mock_api1.rate_limiting = [0, 5000]
+                                mock_api1.get_user.return_value.login = "user1"
+                                mock_get_apis.return_value = [(mock_api1, "token1")]
+
+                                with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
+                                    mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
+
+                                    webhook = GithubWebhook(status_data, headers, logger)
+                                    await webhook.process()
+
+                                    if should_recheck:
+                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                    else:
+                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_from_status_sha(self) -> None:
+        """Test getting pull request from status event SHA.
+
+        Verifies that even when commit.get_pulls() returns a stale PR,
+        the status SHA lookup finds the correct matching PR.
+        """
+        logger = Mock()
+        status_data = {
+            "state": "success",
+            "context": "pre-commit.ci",
+            "sha": "status-sha-123",
+            "commit": {"sha": "status-sha-123"},  # Real payloads include this
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
+        }
+        headers = Headers({"X-GitHub-Event": "status", "X-GitHub-Delivery": "abc"})
+
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_pr = Mock()
+                    mock_pr.head.sha = "status-sha-123"
+                    mock_pr.title = "Test PR"
+                    mock_pr.number = 42
+                    mock_repo.get_pulls.return_value = [mock_pr]
+
+                    # Stale PR from commit.get_pulls() fallback
+                    stale_pr = Mock()
+                    stale_pr.head.sha = "old-sha"
+                    mock_commit = Mock()
+                    mock_commit.get_pulls.return_value = [stale_pr]
+                    mock_repo.get_commit.return_value = mock_commit
+
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(status_data, headers, logger)
+                            result = await gh.get_pull_request()
+                            assert result == mock_pr
+                            mock_repo.get_pulls.assert_called_once_with(state="open")
+                            mock_repo.get_commit.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_get_pull_request_by_number(
         self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
