@@ -2205,3 +2205,68 @@ class TestGithubWebhook:
                                     call.args[0] for call in mock_logger.warning.call_args_list if call.args
                                 ]
                                 assert any("Duplicate custom check name 'my-check'" in msg for msg in warning_messages)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("action", "should_recheck"),
+        [
+            ("resolved", True),
+            ("unresolved", True),
+            ("created", False),
+        ],
+    )
+    async def test_process_review_thread_event(self, action: str, should_recheck: bool) -> None:
+        """Test processing pull_request_review_thread event with various actions."""
+        logger = Mock()
+        review_thread_data = {
+            "action": action,
+            "pull_request": {"number": 42},
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
+        }
+        headers = Headers({"X-GitHub-Event": "pull_request_review_thread", "X-GitHub-Delivery": "abc"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("webhook_server.libs.github_api.Config") as mock_config:
+                mock_config.return_value.repository = True
+                mock_config.return_value.repository_local_data.return_value = {}
+                mock_config.return_value.data_dir = temp_dir
+
+                with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                    mock_repo = Mock()
+                    mock_repo.get_git_tree.return_value.tree = []
+                    mock_pr = Mock()
+                    mock_pr.head.sha = "abc123"
+                    mock_pr.title = "Test PR"
+                    mock_pr.number = 42
+                    mock_pr.draft = False
+                    mock_pr.user.login = "testuser"
+                    mock_pr.base.ref = "main"
+                    mock_pr.get_commits.return_value = [Mock()]
+                    mock_pr.get_files.return_value = []
+                    mock_repo.get_pull.return_value = mock_pr
+                    with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                        mock_get_repo_api.return_value = mock_repo
+
+                        with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                            mock_get_app_api.return_value = Mock()
+
+                            with patch(
+                                "webhook_server.libs.github_api.get_apis_and_tokes_from_config"
+                            ) as mock_get_apis:
+                                mock_api1 = Mock()
+                                mock_api1.rate_limiting = [0, 5000]
+                                mock_api1.get_user.return_value.login = "user1"
+                                mock_get_apis.return_value = [(mock_api1, "token1")]
+
+                                with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
+                                    mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
+
+                                    webhook = GithubWebhook(review_thread_data, headers, logger)
+                                    await webhook.process()
+
+                                    if should_recheck:
+                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                    else:
+                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()

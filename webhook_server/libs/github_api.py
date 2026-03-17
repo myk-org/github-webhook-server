@@ -509,7 +509,7 @@ class GithubWebhook:
 
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run and status events, cloning happens later only when needed
-            if self.github_event not in ("check_run", "status"):
+            if self.github_event not in ("check_run", "status", "pull_request_review_thread"):
                 await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
@@ -632,6 +632,33 @@ class GithubWebhook:
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
                     f"{self.log_prefix} Webhook processing completed successfully: status - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            elif self.github_event == "pull_request_review_thread":
+                action = self.hook_data["action"]
+                if action not in ("resolved", "unresolved"):
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} "
+                        f"Webhook processing completed successfully: pull_request_review_thread "
+                        f"(action={action}, skipped) - {token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
+                self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
+
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                await PullRequestHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).check_if_can_be_merged(pull_request=pull_request)
+
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"pull_request_review_thread - {token_metrics}",
                 )
                 await self._update_context_metrics()
                 return None
