@@ -887,19 +887,6 @@ class GithubWebhook:
         else:
             self.logger.debug(f"{self.log_prefix} No PR data in webhook payload")
 
-        commit: dict[str, Any] = self.hook_data.get("commit", {})
-        if commit:
-            self.logger.debug(f"{self.log_prefix} Attempting to get PR from commit SHA: {commit.get('sha', 'unknown')}")
-            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
-            with contextlib.suppress(Exception):
-                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
-                if _pulls:
-                    self.logger.debug(f"{self.log_prefix} Found PR from commit SHA: {_pulls[0].number}")
-                    return _pulls[0]
-            self.logger.debug(f"{self.log_prefix} No PR found for commit SHA")
-        else:
-            self.logger.debug(f"{self.log_prefix} No commit data in webhook payload")
-
         def _get_pr_head_sha(pr: PullRequest) -> str:
             return pr.head.sha
 
@@ -932,6 +919,19 @@ class GithubWebhook:
                     )
                     return _pull_request
             self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
+
+        commit: dict[str, Any] = self.hook_data.get("commit", {})
+        if commit:
+            self.logger.debug(f"{self.log_prefix} Attempting to get PR from commit SHA: {commit.get('sha', 'unknown')}")
+            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
+            with contextlib.suppress(Exception):
+                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
+                if _pulls:
+                    self.logger.debug(f"{self.log_prefix} Found PR from commit SHA: {_pulls[0].number}")
+                    return _pulls[0]
+            self.logger.debug(f"{self.log_prefix} No PR found for commit SHA")
+        else:
+            self.logger.debug(f"{self.log_prefix} No commit data in webhook payload")
 
         self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None
