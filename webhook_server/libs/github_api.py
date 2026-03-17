@@ -462,6 +462,18 @@ class GithubWebhook:
             await self._update_context_metrics()
             return None
 
+        if self.github_event == "pull_request_review_thread":
+            action = self.hook_data["action"]
+            if action not in ("resolved", "unresolved"):
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} "
+                    f"Webhook processing completed successfully: pull_request_review_thread "
+                    f"(action={action}, skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
         pull_request = await self.get_pull_request()
         if pull_request:
             # Update context with PR info
@@ -508,7 +520,8 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            # For check_run and status events, cloning happens later only when needed
+            # For check_run, status, and pull_request_review_thread events,
+            # cloning happens later only when needed (inside their respective handlers)
             if self.github_event not in ("check_run", "status", "pull_request_review_thread"):
                 await self._clone_repository(pull_request=pull_request)
 
@@ -637,20 +650,14 @@ class GithubWebhook:
                 return None
 
             elif self.github_event == "pull_request_review_thread":
+                # Action already filtered above (only resolved/unresolved reach here)
                 action = self.hook_data["action"]
-                if action not in ("resolved", "unresolved"):
-                    token_metrics = await self._get_token_metrics()
-                    self.logger.info(
-                        f"{self.log_prefix} "
-                        f"Webhook processing completed successfully: pull_request_review_thread "
-                        f"(action={action}, skipped) - {token_metrics}",
-                    )
-                    await self._update_context_metrics()
-                    return None
-
                 self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
 
+                await self._clone_repository(pull_request=pull_request)
+
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).check_if_can_be_merged(pull_request=pull_request)

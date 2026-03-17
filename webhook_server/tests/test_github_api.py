@@ -2263,10 +2263,24 @@ class TestGithubWebhook:
                                 with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
-                                    webhook = GithubWebhook(review_thread_data, headers, logger)
-                                    await webhook.process()
+                                    with patch(
+                                        "webhook_server.libs.github_api.OwnersFileHandler"
+                                    ) as mock_owners_handler:
+                                        mock_owners_instance = Mock()
+                                        mock_owners_instance.initialize = AsyncMock(return_value=mock_owners_instance)
+                                        mock_owners_handler.return_value = mock_owners_instance
 
-                                    if should_recheck:
-                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-                                    else:
-                                        mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                        with patch.object(
+                                            GithubWebhook, "_clone_repository", new_callable=AsyncMock
+                                        ) as mock_clone:
+                                            webhook = GithubWebhook(review_thread_data, headers, logger)
+                                            await webhook.process()
+
+                                            if should_recheck:
+                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
+                                                mock_owners_instance.initialize.assert_awaited_once()
+                                                mock_clone.assert_awaited_once()
+                                            else:
+                                                mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                                mock_owners_instance.initialize.assert_not_awaited()
+                                                mock_clone.assert_not_awaited()
