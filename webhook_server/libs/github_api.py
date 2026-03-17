@@ -607,7 +607,7 @@ class GithubWebhook:
 
             elif self.github_event == "status":
                 # Skip pending state — only terminal states (success, failure, error) trigger re-evaluation
-                state = self.hook_data.get("state", "")
+                state = self.hook_data["state"]
                 if state == "pending":
                     token_metrics = await self._get_token_metrics()
                     self.logger.info(
@@ -618,16 +618,13 @@ class GithubWebhook:
                     await self._update_context_metrics()
                     return None
 
-                context_name = self.hook_data.get("context", "")
+                context_name = self.hook_data["context"]
                 self.logger.info(
                     f"{self.log_prefix} Status check '{context_name}' reached terminal state ({state}), "
                     f"re-evaluating can-be-merged"
                 )
 
-                await self._clone_repository(pull_request=pull_request)
-
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).check_if_can_be_merged(pull_request=pull_request)
@@ -910,8 +907,9 @@ class GithubWebhook:
             head_sha = self.hook_data["check_run"]["head_sha"]
             self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
             open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
-            for _pull_request in open_pulls:
-                if await asyncio.to_thread(_get_pr_head_sha, _pull_request) == head_sha:
+            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                if pr_head_sha == head_sha:
                     self.logger.debug(
                         f"{self.log_prefix} Found pull request {_pull_request.title} "
                         f"[{_pull_request.number}] for check run "
@@ -921,19 +919,19 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} No open PR found matching check_run head SHA")
 
         if self.github_event == "status":
-            sha = self.hook_data.get("sha", "")
-            if sha:
-                self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
-                open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
-                for _pull_request in open_pulls:
-                    if await asyncio.to_thread(_get_pr_head_sha, _pull_request) == sha:
-                        self.logger.debug(
-                            f"{self.log_prefix} Found pull request {_pull_request.title} "
-                            f"[{_pull_request.number}] for status context "
-                            f"{self.hook_data.get('context', 'unknown')}"
-                        )
-                        return _pull_request
-                self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
+            sha = self.hook_data["sha"]
+            self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
+            open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
+            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                if pr_head_sha == sha:
+                    self.logger.debug(
+                        f"{self.log_prefix} Found pull request {_pull_request.title} "
+                        f"[{_pull_request.number}] for status context "
+                        f"{self.hook_data['context']}"
+                    )
+                    return _pull_request
+            self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
 
         self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None
