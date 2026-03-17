@@ -939,8 +939,8 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_process_status_event_failure_skipped(self) -> None:
-        """Test processing status event with state=failure is skipped."""
+    async def test_process_status_event_failure_triggers_reevaluation(self) -> None:
+        """Test processing status event with state=failure triggers can-be-merged re-evaluation."""
         logger = Mock()
         status_data = {
             "state": "failure",
@@ -990,16 +990,23 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     webhook = GithubWebhook(status_data, headers, logger)
-                                    await webhook.process()
+                                    with (
+                                        patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+                                        patch.object(
+                                            OwnersFileHandler,
+                                            "initialize",
+                                            new=AsyncMock(return_value=None),
+                                        ),
+                                    ):
+                                        await webhook.process()
 
-                                    # check_if_can_be_merged should NOT be called for failure state
-                                    mock_pr_handler.return_value.check_if_can_be_merged.assert_not_awaited()
+                                    # check_if_can_be_merged SHOULD be called for failure state (terminal state)
+                                    mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_from_status_sha(
-        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_from_status_sha(self) -> None:
         """Test getting pull request from status event SHA."""
+        logger = Mock()
         status_data = {
             "state": "success",
             "context": "pre-commit.ci",
