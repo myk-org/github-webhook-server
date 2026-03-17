@@ -38,9 +38,11 @@ repositories:
     events: # To listen to all events do not send events
       - push
       - pull_request
+      - pull_request_review
+      - pull_request_review_thread
       - issue_comment
       - check_run
-      - pull_request_review
+      - status
     tox-python-version: "3.8"
     tox:
       main: all # Run all tests in tox.ini when pull request parent branch is main

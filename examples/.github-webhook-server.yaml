@@ -21,10 +21,12 @@ pypi:
 events:
   - push
   - pull_request
-  - issue_comment
-  - check_run
   - pull_request_review
   - pull_request_review_comment
+  - pull_request_review_thread
+  - issue_comment
+  - check_run
+  - status
 
 # Tox configuration
 tox:

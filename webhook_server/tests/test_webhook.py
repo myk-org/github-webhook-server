@@ -122,10 +122,11 @@ class TestProcessGithubWebhook:
         apis_dict: dict[str, dict[str, Any]],
         mock_repo: Mock,
     ) -> None:
-        """Test when webhook already exists with same configuration."""
-        # Mock existing hook with matching URL
+        """Test when webhook already exists with same configuration and events."""
+        # Mock existing hook with matching URL and same events
         existing_hook = Mock()
         existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = ["push", "pull_request"]
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
@@ -137,9 +138,10 @@ class TestProcessGithubWebhook:
         assert "Hook already exists" in message
         assert "test-user" in message
 
-        # Verify no new hook was created
+        # Verify no new hook was created and no edit was called
         mock_repo.create_hook.assert_not_called()
         existing_hook.delete.assert_not_called()
+        existing_hook.edit.assert_not_called()
 
     @patch("webhook_server.utils.webhook.get_github_repo_api")
     def test_process_github_webhook_secret_mismatch_deletes_old_hook(
@@ -292,6 +294,7 @@ class TestProcessGithubWebhook:
         # Mock multiple existing hooks
         matching_hook = Mock()
         matching_hook.config = {"url": "http://example.com", "content_type": "json"}
+        matching_hook.events = ["push", "pull_request"]
 
         non_matching_hook = Mock()
         non_matching_hook.config = {"url": "http://different.com", "content_type": "json"}
@@ -306,9 +309,63 @@ class TestProcessGithubWebhook:
         assert success is True
         assert "Hook already exists" in message
 
-        # Verify no hooks were deleted or created
+        # Verify no hooks were deleted, edited, or created
         matching_hook.delete.assert_not_called()
+        matching_hook.edit.assert_not_called()
         non_matching_hook.delete.assert_not_called()
+        mock_repo.create_hook.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("hook_events", "config_events", "expect_update"),
+        [
+            pytest.param(["push"], ["push", "pull_request"], True, id="missing-event"),
+            pytest.param(["*"], ["push", "pull_request"], True, id="wildcard-to-specific"),
+            pytest.param(["push", "pull_request"], ["*"], True, id="specific-to-wildcard"),
+            pytest.param(["pull_request", "push"], ["push", "pull_request"], False, id="same-events-different-order"),
+        ],
+    )
+    @patch("webhook_server.utils.webhook.get_github_repo_api")
+    def test_process_github_webhook_existing_hook_event_update(
+        self,
+        mock_get_repo_api: Mock,
+        apis_dict: dict[str, dict[str, Any]],
+        mock_repo: Mock,
+        hook_events: list[str],
+        config_events: list[str],
+        expect_update: bool,
+    ) -> None:
+        """Test webhook event update/no-op for various existing vs configured event combinations."""
+        existing_hook = Mock()
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
+        existing_hook.events = hook_events
+
+        mock_repo.get_hooks.return_value = [existing_hook]
+        mock_get_repo_api.return_value = mock_repo
+
+        data: dict[str, Any] = {"name": "owner/test-repo", "events": config_events}
+
+        success, message, _ = process_github_webhook(
+            repository_name="test-repo",
+            data=data,
+            webhook_ip="http://example.com",
+            apis_dict=apis_dict,
+        )
+
+        assert success is True
+
+        if expect_update:
+            assert "Hook updated with new events" in message
+            existing_hook.edit.assert_called_once_with(
+                name="web",
+                config={"url": "http://example.com", "content_type": "json"},
+                events=sorted(set(config_events)),
+                active=True,
+            )
+        else:
+            assert "Hook already exists" in message
+            existing_hook.edit.assert_not_called()
+            existing_hook.delete.assert_not_called()
+
         mock_repo.create_hook.assert_not_called()
 
 

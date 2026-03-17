@@ -409,7 +409,59 @@ class GithubWebhook:
                 self.ctx.fail_step("repo_clone", ex, traceback.format_exc())
             raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
+    async def _recheck_merge_eligibility(self, pull_request: PullRequest) -> None:
+        """Clone repo and re-evaluate can-be-merged for the PR.
+
+        Clone required: check_if_can_be_merged evaluates ALL conditions
+        (approvals, OWNERS, labels, checks, conversations) on every call,
+        and OWNERS file processing requires a local checkout.
+        """
+        await self._clone_repository(pull_request=pull_request)
+        owners_file_handler = OwnersFileHandler(github_webhook=self)
+        owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+        await PullRequestHandler(github_webhook=self, owners_file_handler=owners_file_handler).check_if_can_be_merged(
+            pull_request=pull_request
+        )
+
     async def process(self) -> Any:
+        # Early exit for pull_request_review_thread events that don't need processing.
+        # Must run BEFORE add_api_users_to_auto_verified_and_merged_users() to avoid
+        # burning rate limit on get_user() calls for skipped events.
+        if self.github_event == "pull_request_review_thread":
+            action = self.hook_data["action"]
+            if action not in ("resolved", "unresolved") or not self.required_conversation_resolution:
+                if self.ctx:
+                    self.ctx.start_step("webhook_routing", event_type=self.github_event)
+                skip_reason = (
+                    f"action={action}, skipped"
+                    if action not in ("resolved", "unresolved")
+                    else "required_conversation_resolution disabled"
+                )
+                self.logger.info(
+                    f"{self.log_prefix} "
+                    f"Webhook processing completed successfully: pull_request_review_thread "
+                    f"({skip_reason}) - no metrics collected",
+                )
+                await self._update_context_metrics()
+                return None
+
+        # Early exit for status events with pending state — only terminal states
+        # (success, failure, error) need processing.
+        # Must run BEFORE add_api_users_to_auto_verified_and_merged_users() to avoid
+        # burning rate limit on get_user() calls for skipped events.
+        if self.github_event == "status":
+            state = self.hook_data["state"]
+            if state == "pending":
+                if self.ctx:
+                    self.ctx.start_step("webhook_routing", event_type=self.github_event)
+                self.logger.info(
+                    f"{self.log_prefix} "
+                    f"Webhook processing completed successfully: status "
+                    f"(state=pending, skipped) - no metrics collected",
+                )
+                await self._update_context_metrics()
+                return None
+
         # Initialize auto-verified users from API users (async operation)
         await self.add_api_users_to_auto_verified_and_merged_users()
 
@@ -508,8 +560,9 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            # For check_run and status events, cloning happens later only when needed
-            if self.github_event not in ("check_run", "status"):
+            # For check_run, status, and pull_request_review_thread events,
+            # cloning happens later only when needed (inside their respective handlers)
+            if self.github_event not in ("check_run", "status", "pull_request_review_thread"):
                 await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
@@ -606,32 +659,34 @@ class GithubWebhook:
                 return None
 
             elif self.github_event == "status":
-                # Skip pending state — only terminal states (success, failure, error) trigger re-evaluation
+                # Pending state already filtered by early exit above — only terminal states reach here
                 state = self.hook_data["state"]
-                if state == "pending":
-                    token_metrics = await self._get_token_metrics()
-                    self.logger.info(
-                        f"{self.log_prefix} "
-                        f"Webhook processing completed successfully: status (state=pending, skipped) - "
-                        f"{token_metrics}",
-                    )
-                    await self._update_context_metrics()
-                    return None
-
                 context_name = self.hook_data["context"]
                 self.logger.info(
                     f"{self.log_prefix} Status check '{context_name}' reached terminal state ({state}), "
                     f"re-evaluating can-be-merged"
                 )
 
-                owners_file_handler = OwnersFileHandler(github_webhook=self)
-                await PullRequestHandler(
-                    github_webhook=self, owners_file_handler=owners_file_handler
-                ).check_if_can_be_merged(pull_request=pull_request)
+                await self._recheck_merge_eligibility(pull_request=pull_request)
 
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
                     f"{self.log_prefix} Webhook processing completed successfully: status - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            elif self.github_event == "pull_request_review_thread":
+                # Action already filtered above (only resolved/unresolved reach here)
+                action = self.hook_data["action"]
+                self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
+
+                await self._recheck_merge_eligibility(pull_request=pull_request)
+
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"pull_request_review_thread - {token_metrics}",
                 )
                 await self._update_context_metrics()
                 return None
