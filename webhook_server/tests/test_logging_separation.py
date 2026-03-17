@@ -152,6 +152,7 @@ class TestJsonLogHandlerNotAttachedForInfrastructureLoggers:
         with (
             patch("webhook_server.utils.helpers.Config") as MockConfig,
             patch("webhook_server.utils.helpers.get_logger") as mock_get_logger,
+            patch("os.path.isdir", return_value=False),
             patch("os.makedirs"),
         ):
             mock_config_instance = MockConfig.return_value
