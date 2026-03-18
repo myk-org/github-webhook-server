@@ -1529,6 +1529,78 @@ class TestRunnerHandler:
                                         assert "CherryPicked-from-main" in labels_call_str
 
     @pytest.mark.asyncio
+    async def test_cherry_pick_ai_resolves_modify_delete_conflict(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Cherry-pick modify/delete conflict — AI resolves, cherry-pick auto-completes without --continue."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True, "timeout-minutes": 10},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            # Fail on cherry-pick (conflict)
+            if "cherry-pick" in command and "--continue" not in command and "rev-parse" not in command:
+                return (False, "", "CONFLICT (modify/delete): file.sh deleted in HEAD and modified in abc1234")
+            # CHERRY_PICK_HEAD does not exist — cherry-pick auto-completed
+            if "rev-parse --verify CHERRY_PICK_HEAD" in command:
+                return (False, "", "fatal: Needed a single revision")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
+                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.run_command",
+                            new=AsyncMock(side_effect=run_command_side_effect),
+                        ) as mock_run_cmd:
+                            with patch(
+                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                                new=AsyncMock(return_value=(True, "resolved")),
+                            ) as mock_ai_cli:
+                                with patch(
+                                    "asyncio.to_thread",
+                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+                                ):
+                                    with patch(
+                                        "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                                        return_value=None,
+                                    ):
+                                        await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_set_success.assert_called_once()
+                                        mock_ai_cli.assert_called_once()
+                                        # Verify cherry-pick --continue was NOT called
+                                        continue_calls = [
+                                            c for c in mock_run_cmd.call_args_list if "cherry-pick --continue" in str(c)
+                                        ]
+                                        assert not continue_calls, (
+                                            "cherry-pick --continue should not be called"
+                                            " when cherry-pick auto-completed"
+                                        )
+                                        # Verify CHERRY_PICK_HEAD check was called
+                                        rev_parse_calls = [
+                                            c for c in mock_run_cmd.call_args_list if "rev-parse" in str(c)
+                                        ]
+                                        assert rev_parse_calls, (
+                                            "CHERRY_PICK_HEAD check (rev-parse) should have been called"
+                                        )
+                                        # Verify AI comment was posted
+                                        comment_calls = mock_pull_request.create_issue_comment.call_args_list
+                                        ai_comment = any(
+                                            "Cherry-pick conflicts were resolved by AI" in str(c) for c in comment_calls
+                                        )
+                                        assert ai_comment, f"Expected AI comment, got: {comment_calls}"
+
+    @pytest.mark.asyncio
     async def test_cherry_pick_ai_fails_fallback(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Cherry-pick conflicts + AI fails — falls back to manual instructions."""
         runner_handler.github_webhook.ai_features = {
