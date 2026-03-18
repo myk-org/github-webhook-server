@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Features and Test Oracle - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link active" aria-current="page">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="ai-features-and-test-oracle">AI Features and Test Oracle</h1>
+<p>This project has two separate AI-related capabilities:</p>
+<ul>
+<li><code>conventional-title</code> validates pull request titles against the Conventional Commits format.</li>
+<li><code>ai-features.conventional-title</code> adds AI help when that validation fails.</li>
+<li><code>test-oracle</code> sends PR data to an external <a href="https://github.com/myk-org/pr-test-oracle">pr-test-oracle</a> service that recommends which tests to run.</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> <code>conventional-title</code> and <code>ai-features.conventional-title</code> are different settings. <code>conventional-title</code> enables the rule and defines the allowed types. <code>ai-features.conventional-title</code> controls whether AI suggests or auto-fixes a title when that rule fails.</p>
+</blockquote>
+<h2 id="configuration">Configuration</h2>
+<p>The shipped example configuration shows <code>test-oracle</code> and <code>ai-features</code> at the root level:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># PR Test Oracle integration</span>
+<span class="c1"># Analyzes PR diffs with AI and recommends which tests to run</span>
+<span class="c1"># See: https://github.com/myk-org/pr-test-oracle</span>
+<span class="nt">test-oracle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:8000&quot;</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
+<span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;tests/**/*.py&quot;</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="c1"># Default: [approved]</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span><span class="w"> </span><span class="c1"># Run when /approve command is used</span>
+<span class="w">    </span><span class="c1"># - pr-opened             # Run when PR is opened</span>
+<span class="w">    </span><span class="c1"># - pr-synchronized       # Run when new commits pushed</span>
+
+<span class="c1"># AI Features configuration</span>
+<span class="c1"># Enables AI-powered enhancements (e.g., conventional title suggestions)</span>
+<span class="nt">ai-features</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
+<span class="w">  </span><span class="nt">conventional-title</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span><span class="w">  </span><span class="c1"># suggest: show in checkrun | fix: auto-update PR title</span>
+<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</code></pre></div>
+
+<p>The schema also allows <code>test-oracle</code> and <code>ai-features</code> under a repository entry in <code>config.yaml</code> if you want per-repository behavior.</p>
+<p>The title validation rule itself is configured per repository:</p>
+<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="c1"># Conventional Commits validation</span>
+<span class="w">    </span><span class="c1"># Enforces Conventional Commits v1.0.0 specification for PR titles</span>
+<span class="w">    </span><span class="c1"># Format: &lt;type&gt;[optional scope]: &lt;description&gt;</span>
+<span class="w">    </span><span class="c1">#</span>
+<span class="w">    </span><span class="c1"># Standard types (recommended):</span>
+<span class="w">    </span><span class="c1">#   - feat: New features (triggers MINOR version bump in semver)</span>
+<span class="w">    </span><span class="c1">#   - fix: Bug fixes (triggers PATCH version bump in semver)</span>
+<span class="w">    </span><span class="c1">#   - build, chore, ci, docs, style, refactor, perf, test, revert</span>
+<span class="w">    </span><span class="c1">#</span>
+<span class="w">    </span><span class="c1"># Custom types: You can define your own types! The spec allows any noun.</span>
+<span class="w">    </span><span class="c1"># Examples: my-title, hotfix, release, custom</span>
+<span class="w">    </span><span class="c1">#</span>
+<span class="w">    </span><span class="c1"># Valid PR title examples:</span>
+<span class="w">    </span><span class="c1">#   - feat: add user authentication</span>
+<span class="w">    </span><span class="c1">#   - fix(parser): handle edge case in XML parsing</span>
+<span class="w">    </span><span class="c1">#   - feat!: breaking API change to authentication</span>
+<span class="w">    </span><span class="c1">#   - my-title: custom type example</span>
+<span class="w">    </span><span class="c1">#   - hotfix(api): resolve production issue</span>
+<span class="w">    </span><span class="c1">#</span>
+<span class="w">    </span><span class="c1"># Use &quot;*&quot; to accept any type while enforcing the format</span>
+<span class="w">    </span><span class="c1"># conventional-title: &quot;*&quot;</span>
+<span class="w">    </span><span class="c1">#</span>
+<span class="w">    </span><span class="c1"># Resources: https://www.conventionalcommits.org/en/v1.0.0/</span>
+<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert&quot;</span>
+</code></pre></div>
+
+<p><code>conventional-title</code> enforces the format <code>&lt;type&gt;[optional scope]: &lt;description&gt;</code>. In practice, that means:</p>
+<ul>
+<li>The type must match the configured comma-separated list, unless you use <code>*</code>.</li>
+<li><code>*</code> keeps the format check but allows any type token.</li>
+<li>Scope is optional and must appear as <code>(scope)</code>.</li>
+<li>A breaking-change marker <code>!</code> is allowed before the colon.</li>
+<li>The separator must be <code>:</code>.</li>
+<li>The description after <code>:</code> must not be empty.</li>
+<li>Custom types are valid when you list them in <code>conventional-title</code>.</li>
+</ul>
+<p>Once configured, <code>conventional-title</code> becomes a built-in PR check run. It is part of normal PR processing, it is rerun when the PR title changes, and it is available as <code>/retest conventional-title</code>.</p>
+<blockquote>
+<p><strong>Tip:</strong> Start by enabling <code>conventional-title</code> on a single repository. It gives contributors immediate feedback in GitHub without requiring any AI integration at all.</p>
+</blockquote>
+<h2 id="ai-suggestion-and-auto-fix-modes">AI suggestion and auto-fix modes</h2>
+<p>The <code>ai-features.conventional-title</code> section controls what happens after a title fails validation:</p>
+<ul>
+<li><code>mode: suggest</code> keeps the check failing, but adds an AI-generated title recommendation to the check output.</li>
+<li><code>mode: fix</code> validates the AI suggestion first. If the suggestion is valid and different from the current title, the server edits the PR title and marks the check successful.</li>
+<li><code>timeout-minutes</code> defaults to <code>10</code>.</li>
+</ul>
+<p>The core behavior is implemented here:</p>
+<div class="highlight"><pre><span></span><code>            <span class="c1"># AI-suggested title (if ai-features configured)</span>
+            <span class="n">ai_suggestion</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_ai_title_suggestion</span><span class="p">(</span>
+                <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                <span class="n">title</span><span class="o">=</span><span class="n">title</span><span class="p">,</span>
+                <span class="n">allowed_names</span><span class="o">=</span><span class="n">allowed_names</span><span class="p">,</span>
+                <span class="n">is_wildcard</span><span class="o">=</span><span class="n">is_wildcard</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">ai_mode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_ai_conventional_title_mode</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="n">ai_suggestion</span> <span class="ow">and</span> <span class="n">ai_mode</span> <span class="o">==</span> <span class="s2">&quot;fix&quot;</span><span class="p">:</span>
+                <span class="c1"># Validate the suggestion before applying</span>
+                <span class="k">if</span> <span class="n">is_wildcard</span><span class="p">:</span>
+                    <span class="n">suggestion_valid</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^[\w-]+(\([^)]+\))?!?: .+&quot;</span><span class="p">,</span> <span class="n">ai_suggestion</span><span class="p">))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">suggestion_valid</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span>
+                        <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">rf</span><span class="s2">&quot;^</span><span class="si">{</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">_name</span><span class="p">)</span><span class="si">}</span><span class="s2">(\([^)]+\))?!?: .+&quot;</span><span class="p">,</span> <span class="n">ai_suggestion</span><span class="p">)</span> <span class="k">for</span> <span class="n">_name</span> <span class="ow">in</span> <span class="n">allowed_names</span>
+                    <span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">suggestion_valid</span> <span class="ow">and</span> <span class="n">ai_suggestion</span> <span class="o">!=</span> <span class="n">title</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> AI fixing PR title from &#39;</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="s2">&#39; to &#39;</span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="n">ai_suggestion</span><span class="p">)</span>
+                        <span class="n">output</span><span class="p">[</span><span class="s2">&quot;title&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;Conventional Title&quot;</span>
+                        <span class="n">output</span><span class="p">[</span><span class="s2">&quot;summary&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;PR title auto-fixed by AI&quot;</span>
+                        <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;**AI Auto-Fix Applied**</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Title updated from: `</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="s2">`</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Title updated to: `</span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="s2">`</span><span class="se">\n</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_success</span><span class="p">(</span>
+                            <span class="n">name</span><span class="o">=</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">,</span> <span class="n">output</span><span class="o">=</span><span class="n">output</span>
+                        <span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Failed to auto-fix PR title&quot;</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="p">(</span>
+                                <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">---</span><span class="se">\n\n</span><span class="s2">### AI Auto-Fix Failed</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                                <span class="sa">f</span><span class="s2">&quot;Suggested title: `</span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="s2">`</span><span class="se">\n</span><span class="s2">&quot;</span>
+                                <span class="sa">f</span><span class="s2">&quot;Failed to update PR title automatically. Please update manually.&quot;</span>
+                            <span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> AI suggestion invalid or unchanged, skipping auto-fix: </span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+                    <span class="k">if</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">---</span><span class="se">\n\n</span><span class="s2">### AI Auto-Fix Skipped</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;AI suggested: `</span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="s2">`</span><span class="se">\n</span><span class="s2">&quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;Suggestion was invalid or unchanged.&quot;</span>
+                        <span class="p">)</span>
+
+            <span class="k">elif</span> <span class="n">ai_suggestion</span> <span class="ow">and</span> <span class="n">ai_mode</span> <span class="o">==</span> <span class="s2">&quot;suggest&quot;</span> <span class="ow">and</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">output</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">---</span><span class="se">\n\n</span><span class="s2">### AI-Suggested Title</span><span class="se">\n\n</span><span class="s2">&gt; </span><span class="si">{</span><span class="n">ai_suggestion</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_failure</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">,</span> <span class="n">output</span><span class="o">=</span><span class="n">output</span><span class="p">)</span>
+</code></pre></div>
+
+<p>This is worth understanding before you enable <code>fix</code> mode:</p>
+<ul>
+<li>The server does not blindly apply whatever the AI returns.</li>
+<li>It validates the suggestion against the same title rules you configured.</li>
+<li>If the suggestion is invalid, unchanged, or the GitHub edit fails, the check stays failing and explains why.</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> AI assistance is best-effort. If the AI CLI fails, times out, or returns an unusable title, the conventional-title check still completes and the normal validation result is shown.</p>
+<p><strong>Tip:</strong> <code>mode: suggest</code> is the safer starting point. Switch to <code>mode: fix</code> only after you are comfortable letting the server edit PR titles automatically.</p>
+</blockquote>
+<h2 id="supported-ai-providers">Supported AI providers</h2>
+<p>Both <code>ai-features</code> and <code>test-oracle</code> support the same provider list:</p>
+<ul>
+<li><code>claude</code></li>
+<li><code>gemini</code></li>
+<li><code>cursor</code></li>
+</ul>
+<p>Each feature also requires <code>ai-model</code>. The schema treats the model name as a string, so use the identifier expected by your provider tooling or oracle service, such as <code>sonnet</code>, <code>claude-opus-4-6[1m]</code>, or <code>gemini-2.5-pro</code>.</p>
+<h2 id="pr-test-oracle">PR Test Oracle</h2>
+<p><code>test-oracle</code> is separate from title validation. Instead of checking naming rules, it calls an external service that looks at the PR and recommends which tests to run.</p>
+<p>This is the relevant part of the implementation:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">github_webhook</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get_value</span><span class="p">(</span><span class="s2">&quot;test-oracle&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="k">if</span> <span class="n">trigger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">triggers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;triggers&quot;</span><span class="p">,</span> <span class="n">DEFAULT_TRIGGERS</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">trigger</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">triggers</span><span class="p">:</span>
+            <span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Test oracle trigger &#39;</span><span class="si">{</span><span class="n">trigger</span><span class="si">}</span><span class="s2">&#39; not in configured triggers </span><span class="si">{</span><span class="n">triggers</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="k">return</span>
+
+    <span class="n">server_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s2">&quot;server-url&quot;</span><span class="p">]</span>
+    <span class="n">log_prefix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">github_webhook</span><span class="o">.</span><span class="n">log_prefix</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">(</span><span class="n">base_url</span><span class="o">=</span><span class="n">server_url</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+            <span class="c1"># Health check</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">health_response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span>
+                <span class="n">health_response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+            <span class="k">except</span> <span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">status_info</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">httpx</span><span class="o">.</span><span class="n">HTTPStatusError</span><span class="p">):</span>
+                    <span class="n">status_info</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot; (status </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">status_code</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+                <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Test Oracle server at </span><span class="si">{</span><span class="n">server_url</span><span class="si">}</span><span class="s2"> is not responding</span><span class="si">{</span><span class="n">status_info</span><span class="si">}</span><span class="s2">, skipping test analysis&quot;</span>
+                <span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                        <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
+                        <span class="sa">f</span><span class="s2">&quot;Test Oracle server is not responding</span><span class="si">{</span><span class="n">status_info</span><span class="si">}</span><span class="s2">, skipping test analysis&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Failed to post health check comment&quot;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+            <span class="c1"># Build analyze payload</span>
+            <span class="n">pr_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">html_url</span><span class="p">)</span>
+            <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;pr_url&quot;</span><span class="p">:</span> <span class="n">pr_url</span><span class="p">,</span>
+                <span class="s2">&quot;ai_provider&quot;</span><span class="p">:</span> <span class="n">config</span><span class="p">[</span><span class="s2">&quot;ai-provider&quot;</span><span class="p">],</span>
+                <span class="s2">&quot;ai_model&quot;</span><span class="p">:</span> <span class="n">config</span><span class="p">[</span><span class="s2">&quot;ai-model&quot;</span><span class="p">],</span>
+                <span class="c1"># Token is required by the oracle server to fetch PR data and post reviews.</span>
+                <span class="c1"># Server URL is configured by the admin - they control the network setup.</span>
+                <span class="s2">&quot;github_token&quot;</span><span class="p">:</span> <span class="n">github_webhook</span><span class="o">.</span><span class="n">token</span><span class="p">,</span>
+            <span class="p">}</span>
+
+            <span class="k">if</span> <span class="s2">&quot;test-patterns&quot;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+                <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;test_patterns&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s2">&quot;test-patterns&quot;</span><span class="p">]</span>
+
+            <span class="c1"># Call analyze</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Calling Test Oracle for </span><span class="si">{</span><span class="n">pr_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/analyze&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">300.0</span><span class="p">)</span>
+</code></pre></div>
+
+<p>For users, the important behavior is:</p>
+<ul>
+<li>If <code>test-oracle</code> is not configured, nothing runs.</li>
+<li>Automatic trigger filtering only applies when the function is called with a named trigger.</li>
+<li>The oracle service is checked with <code>GET /health</code> before analysis starts.</li>
+<li>The analyze request sends <code>pr_url</code>, <code>ai_provider</code>, <code>ai_model</code>, <code>github_token</code>, and optional <code>test_patterns</code>.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> The server sends a GitHub token to the oracle service so it can fetch PR data and post results. Only point <code>server-url</code> at a service you trust.</p>
+</blockquote>
+<h2 id="triggers-and-manual-runs">Triggers and manual runs</h2>
+<p>The automatic trigger names are:</p>
+<ul>
+<li><code>approved</code></li>
+<li><code>pr-opened</code></li>
+<li><code>pr-synchronized</code></li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> <code>approved</code> does not mean a plain GitHub approval review. In this project, it means someone used <code>/approve</code>. A review with GitHub state <code>approved</code> but without <code>/approve</code> does not trigger the oracle.</p>
+</blockquote>
+<p>A review body containing <code>/approve</code> triggers the <code>approved</code> path:</p>
+<div class="highlight"><pre><span></span><code>                <span class="k">if</span> <span class="n">body</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;review&quot;</span><span class="p">][</span><span class="s2">&quot;body&quot;</span><span class="p">]:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Found review body: </span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="c1"># In this project, &quot;approved&quot; means a maintainer uses the /approve command</span>
+                    <span class="c1"># (which adds an approved-&lt;user&gt; label), NOT GitHub&#39;s review approval state.</span>
+                    <span class="c1"># The oracle trigger fires only when /approve is found in the review body.</span>
+                    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="sa">f</span><span class="s2">&quot;/</span><span class="si">{</span><span class="n">APPROVE_STR</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">body</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()):</span>
+                        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">label_by_user_comment</span><span class="p">(</span>
+                            <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                            <span class="n">user_requested_label</span><span class="o">=</span><span class="n">APPROVE_STR</span><span class="p">,</span>
+                            <span class="n">remove</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                            <span class="n">reviewed_user</span><span class="o">=</span><span class="n">reviewed_user</span><span class="p">,</span>
+                        <span class="p">)</span>
+                        <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
+                            <span class="n">call_test_oracle</span><span class="p">(</span>
+                                <span class="n">github_webhook</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="p">,</span>
+                                <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                                <span class="n">trigger</span><span class="o">=</span><span class="s2">&quot;approved&quot;</span><span class="p">,</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">_background_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+                        <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_background_tasks</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
+</code></pre></div>
+
+<p>PR open and PR synchronize events trigger <code>pr-opened</code> and <code>pr-synchronized</code>:</p>
+<div class="highlight"><pre><span></span><code>            <span class="k">if</span> <span class="n">hook_action</span> <span class="o">==</span> <span class="s2">&quot;opened&quot;</span><span class="p">:</span>
+                <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
+                    <span class="n">call_test_oracle</span><span class="p">(</span>
+                        <span class="n">github_webhook</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="p">,</span>
+                        <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                        <span class="n">trigger</span><span class="o">=</span><span class="s2">&quot;pr-opened&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">_background_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+                <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_background_tasks</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;pr_handler&quot;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="n">hook_action</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">hook_action</span> <span class="o">==</span> <span class="s2">&quot;synchronize&quot;</span><span class="p">:</span>
+            <span class="n">sync_tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Coroutine</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="n">sync_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">process_opened_or_synchronize_pull_request</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
+            <span class="n">sync_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">remove_labels_when_pull_request_sync</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
+
+            <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">sync_tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Async task failed: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
+                <span class="n">call_test_oracle</span><span class="p">(</span>
+                    <span class="n">github_webhook</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="p">,</span>
+                    <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                    <span class="n">trigger</span><span class="o">=</span><span class="s2">&quot;pr-synchronized&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">_background_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+            <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_background_tasks</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Manual runs are also supported:</p>
+<ul>
+<li>The <code>/test-oracle</code> issue comment command always works when <code>test-oracle</code> is configured, even if the trigger list does not include the current event.</li>
+<li><code>/test-oracle</code> is intentionally exempt from the normal draft-PR command restriction.</li>
+<li><code>approved</code> is the default automatic trigger if you omit <code>triggers</code>.</li>
+<li><code>reopened</code> and <code>ready_for_review</code> do not automatically invoke test oracle.</li>
+</ul>
+<h2 id="failure-behavior">Failure behavior</h2>
+<p>The oracle integration is deliberately forgiving:</p>
+<ul>
+<li>If the health check fails, the server adds a PR comment explaining that the oracle is unavailable and skips analysis.</li>
+<li>If the later <code>/analyze</code> request fails or returns invalid JSON, the error is logged and webhook processing continues.</li>
+<li>A broken oracle does not stop the rest of the PR automation pipeline.</li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> A conservative rollout is to enable <code>conventional-title</code>, set <code>ai-features.conventional-title.mode: suggest</code>, and keep <code>test-oracle.triggers</code> at its default <code>approved</code>. Once that works well for your team, you can switch title handling to <code>fix</code> or add <code>pr-opened</code> and <code>pr-synchronized</code> for broader test analysis.</p>
+</blockquote>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="container-and-pypi-workflows.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Container and PyPI Workflows</span>
+                </a>
+
+
+                <a href="log-viewer-guide.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Log Viewer Guide</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#ai-suggestion-and-auto-fix-modes">AI suggestion and auto-fix modes</a></li>
+<li><a href="#supported-ai-providers">Supported AI providers</a></li>
+<li><a href="#pr-test-oracle">PR Test Oracle</a></li>
+<li><a href="#triggers-and-manual-runs">Triggers and manual runs</a></li>
+<li><a href="#failure-behavior">Failure behavior</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

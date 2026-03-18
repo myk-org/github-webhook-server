@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Bootstrap and GitHub App - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link active" aria-current="page">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="repository-bootstrap-and-github-app">Repository Bootstrap and GitHub App</h1>
+<p>When <code>github-webhook-server</code> starts, it does a one-time bootstrap pass before it begins serving webhook traffic. That startup pass is what makes each configured repository "ready" on GitHub: it creates the server's built-in labels, applies repository defaults, writes branch protection for the branches you list, repairs stale built-in check runs, and makes sure the repository webhook points back to this server.</p>
+<p>This is a startup-only workflow. If you change bootstrap-related settings such as <code>webhook-ip</code>, <code>branch-protection</code>, or <code>protected-branches</code>, restart the server so the bootstrap runs again.</p>
+<p>From <code>entrypoint.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="c1"># Run Podman cleanup before starting the application</span>
+    <span class="n">run_podman_cleanup</span><span class="p">()</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">repository_and_webhook_settings</span><span class="p">(</span><span class="n">webhook_secret</span><span class="o">=</span><span class="n">_webhook_secret</span><span class="p">))</span>
+
+    <span class="n">uvicorn</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+        <span class="s2">&quot;webhook_server.app:FASTAPI_APP&quot;</span><span class="p">,</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">_ip_bind</span><span class="p">,</span>
+        <span class="n">port</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">_port</span><span class="p">),</span>
+        <span class="n">workers</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">_max_workers</span><span class="p">),</span>
+        <span class="n">reload</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+
+<p>From <code>webhook_server/utils/github_repository_and_webhook_settings.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">repository_and_webhook_settings</span><span class="p">(</span><span class="n">webhook_secret</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span><span class="n">logger</span><span class="o">=</span><span class="n">LOGGER</span><span class="p">)</span>
+    <span class="n">apis_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">apis</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">github</span><span class="o">.</span><span class="n">Github</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">with</span> <span class="n">ThreadPoolExecutor</span><span class="p">()</span> <span class="k">as</span> <span class="n">executor</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">repo</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">root_data</span><span class="p">[</span><span class="s2">&quot;repositories&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">apis</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span>
+                    <span class="n">get_repository_api</span><span class="p">,</span>
+                    <span class="o">**</span><span class="p">{</span><span class="s2">&quot;repository&quot;</span><span class="p">:</span> <span class="n">repo</span><span class="p">},</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">as_completed</span><span class="p">(</span><span class="n">apis</span><span class="p">):</span>
+            <span class="n">repository</span><span class="p">,</span> <span class="n">github_api</span><span class="p">,</span> <span class="n">api_user</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+            <span class="n">apis_dict</span><span class="p">[</span><span class="n">repository</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;api&quot;</span><span class="p">:</span> <span class="n">github_api</span><span class="p">,</span> <span class="s2">&quot;user&quot;</span><span class="p">:</span> <span class="n">api_user</span><span class="p">}</span>
+
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Repositories APIs: </span><span class="si">{</span><span class="n">apis_dict</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">await</span> <span class="n">set_repositories_settings</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">)</span>
+    <span class="n">set_all_in_progress_check_runs_to_queued</span><span class="p">(</span><span class="n">repo_config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">)</span>
+    <span class="n">create_webhook</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">,</span> <span class="n">secret</span><span class="o">=</span><span class="n">webhook_secret</span><span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> The startup bootstrap uses the central <code>config.yaml</code> in the server data directory. The repo-local <code>.github-webhook-server.yaml</code> file is loaded later during normal webhook processing, not during this bootstrap pass.</p>
+</blockquote>
+<h2 id="what-you-need">What You Need</h2>
+<p>The server reads its main configuration from <code>WEBHOOK_SERVER_DATA_DIR</code>, which defaults to <code>/home/podman/data</code>.</p>
+<p>From <code>webhook_server/libs/config.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="bp">self</span><span class="o">.</span><span class="n">data_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;WEBHOOK_SERVER_DATA_DIR&quot;</span><span class="p">,</span> <span class="s2">&quot;/home/podman/data&quot;</span><span class="p">)</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_dir</span><span class="p">,</span> <span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>That same directory also needs the GitHub App private key file named <code>webhook-server.private-key.pem</code>.</p>
+<p>The container example makes that explicit:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">volumes</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;./webhook_server_data_dir:/home/podman/data:Z&quot;</span><span class="w"> </span><span class="c1"># Should include config.yaml and webhook-server.private-key.pem</span>
+</code></pre></div>
+
+<p>At minimum, you should have:</p>
+<ul>
+<li>a <code>config.yaml</code> with <code>github-app-id</code>, <code>webhook-ip</code>, and <code>repositories</code></li>
+<li>at least one valid <code>github-token</code> for each repository you want to bootstrap</li>
+<li>the GitHub App private key at <code>webhook-server.private-key.pem</code></li>
+<li>the GitHub App installed on the repositories where you want App-backed check runs to work</li>
+</ul>
+<p>A trimmed example from <code>examples/config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># GitHub app id</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN1&gt;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN2&gt;</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;HTTP://IP OR URL:PORT/webhook_server&gt;</span><span class="w"> </span><span class="c1"># Full URL with path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel)</span>
+
+<span class="nt">default-status-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;dpulls&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;can-be-merged&quot;</span>
+
+<span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_thread</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
+<span class="w">    </span><span class="nt">tox</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
+<span class="w">      </span><span class="nt">dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">testenv1,testenv2</span>
+<span class="w">    </span><span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="c1"># set [] in order to set all defaults run included</span>
+<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr&quot;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis&quot;</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry username&gt;</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_password&gt;</span>
+<span class="w">      </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_repository_full_path&gt;</span>
+<span class="w">      </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;image_tag&gt;</span>
+<span class="w">      </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Warning:</strong> <code>webhook-ip</code> must be the full callback URL, including <code>/webhook_server</code>. The bootstrap code uses this value exactly as written when it creates the GitHub webhook.</p>
+</blockquote>
+<h2 id="how-authentication-is-used">How Authentication Is Used</h2>
+<p>Startup bootstrap uses two different GitHub auth paths.</p>
+<ul>
+<li><code>github-tokens</code> are used for normal repository administration: reading the repo, creating labels, editing repository settings, applying branch protection, and creating repository webhooks.</li>
+<li>The configured GitHub App is used when the server needs an installation-scoped API that can create check runs. That matters during startup because stale built-in checks are repaired through the App.</li>
+</ul>
+<p>The token side is selected per repository, choosing the token with the highest remaining rate limit:</p>
+<div class="highlight"><pre><span></span><code><span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span><span class="n">repository</span><span class="o">=</span><span class="n">repository</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="n">LOGGER</span><span class="p">)</span>
+<span class="n">github_api</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">api_user</span> <span class="o">=</span> <span class="n">get_api_with_highest_rate_limit</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">repository_name</span><span class="o">=</span><span class="n">repository</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The GitHub App side is created from <code>github-app-id</code> plus <code>webhook-server.private-key.pem</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">config_</span><span class="o">.</span><span class="n">data_dir</span><span class="p">,</span> <span class="s2">&quot;webhook-server.private-key.pem&quot;</span><span class="p">))</span> <span class="k">as</span> <span class="n">fd</span><span class="p">:</span>
+    <span class="n">private_key</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="n">github_app_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">config_</span><span class="o">.</span><span class="n">root_data</span><span class="p">[</span><span class="s2">&quot;github-app-id&quot;</span><span class="p">]</span>
+<span class="n">auth</span><span class="p">:</span> <span class="n">AppAuth</span> <span class="o">=</span> <span class="n">Auth</span><span class="o">.</span><span class="n">AppAuth</span><span class="p">(</span><span class="n">app_id</span><span class="o">=</span><span class="n">github_app_id</span><span class="p">,</span> <span class="n">private_key</span><span class="o">=</span><span class="n">private_key</span><span class="p">)</span>
+<span class="n">app_instance</span><span class="p">:</span> <span class="n">GithubIntegration</span> <span class="o">=</span> <span class="n">GithubIntegration</span><span class="p">(</span><span class="n">auth</span><span class="o">=</span><span class="n">auth</span><span class="p">)</span>
+<span class="n">owner</span><span class="p">,</span> <span class="n">repo</span> <span class="o">=</span> <span class="n">repository_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+
+<span class="k">return</span> <span class="n">app_instance</span><span class="o">.</span><span class="n">get_repo_installation</span><span class="p">(</span><span class="n">owner</span><span class="o">=</span><span class="n">owner</span><span class="p">,</span> <span class="n">repo</span><span class="o">=</span><span class="n">repo</span><span class="p">)</span><span class="o">.</span><span class="n">get_github_for_installation</span><span class="p">()</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> If you configure repository-specific <code>github-tokens</code>, those override the global token list because bootstrap resolves tokens through repository-aware config lookups.</p>
+</blockquote>
+<h2 id="what-bootstrap-changes">What Bootstrap Changes</h2>
+<h3 id="labels-and-repository-defaults">Labels and Repository Defaults</h3>
+<p>For each configured repository, bootstrap first makes sure the static label set exists and has the expected colors. If a label is missing, it is created. If it exists with a different color, it is updated.</p>
+<p>From <code>webhook_server/utils/github_repository_settings.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_repository_labels</span><span class="p">(</span><span class="n">repository</span><span class="p">:</span> <span class="n">Repository</span><span class="p">,</span> <span class="n">api_user</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Set repository </span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> labels&quot;</span><span class="p">)</span>
+    <span class="n">repository_labels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">repository</span><span class="o">.</span><span class="n">get_labels</span><span class="p">():</span>
+        <span class="n">repository_labels</span><span class="p">[</span><span class="n">label</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;object&quot;</span><span class="p">:</span> <span class="n">label</span><span class="p">,</span>
+            <span class="s2">&quot;color&quot;</span><span class="p">:</span> <span class="n">label</span><span class="o">.</span><span class="n">color</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">for</span> <span class="n">label_name</span><span class="p">,</span> <span class="n">label_color</span> <span class="ow">in</span> <span class="n">STATIC_LABELS_DICT</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">label_lower</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">label_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">label_lower</span> <span class="ow">in</span> <span class="n">repository_labels</span><span class="p">:</span>
+            <span class="n">repo_label</span><span class="p">:</span> <span class="n">Label</span> <span class="o">=</span> <span class="n">repository_labels</span><span class="p">[</span><span class="n">label_lower</span><span class="p">][</span><span class="s2">&quot;object&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">repository_labels</span><span class="p">[</span><span class="n">label_lower</span><span class="p">][</span><span class="s2">&quot;color&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">label_color</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: Edit repository label </span><span class="si">{</span><span class="n">label_name</span><span class="si">}</span><span class="s2"> with color </span><span class="si">{</span><span class="n">label_color</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">repo_label</span><span class="o">.</span><span class="n">edit</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">repo_label</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">label_color</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: Add repository label </span><span class="si">{</span><span class="n">label_name</span><span class="si">}</span><span class="s2"> with color </span><span class="si">{</span><span class="n">label_color</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">repository</span><span class="o">.</span><span class="n">create_label</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">label_name</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">label_color</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">repository</span><span class="si">}</span><span class="s2">: Setting repository labels is done&quot;</span>
+</code></pre></div>
+
+<p>The static startup label set comes from <code>STATIC_LABELS_DICT</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">STATIC_LABELS_DICT</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="o">**</span><span class="n">USER_LABELS_DICT</span><span class="p">,</span>
+    <span class="n">CHERRY_PICKED_LABEL</span><span class="p">:</span> <span class="s2">&quot;1D76DB&quot;</span><span class="p">,</span>
+    <span class="n">AI_RESOLVED_CONFLICTS_LABEL</span><span class="p">:</span> <span class="s2">&quot;FFA500&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">L&quot;</span><span class="p">:</span> <span class="s2">&quot;F5621C&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">M&quot;</span><span class="p">:</span> <span class="s2">&quot;F09C74&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">S&quot;</span><span class="p">:</span> <span class="s2">&quot;0E8A16&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">XL&quot;</span><span class="p">:</span> <span class="s2">&quot;D93F0B&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">XS&quot;</span><span class="p">:</span> <span class="s2">&quot;ededed&quot;</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">SIZE_LABEL_PREFIX</span><span class="si">}</span><span class="s2">XXL&quot;</span><span class="p">:</span> <span class="s2">&quot;B60205&quot;</span><span class="p">,</span>
+    <span class="n">NEEDS_REBASE_LABEL_STR</span><span class="p">:</span> <span class="s2">&quot;B60205&quot;</span><span class="p">,</span>
+    <span class="n">CAN_BE_MERGED_STR</span><span class="p">:</span> <span class="s2">&quot;0E8A17&quot;</span><span class="p">,</span>
+    <span class="n">HAS_CONFLICTS_LABEL_STR</span><span class="p">:</span> <span class="s2">&quot;B60205&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>In practice, that means startup ensures labels such as:</p>
+<ul>
+<li><code>hold</code>, <code>verified</code>, <code>wip</code>, <code>lgtm</code>, <code>approve</code>, <code>automerge</code></li>
+<li><code>CherryPicked</code>, <code>ai-resolved-conflicts</code></li>
+<li><code>needs-rebase</code>, <code>has-conflicts</code>, <code>can-be-merged</code></li>
+<li><code>size/XS</code>, <code>size/S</code>, <code>size/M</code>, <code>size/L</code>, <code>size/XL</code>, <code>size/XXL</code></li>
+</ul>
+<p>After labels, bootstrap applies repository-wide defaults:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_repository_settings</span><span class="p">(</span><span class="n">repository</span><span class="p">:</span> <span class="n">Repository</span><span class="p">,</span> <span class="n">api_user</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Set repository </span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> settings&quot;</span><span class="p">)</span>
+    <span class="n">repository</span><span class="o">.</span><span class="n">edit</span><span class="p">(</span><span class="n">delete_branch_on_merge</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">allow_auto_merge</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">allow_update_branch</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">repository</span><span class="o">.</span><span class="n">private</span><span class="p">:</span>
+        <span class="n">LOGGER</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: Repository is private, skipping setting security settings&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Set repository </span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> security settings&quot;</span><span class="p">)</span>
+    <span class="n">repository</span><span class="o">.</span><span class="n">_requester</span><span class="o">.</span><span class="n">requestJsonAndCheck</span><span class="p">(</span>
+        <span class="s2">&quot;PATCH&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">url</span><span class="si">}</span><span class="s2">/code-scanning/default-setup&quot;</span><span class="p">,</span>
+        <span class="nb">input</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;not-configured&quot;</span><span class="p">},</span>
+    <span class="p">)</span>
+
+    <span class="n">repository</span><span class="o">.</span><span class="n">_requester</span><span class="o">.</span><span class="n">requestJsonAndCheck</span><span class="p">(</span>
+        <span class="s2">&quot;PATCH&quot;</span><span class="p">,</span>
+        <span class="n">repository</span><span class="o">.</span><span class="n">url</span><span class="p">,</span>
+        <span class="nb">input</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;security_and_analysis&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;secret_scanning&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;enabled&quot;</span><span class="p">},</span>
+                <span class="s2">&quot;secret_scanning_push_protection&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;enabled&quot;</span><span class="p">},</span>
+            <span class="p">}</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
+</code></pre></div>
+
+<p>So, on public repositories, startup also:</p>
+<ul>
+<li>enables delete-branch-on-merge</li>
+<li>enables auto-merge</li>
+<li>enables update branch</li>
+<li>enables secret scanning</li>
+<li>enables secret scanning push protection</li>
+<li>sets code scanning default setup to <code>not-configured</code></li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> Private repositories still get label reconciliation and repository-level merge defaults, but the startup path skips the public-repo security setup and does not apply branch protection for them.</p>
+<p><strong>Tip:</strong> Startup only pre-creates the static labels. Dynamic labels such as <code>approved-*</code>, <code>lgtm-*</code>, <code>commented-*</code>, <code>changes-requested-*</code>, <code>cherry-pick-*</code>, and <code>branch-*</code> show up later when real webhook events need them.</p>
+</blockquote>
+<h3 id="branch-protection-and-required-checks">Branch Protection and Required Checks</h3>
+<p>Only branches listed under <code>protected-branches</code> are touched. Bootstrap reads the top-level <code>branch-protection</code> block, then lets <code>repositories.&lt;name&gt;.branch-protection</code> override it for that repository.</p>
+<p>If you do not override anything, the default protection settings are:</p>
+<ul>
+<li><code>strict: true</code></li>
+<li><code>require_code_owner_reviews: false</code></li>
+<li><code>dismiss_stale_reviews: true</code></li>
+<li><code>required_approving_review_count: 0</code></li>
+<li><code>required_linear_history: true</code></li>
+<li><code>required_conversation_resolution: true</code></li>
+</ul>
+<p>When branch protection is applied, the required status checks are passed directly into <code>branch.edit_protection(...)</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_branch_protection</span><span class="p">(</span>
+    <span class="n">branch</span><span class="p">:</span> <span class="n">Branch</span><span class="p">,</span>
+    <span class="n">repository</span><span class="p">:</span> <span class="n">Repository</span><span class="p">,</span>
+    <span class="n">required_status_checks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">require_code_owner_reviews</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">dismiss_stale_reviews</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">required_approving_review_count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">required_linear_history</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">required_conversation_resolution</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">api_user</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Set branch </span><span class="si">{</span><span class="n">branch</span><span class="si">}</span><span class="s2"> setting for </span><span class="si">{</span><span class="n">repository</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">. &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;enabled checks: </span><span class="si">{</span><span class="n">required_status_checks</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="n">branch</span><span class="o">.</span><span class="n">edit_protection</span><span class="p">(</span>
+        <span class="n">strict</span><span class="o">=</span><span class="n">strict</span><span class="p">,</span>
+        <span class="n">required_conversation_resolution</span><span class="o">=</span><span class="n">required_conversation_resolution</span><span class="p">,</span>
+        <span class="n">contexts</span><span class="o">=</span><span class="n">required_status_checks</span><span class="p">,</span>
+        <span class="n">require_code_owner_reviews</span><span class="o">=</span><span class="n">require_code_owner_reviews</span><span class="p">,</span>
+        <span class="n">dismiss_stale_reviews</span><span class="o">=</span><span class="n">dismiss_stale_reviews</span><span class="p">,</span>
+        <span class="n">required_approving_review_count</span><span class="o">=</span><span class="n">required_approving_review_count</span><span class="p">,</span>
+        <span class="n">required_linear_history</span><span class="o">=</span><span class="n">required_linear_history</span><span class="p">,</span>
+        <span class="n">users_bypass_pull_request_allowances</span><span class="o">=</span><span class="p">[</span><span class="n">api_user</span><span class="p">],</span>
+        <span class="n">teams_bypass_pull_request_allowances</span><span class="o">=</span><span class="p">[</span><span class="n">api_user</span><span class="p">],</span>
+        <span class="n">apps_bypass_pull_request_allowances</span><span class="o">=</span><span class="p">[</span><span class="n">api_user</span><span class="p">],</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="kc">True</span>
+</code></pre></div>
+
+<p>The required check list is generated from your repository configuration. From <code>get_required_status_checks(...)</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_required_status_checks</span><span class="p">(</span>
+    <span class="n">repo</span><span class="p">:</span> <span class="n">Repository</span><span class="p">,</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">default_status_checks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">exclude_status_checks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tox&quot;</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;tox&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;verified-job&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;verified&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;container&quot;</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BUILD_CONTAINER_STR</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pypi&quot;</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">PYTHON_MODULE_INSTALL_STR</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pre-commit&quot;</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">PRE_COMMIT_STR</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">):</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">repo</span><span class="o">.</span><span class="n">get_contents</span><span class="p">(</span><span class="s2">&quot;.pre-commit-config.yaml&quot;</span><span class="p">)</span>
+        <span class="n">default_status_checks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;pre-commit.ci - pr&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">UnknownObjectException</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+    <span class="c1"># Deduplicate status checks while preserving order</span>
+    <span class="n">seen</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="n">deduplicated</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">status_check</span> <span class="ow">in</span> <span class="n">default_status_checks</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">status_check</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">status_check</span><span class="p">)</span>
+            <span class="n">deduplicated</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">status_check</span><span class="p">)</span>
+
+    <span class="c1"># Remove excluded status checks</span>
+    <span class="k">for</span> <span class="n">status_check</span> <span class="ow">in</span> <span class="n">exclude_status_checks</span><span class="p">:</span>
+        <span class="k">while</span> <span class="n">status_check</span> <span class="ow">in</span> <span class="n">deduplicated</span><span class="p">:</span>
+            <span class="n">deduplicated</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">status_check</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">deduplicated</span>
+</code></pre></div>
+
+<p>Here is how that plays out:</p>
+<ul>
+<li>Start with <code>default-status-checks</code></li>
+<li>Always add <code>can-be-merged</code></li>
+<li>Add <code>tox</code> if <code>tox</code> is configured</li>
+<li>Add <code>verified</code> unless <code>verified-job: false</code></li>
+<li>Add <code>build-container</code> if <code>container</code> is configured</li>
+<li>Add <code>python-module-install</code> if <code>pypi</code> is configured</li>
+<li>Add <code>pre-commit</code> if <code>pre-commit: true</code></li>
+<li>Add <code>conventional-title</code> if <code>conventional-title</code> is configured</li>
+<li>Add <code>pre-commit.ci - pr</code> automatically when <code>.pre-commit-config.yaml</code> exists in the repository</li>
+<li>Deduplicate the list</li>
+<li>Remove anything listed in <code>exclude-runs</code></li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> <code>include-runs</code> is not additive. If you set <code>include-runs</code> for a branch, that list replaces the automatically generated check list for that branch. Use <code>exclude-runs</code> when you want "the generated list, minus a few checks."</p>
+<p><strong>Tip:</strong> The server always adds <code>can-be-merged</code> before deduplicating. You do not need to add it twice.</p>
+</blockquote>
+<p>One important limitation to remember: startup branch protection is built from the built-in checks above and your explicit <code>include-runs</code>. Runtime-only features such as <code>custom-check-runs</code> are handled later during webhook processing, not automatically added by this startup branch-protection pass.</p>
+<h3 id="github-app-check-state-repair">GitHub App Check-State Repair</h3>
+<p>After repository settings are written, bootstrap scans open pull requests and repairs built-in checks that were left stuck in <code>in_progress</code>. This is where the GitHub App matters most at startup.</p>
+<p>The built-in check names are:</p>
+<div class="highlight"><pre><span></span><code><span class="n">BUILTIN_CHECK_NAMES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span>
+    <span class="n">TOX_STR</span><span class="p">,</span>
+    <span class="n">PRE_COMMIT_STR</span><span class="p">,</span>
+    <span class="n">BUILD_CONTAINER_STR</span><span class="p">,</span>
+    <span class="n">PYTHON_MODULE_INSTALL_STR</span><span class="p">,</span>
+    <span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">,</span>
+    <span class="n">CAN_BE_MERGED_STR</span><span class="p">,</span>
+<span class="p">})</span>
+</code></pre></div>
+
+<p>And the reset logic is:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_repository_check_runs_to_queued</span><span class="p">(</span>
+    <span class="n">config_</span><span class="p">:</span> <span class="n">Config</span><span class="p">,</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">github_api</span><span class="p">:</span> <span class="n">Github</span><span class="p">,</span>
+    <span class="n">check_runs</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">api_user</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set_checkrun_queued</span><span class="p">(</span><span class="n">_api</span><span class="p">:</span> <span class="n">Repository</span><span class="p">,</span> <span class="n">_pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">last_commit</span><span class="p">:</span> <span class="n">Commit</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">commit</span> <span class="ow">in</span> <span class="n">_pull_request</span><span class="o">.</span><span class="n">get_commits</span><span class="p">():</span>
+            <span class="n">last_commit</span> <span class="o">=</span> <span class="n">commit</span>
+        <span class="k">if</span> <span class="n">last_commit</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">repository</span><span class="si">}</span><span class="s2">: [PR:</span><span class="si">{</span><span class="n">_pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">] No commits found&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">for</span> <span class="n">check_run</span> <span class="ow">in</span> <span class="n">last_commit</span><span class="o">.</span><span class="n">get_check_runs</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">check_run</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">check_runs</span> <span class="ow">and</span> <span class="n">check_run</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="n">IN_PROGRESS_STR</span><span class="p">:</span>
+                <span class="n">LOGGER</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">repository</span><span class="si">}</span><span class="s2">: [PR:</span><span class="si">{</span><span class="n">_pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">] &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">check_run</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> status is </span><span class="si">{</span><span class="n">IN_PROGRESS_STR</span><span class="si">}</span><span class="s2">, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Setting check run </span><span class="si">{</span><span class="n">check_run</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">QUEUED_STR</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="n">_api</span><span class="o">.</span><span class="n">create_check_run</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">check_run</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">head_sha</span><span class="o">=</span><span class="n">last_commit</span><span class="o">.</span><span class="n">sha</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="n">QUEUED_STR</span><span class="p">)</span>
+</code></pre></div>
+
+<p>What this means for you:</p>
+<ul>
+<li>it looks only at open PRs</li>
+<li>it inspects the last commit on each PR</li>
+<li>it only repairs built-in check runs</li>
+<li>if one of those checks is still <code>in_progress</code> when the server starts, bootstrap creates a new check run with the same name and sets it to <code>queued</code></li>
+</ul>
+<p>This is especially useful after restarts or crashes, because it prevents built-in checks like <code>tox</code> or <code>can-be-merged</code> from being left permanently stuck in the GitHub UI.</p>
+<blockquote>
+<p><strong>Note:</strong> Custom checks are not part of this startup repair pass. The App-backed reset only targets the built-in check names listed above.</p>
+<p><strong>Warning:</strong> If the GitHub App is not installed on a repository, the startup repair step cannot create replacement check runs for that repository.</p>
+</blockquote>
+<h3 id="webhook-creation-and-reconciliation">Webhook Creation and Reconciliation</h3>
+<p>The last bootstrap step makes sure every configured repository has a webhook pointing back to this server.</p>
+<p>From <code>webhook_server/utils/webhook.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">config_</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">webhook_ip</span><span class="p">,</span> <span class="s2">&quot;content_type&quot;</span><span class="p">:</span> <span class="s2">&quot;json&quot;</span><span class="p">}</span>
+
+<span class="k">if</span> <span class="n">secret</span><span class="p">:</span>
+    <span class="n">config_</span><span class="p">[</span><span class="s2">&quot;secret&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">secret</span>
+
+<span class="n">events</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;events&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">])</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">hooks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Hook</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">repo</span><span class="o">.</span><span class="n">get_hooks</span><span class="p">())</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="kc">False</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Could not list webhook for </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">, check token permissions: </span><span class="si">{</span><span class="n">ex</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">LOGGER</span><span class="o">.</span><span class="n">error</span><span class="p">,</span>
+    <span class="p">)</span>
+
+<span class="k">for</span> <span class="n">_hook</span> <span class="ow">in</span> <span class="n">hooks</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">webhook_ip</span> <span class="ow">in</span> <span class="n">_hook</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;url&quot;</span><span class="p">]:</span>
+        <span class="n">secret_presence_mismatch</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">_hook</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;secret&quot;</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">secret</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">secret_presence_mismatch</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">: Deleting old webhook&quot;</span><span class="p">)</span>
+            <span class="n">_hook</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Check if events need updating</span>
+            <span class="n">hook_events</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">_hook</span><span class="o">.</span><span class="n">events</span><span class="p">))</span>
+            <span class="n">config_events</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">events</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">hook_events</span> <span class="o">!=</span> <span class="n">config_events</span><span class="p">:</span>
+                <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">: &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Updating webhook events: </span><span class="si">{</span><span class="n">hook_events</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">config_events</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="n">_hook</span><span class="o">.</span><span class="n">edit</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;web&quot;</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config_</span><span class="p">,</span> <span class="n">events</span><span class="o">=</span><span class="n">config_events</span><span class="p">,</span> <span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="kc">True</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">: &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Hook updated with new events - </span><span class="si">{</span><span class="n">_hook</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;url&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">,</span>
+                <span class="p">)</span>
+
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="kc">True</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">: Hook already exists - </span><span class="si">{</span><span class="n">_hook</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;url&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">,</span>
+            <span class="p">)</span>
+
+<span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - Creating webhook: </span><span class="si">{</span><span class="n">config_</span><span class="p">[</span><span class="s1">&#39;url&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2"> with events: </span><span class="si">{</span><span class="n">events</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+<span class="n">repo</span><span class="o">.</span><span class="n">create_hook</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;web&quot;</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config_</span><span class="p">,</span> <span class="n">events</span><span class="o">=</span><span class="n">events</span><span class="p">,</span> <span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+<p>That gives you a simple startup contract:</p>
+<ul>
+<li>if no matching hook exists, bootstrap creates one</li>
+<li>if a matching hook exists with the same event list, bootstrap leaves it alone</li>
+<li>if the event list changed, bootstrap updates the existing hook</li>
+<li>if you added or removed a webhook secret, bootstrap deletes the old matching hook and recreates it</li>
+<li>if <code>events</code> is omitted for a repository, bootstrap subscribes that webhook to <code>*</code></li>
+</ul>
+<p>If you also set <code>webhook-secret</code>, the same secret is used later to validate incoming requests:</p>
+<div class="highlight"><pre><span></span><code><span class="n">webhook_secret</span> <span class="o">=</span> <span class="n">root_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;webhook-secret&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">webhook_secret</span><span class="p">:</span>
+    <span class="n">signature_header</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;x-hub-signature-256&quot;</span><span class="p">)</span>
+    <span class="n">verify_signature</span><span class="p">(</span><span class="n">payload_body</span><span class="o">=</span><span class="n">payload_body</span><span class="p">,</span> <span class="n">secret_token</span><span class="o">=</span><span class="n">webhook_secret</span><span class="p">,</span> <span class="n">signature_header</span><span class="o">=</span><span class="n">signature_header</span><span class="p">)</span>
+</code></pre></div>
+
+<p>That gives you one secret on both sides:</p>
+<ul>
+<li>bootstrap attaches it to the GitHub repository webhook</li>
+<li>request handling verifies <code>x-hub-signature-256</code> with that same value</li>
+</ul>
+<h2 id="what-to-expect-after-a-restart">What To Expect After a Restart</h2>
+<p>After a successful restart, the practical results should be easy to spot in GitHub:</p>
+<ul>
+<li>missing static labels appear, and existing static label colors are corrected</li>
+<li>repository defaults like delete-branch-on-merge and auto-merge are enabled</li>
+<li>listed protected branches are updated with the configured protection rules and required checks</li>
+<li>built-in open-PR checks that were stuck in <code>in_progress</code> are reset to <code>queued</code></li>
+<li>the repository webhook points to your configured <code>webhook-ip</code> and listens to the configured events</li>
+</ul>
+<p>If one of those things does not happen, the first things to verify are:</p>
+<ul>
+<li>the repo exists in <code>config.yaml</code></li>
+<li>the selected GitHub token has enough repository/admin access to edit the repo</li>
+<li>the GitHub App is installed on that repo</li>
+<li><code>webhook-server.private-key.pem</code> and <code>github-app-id</code> match the installed App</li>
+<li><code>webhook-ip</code> is the full callback URL, including <code>/webhook_server</code></li>
+</ul>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="mcp-api.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">MCP API</span>
+                </a>
+
+
+                <a href="logging-and-data-files.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Logging and Data Files</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#what-you-need">What You Need</a></li>
+<li><a href="#how-authentication-is-used">How Authentication Is Used</a></li>
+<li><a href="#what-bootstrap-changes">What Bootstrap Changes</a><ul>
+<li><a href="#labels-and-repository-defaults">Labels and Repository Defaults</a></li>
+<li><a href="#branch-protection-and-required-checks">Branch Protection and Required Checks</a></li>
+<li><a href="#github-app-check-state-repair">GitHub App Check-State Repair</a></li>
+<li><a href="#webhook-creation-and-reconciliation">Webhook Creation and Reconciliation</a></li>
+</ul>
+</li>
+<li><a href="#what-to-expect-after-a-restart">What To Expect After a Restart</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

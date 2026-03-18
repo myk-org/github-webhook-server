@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Installation - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link active" aria-current="page">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="installation">Installation</h1>
+<p><code>github-webhook-server</code> is configured around a small server data directory plus GitHub credentials. A working install needs a Python <code>3.13.x</code> interpreter, <code>uv</code>, <code>git</code>, a reachable webhook URL, and GitHub credentials that can manage the repositories you configure.</p>
+<h2 id="runtime-requirements">Runtime requirements</h2>
+<p>The project pins Python exactly:</p>
+<div class="highlight"><pre><span></span><code><span class="n">requires-python</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;==3.13.*&quot;</span>
+</code></pre></div>
+
+<p>Install these tools for a normal source install:</p>
+<ul>
+<li><code>uv</code></li>
+<li><code>git</code></li>
+</ul>
+<p>Install these only if you use the matching features:</p>
+<ul>
+<li><code>podman</code> for <code>docker:</code> login and repository <code>container:</code> build/push automation</li>
+<li><code>gh</code> for automated cherry-pick PR creation</li>
+<li><code>claude</code>, <code>gemini</code>, or <code>cursor</code> CLI if you enable <code>ai-features</code> or <code>test-oracle</code></li>
+<li>Node.js and <code>npm</code> if you want to install the Gemini CLI locally</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> The built-in tox, pre-commit, and twine flows are launched through <code>uv</code> and <code>uvx</code>, so you do not need to install those tools globally.</p>
+</blockquote>
+<h2 id="python-and-uv-setup">Python and <code>uv</code> setup</h2>
+<p>Once Python <code>3.13.x</code> and <code>uv</code> are available, install the project from the repository root:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
+</code></pre></div>
+
+<p>Start the server with a data directory of your choice:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/data<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>The bind address, port, worker count, and webhook secret are read from <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">_ip_bind</span> <span class="o">=</span> <span class="n">_root_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ip-bind&quot;</span><span class="p">,</span> <span class="s2">&quot;0.0.0.0&quot;</span><span class="p">)</span>
+<span class="n">_port</span> <span class="o">=</span> <span class="n">_root_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;port&quot;</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>
+<span class="n">_max_workers</span> <span class="o">=</span> <span class="n">_root_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max-workers&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+<span class="n">_webhook_secret</span> <span class="o">=</span> <span class="n">_root_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;webhook-secret&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Tip:</strong> Put listener settings such as <code>ip-bind</code>, <code>port</code>, <code>max-workers</code>, and <code>webhook-secret</code> in <code>config.yaml</code>. The important environment variable for startup is <code>WEBHOOK_SERVER_DATA_DIR</code>.</p>
+</blockquote>
+<h2 id="prepare-the-data-directory-and-config">Prepare the data directory and config</h2>
+<p>The server always looks for <code>config.yaml</code> inside the data directory. If <code>WEBHOOK_SERVER_DATA_DIR</code> is not set, it defaults to <code>/home/podman/data</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="bp">self</span><span class="o">.</span><span class="n">data_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;WEBHOOK_SERVER_DATA_DIR&quot;</span><span class="p">,</span> <span class="s2">&quot;/home/podman/data&quot;</span><span class="p">)</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_dir</span><span class="p">,</span> <span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">repository</span> <span class="o">=</span> <span class="n">repository</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">repositories_exists</span><span class="p">()</span>
+
+<span class="o">...</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Config file </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="s2"> not found&quot;</span><span class="p">)</span>
+
+<span class="o">...</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">root_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;repositories&quot;</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Config </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="si">}</span><span class="s2"> does not have `repositories`&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The GitHub App private key is also expected in the same directory, with this exact filename:</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">config_</span><span class="o">.</span><span class="n">data_dir</span><span class="p">,</span> <span class="s2">&quot;webhook-server.private-key.pem&quot;</span><span class="p">))</span> <span class="k">as</span> <span class="n">fd</span><span class="p">:</span>
+    <span class="n">private_key</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="n">github_app_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">config_</span><span class="o">.</span><span class="n">root_data</span><span class="p">[</span><span class="s2">&quot;github-app-id&quot;</span><span class="p">]</span>
+<span class="n">auth</span><span class="p">:</span> <span class="n">AppAuth</span> <span class="o">=</span> <span class="n">Auth</span><span class="o">.</span><span class="n">AppAuth</span><span class="p">(</span><span class="n">app_id</span><span class="o">=</span><span class="n">github_app_id</span><span class="p">,</span> <span class="n">private_key</span><span class="o">=</span><span class="n">private_key</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Create a directory like this before first start:</p>
+<div class="highlight"><pre><span></span><code>/path/to/data/
+  config.yaml
+  webhook-server.private-key.pem
+  logs/
+</code></pre></div>
+
+<p>You only need to create <code>config.yaml</code> and <code>webhook-server.private-key.pem</code> yourself. The server creates the log directory and structured log files automatically:</p>
+<div class="highlight"><pre><span></span><code><span class="bp">self</span><span class="o">.</span><span class="n">log_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">data_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;logs&quot;</span>
+
+<span class="c1"># Create log directory if it doesn&#39;t exist</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">log_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="o">...</span>
+
+<span class="n">date_str</span> <span class="o">=</span> <span class="n">date</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;webhooks_</span><span class="si">{</span><span class="n">date_str</span><span class="si">}</span><span class="s2">.json&quot;</span>
+</code></pre></div>
+
+<p>Relative log filenames are stored under <code>&lt;data-dir&gt;/logs</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="n">log_file_name</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">log_file_name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">):</span>
+    <span class="n">log_file_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">data_dir</span><span class="p">,</span> <span class="s2">&quot;logs&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">log_file_path</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">log_file_path</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">log_file_path</span><span class="p">,</span> <span class="n">log_file_name</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Typical generated contents are:</p>
+<ul>
+<li><code>logs/webhook-server.log</code></li>
+<li><code>logs/webhooks_YYYY-MM-DD.json</code></li>
+<li><code>logs/mcp_server.log</code> if MCP is enabled</li>
+<li><code>logs/logs_server.log</code> if the log viewer is enabled</li>
+<li><code>log-colors.json</code> in the data directory root when repository colors are first assigned</li>
+</ul>
+<p>If you run the container image, mount your host data directory to <code>/home/podman/data</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">volumes</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;./webhook_server_data_dir:/home/podman/data:Z&quot;</span><span class="w"> </span><span class="c1"># Should include config.yaml and webhook-server.private-key.pem</span>
+</code></pre></div>
+
+<h3 id="github-credentials">GitHub credentials</h3>
+<p>A working install needs both of these:</p>
+<ul>
+<li><code>github-app-id</code> in <code>config.yaml</code>, plus the matching private key in <code>webhook-server.private-key.pem</code></li>
+<li>one or more GitHub tokens in <code>github-tokens</code></li>
+</ul>
+<p>From the shipped example config:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># GitHub app id</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN1&gt;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN2&gt;</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;HTTP://IP OR URL:PORT/webhook_server&gt;</span><span class="w"> </span><span class="c1"># Full URL with path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel)</span>
+</code></pre></div>
+
+<p>Replace those placeholder values with your real credentials.</p>
+<p>The <code>repositories</code> section uses the short repository name as the map key, and the full <code>owner/repo</code> string inside <code>name</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span><span class="w"> </span><span class="c1"># Override global log-level for repository</span>
+</code></pre></div>
+
+<p>That means:</p>
+<ul>
+<li>the map key (<code>my-repository</code>) should match GitHub’s <code>repository.name</code></li>
+<li>the <code>name</code> field must be the full <code>owner/repo</code></li>
+<li>at least one repository entry is required</li>
+</ul>
+<p>The server builds a client for every configured token and selects the one with the highest remaining rate limit:</p>
+<div class="highlight"><pre><span></span><code><span class="n">apis_and_tokens</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">github</span><span class="o">.</span><span class="n">Github</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">tokens</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_value</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="s2">&quot;github-tokens&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">_token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">:</span>
+    <span class="n">apis_and_tokens</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">github</span><span class="o">.</span><span class="n">Github</span><span class="p">(</span><span class="n">auth</span><span class="o">=</span><span class="n">github</span><span class="o">.</span><span class="n">Auth</span><span class="o">.</span><span class="n">Token</span><span class="p">(</span><span class="n">_token</span><span class="p">)),</span> <span class="n">_token</span><span class="p">))</span>
+
+<span class="c1"># ... choose the token with the highest remaining rate limit ...</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">_api_user</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">api</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">token</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="n">NoApiTokenError</span><span class="p">(</span><span class="s2">&quot;Failed to get API with highest rate limit&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Warning:</strong> A GitHub token alone is not enough. The server also reads <code>github-app-id</code> and <code>webhook-server.private-key.pem</code>, then requests the repository installation from GitHub. Make sure the GitHub App is installed on every repository listed in <code>config.yaml</code>.</p>
+<p><strong>Note:</strong> <code>webhook-secret</code> is optional in code, but strongly recommended in any real deployment. If you set it, the server verifies GitHub’s webhook signature before queueing work.</p>
+<p><strong>Tip:</strong> <code>webhook-ip</code> must be the full external URL GitHub can reach, including the <code>/webhook_server</code> path. For local testing, the example config explicitly allows a relay URL such as <code>https://smee.io/your-channel</code>.</p>
+</blockquote>
+<p>Startup is active, not passive. Before serving requests, the application syncs repository settings and creates or updates webhooks for every configured repository:</p>
+<div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">set_repositories_settings</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">)</span>
+<span class="n">set_all_in_progress_check_runs_to_queued</span><span class="p">(</span><span class="n">repo_config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">)</span>
+<span class="n">create_webhook</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">apis_dict</span><span class="o">=</span><span class="n">apis_dict</span><span class="p">,</span> <span class="n">secret</span><span class="o">=</span><span class="n">webhook_secret</span><span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Warning:</strong> Use credentials with enough permission to manage repository settings, branch protection, labels, hooks, and pull-request workflows. Read-only credentials are not enough for this server.</p>
+</blockquote>
+<h2 id="start-and-verify">Start and verify</h2>
+<p>Before first start, validate the config file:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>webhook_server/tests/test_schema_validator.py<span class="w"> </span>/path/to/data/config.yaml
+</code></pre></div>
+
+<p>Then start the server:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/data<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>Verify that the health endpoint responds:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
+</code></pre></div>
+
+<p>A healthy server responds on <code>/webhook_server/healthcheck</code>, and if your credentials and <code>webhook-ip</code> are correct, startup will also sync repository settings and webhook configuration.</p>
+<blockquote>
+<p><strong>Warning:</strong> If you enable <code>ENABLE_LOG_SERVER=true</code>, treat <code>/logs</code> as a trusted-network-only interface. It is intended for internal use, not public internet exposure.</p>
+</blockquote>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="architecture-and-event-flow.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Architecture and Event Flow</span>
+                </a>
+
+
+                <a href="quick-start.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Quick Start</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#runtime-requirements">Runtime requirements</a></li>
+<li><a href="#python-and-uv-setup">Python and uv setup</a></li>
+<li><a href="#prepare-the-data-directory-and-config">Prepare the data directory and config</a><ul>
+<li><a href="#github-credentials">GitHub credentials</a></li>
+</ul>
+</li>
+<li><a href="#start-and-verify">Start and verify</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

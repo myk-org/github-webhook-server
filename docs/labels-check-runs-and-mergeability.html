@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labels, Check Runs, and Mergeability - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link active" aria-current="page">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="labels-check-runs-and-mergeability">Labels, Check Runs, and Mergeability</h1>
+<p>This server uses labels and GitHub check runs together to show PR state, enforce review rules, and decide when a pull request is ready to merge.</p>
+<blockquote>
+<p><strong>Note:</strong> You can configure these features globally in <code>config.yaml</code> or per repository in <code>.github-webhook-server.yaml</code>. Repository-local settings override the global file.</p>
+</blockquote>
+<h2 id="built-in-labels">Built-in labels</h2>
+<p>These labels are applied automatically or by PR comment commands when their category is enabled.</p>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>How it is added</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verified</code></td>
+<td>Added automatically for auto-verified users, or manually with <code>/verified</code></td>
+<td>The PR has been marked as verified</td>
+</tr>
+<tr>
+<td><code>hold</code></td>
+<td>Added with <code>/hold</code> by an approver</td>
+<td>Blocks mergeability</td>
+</tr>
+<tr>
+<td><code>wip</code></td>
+<td>Added automatically when the title starts with <code>WIP:</code>, or manually with <code>/wip</code></td>
+<td>Marks the PR as work in progress and blocks mergeability</td>
+</tr>
+<tr>
+<td><code>needs-rebase</code></td>
+<td>Added automatically when the PR branch is behind or diverged from the base branch</td>
+<td>The PR should be rebased or updated</td>
+</tr>
+<tr>
+<td><code>has-conflicts</code></td>
+<td>Added automatically when GitHub reports merge conflicts</td>
+<td>The PR is not mergeable until conflicts are resolved</td>
+</tr>
+<tr>
+<td><code>can-be-merged</code></td>
+<td>Added automatically when all merge rules pass</td>
+<td>The PR currently satisfies the server’s mergeability checks</td>
+</tr>
+<tr>
+<td><code>automerge</code></td>
+<td>Added with <code>/automerge</code> by a maintainer or approver</td>
+<td>Tells the server to squash-merge once <code>can-be-merged</code> succeeds</td>
+</tr>
+<tr>
+<td><code>branch-&lt;base-branch&gt;</code></td>
+<td>Added automatically on PR open and update</td>
+<td>Shows the target branch, such as <code>branch-main</code></td>
+</tr>
+<tr>
+<td><code>size/&lt;category&gt;</code></td>
+<td>Added automatically on PR open and update</td>
+<td>Shows PR size, such as <code>size/M</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>needs-rebase</code> and <code>has-conflicts</code> are separate signals. A PR can be behind the base branch, have conflicts, or both.</p>
+<p>The built-in label categories and colors are configurable:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">labels</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hold</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">wip</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">needs-rebase</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">has-conflicts</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">size</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">branch</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cherry-pick</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">automerge</span>
+<span class="w">  </span><span class="nt">colors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">hold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">verified</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">wip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">needs-rebase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span>
+<span class="w">    </span><span class="nt">has-conflicts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">can-be-merged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limegreen</span>
+<span class="w">    </span><span class="nt">automerge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">approved-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">lgtm-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yellowgreen</span>
+<span class="w">    </span><span class="nt">changes-requested-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">commented-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gold</span>
+<span class="w">    </span><span class="nt">cherry-pick-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coral</span>
+<span class="w">    </span><span class="nt">branch-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">royalblue</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> If <code>labels.enabled-labels</code> is omitted, all configurable built-in label categories are enabled. If you set it to <code>[]</code>, all configurable built-in labels are disabled, but reviewed-by labels still remain active.</p>
+</blockquote>
+<h2 id="reviewed-by-labels">Reviewed-by labels</h2>
+<p>The server also creates dynamic labels that reflect review activity:</p>
+<ul>
+<li><code>approved-&lt;user&gt;</code></li>
+<li><code>lgtm-&lt;user&gt;</code></li>
+<li><code>changes-requested-&lt;user&gt;</code></li>
+<li><code>commented-&lt;user&gt;</code></li>
+</ul>
+<p>These labels are always enabled and cannot be disabled through <code>labels.enabled-labels</code>.</p>
+<p>The distinction that matters most is this:</p>
+<ul>
+<li>GitHub’s normal “Approve review” action becomes <code>lgtm-&lt;user&gt;</code>.</li>
+<li>This project’s explicit <code>/approve</code> command becomes <code>approved-&lt;user&gt;</code>.</li>
+<li>A <code>changes_requested</code> review becomes <code>changes-requested-&lt;user&gt;</code>.</li>
+<li>A comment-only review becomes <code>commented-&lt;user&gt;</code>.</li>
+</ul>
+<p>That is what lets the server separate “looks good” from “formal approver approval”.</p>
+<blockquote>
+<p><strong>Tip:</strong> When new commits are pushed to a PR, the server removes existing reviewed-by labels and rebuilds mergeability from fresh review activity. This is why <code>approved-*</code> and <code>lgtm-*</code> labels disappear after a <code>synchronize</code> event.</p>
+</blockquote>
+<h2 id="size-and-branch-labels">Size and branch labels</h2>
+<p>Every opened or updated PR gets a branch label and a size label.</p>
+<p>The branch label uses the base branch name:</p>
+<ul>
+<li><code>branch-main</code></li>
+<li><code>branch-develop</code></li>
+<li><code>branch-release-1.2</code></li>
+</ul>
+<p>The size label is based on <code>additions + deletions</code>. The built-in defaults come directly from the source:</p>
+<div class="highlight"><pre><span></span><code><span class="n">STATIC_PR_SIZE_THRESHOLDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="s2">&quot;XS&quot;</span><span class="p">,</span> <span class="s2">&quot;ededed&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;0E8A16&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="s2">&quot;M&quot;</span><span class="p">,</span> <span class="s2">&quot;F09C74&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">300</span><span class="p">,</span> <span class="s2">&quot;L&quot;</span><span class="p">,</span> <span class="s2">&quot;F5621C&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="s2">&quot;XL&quot;</span><span class="p">,</span> <span class="s2">&quot;D93F0B&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="s2">&quot;inf&quot;</span><span class="p">),</span> <span class="s2">&quot;XXL&quot;</span><span class="p">,</span> <span class="s2">&quot;B60205&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p>That means the default labels are:</p>
+<ul>
+<li><code>size/XS</code> for fewer than 20 changed lines</li>
+<li><code>size/S</code> for 20 to 49</li>
+<li><code>size/M</code> for 50 to 99</li>
+<li><code>size/L</code> for 100 to 299</li>
+<li><code>size/XL</code> for 300 to 499</li>
+<li><code>size/XXL</code> for 500 and up</li>
+</ul>
+<p>You can replace those defaults with your own categories:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">pr-size-thresholds</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Tiny</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lightgray</span>
+<span class="w">  </span><span class="nt">Small</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">  </span><span class="nt">Medium</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">150</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">  </span><span class="nt">Large</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">  </span><span class="nt">Massive</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inf</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span>
+</code></pre></div>
+
+<p>Even if you rename the buckets to <code>Tiny</code>, <code>Express</code>, or <code>Critical</code>, they are still controlled by the single <code>size</code> category in <code>labels.enabled-labels</code>.</p>
+<blockquote>
+<p><strong>Tip:</strong> Use <code>inf</code> for the last size bucket so every PR larger than your biggest numeric threshold still gets a label.</p>
+</blockquote>
+<h2 id="verified-check">Verified Check</h2>
+<p>When <code>verified-job</code> is enabled, the server maintains a <code>verified</code> check run and uses it as one of the merge requirements.</p>
+<p>For a normal contributor, the flow is:</p>
+<ul>
+<li>A new PR starts with <code>verified</code> in <code>queued</code>.</li>
+<li>Someone can mark it with <code>/verified</code>.</li>
+<li>The server adds the <code>verified</code> label and sets the <code>verified</code> check to <code>success</code>.</li>
+<li>When new commits are pushed, the server removes the <code>verified</code> label and resets the check back to <code>queued</code>.</li>
+</ul>
+<p>For trusted or automation accounts, the server can do this automatically:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;renovate[bot]&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;dependabot[bot]&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;trusted-user&quot;</span>
+
+<span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<p>A few details matter here:</p>
+<ul>
+<li><code>verified-job</code> defaults to <code>true</code>.</li>
+<li><code>auto-verified-and-merged-users</code> are auto-verified on PR open and update.</li>
+<li>The server also adds the users behind configured GitHub tokens to the auto-verified list automatically.</li>
+<li>If <code>auto-verify-cherry-picked-prs</code> is <code>false</code>, cherry-picked PRs are not auto-verified.</li>
+<li>AI-resolved cherry-picks are never auto-verified, even if cherry-pick auto-verification is enabled.</li>
+</ul>
+<p>If you do not want verification to be part of mergeability, set <code>verified-job: false</code>.</p>
+<h2 id="can-be-merged-check">Can-Be-Merged Check</h2>
+<p><code>can-be-merged</code> is the server’s final readiness check. When it succeeds, the server marks the PR with the <code>can-be-merged</code> label. When it fails, the label is removed and the check output explains why.</p>
+<p>A PR must satisfy all of these rules:</p>
+<ul>
+<li>The PR must still be open and mergeable.</li>
+<li>No required checks can be in progress.</li>
+<li>No required checks can be missing or failed.</li>
+<li><code>hold</code> and <code>wip</code> must not be present.</li>
+<li>Any configured <code>can-be-merged-required-labels</code> must be present.</li>
+<li>There must be no blocking <code>changes-requested-&lt;user&gt;</code> label from an approver.</li>
+<li>Approval and LGTM rules must pass.</li>
+<li>If conversation resolution is enabled, there must be no unresolved review threads.</li>
+</ul>
+<p>You can also add extra label-based gates:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">can-be-merged-required-labels</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;approved&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;tests-passed&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;security-reviewed&quot;</span>
+</code></pre></div>
+
+<p>The check considers the following status sources:</p>
+<ul>
+<li>GitHub required status checks from the base branch’s branch protection</li>
+<li>Built-in server checks such as <code>tox</code>, <code>verified</code>, <code>build-container</code>, <code>python-module-install</code>, and <code>conventional-title</code></li>
+<li>Mandatory custom check runs</li>
+<li>Legacy GitHub commit status contexts</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> <code>pre-commit</code> still runs when enabled, but <code>can-be-merged</code> only treats it as required when it appears in the branch’s required status checks.</p>
+<p><strong>Warning:</strong> On private repositories, the runtime <code>can-be-merged</code> logic skips the live branch-protection status-check lookup. If you rely on extra required checks in private repos, make sure your server-side required checks and mandatory custom checks cover what you need.</p>
+</blockquote>
+<p>If unresolved conversations are blocking the PR, the check output looks like this:</p>
+<div class="highlight"><pre><span></span><code>PR has 2 unresolved review conversation(s):
+  - src/main.py:42 (https://github.com/test-org/test-repo/pull/123#discussion_r100)
+  - src/utils.py:10 (https://github.com/test-org/test-repo/pull/123#discussion_r101)
+</code></pre></div>
+
+<p>The server recalculates <code>can-be-merged</code> automatically when:</p>
+<ul>
+<li>a relevant label is added or removed</li>
+<li>a required check run completes</li>
+<li>a terminal commit status arrives</li>
+<li>a review thread is resolved or reopened</li>
+<li>you run <code>/check-can-merge</code></li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> If the PR also has the <code>automerge</code> label, a successful <code>can-be-merged</code> check triggers an immediate squash merge.</p>
+<p><strong>Tip:</strong> If you want the check run but not the extra label, you can disable the <code>can-be-merged</code> label category. The <code>can-be-merged</code> check still reports the result.</p>
+</blockquote>
+<h2 id="minimum-lgtm-and-approval-rules">Minimum LGTM And Approval Rules</h2>
+<p><code>minimum-lgtm</code> does not replace approval. It adds an extra reviewer-consensus rule on top of approver approval.</p>
+<p>Here is the distinction:</p>
+<ul>
+<li><code>/approve</code> is the formal approval signal and creates <code>approved-&lt;user&gt;</code>.</li>
+<li><code>/lgtm</code> and normal GitHub “approved” reviews create <code>lgtm-&lt;user&gt;</code>.</li>
+<li><code>minimum-lgtm</code> counts <code>lgtm-*</code> labels from eligible reviewers.</li>
+<li>The PR author’s own LGTM does not count.</li>
+</ul>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</code></pre></div>
+
+<p>With that setting, the PR still needs approver approval from the relevant OWNERS rules, and it also needs at least two valid LGTMs.</p>
+<p>The rules are OWNERS-aware:</p>
+<ul>
+<li>A root approver can satisfy the approval requirement for the whole PR.</li>
+<li>Otherwise, the server looks at the approver sets attached to the changed files.</li>
+<li>A <code>changes-requested-&lt;user&gt;</code> label only blocks mergeability when that user is an approver for the PR.</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> The LGTM requirement is effectively capped by the number of eligible reviewers. If <code>minimum-lgtm</code> is higher than the number of valid reviewers, the server treats the requirement as satisfied once every eligible reviewer except the PR author has added LGTM.</p>
+</blockquote>
+<p>Set <code>minimum-lgtm: 0</code> to disable the LGTM requirement entirely.</p>
+<h2 id="unresolved-conversation-checks">Unresolved Conversation Checks</h2>
+<p>Conversation resolution is controlled by <code>branch-protection.required_conversation_resolution</code>, which defaults to <code>true</code>.</p>
+<p>A repository-level example looks like this:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p>When this setting is enabled:</p>
+<ul>
+<li>the server queries GitHub review threads through GraphQL</li>
+<li>resolved threads are ignored</li>
+<li>unresolved threads block <code>can-be-merged</code></li>
+<li>outdated unresolved threads still count</li>
+<li>the check output includes the file, line, and discussion URL when available</li>
+</ul>
+<p>Set <code>required_conversation_resolution: false</code> if you want <code>can-be-merged</code> to ignore unresolved review threads.</p>
+<blockquote>
+<p><strong>Note:</strong> If you want mergeability to update immediately when a conversation is resolved or reopened, make sure the repository is configured to receive <code>pull_request_review_thread</code> events.</p>
+</blockquote>
+<h2 id="custom-check-runs">Custom Check Runs</h2>
+<p>Custom check runs let you add your own PR checks without changing Python code.</p>
+<p>A schema example from this repository looks like this:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">custom-check-runs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uv tool run --from ruff ruff check</span>
+<span class="w">    </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-scan</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .</span>
+<span class="w">    </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<p>How custom checks behave:</p>
+<ul>
+<li>The check name appears in GitHub exactly as configured.</li>
+<li>The command runs in the PR worktree.</li>
+<li>The command is executed through <code>/bin/sh -c</code>, so environment variables, pipes, and other shell syntax work.</li>
+<li>Custom checks are queued and run on PR open and PR update.</li>
+<li>Both mandatory and optional custom checks still run.</li>
+<li>Checks with <code>mandatory: false</code> are excluded from merge-blocking logic.</li>
+</ul>
+<p>That makes <code>mandatory: false</code> useful for visibility-only checks:</p>
+<ul>
+<li>run a slow or advisory scan</li>
+<li>show results on the PR</li>
+<li>keep <code>can-be-merged</code> focused on the hard gates</li>
+</ul>
+<p>You can retry custom checks with the same commands you use for built-in checks:</p>
+<ul>
+<li><code>/retest lint</code></li>
+<li><code>/retest your-check-name</code></li>
+<li><code>/retest all</code></li>
+</ul>
+<p>Validation rules are strict:</p>
+<ul>
+<li><code>name</code> and <code>command</code> are required</li>
+<li>names may only use letters, numbers, <code>.</code>, <code>_</code>, and <code>-</code></li>
+<li>names must be 1 to 64 characters</li>
+<li>duplicate names are skipped after the first one</li>
+<li>names that collide with built-in check names are rejected</li>
+<li>the executable must exist on the webhook server host or container</li>
+</ul>
+<p>The built-in names rejected for custom checks are:</p>
+<ul>
+<li><code>tox</code></li>
+<li><code>pre-commit</code></li>
+<li><code>build-container</code></li>
+<li><code>python-module-install</code></li>
+<li><code>conventional-title</code></li>
+<li><code>can-be-merged</code></li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> If the executable in a custom check is not available in the webhook server environment, the server does not load that custom check. It logs a warning and skips it.</p>
+<p><strong>Tip:</strong> Use <code>mandatory: false</code> for advisory checks, and <code>mandatory: true</code> for checks that should block <code>can-be-merged</code>.</p>
+</blockquote>
+<h2 id="useful-commands">Useful Commands</h2>
+<p>These are the commands most relevant to labels and mergeability:</p>
+<ul>
+<li><code>/wip</code> and <code>/wip cancel</code></li>
+<li><code>/hold</code> and <code>/hold cancel</code></li>
+<li><code>/verified</code> and <code>/verified cancel</code></li>
+<li><code>/lgtm</code></li>
+<li><code>/approve</code></li>
+<li><code>/automerge</code></li>
+<li><code>/check-can-merge</code></li>
+<li><code>/retest &lt;check-name&gt;</code></li>
+<li><code>/retest all</code></li>
+</ul>
+<p>In practice, the flow usually looks like this:</p>
+<ol>
+<li>Open or update a PR.</li>
+<li>Let the server apply branch, size, and merge-state labels.</li>
+<li>Wait for check runs to finish.</li>
+<li>Use <code>/lgtm</code>, <code>/approve</code>, and <code>/verified</code> as needed.</li>
+<li>Resolve any remaining review threads.</li>
+<li>Watch for <code>can-be-merged</code> to turn green.</li>
+</ol>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="issue-comment-commands.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Issue Comment Commands</span>
+                </a>
+
+
+                <a href="container-and-pypi-workflows.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Container and PyPI Workflows</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#built-in-labels">Built-in labels</a></li>
+<li><a href="#reviewed-by-labels">Reviewed-by labels</a></li>
+<li><a href="#size-and-branch-labels">Size and branch labels</a></li>
+<li><a href="#verified-check">Verified Check</a></li>
+<li><a href="#can-be-merged-check">Can-Be-Merged Check</a></li>
+<li><a href="#minimum-lgtm-and-approval-rules">Minimum LGTM And Approval Rules</a></li>
+<li><a href="#unresolved-conversation-checks">Unresolved Conversation Checks</a></li>
+<li><a href="#custom-check-runs">Custom Check Runs</a></li>
+<li><a href="#useful-commands">Useful Commands</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

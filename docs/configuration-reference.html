@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration Reference - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link active" aria-current="page">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="configuration-reference">Configuration Reference</h1>
+<p><code>github-webhook-server</code> reads its main configuration from <code>config.yaml</code> in the server data directory. In code, that directory defaults to <code>/home/podman/data</code>, so the default config path is <code>/home/podman/data/config.yaml</code>. Relative log file names are resolved under <code>&lt;data_dir&gt;/logs/</code>.</p>
+<p>The checked-in example file shows the top-level shape:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span><span class="w"> </span><span class="c1"># Set global log level, change take effect immediately without server restart</span>
+<span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook-server.log</span><span class="w"> </span><span class="c1"># Set global log file, change take effect immediately without server restart</span>
+<span class="nt">mcp-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_server.log</span><span class="w"> </span><span class="c1"># Set global MCP log file, change take effect immediately without server restart</span>
+<span class="nt">logs-server-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logs_server.log</span><span class="w"> </span><span class="c1"># Set global Logs Server log file, change take effect immediately without server restart</span>
+<span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)</span>
+
+<span class="c1"># Server configuration</span>
+<span class="nt">disable-ssl-warnings</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)</span>
+
+<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># GitHub app id</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN1&gt;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN2&gt;</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;HTTP://IP OR URL:PORT/webhook_server&gt;</span><span class="w"> </span><span class="c1"># Full URL with path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel)</span>
+
+<span class="nt">docker</span><span class="p">:</span><span class="w"> </span><span class="c1"># Used to pull images from docker.io</span>
+<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;username&gt;</span>
+<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;password&gt;</span>
+</code></pre></div>
+
+<p>Repository-specific settings live under <code>repositories</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span><span class="w"> </span><span class="c1"># Override global log-level for repository</span>
+<span class="w">    </span><span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-repository.log</span><span class="w"> </span><span class="c1"># Override global log-file for repository</span>
+<span class="w">    </span><span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Override global setting - disable masking for debugging this specific repo (NOT recommended in production)</span>
+<span class="w">    </span><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;Slack webhook url&gt;</span><span class="w"> </span><span class="c1"># Send notification to slack on several operations</span>
+<span class="w">    </span><span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;PYPI TOKEN&gt;</span>
+
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span><span class="w"> </span><span class="c1"># To listen to all events do not send events</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_thread</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
+<span class="w">    </span><span class="nt">tox</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span><span class="w"> </span><span class="c1"># Run all tests in tox.ini when pull request parent branch is main</span>
+<span class="w">      </span><span class="nt">dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">testenv1,testenv2</span><span class="w"> </span><span class="c1"># Run testenv1 and testenv2 tests in tox.ini when pull request parent branch is dev</span>
+
+<span class="w">    </span><span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Run pre-commit check</span>
+
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">dev</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="c1"># set [] in order to set all defaults run included</span>
+<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr&quot;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis&quot;</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry username&gt;</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_password&gt;</span>
+<span class="w">      </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_repository_full_path&gt;</span>
+<span class="w">      </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;image_tag&gt;</span>
+<span class="w">      </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Push image to registry on new release with release as the tag</span>
+<span class="w">      </span><span class="nt">build-args</span><span class="p">:</span><span class="w"> </span><span class="c1"># build args to send to podman build command</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-build-arg1=1</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-build-arg2=2</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="c1"># args to send to podman build command</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--format docker</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> In <code>repositories</code>, the map key is the short GitHub repository name, while <code>name</code> inside the block is the full <code>owner/repo</code>.</p>
+<p><strong>Note:</strong> This page lists keys in <code>config.yaml</code> form. The sample <code>.github-webhook-server.yaml</code> uses the same repository-level shape without the surrounding <code>repositories.&lt;repo&gt;</code> wrapper.</p>
+<p><strong>Note:</strong> Most repository settings replace the global value entirely. Two important exceptions are <code>branch-protection</code>, which is merged with global defaults, and <code>labels.colors</code>, where repository colors override only the keys you redefine.</p>
+<p><strong>Warning:</strong> Use exact branch names for <code>tox</code> and <code>protected-branches</code>, and use string values such as <code>all</code> or <code>testenv1,testenv2</code> for <code>tox</code>. The current runner/setup code looks up branches by exact key and builds the tox command from a string value.</p>
+</blockquote>
+<h2 id="global-settings">Global settings</h2>
+<h3 id="logging-and-diagnostics">Logging and diagnostics</h3>
+<ul>
+<li><code>log-level</code>: Global application log level. Allowed values are <code>INFO</code> and <code>DEBUG</code>.</li>
+<li><code>log-file</code>: Main webhook server log file. Relative names are written under <code>&lt;data_dir&gt;/logs/</code>; absolute paths are used as-is.</li>
+<li><code>mcp-log-file</code>: Separate log file for the optional MCP server. Default is <code>mcp_server.log</code>.</li>
+<li><code>logs-server-log-file</code>: Separate log file for the optional log viewer / logs server. Default is <code>logs_server.log</code>.</li>
+<li><code>mask-sensitive-data</code>: Enables log redaction. Default is <code>true</code>. When enabled, the logger masks secrets such as tokens, passwords, webhook secrets, Slack webhook URLs, and similar values.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> <code>labels.colors</code> and <code>pr-size-thresholds.*.color</code> expect CSS3 color names such as <code>green</code>, <code>orange</code>, <code>royalblue</code>, and <code>darkred</code>. The label code converts those names to hex internally; hex strings are not the documented input format.</p>
+</blockquote>
+<h3 id="server-webhook-and-security">Server, webhook, and security</h3>
+<ul>
+<li><code>webhook-ip</code>: The public webhook URL that GitHub should call. Include the full path, for example <code>https://example.com/webhook_server</code>.</li>
+<li><code>ip-bind</code>: The bind address for the FastAPI / uvicorn server. If omitted, startup defaults to <code>0.0.0.0</code>.</li>
+<li><code>port</code>: The listening port. If omitted, startup defaults to <code>5000</code>.</li>
+<li><code>max-workers</code>: Uvicorn worker count. If omitted, startup defaults to <code>10</code>.</li>
+<li><code>webhook-secret</code>: Optional shared secret for GitHub webhook signature verification. When set, the server validates the incoming <code>x-hub-signature-256</code> header and uses the same secret when it creates GitHub webhooks.</li>
+<li><code>verify-github-ips</code>: If <code>true</code>, only accept webhook requests from GitHub’s published webhook IP ranges.</li>
+<li><code>verify-cloudflare-ips</code>: If <code>true</code>, also trust Cloudflare’s published IP ranges. This is useful when traffic reaches the server through Cloudflare.</li>
+<li><code>disable-ssl-warnings</code>: If <code>true</code>, suppress <code>urllib3</code> SSL warnings during runtime.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> IP allowlist verification is fail-closed. If <code>verify-github-ips</code> and/or <code>verify-cloudflare-ips</code> are enabled but the allowlists cannot be loaded, the server aborts startup instead of accepting requests insecurely.</p>
+</blockquote>
+<h3 id="github-authentication-and-shared-defaults">GitHub authentication and shared defaults</h3>
+<ul>
+<li><code>github-app-id</code>: GitHub App ID used for app-scoped repository management. In practice this goes with a <code>webhook-server.private-key.pem</code> file in the data directory and an installed GitHub App.</li>
+<li><code>github-tokens</code>: List of GitHub tokens used for normal API calls. The server checks all configured tokens and picks the one with the highest remaining rate limit.</li>
+<li><code>docker.username</code>: Docker Hub username used for the startup <code>podman login</code> step.</li>
+<li><code>docker.password</code>: Docker Hub password used for the startup <code>podman login</code> step.</li>
+<li><code>default-status-checks</code>: Extra check or status context names that should always be part of the generated branch-protection rules. Use exact GitHub context names.</li>
+<li><code>auto-verified-and-merged-users</code>: Global default list of users or bots whose PRs can be auto-verified and auto-merged when the other merge rules are satisfied.</li>
+<li><code>auto-verify-cherry-picked-prs</code>: Global default for automatic verification of cherry-picked PRs. Default is <code>true</code>.</li>
+<li><code>create-issue-for-new-pr</code>: Global default for creating a tracking issue when a new PR opens. Default is <code>true</code>.</li>
+<li><code>cherry-pick-assign-to-pr-author</code>: Global default for assigning cherry-pick PRs to the original PR author. Default is <code>true</code>.</li>
+<li><code>allow-commands-on-draft-prs</code>: Global default for user commands on draft PRs. Omit it to block commands on draft PRs. Set it to <code>[]</code> to allow all commands. Set it to a list such as <code>["build-and-push-container", "retest"]</code> to allow only those command names.</li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> Repository-level <code>github-tokens</code> replace the global token list for that repository. During webhook processing, the server also adds the GitHub users behind the active API tokens to the auto-verified user list.</p>
+</blockquote>
+<h3 id="labels-and-pr-size">Labels and PR size</h3>
+<p>The sample config includes label and size settings like this:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">labels</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Optional: List of label categories to enable</span>
+<span class="w">  </span><span class="c1"># If not set, all labels are enabled. If set, only listed categories are enabled.</span>
+<span class="w">  </span><span class="c1"># Note: reviewed-by labels (approved-*, lgtm-*, etc.) are always enabled and cannot be disabled</span>
+<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hold</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">wip</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">needs-rebase</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">has-conflicts</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">size</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">branch</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cherry-pick</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">automerge</span>
+<span class="w">  </span><span class="c1"># Optional: Custom colors for labels (CSS3 color names)</span>
+<span class="w">  </span><span class="nt">colors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">hold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">verified</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">wip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">needs-rebase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span>
+<span class="w">    </span><span class="nt">has-conflicts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">can-be-merged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limegreen</span>
+<span class="w">    </span><span class="nt">automerge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="c1"># Dynamic label prefixes</span>
+<span class="w">    </span><span class="nt">approved-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">lgtm-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yellowgreen</span>
+<span class="w">    </span><span class="nt">changes-requested-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">commented-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gold</span>
+<span class="w">    </span><span class="nt">cherry-pick-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coral</span>
+<span class="w">    </span><span class="nt">branch-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">royalblue</span>
+
+<span class="c1"># Global PR size label configuration (optional)</span>
+<span class="c1"># Define custom categories based on total lines changed (additions + deletions)</span>
+<span class="c1"># threshold: positive integer or &#39;inf&#39; for unbounded largest category</span>
+<span class="c1"># color: CSS3 color name (e.g., red, green, blue, lightgray, darkorange)</span>
+<span class="c1"># Infinity behavior: &#39;inf&#39; ensures all PRs beyond largest finite threshold are captured</span>
+<span class="c1">#                   Always sorted last, regardless of definition order</span>
+<span class="nt">pr-size-thresholds</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Tiny</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w"> </span><span class="c1"># PRs with 0-9 lines changed</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lightgray</span>
+<span class="w">  </span><span class="nt">Small</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w"> </span><span class="c1"># PRs with 10-49 lines changed</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">  </span><span class="nt">Medium</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">150</span><span class="w"> </span><span class="c1"># PRs with 50-149 lines changed</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">  </span><span class="nt">Large</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w"> </span><span class="c1"># PRs with 150-299 lines changed</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">  </span><span class="nt">Massive</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inf</span><span class="w"> </span><span class="c1"># PRs with 300+ lines changed (unbounded largest category)</span>
+<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span><span class="w"> </span><span class="c1"># &#39;inf&#39; means no upper limit - catches all PRs above 300 lines</span>
+</code></pre></div>
+
+<ul>
+<li><code>labels.enabled-labels</code>: List of label categories to allow. Valid categories are <code>verified</code>, <code>hold</code>, <code>wip</code>, <code>needs-rebase</code>, <code>has-conflicts</code>, <code>can-be-merged</code>, <code>size</code>, <code>branch</code>, <code>cherry-pick</code>, and <code>automerge</code>. If omitted, all configurable categories are enabled. If set to <code>[]</code>, all configurable categories are disabled. Review-state labels such as <code>approved-*</code>, <code>lgtm-*</code>, <code>changes-requested-*</code>, and <code>commented-*</code> are always enabled.</li>
+<li><code>labels.colors</code>: Map of label names or dynamic label prefixes to CSS3 color names. Exact keys such as <code>hold</code> or <code>verified</code> affect one label. Prefix keys such as <code>approved-</code> or <code>branch-</code> affect any label that starts with that prefix.</li>
+<li><code>pr-size-thresholds.&lt;label&gt;.threshold</code>: Threshold used to compute the PR size label. The handler sorts thresholds ascending and picks the first bucket where <code>total_changes &lt; threshold</code>. Use <code>inf</code> for the open-ended largest bucket.</li>
+<li><code>pr-size-thresholds.&lt;label&gt;.color</code>: CSS3 color name for that bucket.</li>
+</ul>
+<p>If you do not configure <code>pr-size-thresholds</code>, the built-in buckets are:</p>
+<div class="highlight"><pre><span></span><code><span class="n">STATIC_PR_SIZE_THRESHOLDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="s2">&quot;XS&quot;</span><span class="p">,</span> <span class="s2">&quot;ededed&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;0E8A16&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="s2">&quot;M&quot;</span><span class="p">,</span> <span class="s2">&quot;F09C74&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">300</span><span class="p">,</span> <span class="s2">&quot;L&quot;</span><span class="p">,</span> <span class="s2">&quot;F5621C&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="s2">&quot;XL&quot;</span><span class="p">,</span> <span class="s2">&quot;D93F0B&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="s2">&quot;inf&quot;</span><span class="p">),</span> <span class="s2">&quot;XXL&quot;</span><span class="p">,</span> <span class="s2">&quot;B60205&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<h3 id="branch-protection">Branch protection</h3>
+<ul>
+<li><code>branch-protection.strict</code>: GitHub branch protection <code>strict</code> setting. Global default is <code>true</code>.</li>
+<li><code>branch-protection.require_code_owner_reviews</code>: Require CODEOWNERS reviews. Global default is <code>false</code>.</li>
+<li><code>branch-protection.dismiss_stale_reviews</code>: Dismiss stale reviews on new commits. Global default is <code>true</code>.</li>
+<li><code>branch-protection.required_approving_review_count</code>: Required approval count. Global default is <code>0</code>.</li>
+<li><code>branch-protection.required_linear_history</code>: Require linear history. Global default is <code>true</code>.</li>
+<li><code>branch-protection.required_conversation_resolution</code>: Require resolved review conversations. Global default is <code>true</code>. The webhook processor also uses this flag when deciding whether resolved/unresolved review-thread events should affect mergeability.</li>
+</ul>
+<h3 id="pr-test-oracle-and-ai-features">PR Test Oracle and AI features</h3>
+<p>The sample global config includes both <code>test-oracle</code> and <code>ai-features</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+
+<span class="c1"># PR Test Oracle integration</span>
+<span class="c1"># Analyzes PR diffs with AI and recommends which tests to run</span>
+<span class="c1"># See: https://github.com/myk-org/pr-test-oracle</span>
+<span class="nt">test-oracle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:8000&quot;</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
+<span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;tests/**/*.py&quot;</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="c1"># Default: [approved]</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span><span class="w"> </span><span class="c1"># Run when /approve command is used</span>
+<span class="w">    </span><span class="c1"># - pr-opened             # Run when PR is opened</span>
+<span class="w">    </span><span class="c1"># - pr-synchronized       # Run when new commits pushed</span>
+
+<span class="c1"># AI Features configuration</span>
+<span class="c1"># Enables AI-powered enhancements (e.g., conventional title suggestions)</span>
+<span class="nt">ai-features</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
+<span class="w">  </span><span class="nt">conventional-title</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span><span class="w">  </span><span class="c1"># suggest: show in checkrun | fix: auto-update PR title</span>
+<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">  </span><span class="c1"># Timeout in minutes for AI CLI (default: 10)</span>
+</code></pre></div>
+
+<ul>
+<li><code>test-oracle.server-url</code>: Base URL of the PR Test Oracle service.</li>
+<li><code>test-oracle.ai-provider</code>: AI provider sent to the oracle. Allowed values are <code>claude</code>, <code>gemini</code>, and <code>cursor</code>.</li>
+<li><code>test-oracle.ai-model</code>: AI model sent to the oracle.</li>
+<li><code>test-oracle.test-patterns</code>: Optional test-file globs sent to the oracle as <code>test_patterns</code>.</li>
+<li><code>test-oracle.triggers</code>: Automatic oracle triggers. Valid values are <code>approved</code>, <code>pr-opened</code>, and <code>pr-synchronized</code>. Default is <code>["approved"]</code>. Here, <code>approved</code> means the <code>/approve</code> comment command, not GitHub’s native review approval event.</li>
+<li><code>ai-features.ai-provider</code>: AI CLI provider for built-in AI features.</li>
+<li><code>ai-features.ai-model</code>: AI CLI model for built-in AI features.</li>
+<li><code>ai-features.conventional-title.enabled</code>: Turn AI assistance for failed <code>conventional-title</code> checks on or off.</li>
+<li><code>ai-features.conventional-title.mode</code>: <code>suggest</code> appends an AI-suggested PR title to the failed check output. <code>fix</code> auto-edits the PR title when the suggestion validates.</li>
+<li><code>ai-features.conventional-title.timeout-minutes</code>: Timeout for the title-suggestion AI CLI call. Default is <code>10</code>.</li>
+<li><code>ai-features.resolve-cherry-pick-conflicts-with-ai.enabled</code>: Allow AI conflict resolution during cherry-pick workflows.</li>
+<li><code>ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes</code>: Timeout for the cherry-pick conflict resolution AI CLI call. Default is <code>10</code>.</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> <code>/test-oracle</code> always works when <code>test-oracle</code> is configured, even if the current event is not listed in <code>triggers</code>.</p>
+<p><strong>Note:</strong> If the Test Oracle health check fails, the server posts a PR comment and skips analysis. If the AI CLI fails for <code>ai-features</code>, the server logs the problem and continues without blocking the rest of the webhook flow.</p>
+<p><strong>Warning:</strong> AI-resolved cherry-picks are never auto-verified. They always require manual review after the conflict resolution step.</p>
+</blockquote>
+<h3 id="required-top-level-map">Required top-level map</h3>
+<ul>
+<li><code>repositories</code>: Required top-level map of repository-specific settings. The config loader refuses a config file that does not contain <code>repositories</code>.</li>
+</ul>
+<h2 id="repository-settings">Repository settings</h2>
+<p>The following keys are written under <code>repositories.&lt;short-repo-name&gt;</code> in <code>config.yaml</code>.</p>
+<h3 id="identity-logging-and-webhook-subscription">Identity, logging, and webhook subscription</h3>
+<ul>
+<li><code>name</code>: Full repository name in <code>owner/repo</code> form. This is required.</li>
+<li><code>log-level</code>: Repository-specific log level override.</li>
+<li><code>log-file</code>: Repository-specific log file override.</li>
+<li><code>mask-sensitive-data</code>: Repository-specific redaction override.</li>
+<li><code>events</code>: GitHub webhook events to subscribe when the server creates or updates the repo webhook. If omitted, webhook registration uses <code>*</code>. The current processing path explicitly handles <code>push</code>, <code>pull_request</code>, <code>pull_request_review</code>, <code>issue_comment</code>, <code>check_run</code>, <code>status</code>, <code>pull_request_review_thread</code>, and <code>ping</code>.</li>
+<li><code>github-tokens</code>: Repository-specific token list. This replaces the global <code>github-tokens</code> list for that repository.</li>
+<li><code>slack-webhook-url</code>: Slack incoming webhook for notifications related to PyPI publishing and container pushes.</li>
+</ul>
+<h3 id="checks-and-ci-behavior">Checks and CI behavior</h3>
+<ul>
+<li><code>verified-job</code>: Enable or disable the built-in <code>verified</code> check. Default is <code>true</code>. When disabled, the repo setup code does not add <code>verified</code> to generated required checks, and merge requirements do not include the verified step.</li>
+<li><code>tox</code>: Map of exact base branch name to tox env selection. Use <code>all</code> to run the default tox config, or a comma-separated env list such as <code>testenv1,testenv2</code>.</li>
+<li><code>tox-python-version</code>: Optional Python version passed as <code>uvx --python=&lt;version&gt; tox ...</code>.</li>
+<li><code>pre-commit</code>: Enable or disable the built-in pre-commit check. Default is <code>true</code>.</li>
+<li><code>conventional-title</code>: Comma-separated list of allowed Conventional Commit types for PR titles, such as <code>feat,fix,docs</code>. Use <code>*</code> to accept any type while still enforcing the format <code>&lt;type&gt;[optional scope]: &lt;description&gt;</code>. This validates the PR title, not commit messages.</li>
+<li><code>custom-check-runs[].name</code>: Custom GitHub check-run name. It must be unique, use only safe characters, and not collide with built-in names such as <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>python-module-install</code>, <code>conventional-title</code>, or <code>can-be-merged</code>.</li>
+<li><code>custom-check-runs[].command</code>: Command run in the repository worktree. Environment-variable prefixes and multiline commands are supported, but the executable must exist on the server.</li>
+<li><code>custom-check-runs[].mandatory</code>: Whether the custom check must pass for mergeability. Default is <code>true</code>. <code>false</code> checks still run; they just stop gating merges.</li>
+<li><code>test-oracle.server-url</code>, <code>test-oracle.ai-provider</code>, <code>test-oracle.ai-model</code>, <code>test-oracle.test-patterns</code>, <code>test-oracle.triggers</code>: Same meanings as the global <code>test-oracle</code> keys. A repository-level object replaces the global object for that repository.</li>
+<li><code>ai-features.ai-provider</code>, <code>ai-features.ai-model</code>, <code>ai-features.conventional-title.enabled</code>, <code>ai-features.conventional-title.mode</code>, <code>ai-features.conventional-title.timeout-minutes</code>, <code>ai-features.resolve-cherry-pick-conflicts-with-ai.enabled</code>, <code>ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes</code>: Same meanings as the global <code>ai-features</code> keys. A repository-level object replaces the global object for that repository.</li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> Custom check names become valid <code>/retest &lt;name&gt;</code> targets, and <code>/retest all</code> includes them.</p>
+</blockquote>
+<h3 id="branch-protection-and-merge-policy">Branch protection and merge policy</h3>
+<ul>
+<li><code>protected-branches</code>: Map of exact branch names that should have branch protection configured by the startup repository-setup job.</li>
+<li><code>protected-branches.&lt;branch&gt;: []</code>: Protect the branch and use the auto-generated required status-check list.</li>
+<li><code>protected-branches.&lt;branch&gt;.include-runs</code>: Replace the auto-generated required status-check list with exactly these contexts.</li>
+<li><code>protected-branches.&lt;branch&gt;.exclude-runs</code>: Remove these contexts from the auto-generated required list.</li>
+<li><code>branch-protection.strict</code>, <code>branch-protection.require_code_owner_reviews</code>, <code>branch-protection.dismiss_stale_reviews</code>, <code>branch-protection.required_approving_review_count</code>, <code>branch-protection.required_linear_history</code>, <code>branch-protection.required_conversation_resolution</code>: Same meanings as the global branch-protection keys. Repository values are merged on top of the global defaults.</li>
+</ul>
+<p>When the server auto-generates required checks for a protected branch, it starts from <code>default-status-checks</code>, always adds <code>can-be-merged</code>, and then adds built-in checks that are enabled for the repo. That includes <code>tox</code>, <code>verified</code>, <code>build-container</code>, <code>python-module-install</code>, <code>pre-commit</code>, <code>conventional-title</code>, and <code>pre-commit.ci - pr</code> when the repo contains a <code>.pre-commit-config.yaml</code>.</p>
+<ul>
+<li><code>auto-verified-and-merged-users</code>: Repository-specific auto-verified user list. This replaces the global list for that repository.</li>
+<li><code>auto-verify-cherry-picked-prs</code>: Repository override for automatic verification of cherry-picked PRs. Default is <code>true</code>.</li>
+<li><code>set-auto-merge-prs</code>: List of base branch names that should be put into GitHub auto-merge. The server enables GitHub auto-merge with squash merge.</li>
+<li><code>can-be-merged-required-labels</code>: Extra labels that must be present before the <code>can-be-merged</code> check can pass.</li>
+<li><code>minimum-lgtm</code>: Minimum number of reviewer <code>/lgtm</code> labels required before the PR is considered mergeable. Default is <code>0</code>.</li>
+<li><code>create-issue-for-new-pr</code>: Repository override for tracking-issue creation on new PRs.</li>
+<li><code>cherry-pick-assign-to-pr-author</code>: Repository override for assigning cherry-pick PRs to the original PR author.</li>
+<li><code>allow-commands-on-draft-prs</code>: Repository override for draft-PR comment commands. Omit it to block commands on draft PRs. Set it to <code>[]</code> to allow all commands. Set it to a list to allow only those raw command names, for example <code>build-and-push-container</code> or <code>retest</code>.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> For <code>protected-branches</code>, stick to <code>[]</code> or the object form with <code>include-runs</code> / <code>exclude-runs</code>. Those are the forms the branch-protection setup code actually uses.</p>
+<p><strong>Note:</strong> <code>/test-oracle</code> is exempt from the normal draft-PR command restriction and can still be triggered when configured.</p>
+</blockquote>
+<h3 id="labels-and-pr-size-at-repo-level">Labels and PR size at repo level</h3>
+<ul>
+<li><code>labels.enabled-labels</code>: Repository-specific enabled-label list. If you set it, it replaces the global enabled-label list for that repository.</li>
+<li><code>labels.colors</code>: Repository-specific color overrides. Repo color keys override the same keys from the global <code>labels.colors</code> map and inherit the rest.</li>
+<li><code>pr-size-thresholds.&lt;label&gt;.threshold</code>: Repository-specific PR size threshold.</li>
+<li><code>pr-size-thresholds.&lt;label&gt;.color</code>: Repository-specific PR size color. Repository <code>pr-size-thresholds</code> replace the global threshold map for that repository.</li>
+</ul>
+<h3 id="publishing-releases-and-notifications">Publishing, releases, and notifications</h3>
+<ul>
+<li><code>pypi.token</code>: Enable Python package publishing on tag pushes. On a tag push, the server builds an sdist with <code>uv build</code>, runs <code>twine check</code>, and uploads with <code>twine upload --skip-existing</code>. If publishing fails, the handler opens a GitHub issue.</li>
+<li><code>container.username</code>: Registry username used for <code>podman push</code>.</li>
+<li><code>container.password</code>: Registry password used for <code>podman push</code>.</li>
+<li><code>container.repository</code>: Full image repository, for example <code>quay.io/org/repo</code> or <code>ghcr.io/org/pkg</code>.</li>
+<li><code>container.tag</code>: Default merged-PR image tag for <code>main</code> and <code>master</code>. If omitted, the build code defaults to <code>latest</code>. PR builds use <code>pr-&lt;number&gt;</code>, and tag pushes use the Git tag itself.</li>
+<li><code>container.release</code>: If <code>true</code>, a tag push builds and pushes a release image. If <code>false</code>, tag pushes do not push a release image.</li>
+<li><code>container.build-args</code>: Extra <code>--build-arg</code> values passed to <code>podman build</code>.</li>
+<li><code>container.args</code>: Raw extra arguments prepended to <code>podman build</code>, for example <code>--format docker</code> or <code>--platform=linux/amd64</code>.</li>
+</ul>
+<p>The checked-in source handles release publishing only on tag pushes:</p>
+<div class="highlight"><pre><span></span><code><span class="n">tag</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^refs/tags/(.+)$&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;ref&quot;</span><span class="p">])</span>
+<span class="k">if</span> <span class="n">tag</span><span class="p">:</span>
+    <span class="n">tag_name</span> <span class="o">=</span> <span class="n">tag</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Processing push for tag: </span><span class="si">{</span><span class="n">tag</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Tag: </span><span class="si">{</span><span class="n">tag_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">pypi</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Processing upload to pypi for tag: </span><span class="si">{</span><span class="n">tag_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">upload_to_pypi</span><span class="p">(</span><span class="n">tag_name</span><span class="o">=</span><span class="n">tag_name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> PyPI upload failed&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">fail_step</span><span class="p">(</span><span class="s2">&quot;push_handler&quot;</span><span class="p">,</span> <span class="n">ex</span><span class="p">,</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">return</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">build_and_push_container</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">container_release</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Processing build and push container for tag: </span><span class="si">{</span><span class="n">tag_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_build_container</span><span class="p">(</span><span class="n">push</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">set_check</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">tag</span><span class="o">=</span><span class="n">tag_name</span><span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> <code>slack-webhook-url</code> is used for successful PyPI publish messages and for container push success/failure notifications. It is not a general-purpose notification switch for every webhook event.</p>
+</blockquote>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="configuration-model.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Configuration Model</span>
+                </a>
+
+
+                <a href="repository-overrides.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Repository Overrides</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#global-settings">Global settings</a><ul>
+<li><a href="#logging-and-diagnostics">Logging and diagnostics</a></li>
+<li><a href="#server-webhook-and-security">Server, webhook, and security</a></li>
+<li><a href="#github-authentication-and-shared-defaults">GitHub authentication and shared defaults</a></li>
+<li><a href="#labels-and-pr-size">Labels and PR size</a></li>
+<li><a href="#branch-protection">Branch protection</a></li>
+<li><a href="#pr-test-oracle-and-ai-features">PR Test Oracle and AI features</a></li>
+<li><a href="#required-top-level-map">Required top-level map</a></li>
+</ul>
+</li>
+<li><a href="#repository-settings">Repository settings</a><ul>
+<li><a href="#identity-logging-and-webhook-subscription">Identity, logging, and webhook subscription</a></li>
+<li><a href="#checks-and-ci-behavior">Checks and CI behavior</a></li>
+<li><a href="#branch-protection-and-merge-policy">Branch protection and merge policy</a></li>
+<li><a href="#labels-and-pr-size-at-repo-level">Labels and PR size at repo level</a></li>
+<li><a href="#publishing-releases-and-notifications">Publishing, releases, and notifications</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>
