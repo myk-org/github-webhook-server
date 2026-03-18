@@ -1502,10 +1502,10 @@ class TestRunnerHandler:
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
-                                        # Verify prompt includes modify/delete guidance
+                                        # Verify prompt includes delete/modify conflict guidance
                                         ai_prompt = str(mock_ai_cli.call_args)
-                                        assert "modify/delete" in ai_prompt, (
-                                            "AI prompt should include modify/delete conflict guidance"
+                                        assert "deleted in HEAD and modified in" in ai_prompt, (
+                                            "AI prompt should include delete/modify conflict guidance"
                                         )
                                         # Verify AI comment was posted
                                         comment_calls = mock_pull_request.create_issue_comment.call_args_list
