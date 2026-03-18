@@ -745,12 +745,17 @@ Your team can configure additional types in the repository settings.
 
         prompt = (
             "You are in a git repository with cherry-pick merge conflicts. "
-            "The conflicted files contain git conflict markers (<<<<<<< HEAD, =======, >>>>>>>). "
-            "Resolve ALL conflicts in ALL files. "
-            "Priority: the target branch (HEAD/upstream) changes are the baseline. "
-            "Adapt the cherry-picked changes to fit the target branch's codebase. "
-            "If changes are incompatible, prefer the target branch version. "
-            "After resolving, ensure the code compiles/is syntactically valid."
+            "Resolve ALL conflicts in ALL files.\n\n"
+            "Rules:\n"
+            "1. For files with conflict markers (<<<<<<< HEAD, =======, >>>>>>>): "
+            "the target branch (HEAD) is the baseline. "
+            "Adapt the cherry-picked changes to fit the target branch's codebase.\n"
+            "2. For modify/delete conflicts (file 'deleted in HEAD and modified in ...'): "
+            "the file does NOT exist on the target branch yet. "
+            "KEEP the file — use 'git add' to stage it. "
+            "This is a cherry-pick bringing a new/modified file to the target branch.\n"
+            "3. After resolving, stage all changes with 'git add' and "
+            "ensure the code is syntactically valid."
         )
 
         self.logger.info(f"{self.log_prefix} Attempting AI conflict resolution with {ai_provider}/{ai_model}")
@@ -801,22 +806,8 @@ Your team can configure additional types in the repository settings.
                     mask_sensitive=self.github_webhook.mask_sensitive,
                 )
                 if not rc:
-                    if "cherry-pick is now empty" in err:
-                        self.logger.info(
-                            f"{self.log_prefix} Cherry-pick is empty after AI resolution, committing with --allow-empty"
-                        )
-                        rc_empty, _, err_empty = await run_command(
-                            command=f"{git_cmd} -c core.editor=true commit --allow-empty -C CHERRY_PICK_HEAD",
-                            log_prefix=self.log_prefix,
-                            redact_secrets=[github_token],
-                            mask_sensitive=self.github_webhook.mask_sensitive,
-                        )
-                        if not rc_empty:
-                            self.logger.error(f"{self.log_prefix} Failed to commit empty cherry-pick: {err_empty}")
-                            return False
-                    else:
-                        self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
-                        return False
+                    self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
+                    return False
             else:
                 if err_check and "needed a single revision" not in err_check.lower():
                     self.logger.error(f"{self.log_prefix} Unexpected CHERRY_PICK_HEAD check error: {err_check}")

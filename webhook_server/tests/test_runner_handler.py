@@ -1502,6 +1502,11 @@ class TestRunnerHandler:
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
+                                        # Verify prompt includes modify/delete guidance
+                                        ai_prompt = str(mock_ai_cli.call_args)
+                                        assert "modify/delete" in ai_prompt, (
+                                            "AI prompt should include modify/delete conflict guidance"
+                                        )
                                         # Verify AI comment was posted
                                         comment_calls = mock_pull_request.create_issue_comment.call_args_list
                                         ai_comment = any(
@@ -1599,10 +1604,10 @@ class TestRunnerHandler:
                                         assert "ai-resolved-conflicts" in gh_cmd_str
 
     @pytest.mark.asyncio
-    async def test_cherry_pick_ai_resolves_empty_cherry_pick(
+    async def test_cherry_pick_ai_empty_result_falls_back_to_manual(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Cherry-pick conflict resolved by AI results in empty commit — committed with --allow-empty."""
+        """Cherry-pick conflict resolved by AI but result is empty — falls back to manual instructions."""
         runner_handler.github_webhook.ai_features = {
             "ai-provider": "claude",
             "ai-model": "sonnet",
@@ -1624,13 +1629,11 @@ class TestRunnerHandler:
                     "The previous cherry-pick is now empty, possibly due to conflict resolution.\n"
                     "If you wish to commit it anyway, use:\n\n    git commit --allow-empty\n",
                 )
-            if "gh pr create" in command:
-                return (True, "https://github.com/test-org/test-repo/pull/99", "")
             return (True, "success", "")
 
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
-                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
+                with patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
@@ -1654,29 +1657,21 @@ class TestRunnerHandler:
                                         return_value=None,
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
-                                        mock_set_success.assert_called_once()
+                                        mock_set_failure.assert_called()
                                         mock_ai_cli.assert_called_once()
-                                        # Verify --allow-empty commit was called
+                                        # Verify --allow-empty was NOT called
                                         allow_empty_calls = [
                                             c for c in mock_run_cmd.call_args_list if "commit --allow-empty" in str(c)
                                         ]
-                                        assert allow_empty_calls, (
-                                            "git commit --allow-empty should be called for empty cherry-pick"
-                                        )
-                                        # Verify AI comment was posted
+                                        assert not allow_empty_calls, "git commit --allow-empty should NOT be called"
+                                        # Verify manual cherry-pick comment was posted
                                         comment_calls = mock_pull_request.create_issue_comment.call_args_list
-                                        ai_comment = any(
-                                            "Cherry-pick conflicts were resolved by AI" in str(c) for c in comment_calls
+                                        manual_comment = any(
+                                            "Manual cherry-pick is needed" in str(c) for c in comment_calls
                                         )
-                                        assert ai_comment, f"Expected AI comment, got: {comment_calls}"
-                                        # Verify labels are in gh pr create command
-                                        gh_cmd_calls = [
-                                            c for c in mock_run_cmd.call_args_list if "gh pr create" in str(c)
-                                        ]
-                                        assert gh_cmd_calls, "gh pr create not called"
-                                        gh_cmd_str = str(gh_cmd_calls[-1])
-                                        assert "--label" in gh_cmd_str
-                                        assert "ai-resolved-conflicts" in gh_cmd_str
+                                        assert manual_comment, (
+                                            f"Expected manual cherry-pick comment, got: {comment_calls}"
+                                        )
 
     @pytest.mark.asyncio
     async def test_cherry_pick_ai_fails_fallback(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
