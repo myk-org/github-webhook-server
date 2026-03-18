@@ -914,9 +914,9 @@ For more information, please refer to the project documentation or contact the m
                             f"{self.log_prefix} AI-resolved cherry-pick has auto-merge enabled, disabling it"
                         )
                         await asyncio.to_thread(pull_request.disable_automerge)
-                    except Exception as exp:
-                        self.logger.error(
-                            f"{self.log_prefix} Failed to disable auto-merge for AI-resolved cherry-pick: {exp}"
+                    except Exception:
+                        self.logger.exception(
+                            f"{self.log_prefix} Failed to disable auto-merge for AI-resolved cherry-pick"
                         )
                 else:
                     self.logger.info(f"{self.log_prefix} AI-resolved cherry-pick detected, skipping auto-merge")
