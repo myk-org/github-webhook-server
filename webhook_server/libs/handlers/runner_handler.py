@@ -786,7 +786,7 @@ Your team can configure additional types in the repository settings.
 
             # Check if cherry-pick is still in progress (it may have auto-completed
             # after staging resolved files, e.g. for modify/delete conflicts)
-            rc_check, _, _ = await run_command(
+            rc_check, _, err_check = await run_command(
                 command=f"{git_cmd} rev-parse --verify CHERRY_PICK_HEAD",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
@@ -801,9 +801,26 @@ Your team can configure additional types in the repository settings.
                     mask_sensitive=self.github_webhook.mask_sensitive,
                 )
                 if not rc:
-                    self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
-                    return False
+                    if "cherry-pick is now empty" in err:
+                        self.logger.info(
+                            f"{self.log_prefix} Cherry-pick is empty after AI resolution, committing with --allow-empty"
+                        )
+                        rc_empty, _, err_empty = await run_command(
+                            command=f"{git_cmd} -c core.editor=true commit --allow-empty -C CHERRY_PICK_HEAD",
+                            log_prefix=self.log_prefix,
+                            redact_secrets=[github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
+                        if not rc_empty:
+                            self.logger.error(f"{self.log_prefix} Failed to commit empty cherry-pick: {err_empty}")
+                            return False
+                    else:
+                        self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
+                        return False
             else:
+                if err_check and "needed a single revision" not in err_check.lower():
+                    self.logger.error(f"{self.log_prefix} Unexpected CHERRY_PICK_HEAD check error: {err_check}")
+                    return False
                 self.logger.info(f"{self.log_prefix} Cherry-pick already completed after staging resolved files")
 
             self.logger.info(f"{self.log_prefix} AI successfully resolved cherry-pick conflicts")
@@ -988,11 +1005,16 @@ Your team can configure additional types in the repository settings.
 
                 cherry_picked_label = f"{CHERRY_PICKED_LABEL}-from-{source_branch}"[:49]
 
+                label_flags = f" --label {shlex.quote(cherry_picked_label)}"
+                if cherry_pick_had_conflicts:
+                    label_flags += f" --label {shlex.quote(AI_RESOLVED_CONFLICTS_LABEL)}"
+
                 gh_pr_command = (
                     f"gh pr create --repo {shlex.quote(repo_full_name)}"
                     f" --base {shlex.quote(target_branch)}"
                     f" --head {shlex.quote(new_branch_name)}"
                     f"{assignee_flag}"
+                    f"{label_flags}"
                     f" --title {shlex.quote(pr_title)}"
                     f" --body {shlex.quote(pr_body)}"
                 )
