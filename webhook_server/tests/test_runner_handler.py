@@ -1494,7 +1494,7 @@ class TestRunnerHandler:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
-                                ) as mock_to_thread:
+                                ):
                                     with patch(
                                         "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
                                         return_value=None,
@@ -1514,19 +1514,9 @@ class TestRunnerHandler:
                                         ]
                                         assert gh_cmd_calls, "gh pr create not called"
                                         gh_cmd_str = str(gh_cmd_calls[-1])
-                                        assert "--label" not in gh_cmd_str, (
-                                            "Labels should not be in gh pr create command"
-                                        )
-                                        # Verify labels were added via PyGithub add_to_labels
-                                        add_labels_calls = [
-                                            c
-                                            for c in mock_to_thread.call_args_list
-                                            if len(c.args) >= 1 and "add_to_labels" in str(c.args[0])
-                                        ]
-                                        assert add_labels_calls, "add_to_labels not called via asyncio.to_thread"
-                                        labels_call_str = str(add_labels_calls[-1])
-                                        assert "ai-resolved-conflicts" in labels_call_str
-                                        assert "CherryPicked-from-main" in labels_call_str
+                                        assert "--label" in gh_cmd_str, "Labels should be in gh pr create command"
+                                        assert "ai-resolved-conflicts" in gh_cmd_str
+                                        assert "CherryPicked-from-main" in gh_cmd_str
 
     @pytest.mark.asyncio
     async def test_cherry_pick_ai_resolves_modify_delete_conflict(
@@ -1599,6 +1589,94 @@ class TestRunnerHandler:
                                             "Cherry-pick conflicts were resolved by AI" in str(c) for c in comment_calls
                                         )
                                         assert ai_comment, f"Expected AI comment, got: {comment_calls}"
+                                        # Verify labels are in gh pr create command
+                                        gh_cmd_calls = [
+                                            c for c in mock_run_cmd.call_args_list if "gh pr create" in str(c)
+                                        ]
+                                        assert gh_cmd_calls, "gh pr create not called"
+                                        gh_cmd_str = str(gh_cmd_calls[-1])
+                                        assert "--label" in gh_cmd_str
+                                        assert "ai-resolved-conflicts" in gh_cmd_str
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_ai_resolves_empty_cherry_pick(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Cherry-pick conflict resolved by AI results in empty commit — committed with --allow-empty."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True, "timeout-minutes": 10},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            # Fail on cherry-pick (conflict)
+            if "cherry-pick" in command and "--continue" not in command and "rev-parse" not in command:
+                return (False, "", "CONFLICT (modify/delete): file.sh deleted in HEAD and modified in abc1234")
+            # CHERRY_PICK_HEAD exists — cherry-pick still in progress
+            if "rev-parse --verify CHERRY_PICK_HEAD" in command:
+                return (True, "abc123", "")
+            # cherry-pick --continue fails with empty cherry-pick
+            if "cherry-pick --continue" in command:
+                return (
+                    False,
+                    "",
+                    "The previous cherry-pick is now empty, possibly due to conflict resolution.\n"
+                    "If you wish to commit it anyway, use:\n\n    git commit --allow-empty\n",
+                )
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
+                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.run_command",
+                            new=AsyncMock(side_effect=run_command_side_effect),
+                        ) as mock_run_cmd:
+                            with patch(
+                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                                new=AsyncMock(return_value=(True, "resolved")),
+                            ) as mock_ai_cli:
+                                with patch(
+                                    "asyncio.to_thread",
+                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+                                ):
+                                    with patch(
+                                        "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                                        return_value=None,
+                                    ):
+                                        await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_set_success.assert_called_once()
+                                        mock_ai_cli.assert_called_once()
+                                        # Verify --allow-empty commit was called
+                                        allow_empty_calls = [
+                                            c for c in mock_run_cmd.call_args_list if "commit --allow-empty" in str(c)
+                                        ]
+                                        assert allow_empty_calls, (
+                                            "git commit --allow-empty should be called for empty cherry-pick"
+                                        )
+                                        # Verify AI comment was posted
+                                        comment_calls = mock_pull_request.create_issue_comment.call_args_list
+                                        ai_comment = any(
+                                            "Cherry-pick conflicts were resolved by AI" in str(c) for c in comment_calls
+                                        )
+                                        assert ai_comment, f"Expected AI comment, got: {comment_calls}"
+                                        # Verify labels are in gh pr create command
+                                        gh_cmd_calls = [
+                                            c for c in mock_run_cmd.call_args_list if "gh pr create" in str(c)
+                                        ]
+                                        assert gh_cmd_calls, "gh pr create not called"
+                                        gh_cmd_str = str(gh_cmd_calls[-1])
+                                        assert "--label" in gh_cmd_str
+                                        assert "ai-resolved-conflicts" in gh_cmd_str
 
     @pytest.mark.asyncio
     async def test_cherry_pick_ai_fails_fallback(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:

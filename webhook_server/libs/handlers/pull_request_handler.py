@@ -905,6 +905,23 @@ For more information, please refer to the project documentation or contact the m
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.base.ref}")
 
         if auto_merge:
+            # AI-resolved cherry-picks should NEVER be auto-merged
+            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            if any(label.name == AI_RESOLVED_CONFLICTS_LABEL for label in labels):
+                if pull_request.raw_data.get("auto_merge"):
+                    try:
+                        self.logger.info(
+                            f"{self.log_prefix} AI-resolved cherry-pick has auto-merge enabled, disabling it"
+                        )
+                        await asyncio.to_thread(pull_request.disable_automerge)
+                    except Exception as exp:
+                        self.logger.error(
+                            f"{self.log_prefix} Failed to disable auto-merge for AI-resolved cherry-pick: {exp}"
+                        )
+                else:
+                    self.logger.info(f"{self.log_prefix} AI-resolved cherry-pick detected, skipping auto-merge")
+                return
+
             try:
                 if not pull_request.raw_data.get("auto_merge"):
                     self.logger.info(
