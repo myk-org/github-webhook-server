@@ -784,16 +784,27 @@ Your team can configure additional types in the repository settings.
                 self.logger.error(f"{self.log_prefix} Failed to stage AI-resolved files: {err}")
                 return False
 
-            # Complete the cherry-pick
-            rc, _, err = await run_command(
-                command=f"{git_cmd} -c core.editor=true cherry-pick --continue",
+            # Check if cherry-pick is still in progress (it may have auto-completed
+            # after staging resolved files, e.g. for modify/delete conflicts)
+            rc_check, _, _ = await run_command(
+                command=f"{git_cmd} rev-parse --verify CHERRY_PICK_HEAD",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
-            if not rc:
-                self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
-                return False
+            if rc_check:
+                # Cherry-pick still in progress, finalize it
+                rc, _, err = await run_command(
+                    command=f"{git_cmd} -c core.editor=true cherry-pick --continue",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                if not rc:
+                    self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
+                    return False
+            else:
+                self.logger.info(f"{self.log_prefix} Cherry-pick already completed after staging resolved files")
 
             self.logger.info(f"{self.log_prefix} AI successfully resolved cherry-pick conflicts")
             return True
