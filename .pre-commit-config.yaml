@@ -22,6 +22,7 @@ repos:
         args: [--markdown-linebreak-ext=md] # Do not process Markdown files.
       - id: end-of-file-fixer
       - id: check-ast
+        exclude: ^docs/
       - id: check-builtin-literals
       - id: check-docstring-first
       - id: check-toml

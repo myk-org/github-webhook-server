@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Configuration - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link active" aria-current="page">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="security-configuration">Security Configuration</h1>
+<p>A secure production deployment usually needs four things: a webhook secret, the right source-IP allowlist, masked logs, and strict network boundaries for optional admin/debug endpoints.</p>
+<blockquote>
+<p><strong>Note:</strong> The server reads <code>config.yaml</code> from <code>WEBHOOK_SERVER_DATA_DIR</code> (default <code>/home/podman/data</code>). <code>webhook-secret</code>, <code>verify-github-ips</code>, and <code>verify-cloudflare-ips</code> are global settings. <code>mask-sensitive-data</code> can be global or per repository. <code>ENABLE_LOG_SERVER</code> and <code>ENABLE_MCP_SERVER</code> are environment variables.</p>
+<p><strong>Tip:</strong> Use secret validation and IP allowlisting together. The secret proves the payload was signed by GitHub. The allowlist limits who can reach the endpoint at all.</p>
+</blockquote>
+<h2 id="webhook-secret-validation">Webhook Secret Validation</h2>
+<p>If <code>webhook-secret</code> is set, the server validates the incoming <code>x-hub-signature-256</code> header before it queues the webhook for background processing. The comparison is HMAC-SHA256 over the raw request body:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="ow">not</span> <span class="n">signature_header</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">403</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;x-hub-signature-256 header is missing!&quot;</span><span class="p">)</span>
+
+<span class="n">hash_object</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">secret_token</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">),</span> <span class="n">msg</span><span class="o">=</span><span class="n">payload_body</span><span class="p">,</span> <span class="n">digestmod</span><span class="o">=</span><span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">)</span>
+<span class="n">expected_signature</span> <span class="o">=</span> <span class="s2">&quot;sha256=&quot;</span> <span class="o">+</span> <span class="n">hash_object</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">hmac</span><span class="o">.</span><span class="n">compare_digest</span><span class="p">(</span><span class="n">expected_signature</span><span class="p">,</span> <span class="n">signature_header</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">403</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;Request signatures didn&#39;t match!&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>In practice:</p>
+<ul>
+<li>Set the same value in GitHub and in the server's root <code>config.yaml</code> as <code>webhook-secret</code>.</li>
+<li>A missing or invalid signature is rejected with <code>403</code>.</li>
+<li>If <code>webhook-secret</code> is not set, signature checking is skipped.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> Do not leave <code>webhook-secret</code> unset on an internet-facing server.</p>
+</blockquote>
+<p>If the server manages repository webhooks for you, it also includes that secret when creating the hook:</p>
+<div class="highlight"><pre><span></span><code><span class="n">config_</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">webhook_ip</span><span class="p">,</span> <span class="s2">&quot;content_type&quot;</span><span class="p">:</span> <span class="s2">&quot;json&quot;</span><span class="p">}</span>
+
+<span class="k">if</span> <span class="n">secret</span><span class="p">:</span>
+    <span class="n">config_</span><span class="p">[</span><span class="s2">&quot;secret&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">secret</span>
+</code></pre></div>
+
+<p>There is one important rotation caveat. The webhook-management code can detect when you moved between "no secret" and "secret configured", but it does not compare one non-empty secret value to another:</p>
+<div class="highlight"><pre><span></span><code><span class="n">secret_presence_mismatch</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">_hook</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;secret&quot;</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">secret</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">secret_presence_mismatch</span><span class="p">:</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[API user </span><span class="si">{</span><span class="n">api_user</span><span class="si">}</span><span class="s2">] - </span><span class="si">{</span><span class="n">full_repository_name</span><span class="si">}</span><span class="s2">: Deleting old webhook&quot;</span><span class="p">)</span>
+    <span class="n">_hook</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> If you rotate from one non-empty secret to another, update the GitHub-side webhook secret too. Otherwise GitHub can keep signing with the old value while the server starts validating against the new one.</p>
+</blockquote>
+<h2 id="github-and-cloudflare-ip-allowlists">GitHub And Cloudflare IP Allowlists</h2>
+<p>The server can optionally restrict the webhook endpoint to GitHub or Cloudflare source networks. This check is applied to the webhook endpoint, not to the optional log or MCP endpoints.</p>
+<p>Use the mode that matches your traffic path:</p>
+<ul>
+<li>Enable <code>verify-github-ips</code> when GitHub delivers webhooks directly to the server.</li>
+<li>Enable <code>verify-cloudflare-ips</code> when Cloudflare proxies traffic to the server.</li>
+<li>Enable both if you intentionally accept both delivery paths. The server merges both CIDR sets and accepts a request if it matches either source.</li>
+<li>Leave both unset or <code>false</code> if you do not want source-IP filtering.</li>
+</ul>
+<p>At startup, the app loads the enabled CIDR lists and fails closed if verification was requested but no valid networks were available:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="n">networks</span><span class="p">:</span>
+    <span class="n">ALLOWED_IPS</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">networks</span><span class="p">)</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;IP allowlist initialized successfully with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ALLOWED_IPS</span><span class="p">)</span><span class="si">}</span><span class="s2"> networks.&quot;</span><span class="p">)</span>
+<span class="k">elif</span> <span class="n">verify_github_ips</span> <span class="ow">or</span> <span class="n">verify_cloudflare_ips</span><span class="p">:</span>
+    <span class="c1"># Fail-close: If IP verification is enabled but no networks loaded, reject all requests</span>
+    <span class="n">LOGGER</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;IP verification enabled but no valid IPs loaded - failing closed for security&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+        <span class="s2">&quot;IP verification enabled but no allowlist loaded. &quot;</span>
+        <span class="s2">&quot;Cannot start server in insecure state. &quot;</span>
+        <span class="s2">&quot;Check network connectivity to GitHub/Cloudflare API endpoints.&quot;</span>
+    <span class="p">)</span>
+</code></pre></div>
+
+<p>The upstream sources are:</p>
+<ul>
+<li>GitHub: <code>https://api.github.com/meta</code> using the <code>hooks</code> CIDR list</li>
+<li>Cloudflare: <code>https://api.cloudflare.com/client/v4/ips</code></li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> The allowlist check uses the client IP the app actually sees in <code>request.client.host</code>. If another reverse proxy or load balancer sits in front of the app, you may end up validating the proxy IP instead of GitHub or Cloudflare.</p>
+<p><strong>Note:</strong> The CIDR lists are fetched during startup, not continuously. Restart the service if you need to pick up upstream IP-range changes.</p>
+<p><strong>Note:</strong> These allowlists protect only the <code>POST /webhook_server</code> webhook endpoint. They do not secure <code>/logs/*</code> or <code>/mcp</code>.</p>
+</blockquote>
+<h2 id="sensitive-data-masking">Sensitive-Data Masking</h2>
+<p>The logging layer masks sensitive data by default. That includes common credential-like values such as passwords, secrets, tokens, private keys, webhook URLs, and similar auth-related fields. This is a logging safeguard, not a replacement for webhook signature validation or IP allowlisting.</p>
+<p>The example configuration keeps masking enabled globally:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)</span>
+</code></pre></div>
+
+<p>You can override it per repository inside the main <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span><span class="w"> </span><span class="c1"># Override global log-level for repository</span>
+<span class="w">    </span><span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-repository.log</span><span class="w"> </span><span class="c1"># Override global log-file for repository</span>
+<span class="w">    </span><span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Override global setting - disable masking for debugging this specific repo (NOT recommended in production)</span>
+</code></pre></div>
+
+<p>This is useful when you are debugging a single repository, but it should be temporary.</p>
+<blockquote>
+<p><strong>Warning:</strong> Turning masking off can leak credentials into normal log files and exported JSON webhook logs. Use it only for short-lived debugging on a trusted system, then turn it back on.</p>
+</blockquote>
+<h2 id="restrict-optional-admin-endpoints">Restrict Optional Admin Endpoints</h2>
+<p>The server also has optional log-viewer and MCP endpoints. These are operationally useful, but they should be treated as internal-only.</p>
+<p>The compose example shows how they are enabled:</p>
+<div class="highlight"><pre><span></span><code><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ENABLE_LOG_SERVER=true</span><span class="w"> </span><span class="c1"># Enable log viewer endpoints (default: false)</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ENABLE_MCP_SERVER=false</span><span class="w"> </span><span class="c1"># Enable MCP server for AI agent integration (default: false)</span>
+</code></pre></div>
+
+<p>The app checks for the literal string <code>true</code> when enabling either feature.</p>
+<p>When <code>ENABLE_LOG_SERVER=true</code>, the app exposes the log viewer routes, including:</p>
+<ul>
+<li><code>/logs</code></li>
+<li><code>/logs/api/entries</code></li>
+<li><code>/logs/api/export</code></li>
+<li><code>/logs/api/pr-flow/{hook_id}</code></li>
+<li><code>/logs/api/workflow-steps/{hook_id}</code></li>
+<li><code>/logs/api/step-logs/{hook_id}/{step_name}</code></li>
+<li><code>/logs/ws</code></li>
+</ul>
+<p>When <code>ENABLE_MCP_SERVER=true</code>, the app exposes <code>/mcp</code>.</p>
+<p>The only log endpoint with an extra built-in network restriction is the step-log route:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@FASTAPI_APP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+    <span class="s2">&quot;/logs/api/step-logs/</span><span class="si">{hook_id}</span><span class="s2">/</span><span class="si">{step_name}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="n">operation_id</span><span class="o">=</span><span class="s2">&quot;get_step_logs&quot;</span><span class="p">,</span>
+    <span class="n">dependencies</span><span class="o">=</span><span class="p">[</span><span class="n">Depends</span><span class="p">(</span><span class="n">require_log_server_enabled</span><span class="p">),</span> <span class="n">Depends</span><span class="p">(</span><span class="n">require_trusted_network</span><span class="p">)],</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p>That trusted-network check allows only private, loopback, or link-local client addresses. The rest of the log viewer is feature-flagged but not protected by that extra network gate. The MCP endpoint is also created without built-in authentication.</p>
+<blockquote>
+<p><strong>Warning:</strong> Treat the entire log viewer as unauthenticated internal tooling. Most <code>/logs/*</code> routes are not protected by anything beyond the feature flag.</p>
+<p><strong>Warning:</strong> The <code>/mcp</code> endpoint is unauthenticated as well. If you enable it, keep it on a VPN or internal network, or put it behind a reverse proxy with authentication and TLS.</p>
+<p><strong>Tip:</strong> The safest production default is to leave <code>ENABLE_LOG_SERVER</code> and <code>ENABLE_MCP_SERVER</code> disabled unless you actively need them.</p>
+</blockquote>
+<h2 id="production-checklist">Production Checklist</h2>
+<ul>
+<li>Set <code>webhook-secret</code> and keep the same value in GitHub.</li>
+<li>Enable <code>verify-github-ips</code> or <code>verify-cloudflare-ips</code> to match your network path.</li>
+<li>Leave <code>mask-sensitive-data: true</code>.</li>
+<li>Keep <code>/logs/*</code> and <code>/mcp</code> off the public internet.</li>
+<li>If remote access is unavoidable, add authentication at the reverse proxy and keep origin access limited to trusted networks.</li>
+</ul>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="repository-overrides.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Repository Overrides</span>
+                </a>
+
+
+                <a href="supported-github-events.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Supported GitHub Events</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#webhook-secret-validation">Webhook Secret Validation</a></li>
+<li><a href="#github-and-cloudflare-ip-allowlists">GitHub And Cloudflare IP Allowlists</a></li>
+<li><a href="#sensitive-data-masking">Sensitive-Data Masking</a></li>
+<li><a href="#restrict-optional-admin-endpoints">Restrict Optional Admin Endpoints</a></li>
+<li><a href="#production-checklist">Production Checklist</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

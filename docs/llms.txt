@@ -1,0 +1,45 @@
+# github-webhook-server
+
+> FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.
+
+## Overview
+
+- [Introduction](introduction.md): Explain what the server is, who it is for, and the main automation it performs across repositories and pull requests.
+- [Architecture and Event Flow](architecture-and-event-flow.md): Describe the webhook intake pipeline, background processing model, handler architecture, repository cloning and worktree usage, and structured logging flow.
+
+## Getting Started
+
+- [Installation](installation.md): Cover runtime requirements, Python and uv setup, required system tools, GitHub credentials, and the expected data directory contents.
+- [Quick Start](quick-start.md): Walk through creating a minimal config, adding a repository entry, providing the GitHub App private key, starting the server, and verifying the health endpoint.
+- [Docker and Container Deployment](docker-deployment.md): Document the Podman-based container image, the example docker-compose deployment, volume mounts, health checks, and operational caveats.
+
+## Configuration
+
+- [Configuration Model](configuration-model.md): Explain configuration sources and precedence between global config.yaml, per-repository entries, and repository-local .github-webhook-server.yaml files.
+- [Configuration Reference](configuration-reference.md): Provide a key-by-key reference for global and repository settings such as events, tokens, labels, checks, branch protection, notifications, and release options.
+- [Repository Overrides](repository-overrides.md): Show how repository-local configuration customizes behavior per repo, including labels, checks, tokens, protected branches, and release settings.
+- [Security Configuration](security-configuration.md): Document webhook secret validation, GitHub and Cloudflare IP allowlists, sensitive-data masking, and network restrictions for optional admin endpoints.
+
+## Guides
+
+- [Supported GitHub Events](supported-github-events.md): List the webhook events the server handles, what each event triggers, and which events or cases are intentionally skipped.
+- [OWNERS and Reviewer Assignment](owners-and-reviewer-assignment.md): Explain how OWNERS files are discovered, how approvers and reviewers are derived from changed files, and how that affects review requests and command permissions.
+- [Pull Request Automation](pull-request-automation.md): Describe welcome comments, tracking issues, WIP and hold behavior, auto-verification, assignee updates, auto-merge setup, and cherry-pick workflows.
+- [Issue Comment Commands](issue-comment-commands.md): Provide a command reference for /retest, /reprocess, /assign-reviewers, /assign-reviewer, /check-can-merge, /build-and-push-container, /test-oracle, label toggles, and related permissions.
+- [Labels, Check Runs, and Mergeability](labels-check-runs-and-mergeability.md): Explain built-in labels, reviewed-by labels, size and branch labels, verified and can-be-merged checks, minimum LGTM rules, unresolved conversation checks, and custom check runs.
+- [Container and PyPI Workflows](container-and-pypi-workflows.md): Document container build and push behavior, tag-based release publishing, registry configuration, PyPI publishing, and Slack notifications.
+- [AI Features and Test Oracle](ai-features-and-test-oracle.md): Cover conventional-title validation, AI suggestion and auto-fix modes, supported AI providers, and the external PR test oracle integration and triggers.
+- [Log Viewer Guide](log-viewer-guide.md): Explain how to enable the log viewer, use filters and live streaming, inspect PR flows and workflow steps, and export logs safely.
+
+## API Reference
+
+- [Webhook and Health API](webhook-and-health-api.md): Reference the main POST /webhook_server endpoint and GET /webhook_server/healthcheck endpoint, including validation rules and immediate-response semantics.
+- [Log Viewer API](log-viewer-api.md): Reference the /logs API endpoints and WebSocket stream for historical queries, exports, PR flow inspection, workflow steps, and step-scoped logs.
+- [MCP API](mcp-api.md): Document the optional /mcp endpoint, how it exposes the FastAPI surface to AI agents, and the deployment and security expectations around it.
+
+## Operations
+
+- [Repository Bootstrap and GitHub App](repository-bootstrap-and-github-app.md): Describe the startup-time repository bootstrap process that configures labels, branch protection, check states, and webhooks using the configured GitHub App.
+- [Logging and Data Files](logging-and-data-files.md): Document the data directory layout, rotating text logs, structured JSONL webhook logs, log viewer files, and how masking and log separation work.
+- [Testing and Maintenance](testing-and-maintenance.md): Explain the unit, integration, and end-to-end test strategy, coverage expectations, pre-commit tooling, release automation, dependency update automation, and repository maintenance bots.
+- [Troubleshooting](troubleshooting.md): Collect common setup and runtime problems such as missing config, repository lookup failures, Podman runtime issues, skipped draft PR commands, and observability tips.

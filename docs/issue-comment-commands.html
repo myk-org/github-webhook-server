@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issue Comment Commands - github-webhook-server</title>
+    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Overview</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="introduction.html"
+                           class="nav-link">
+                            Introduction
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="architecture-and-event-flow.html"
+                           class="nav-link">
+                            Architecture and Event Flow
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="installation.html"
+                           class="nav-link">
+                            Installation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="quick-start.html"
+                           class="nav-link">
+                            Quick Start
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="docker-deployment.html"
+                           class="nav-link">
+                            Docker and Container Deployment
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Configuration</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-model.html"
+                           class="nav-link">
+                            Configuration Model
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="repository-overrides.html"
+                           class="nav-link">
+                            Repository Overrides
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="security-configuration.html"
+                           class="nav-link">
+                            Security Configuration
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="owners-and-reviewer-assignment.html"
+                           class="nav-link">
+                            OWNERS and Reviewer Assignment
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="pull-request-automation.html"
+                           class="nav-link">
+                            Pull Request Automation
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="issue-comment-commands.html"
+                           class="nav-link active" aria-current="page">
+                            Issue Comment Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="labels-check-runs-and-mergeability.html"
+                           class="nav-link">
+                            Labels, Check Runs, and Mergeability
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="container-and-pypi-workflows.html"
+                           class="nav-link">
+                            Container and PyPI Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="ai-features-and-test-oracle.html"
+                           class="nav-link">
+                            AI Features and Test Oracle
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-guide.html"
+                           class="nav-link">
+                            Log Viewer Guide
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">API Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="webhook-and-health-api.html"
+                           class="nav-link">
+                            Webhook and Health API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-api.html"
+                           class="nav-link">
+                            MCP API
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Operations</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="repository-bootstrap-and-github-app.html"
+                           class="nav-link">
+                            Repository Bootstrap and GitHub App
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="logging-and-data-files.html"
+                           class="nav-link">
+                            Logging and Data Files
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="testing-and-maintenance.html"
+                           class="nav-link">
+                            Testing and Maintenance
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="troubleshooting.html"
+                           class="nav-link">
+                            Troubleshooting
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <h1 id="issue-comment-commands">Issue Comment Commands</h1>
+<p>Issue comment commands let you control pull request automation directly from the PR conversation.</p>
+<blockquote>
+<p><strong>Note:</strong> Only newly created comments are processed. Editing or deleting a comment later does not re-run a command.</p>
+<p><strong>Tip:</strong> Put each command at the start of its own line. If you include several commands in one comment, the server parses each <code>/...</code> line separately and runs them concurrently.</p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><span class="n">_user_commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">_cmd</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">_cmd</span> <span class="ow">in</span> <span class="n">body</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span> <span class="k">if</span> <span class="n">_cmd</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)]</span>
+
+<span class="n">user_login</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;sender&quot;</span><span class="p">][</span><span class="s2">&quot;login&quot;</span><span class="p">]</span>
+
+<span class="c1"># Execute all commands in parallel</span>
+<span class="k">if</span> <span class="n">_user_commands</span><span class="p">:</span>
+    <span class="c1"># Cache draft status once to avoid repeated API calls</span>
+    <span class="n">is_draft</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">draft</span><span class="p">)</span>
+
+    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Coroutine</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="n">Task</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">user_command</span> <span class="ow">in</span> <span class="n">_user_commands</span><span class="p">:</span>
+        <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">user_commands</span><span class="p">(</span>
+                <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+                <span class="n">command</span><span class="o">=</span><span class="n">user_command</span><span class="p">,</span>
+                <span class="n">reviewed_user</span><span class="o">=</span><span class="n">user_login</span><span class="p">,</span>
+                <span class="n">issue_comment_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;comment&quot;</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">],</span>
+                <span class="n">is_draft</span><span class="o">=</span><span class="n">is_draft</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+
+    <span class="c1"># Execute all commands concurrently</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+<h2 id="permissions">Permissions</h2>
+<p>The server has two different permission styles:</p>
+<ul>
+<li>Some commands are open to anyone who can comment on the PR.</li>
+<li>Some commands use the "valid command runner" check.</li>
+</ul>
+<p>A valid command runner is any user in one of these groups:</p>
+<ul>
+<li>Repository collaborators</li>
+<li>Repository contributors</li>
+<li>Repository approvers from <code>OWNERS</code></li>
+<li>Reviewers resolved for the current PR from <code>OWNERS</code></li>
+<li>A user explicitly approved by a maintainer or repository approver with <code>/add-allowed-user @username</code></li>
+</ul>
+<p>In this project, a "maintainer" is a repository collaborator with GitHub <code>admin</code> or <code>maintain</code> permission.</p>
+<div class="highlight"><pre><span></span><code><span class="n">_allowed_user_to_approve</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_all_repository_maintainers</span><span class="p">()</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">all_repository_approvers</span>
+<span class="n">allowed_user_to_approve</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">_allowed_user_to_approve</span><span class="p">))</span>
+<span class="n">allow_user_comment</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/</span><span class="si">{</span><span class="n">COMMAND_ADD_ALLOWED_USER_STR</span><span class="si">}</span><span class="s2"> @</span><span class="si">{</span><span class="n">reviewed_user</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="n">comment_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="si">{</span><span class="n">reviewed_user</span><span class="si">}</span><span class="s2"> is not allowed to run retest commands.</span>
+<span class="s2">maintainers can allow it by comment `</span><span class="si">{</span><span class="n">allow_user_comment</span><span class="si">}</span><span class="s2">`</span>
+<span class="s2">Maintainers:</span>
+<span class="s2"> - </span><span class="si">{</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2"> - &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">allowed_user_to_approve</span><span class="p">)</span><span class="si">}</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">valid_users</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">valid_users_to_run_commands</span>
+
+<span class="c1"># ...</span>
+
+<span class="k">return</span> <span class="nb">set</span><span class="p">((</span>
+    <span class="o">*</span><span class="n">repository_collaborators</span><span class="p">,</span>
+    <span class="o">*</span><span class="n">repository_contributors</span><span class="p">,</span>
+    <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">all_repository_approvers</span><span class="p">,</span>
+    <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">all_pull_request_reviewers</span><span class="p">,</span>
+<span class="p">))</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Who can use it</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/retest &lt;name&gt;</code></td>
+<td>Valid command runner</td>
+<td>Same model is used for <code>/reprocess</code> and <code>/build-and-push-container</code></td>
+</tr>
+<tr>
+<td><code>/reprocess</code></td>
+<td>Valid command runner</td>
+<td>Skips merged PRs</td>
+</tr>
+<tr>
+<td><code>/build-and-push-container</code></td>
+<td>Valid command runner</td>
+<td>Requires container support to be configured</td>
+</tr>
+<tr>
+<td><code>/assign-reviewers</code></td>
+<td>No additional role check</td>
+<td>Still subject to draft-PR rules</td>
+</tr>
+<tr>
+<td><code>/assign-reviewer @username</code></td>
+<td>No additional role check</td>
+<td>Target user must already be a repository contributor</td>
+</tr>
+<tr>
+<td><code>/check-can-merge</code></td>
+<td>No additional role check</td>
+<td>Still subject to draft-PR rules</td>
+</tr>
+<tr>
+<td><code>/test-oracle</code></td>
+<td>No additional role check</td>
+<td>Also allowed on draft PRs</td>
+</tr>
+<tr>
+<td><code>/wip</code> and <code>/wip cancel</code></td>
+<td>No additional role check</td>
+<td>Only works when the <code>wip</code> label category is enabled</td>
+</tr>
+<tr>
+<td><code>/verified</code> and <code>/verified cancel</code></td>
+<td>No additional role check</td>
+<td>Only works when the <code>verified</code> label category is enabled</td>
+</tr>
+<tr>
+<td><code>/hold</code> and <code>/hold cancel</code></td>
+<td>PR approvers for the current PR</td>
+<td>Uses approvers resolved from <code>OWNERS</code></td>
+</tr>
+<tr>
+<td><code>/approve</code> and <code>/approve cancel</code></td>
+<td>PR approvers or root approvers</td>
+<td>Also affects Test Oracle auto-triggers</td>
+</tr>
+<tr>
+<td><code>/lgtm</code> and <code>/lgtm cancel</code></td>
+<td>No additional role check</td>
+<td>The PR author's own <code>/lgtm</code> is ignored</td>
+</tr>
+<tr>
+<td><code>/automerge</code></td>
+<td>Repository maintainers or repository approvers</td>
+<td>Adds the <code>automerge</code> label; there is no dedicated <code>/automerge cancel</code> issue-comment path</td>
+</tr>
+<tr>
+<td><code>/add-allowed-user @username</code></td>
+<td>Must be posted by a maintainer or repository approver to actually grant access</td>
+<td>The later permission check only trusts approval comments from those users</td>
+</tr>
+</tbody>
+</table>
+<h3 id="draft-prs">Draft PRs</h3>
+<blockquote>
+<p><strong>Warning:</strong> On draft PRs, every issue comment command except <code>/test-oracle</code> is blocked unless you allow it with <code>allow-commands-on-draft-prs</code>.</p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><span class="c1"># Commands allowed on draft PRs (optional)</span>
+<span class="c1"># If not set: commands are blocked on draft PRs (default behavior)</span>
+<span class="c1"># If empty list []: all commands allowed on draft PRs</span>
+<span class="c1"># If list with values: only those commands allowed on draft PRs</span>
+<span class="c1"># allow-commands-on-draft-prs: []  # Uncomment to allow all commands on draft PRs</span>
+<span class="c1"># allow-commands-on-draft-prs:     # Or allow only specific commands:</span>
+<span class="c1">#   - build-and-push-container</span>
+<span class="c1">#   - retest</span>
+</code></pre></div>
+
+<p>Use bare command names in this list, without the leading slash. For example, use <code>retest</code>, not <code>/retest</code>.</p>
+<p>If the setting is omitted entirely, blocked commands on a draft PR are simply not run. If the setting is present and a command is not in the allowlist, the bot replies with the list of allowed commands.</p>
+<h2 id="command-reference">Command reference</h2>
+<h3 id="retest-name"><code>/retest &lt;name&gt;</code></h3>
+<p>Use <code>/retest</code> to rerun one or more configured checks for the current pull request.</p>
+<p>Supported built-in retest names come from the repository's enabled features:</p>
+<ul>
+<li><code>tox</code></li>
+<li><code>build-container</code></li>
+<li><code>python-module-install</code></li>
+<li><code>pre-commit</code></li>
+<li><code>conventional-title</code></li>
+</ul>
+<p>Custom retests come from <code>custom-check-runs</code>, and the command name is the configured <code>name</code> exactly. If you define a custom check named <code>lint</code>, you rerun it with <code>/retest lint</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">tox</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">TOX_STR</span><span class="si">}</span><span class="s2">` - Run Python test suite with tox</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">build_and_push_container</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">BUILD_CONTAINER_STR</span><span class="si">}</span><span class="s2">` - Rebuild and test container image</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">pypi</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">PYTHON_MODULE_INSTALL_STR</span><span class="si">}</span><span class="s2">` - Test Python package installation</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">pre_commit</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">PRE_COMMIT_STR</span><span class="si">}</span><span class="s2">` - Run pre-commit hooks and checks</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">conventional_title</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="si">}</span><span class="s2">` - Validate commit message format</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="c1"># Add custom check runs (both mandatory and optional)</span>
+<span class="k">for</span> <span class="n">custom_check</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">custom_check_runs</span><span class="p">:</span>
+    <span class="n">check_name</span> <span class="o">=</span> <span class="n">custom_check</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span>
+    <span class="n">is_mandatory</span> <span class="o">=</span> <span class="n">custom_check</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;mandatory&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+    <span class="n">status_indicator</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="n">is_mandatory</span> <span class="k">else</span> <span class="s2">&quot; (optional)&quot;</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot; * `/retest </span><span class="si">{</span><span class="n">check_name</span><span class="si">}</span><span class="s2">` - </span><span class="si">{</span><span class="n">check_name</span><span class="si">}{</span><span class="n">status_indicator</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="k">if</span> <span class="n">retest_msg</span><span class="p">:</span>
+    <span class="n">retest_msg</span> <span class="o">+=</span> <span class="s2">&quot; * `/retest all` - Run all available tests</span><span class="se">\n</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="nt">custom-check-runs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">array</span>
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">    </span><span class="no">Custom check runs that execute user-defined commands on PR events.</span>
+<span class="w">    </span><span class="no">Commands run in the repository worktree and behave like built-in checks</span>
+<span class="w">    </span><span class="no">(tox, pre-commit, etc.) - if a command is not found, the check will fail.</span>
+
+<span class="w">    </span><span class="no">Examples:</span>
+<span class="w">      </span><span class="no">- name: lint</span>
+<span class="w">        </span><span class="no">command: uv tool run --from ruff ruff check</span>
+<span class="w">        </span><span class="no">mandatory: true</span>
+<span class="w">      </span><span class="no">- name: security-scan</span>
+<span class="w">        </span><span class="no">command: TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .</span>
+<span class="w">        </span><span class="no">mandatory: false</span>
+</code></pre></div>
+
+<p>Behavior to know:</p>
+<ul>
+<li><code>/retest all</code> runs every configured retest target, including optional custom checks.</li>
+<li><code>/retest all</code> cannot be combined with other names in the same command.</li>
+<li>If you request a mix of supported and unsupported names, the supported ones still run and the bot comments about the unsupported ones.</li>
+<li><code>/retest</code> requires an argument.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="ow">not</span> <span class="n">_target_tests</span><span class="p">:</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;No test defined to retest&quot;</span>
+    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+    <span class="k">return</span>
+
+<span class="k">if</span> <span class="s2">&quot;all&quot;</span> <span class="ow">in</span> <span class="n">command_args</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">_target_tests</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;Invalid command. `all` cannot be used with other tests&quot;</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+        <span class="k">return</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">_supported_retests</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">current_pull_request_supported_retest</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">_test</span> <span class="ow">in</span> <span class="n">_target_tests</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_test</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">current_pull_request_supported_retest</span><span class="p">:</span>
+            <span class="n">_supported_retests</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_test</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_not_supported_retests</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_test</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">_not_supported_retests</span><span class="p">:</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;No </span><span class="si">{</span><span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">_not_supported_retests</span><span class="p">)</span><span class="si">}</span><span class="s2"> configured for this repository&quot;</span>
+    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">_supported_retests</span><span class="p">:</span>
+    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_retests</span><span class="p">(</span>
+        <span class="n">supported_retests</span><span class="o">=</span><span class="n">_supported_retests</span><span class="p">,</span>
+        <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> <code>/retest build-container</code> rebuilds and tests the image as a check run. It does <strong>not</strong> push a container image. Use <code>/build-and-push-container</code> when you want the image published.</p>
+</blockquote>
+<h3 id="reprocess"><code>/reprocess</code></h3>
+<p>Use <code>/reprocess</code> to rerun the main PR workflow for an existing open pull request.</p>
+<p>It is useful when:</p>
+<ul>
+<li>A webhook failed partway through processing</li>
+<li><code>OWNERS</code> changed and you want reviewer assignment recalculated</li>
+<li>Repository config changed and you want the PR automation refreshed</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_new_or_reprocess_pull_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process a new or reprocessed PR - handles welcome message, tracking issue, and full workflow.</span>
+
+<span class="sd">    This method extracts the core logic from the &quot;opened&quot; event handler to make it reusable</span>
+<span class="sd">    for both new PRs and the /reprocess command. It includes duplicate prevention checks.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Coroutine</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Add welcome message if it doesn&#39;t exist yet</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_welcome_comment_exists</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">):</span>
+        <span class="n">welcome_msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prepare_welcome_comment</span><span class="p">()</span>
+        <span class="n">tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">welcome_msg</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Welcome message already exists, skipping&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Add tracking issue if it doesn&#39;t exist yet</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tracking_issue_exists</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">):</span>
+        <span class="n">tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">create_issue_for_new_pull_request</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Tracking issue already exists, skipping&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Always run these tasks</span>
+    <span class="n">tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">set_wip_label_based_on_title</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
+    <span class="n">tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">process_opened_or_synchronize_pull_request</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_command_reprocess</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle /reprocess command - triggers full PR workflow from scratch.&quot;&quot;&quot;</span>
+    <span class="c1"># Check if PR is already merged - skip if merged</span>
+    <span class="k">if</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">is_merged</span><span class="p">()):</span>
+        <span class="k">return</span>
+
+    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_new_or_reprocess_pull_request</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">)</span>
+</code></pre></div>
+
+<p>What <code>/reprocess</code> does:</p>
+<ul>
+<li>Re-runs the same core workflow used for new or synchronized PRs</li>
+<li>Recreates the welcome comment only if it is missing</li>
+<li>Recreates the tracking issue only if it is missing</li>
+<li>Reapplies WIP-from-title handling</li>
+<li>Re-runs the main opened/synchronize PR processing flow</li>
+<li>Skips merged PRs entirely</li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> Use <code>/regenerate-welcome</code> if you only want to refresh the welcome comment itself.</p>
+</blockquote>
+<h3 id="assign-reviewers"><code>/assign-reviewers</code></h3>
+<p>Use <code>/assign-reviewers</code> to assign reviewers from the <code>OWNERS</code> files that match the paths changed in the pull request.</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">assign_reviewers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_initialized</span><span class="p">()</span>
+
+    <span class="n">_to_add</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">all_pull_request_reviewers</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_to_add</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="k">for</span> <span class="n">reviewer</span> <span class="ow">in</span> <span class="n">_to_add</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">reviewer</span> <span class="o">!=</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">login</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_review_request</span><span class="p">,</span> <span class="p">[</span><span class="n">reviewer</span><span class="p">])</span>
+            <span class="k">except</span> <span class="n">GithubException</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+                    <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reviewer</span><span class="si">}</span><span class="s2"> can not be added as reviewer. </span><span class="si">{</span><span class="n">ex</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+</code></pre></div>
+
+<p>Key points:</p>
+<ul>
+<li>Reviewers are derived from matching <code>OWNERS</code> files for the current PR.</li>
+<li>The PR author is skipped.</li>
+<li>There is no extra role check beyond being able to comment on the PR.</li>
+<li>The command is still subject to the draft-PR rules described earlier.</li>
+</ul>
+<h3 id="assign-reviewer-username"><code>/assign-reviewer @username</code></h3>
+<p>Use <code>/assign-reviewer @username</code> to request one specific reviewer.</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_add_reviewer_by_user_comment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">,</span> <span class="n">reviewer</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">reviewer</span> <span class="o">=</span> <span class="n">reviewer</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s2">&quot;@&quot;</span><span class="p">)</span>
+    <span class="n">repo_contributors</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_contributors</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">contributer</span> <span class="ow">in</span> <span class="n">repo_contributors</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">contributer</span><span class="o">.</span><span class="n">login</span> <span class="o">==</span> <span class="n">reviewer</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_review_request</span><span class="p">,</span> <span class="p">[</span><span class="n">reviewer</span><span class="p">])</span>
+            <span class="k">return</span>
+
+    <span class="n">_err</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;not adding reviewer </span><span class="si">{</span><span class="n">reviewer</span><span class="si">}</span><span class="s2"> by user comment, </span><span class="si">{</span><span class="n">reviewer</span><span class="si">}</span><span class="s2"> is not part of contributers&quot;</span>
+    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">_err</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Key points:</p>
+<ul>
+<li>The leading <code>@</code> is optional; the command strips it before lookup.</li>
+<li>The target user must already be in the repository contributors list.</li>
+<li>If the user is not a contributor, the bot comments instead of assigning them.</li>
+<li>The command requires an argument.</li>
+</ul>
+<h3 id="check-can-merge"><code>/check-can-merge</code></h3>
+<p>Use <code>/check-can-merge</code> to recalculate merge readiness immediately.</p>
+<p>The command updates the <code>can-be-merged</code> check run and label based on the current PR state. In the current implementation, that evaluation includes:</p>
+<ul>
+<li>Whether the PR is mergeable</li>
+<li>Required checks and commit statuses</li>
+<li>In-progress required checks</li>
+<li>Blocking labels such as <code>wip</code> and <code>hold</code></li>
+<li>Extra labels configured in <code>can-be-merged-required-labels</code></li>
+<li>Unresolved review conversations when conversation resolution is required</li>
+<li>Approval and LGTM requirements</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_if_can_be_merged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Check if PR can be merged and set the job for it</span>
+
+<span class="sd">    Check the following:</span>
+<span class="sd">        None of the required status checks in progress.</span>
+<span class="sd">        Has verified label.</span>
+<span class="sd">        Has approved from one of the approvers.</span>
+<span class="sd">        All required run check passed.</span>
+<span class="sd">        PR status is not &#39;dirty&#39;.</span>
+<span class="sd">        PR has no changed requests from approvers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># ...</span>
+    <span class="n">labels_failure_output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">wip_or_hold_labels_exists</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="n">_labels</span><span class="p">)</span>
+    <span class="c1"># ...</span>
+    <span class="n">labels_failure_output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_labels_for_can_be_merged</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="n">_labels</span><span class="p">)</span>
+    <span class="c1"># ...</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">required_conversation_resolution</span> <span class="ow">and</span> <span class="n">_unresolved_threads</span><span class="p">:</span>
+        <span class="n">conversation_failure</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;PR has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">_unresolved_threads</span><span class="p">)</span><span class="si">}</span><span class="s2"> unresolved review conversation(s):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="c1"># ...</span>
+    <span class="n">pr_approvered_failure_output</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_if_pr_approved</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="n">_labels</span><span class="p">)</span>
+    <span class="c1"># ...</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">failure_output</span><span class="p">:</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">_add_label</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">CAN_BE_MERGED_STR</span><span class="p">)</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_success</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">CAN_BE_MERGED_STR</span><span class="p">)</span>
+</code></pre></div>
+
+<p>If the PR passes, the bot adds the <code>can-be-merged</code> label and marks the check successful. If it does not pass, the bot removes that label and publishes the failure reasons in the check output.</p>
+<p>Repository-specific required labels are configured like this:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">can-be-merged-required-labels</span><span class="p">:</span><span class="w"> </span><span class="c1"># check for extra labels to set PR as can be merged</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-label1</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-label2</span>
+</code></pre></div>
+
+<h3 id="build-and-push-container"><code>/build-and-push-container</code></h3>
+<p>Use <code>/build-and-push-container</code> to manually build <strong>and push</strong> a PR container image.</p>
+<p>The command only works when container support is configured for the repository. Otherwise, the bot replies that no <code>build-and-push-container</code> is configured.</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">build_and_push_container</span><span class="p">:</span>
+    <span class="k">return</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">#### Container Operations</span>
+<span class="s2">* `/build-and-push-container` - Build and push container image (tagged with PR number)</span>
+<span class="s2">  * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="nt">container</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry username&gt;</span>
+<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_password&gt;</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;registry_repository_full_path&gt;</span>
+<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;image_tag&gt;</span>
+<span class="w">  </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Push image to registry on new release with release as the tag</span>
+<span class="w">  </span><span class="nt">build-args</span><span class="p">:</span><span class="w"> </span><span class="c1"># build args to send to podman build command</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-build-arg1=1</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-build-arg2=2</span>
+<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="c1"># args to send to podman build command</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--format docker</span>
+</code></pre></div>
+
+<p>For PR comment builds, the image tag is derived from the PR number:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">container_repository_and_tag</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">is_merged</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">tag</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">pull_request</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">is_merged</span><span class="p">:</span>
+            <span class="n">pull_request_branch</span> <span class="o">=</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">ref</span>
+            <span class="n">tag</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">pull_request_branch</span>
+                <span class="k">if</span> <span class="n">pull_request_branch</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OTHER_MAIN_BRANCH</span><span class="p">,</span> <span class="s2">&quot;main&quot;</span><span class="p">)</span>
+                <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">container_tag</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tag</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;pr-</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<p>What to expect:</p>
+<ul>
+<li>The command uses the repository's configured <code>container</code> settings.</li>
+<li>Extra arguments after the command are passed through to the build invocation.</li>
+<li>Default <code>container.build-args</code> and <code>container.args</code> from config are applied too.</li>
+<li>On success, the bot comments that a new container was published.</li>
+<li>On push failure, the bot comments that the build-and-push failed.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> This is different from <code>/retest build-container</code>. The retest command runs the build as a check; <code>/build-and-push-container</code> publishes an image.</p>
+</blockquote>
+<h3 id="test-oracle"><code>/test-oracle</code></h3>
+<p>Use <code>/test-oracle</code> to ask the configured PR Test Oracle service for test recommendations.</p>
+<p>The direct issue comment command always works when <code>test-oracle</code> is configured. The <code>triggers</code> list controls automatic background runs, not the direct <code>/test-oracle</code> command.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># PR Test Oracle integration</span>
+<span class="c1"># Analyzes PR diffs with AI and recommends which tests to run</span>
+<span class="c1"># See: https://github.com/myk-org/pr-test-oracle</span>
+<span class="nt">test-oracle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:8000&quot;</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
+<span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;tests/**/*.py&quot;</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="c1"># Default: [approved]</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span><span class="w"> </span><span class="c1"># Run when /approve command is used</span>
+<span class="w">    </span><span class="c1"># - pr-opened             # Run when PR is opened</span>
+<span class="w">    </span><span class="c1"># - pr-synchronized       # Run when new commits pushed</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">call_test_oracle</span><span class="p">(</span>
+    <span class="n">github_webhook</span><span class="p">:</span> <span class="n">GithubWebhook</span><span class="p">,</span>
+    <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">,</span>
+    <span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Call the pr-test-oracle service to analyze a PR for test recommendations.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        trigger: The event trigger (e.g., &quot;approved&quot;, &quot;pr-opened&quot;).</span>
+<span class="sd">                 &quot;approved&quot; means the /approve command, not GitHub review state.</span>
+<span class="sd">                 None means command-triggered (always runs if configured).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">github_webhook</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get_value</span><span class="p">(</span><span class="s2">&quot;test-oracle&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="k">if</span> <span class="n">trigger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">triggers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;triggers&quot;</span><span class="p">,</span> <span class="n">DEFAULT_TRIGGERS</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">trigger</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">triggers</span><span class="p">:</span>
+            <span class="k">return</span>
+
+    <span class="n">server_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s2">&quot;server-url&quot;</span><span class="p">]</span>
+
+    <span class="c1"># Health check</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">health_response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span>
+        <span class="n">health_response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Test Oracle server is not responding</span><span class="si">{</span><span class="n">status_info</span><span class="si">}</span><span class="s2">, skipping test analysis&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span>
+</code></pre></div>
+
+<p>Behavior to know:</p>
+<ul>
+<li>If <code>test-oracle</code> is not configured, <code>/test-oracle</code> quietly does nothing.</li>
+<li>If the Oracle server fails its health check, the bot comments on the PR.</li>
+<li>If the analyze call fails after the health check passes, the error is logged but no PR comment is posted.</li>
+<li><code>/test-oracle</code> runs asynchronously in the background.</li>
+<li><code>/test-oracle</code> is the only issue comment command explicitly allowed on draft PRs even when other commands are blocked.</li>
+</ul>
+<blockquote>
+<p><strong>Warning:</strong> In <code>test-oracle.triggers</code>, <code>approved</code> means the <code>/approve</code> issue comment command, not GitHub's native review approval event.</p>
+</blockquote>
+<h3 id="label-commands">Label commands</h3>
+<p>The current issue-comment handler exposes the built-in label-related commands below.</p>
+<div class="highlight"><pre><span></span><code><span class="n">commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">is_label_enabled</span><span class="p">(</span><span class="n">WIP_STR</span><span class="p">):</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/wip` - Mark PR as work in progress (adds WIP: prefix to title)&quot;</span><span class="p">)</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/wip cancel` - Remove work in progress status&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">is_label_enabled</span><span class="p">(</span><span class="n">HOLD_LABEL_STR</span><span class="p">):</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/hold` - Block PR merging (approvers only)&quot;</span><span class="p">)</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/hold cancel` - Unblock PR merging&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">is_label_enabled</span><span class="p">(</span><span class="n">VERIFIED_LABEL_STR</span><span class="p">):</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/verified` - Mark PR as verified&quot;</span><span class="p">)</span>
+    <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;* `/verified cancel` - Remove verification status&quot;</span><span class="p">)</span>
+
+<span class="c1"># These commands are always available</span>
+<span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+    <span class="s2">&quot;* `/reprocess` - Trigger complete PR workflow reprocessing &quot;</span>
+    <span class="s2">&quot;(useful if webhook failed or configuration changed)&quot;</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+<th>Who can use it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/wip</code></td>
+<td>Adds the <code>wip</code> label and prepends <code>WIP:</code> to the title if it is not already there</td>
+<td>No additional role check</td>
+</tr>
+<tr>
+<td><code>/wip cancel</code></td>
+<td>Removes the <code>wip</code> label and removes a leading <code>WIP:</code> or <code>WIP:</code> prefix from the title</td>
+<td>No additional role check</td>
+</tr>
+<tr>
+<td><code>/hold</code></td>
+<td>Adds the <code>hold</code> label, which blocks merge readiness</td>
+<td>PR approvers for the current PR</td>
+</tr>
+<tr>
+<td><code>/hold cancel</code></td>
+<td>Removes the <code>hold</code> label</td>
+<td>PR approvers for the current PR</td>
+</tr>
+<tr>
+<td><code>/verified</code></td>
+<td>Adds the <code>verified</code> label and marks the <code>verified</code> check successful</td>
+<td>No additional role check</td>
+</tr>
+<tr>
+<td><code>/verified cancel</code></td>
+<td>Removes the <code>verified</code> label and sets the <code>verified</code> check back to queued</td>
+<td>No additional role check</td>
+</tr>
+<tr>
+<td><code>/approve</code></td>
+<td>Adds the <code>approved-&lt;user&gt;</code> review label</td>
+<td>PR approvers or root approvers</td>
+</tr>
+<tr>
+<td><code>/approve cancel</code></td>
+<td>Removes the <code>approved-&lt;user&gt;</code> review label</td>
+<td>PR approvers or root approvers</td>
+</tr>
+<tr>
+<td><code>/lgtm</code></td>
+<td>Adds the <code>lgtm-&lt;user&gt;</code> review label used for <code>minimum-lgtm</code></td>
+<td>No additional role check, but the PR author's own <code>/lgtm</code> is ignored</td>
+</tr>
+<tr>
+<td><code>/lgtm cancel</code></td>
+<td>Removes the <code>lgtm-&lt;user&gt;</code> review label</td>
+<td>No additional role check</td>
+</tr>
+<tr>
+<td><code>/automerge</code></td>
+<td>Adds the <code>automerge</code> label</td>
+<td>Repository maintainers or repository approvers</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>automerge</code> label is more than a marker. When the <code>can-be-merged</code> check later completes successfully, the server performs a squash merge automatically:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="n">check_run_name</span> <span class="o">==</span> <span class="n">CAN_BE_MERGED_STR</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;labels_handler&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="n">pull_request</span> <span class="ow">and</span> <span class="n">check_run_conclusion</span> <span class="o">==</span> <span class="n">SUCCESS_STR</span><span class="p">:</span>
+        <span class="k">if</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">label_exists_in_pull_request</span><span class="p">(</span>
+            <span class="n">label</span><span class="o">=</span><span class="n">AUTOMERGE_LABEL_STR</span><span class="p">,</span> <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span>
+        <span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">merge</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Successfully auto-merged pull request #</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Tip:</strong> <code>/automerge</code> only adds the label. The actual merge happens later, after the <code>can-be-merged</code> check reports success.</p>
+</blockquote>
+<p>Label categories are configurable:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Labels configuration - control which labels are enabled and their colors</span>
+<span class="c1"># If not set, all labels are enabled with default colors</span>
+<span class="nt">labels</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Optional: List of label categories to enable</span>
+<span class="w">  </span><span class="c1"># If not set, all labels are enabled. If set, only listed categories are enabled.</span>
+<span class="w">  </span><span class="c1"># Note: reviewed-by labels (approved-*, lgtm-*, etc.) are always enabled and cannot be disabled</span>
+<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hold</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">wip</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">needs-rebase</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">has-conflicts</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">size</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">branch</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cherry-pick</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">automerge</span>
+<span class="w">  </span><span class="c1"># Optional: Custom colors for labels (CSS3 color names)</span>
+<span class="w">  </span><span class="nt">colors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">hold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">verified</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">wip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">needs-rebase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span>
+<span class="w">    </span><span class="nt">has-conflicts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
+<span class="w">    </span><span class="nt">can-be-merged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limegreen</span>
+<span class="w">    </span><span class="nt">automerge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="c1"># Dynamic label prefixes</span>
+<span class="w">    </span><span class="nt">approved-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
+<span class="w">    </span><span class="nt">lgtm-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yellowgreen</span>
+<span class="w">    </span><span class="nt">changes-requested-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
+<span class="w">    </span><span class="nt">commented-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gold</span>
+<span class="w">    </span><span class="nt">cherry-pick-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coral</span>
+<span class="w">    </span><span class="nt">branch-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">royalblue</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> If <code>labels.enabled-labels</code> is empty, configurable label commands such as <code>wip</code>, <code>hold</code>, <code>verified</code>, and <code>automerge</code> are effectively disabled. Review-state labels such as <code>approved-*</code> and <code>lgtm-*</code> remain enabled because the review workflow depends on them.</p>
+</blockquote>
+<h3 id="add-allowed-user-username"><code>/add-allowed-user @username</code></h3>
+<p>This is the permission override command.</p>
+<p>Use it when someone outside the default valid-user set needs to run <code>/retest</code>, <code>/reprocess</code>, or <code>/build-and-push-container</code>.</p>
+<p>How it works:</p>
+<ul>
+<li>A maintainer or repository approver comments <code>/add-allowed-user @username</code></li>
+<li>Later permission checks look for that exact comment on the PR</li>
+<li>If the approving comment was posted by someone else, it is ignored for authorization purposes</li>
+<li>The command requires an argument</li>
+</ul>
+<p>This is most useful for letting an occasional contributor rerun checks without changing <code>OWNERS</code> or repository membership.</p>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="pull-request-automation.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Pull Request Automation</span>
+                </a>
+
+
+                <a href="labels-check-runs-and-mergeability.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Labels, Check Runs, and Mergeability</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#permissions">Permissions</a><ul>
+<li><a href="#draft-prs">Draft PRs</a></li>
+</ul>
+</li>
+<li><a href="#command-reference">Command reference</a><ul>
+<li><a href="#retest-name">/retest &lt;name&gt;</a></li>
+<li><a href="#reprocess">/reprocess</a></li>
+<li><a href="#assign-reviewers">/assign-reviewers</a></li>
+<li><a href="#assign-reviewer-username">/assign-reviewer @username</a></li>
+<li><a href="#check-can-merge">/check-can-merge</a></li>
+<li><a href="#build-and-push-container">/build-and-push-container</a></li>
+<li><a href="#test-oracle">/test-oracle</a></li>
+<li><a href="#label-commands">Label commands</a></li>
+<li><a href="#add-allowed-user-username">/add-allowed-user @username</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">·</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>
