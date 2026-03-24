@@ -391,7 +391,7 @@ class IssueCommentHandler:
         """Process cherry-pick command for pull requests.
 
         This method handles cherry-pick requests for both unmerged and merged PRs.
-        Cherry-pick labels (cherry-pick/<branch-name>) are added in BOTH scenarios:
+        Cherry-pick labels (cherry-pick-<branch-name>) are added in BOTH scenarios:
 
         **Unmerged PRs:**
         - Labels indicate which branches need cherry-picking after the PR is merged
@@ -411,12 +411,17 @@ class IssueCommentHandler:
 
         Example:
             # Unmerged PR: /cherry-pick v1.0 v2.0
-            # - Adds labels: cherry-pick/v1.0, cherry-pick/v2.0
+            # - Adds labels: cherry-pick-v1.0, cherry-pick-v2.0
             # - Posts comment explaining labels will trigger auto cherry-pick on merge
 
             # Merged PR: /cherry-pick v1.0 v2.0
+            # - Adds labels: cherry-pick-v1.0, cherry-pick-v2.0 as idempotency markers
             # - Executes cherry-pick to v1.0 and v2.0 immediately
-            # - Adds labels: cherry-pick/v1.0, cherry-pick/v2.0 to track completion
+            # - Remove the label to retry a failed cherry-pick
+
+        Duplicate prevention:
+            If a cherry-pick label already exists for a target branch, that branch is
+            skipped. To re-trigger a cherry-pick, remove the label and run the command again.
         """
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
@@ -438,29 +443,63 @@ class IssueCommentHandler:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
             await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
 
-        cp_labels: list[str] = [
-            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
-        ]
+        if not _exits_target_branches:
+            return
 
-        if _exits_target_branches:
-            if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
-                info_msg: str = f"""
+        # Filter out branches that already have cherry-pick labels
+        existing_labels = {label.name for label in await asyncio.to_thread(lambda: list(pull_request.labels))}
+        _already_cherry_picked: list[str] = []
+        _branches_to_process: set[str] = set()
+
+        for _branch in _exits_target_branches:
+            label_name = f"{CHERRY_PICK_LABEL_PREFIX}{_branch}"
+            if label_name in existing_labels:
+                _already_cherry_picked.append(_branch)
+            else:
+                _branches_to_process.add(_branch)
+
+        if _already_cherry_picked:
+            already_msg = ", ".join(f"`{b}`" for b in _already_cherry_picked)
+            await asyncio.to_thread(
+                pull_request.create_issue_comment,
+                f"Cherry-pick label already present for: {already_msg}\n"
+                "To re-trigger, remove the cherry-pick label(s) and run the command again.",
+            )
+
+        if not _branches_to_process:
+            return
+
+        cp_labels: list[str] = [f"{CHERRY_PICK_LABEL_PREFIX}{_branch}" for _branch in _branches_to_process]
+
+        if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
+            info_msg: str = f"""
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
-Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is merged
 """
 
-                self.logger.info(f"{self.log_prefix} {info_msg}")
-                await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
-            else:
-                for _exits_target_branch in _exits_target_branches:
-                    await self.runner_handler.cherry_pick(
-                        pull_request=pull_request,
-                        target_branch=_exits_target_branch,
-                        assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
+            self.logger.info(f"{self.log_prefix} {info_msg}")
+            await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
+        else:
+            for _branch in _branches_to_process:
+                label_added = await self.labels_handler._add_label(
+                    pull_request=pull_request,
+                    label=f"{CHERRY_PICK_LABEL_PREFIX}{_branch}",
+                )
+                if not label_added:
+                    self.logger.info(
+                        f"{self.log_prefix} Skipping cherry-pick for {_branch},"
+                        " label already exists or could not be added"
                     )
+                    continue
+                await self.runner_handler.cherry_pick(
+                    pull_request=pull_request,
+                    target_branch=_branch,
+                    assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
+                )
+            return
 
-            for _cp_label in cp_labels:
-                await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
+        for _cp_label in cp_labels:
+            await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
 
     async def process_retest_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str, automerge: bool = False
