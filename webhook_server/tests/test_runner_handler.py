@@ -1311,16 +1311,49 @@ class TestRunnerHandler:
 
     @pytest.mark.asyncio
     async def test_cherry_pick_assigns_pr_author(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
-        """Test cherry_pick assigns to PR author, not the cherry-pick requester."""
+        """Test cherry_pick assigns to PR author via add_to_assignees after PR creation."""
         async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
             await runner_handler.cherry_pick(mock_pull_request, "main")
             mocks.set_progress.assert_called_once()
             mocks.set_success.assert_called_once()
             mocks.comment.assert_called_once()
+            # Verify --assignee is NOT in the gh pr create command
             last_cmd = mocks.run_cmd.call_args_list[-1]
             gh_command = last_cmd.kwargs.get("command", last_cmd.args[0] if last_cmd.args else "")
-            assert "--assignee" in gh_command
-            assert "test-pr-author" in gh_command
+            assert "--assignee" not in gh_command
+            # Verify add_to_assignees was called with the PR author
+            cherry_pick_pr = runner_handler.repository.get_pull.return_value
+            cherry_pick_pr.add_to_assignees.assert_called_once_with("test-pr-author")
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_assignee_fallback_to_approver(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test cherry_pick falls back to OWNERS approver when PR author cannot be assigned."""
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            # Make add_to_assignees fail for PR author, succeed for approver
+            cherry_pick_pr_mock = runner_handler.repository.get_pull.return_value
+            call_count = 0
+
+            def side_effect(*args: Any) -> None:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise Exception("could not assign user")
+
+            cherry_pick_pr_mock.add_to_assignees = Mock(side_effect=side_effect)
+
+            # Set up owners_file_handler with root approvers
+            mock_owners = Mock()
+            mock_owners.root_approvers = ["maintainer-1", "maintainer-2"]
+            runner_handler.owners_file_handler = mock_owners
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+            mocks.set_success.assert_called_once()
+            # Verify add_to_assignees was called twice: first with author (fails), then with approver
+            assert cherry_pick_pr_mock.add_to_assignees.call_count == 2
+            cherry_pick_pr_mock.add_to_assignees.assert_any_call("test-pr-author")
+            cherry_pick_pr_mock.add_to_assignees.assert_any_call("maintainer-1")
 
     @pytest.mark.asyncio
     async def test_cherry_pick_requested_by_uses_pr_owner(
@@ -1337,7 +1370,7 @@ class TestRunnerHandler:
             assert "Cherry-pick from" in gh_command
             assert mock_pull_request.html_url in gh_command
             assert "test-pr-author" in gh_command
-            assert "--assignee" in gh_command
+            assert "--assignee" not in gh_command
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_branch_already_checked_out(

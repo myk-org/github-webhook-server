@@ -852,7 +852,6 @@ Your team can configure additional types in the repository settings.
 
             async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
-                assignee_flag = f" --assignee {shlex.quote(pr_author)}" if assign_to_pr_owner else ""
                 pr_title = f"{CHERRY_PICKED_LABEL}: [{target_branch}] {commit_msg_striped}"
                 pr_body = (
                     f"Cherry-pick from `{source_branch}` branch, original PR: {pull_request_url}, PR owner: {pr_author}"
@@ -1007,7 +1006,6 @@ Your team can configure additional types in the repository settings.
                     f"gh pr create --repo {shlex.quote(repo_full_name)}"
                     f" --base {shlex.quote(target_branch)}"
                     f" --head {shlex.quote(new_branch_name)}"
-                    f"{assignee_flag}"
                     f"{label_flags}"
                     f" --title {shlex.quote(pr_title)}"
                     f" --body {shlex.quote(pr_body)}"
@@ -1083,6 +1081,37 @@ Your team can configure additional types in the repository settings.
                     cherry_pick_pr = None
 
                 if cherry_pick_pr:
+                    # Assign the PR to the original author (or fallback approver)
+                    if assign_to_pr_owner:
+                        try:
+                            await asyncio.to_thread(cherry_pick_pr.add_to_assignees, pr_author)
+                            self.logger.info(
+                                f"{self.log_prefix} Assigned {pr_author} to cherry-pick PR #{cherry_pick_pr.number}"
+                            )
+                        except Exception:
+                            self.logger.debug(
+                                f"{self.log_prefix} Could not assign {pr_author} to cherry-pick PR"
+                                " (may not be a collaborator), trying fallback"
+                            )
+                            try:
+                                fallback_approvers = self.owners_file_handler.root_approvers
+                                if fallback_approvers:
+                                    await asyncio.to_thread(cherry_pick_pr.add_to_assignees, fallback_approvers[0])
+                                    self.logger.info(
+                                        f"{self.log_prefix} Assigned fallback approver"
+                                        f" {fallback_approvers[0]} to cherry-pick PR #{cherry_pick_pr.number}"
+                                    )
+                                else:
+                                    self.logger.warning(
+                                        f"{self.log_prefix} No fallback approvers found in OWNERS file"
+                                        f" for cherry-pick PR #{cherry_pick_pr.number}"
+                                    )
+                            except Exception:
+                                self.logger.exception(
+                                    f"{self.log_prefix} Could not assign any user"
+                                    f" to cherry-pick PR #{cherry_pick_pr.number}"
+                                )
+
                     # Add labels to the created PR via PyGithub (auto-creates labels if needed)
                     try:
                         labels_to_add = [cherry_picked_label]
