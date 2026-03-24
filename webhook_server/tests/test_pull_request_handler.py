@@ -92,6 +92,7 @@ class TestPullRequestHandler:
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None  # Default: all labels enabled
         mock_webhook.custom_check_runs = []
+        mock_webhook.ai_features = None
         mock_webhook.required_conversation_resolution = False
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -466,6 +467,95 @@ class TestPullRequestHandler:
         pull_request_handler.github_webhook.create_issue_for_new_pr = False
         result = pull_request_handler._prepare_welcome_comment()
         assert "Disabled for this repository" in result
+
+    def test_prepare_ai_features_section_no_features(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test AI features section is empty when no features are configured."""
+        pull_request_handler.github_webhook.ai_features = None
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert result == ""
+
+    def test_prepare_ai_features_section_with_conventional_title(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test AI features section shows conventional title when enabled."""
+        pull_request_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "claude-opus-4-6",
+            "conventional-title": {"enabled": True, "mode": "fix"},
+        }
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert "AI Features" in result
+        assert "Conventional Title" in result
+        assert "Mode: `fix`" in result
+        assert "(claude/claude-opus-4-6)" in result
+
+    def test_prepare_ai_features_section_with_cherry_pick_ai(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test AI features section shows cherry-pick conflict resolution when enabled."""
+        pull_request_handler.github_webhook.ai_features = {
+            "ai-provider": "gemini",
+            "ai-model": "gemini-2.5-pro",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert "Cherry-Pick Conflict Resolution" in result
+        assert "Enabled" in result
+        assert "(gemini/gemini-2.5-pro)" in result
+
+    def test_prepare_ai_features_section_with_test_oracle(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test AI features section shows test oracle when configured."""
+
+        def _get_value_side_effect(key: str, **_kwargs: object) -> dict[str, Any] | None:
+            if key == "test-oracle":
+                return {
+                    "ai-provider": "claude",
+                    "ai-model": "sonnet",
+                    "triggers": ["approved", "pr-opened"],
+                }
+            return None
+
+        pull_request_handler.github_webhook.config.get_value = Mock(side_effect=_get_value_side_effect)
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert "Test Oracle" in result
+        assert "`approved`" in result
+        assert "`pr-opened`" in result
+        assert "(claude/sonnet)" in result
+        assert "/test-oracle" in result
+
+    def test_prepare_ai_features_section_all_features(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test AI features section shows all features when all are configured."""
+        pull_request_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "claude-opus-4-6",
+            "conventional-title": {"enabled": True, "mode": "suggest"},
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        def _get_value_side_effect(key: str, **_kwargs: object) -> dict[str, Any] | None:
+            if key == "test-oracle":
+                return {
+                    "ai-provider": "gemini",
+                    "ai-model": "gemini-2.5-pro",
+                    "triggers": ["approved"],
+                }
+            return None
+
+        pull_request_handler.github_webhook.config.get_value = Mock(side_effect=_get_value_side_effect)
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert "Conventional Title" in result
+        assert "Cherry-Pick Conflict Resolution" in result
+        assert "Test Oracle" in result
+        assert "/test-oracle" in result
+
+    def test_prepare_ai_features_section_disabled_features(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test AI features section is empty when features exist but are disabled."""
+        pull_request_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "claude-opus-4-6",
+            "conventional-title": {"enabled": False},
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": False},
+        }
+        result = pull_request_handler._prepare_ai_features_welcome_section
+        assert result == ""
 
     def test_prepare_owners_welcome_comment(self, pull_request_handler: PullRequestHandler) -> None:
         """Test preparing owners welcome comment."""

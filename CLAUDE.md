@@ -636,7 +636,7 @@ def mock_github_api():
 - Store tokens in environment variables or secret management systems
 - Use multiple tokens for rate limit distribution
 - Never commit tokens to repository
-- Mask sensitive data in logs (default: `mask-sensitive-data: true`)
+- Mask sensitive data in logs (see `mask-sensitive-data` in schema)
 
 ## Common Development Tasks
 
@@ -657,11 +657,9 @@ def mock_github_api():
 
 ### PR Test Oracle Integration
 
-External AI service integration for test recommendations via [pr-test-oracle](https://github.com/myk-org/pr-test-oracle). Configured via `test-oracle` in config (global or per-repo).
+External AI service integration for test recommendations via [pr-test-oracle](https://github.com/myk-org/pr-test-oracle).
 
-**Config keys:** `server-url` (required), `ai-provider` (required: claude/gemini/cursor), `ai-model` (required), `test-patterns` (optional), `triggers` (optional, default: [approved])
-
-**Trigger events:** `approved`, `pr-opened`, `pr-synchronized`
+**Schema:** `webhook_server/config/schema.yaml` (`test-oracle`), configurable globally or per-repo
 
 **Comment command:** `/test-oracle` (always works when configured, no trigger needed)
 
@@ -677,12 +675,9 @@ External AI service integration for test recommendations via [pr-test-oracle](ht
 
 AI-powered enhancements controlled by `ai-features` config (global or per-repo).
 
-**Config keys:** `ai-provider` (required: claude/gemini/cursor), `ai-model` (required), `conventional-title` (optional: "true"/"false"/"fix", default: "false")
+**Schema:** `webhook_server/config/schema.yaml` (`$defs.ai-features`)
 
-**Conventional title modes:**
-- `"true"`: Show AI-suggested title in check run output when validation fails
-- `"false"`: Disabled (default)
-- `"fix"`: Auto-update PR title with AI suggestion when validation fails (suggestion is validated before applying)
+**Sub-features:** `conventional-title`, `resolve-cherry-pick-conflicts-with-ai`
 
 **On AI CLI failure:** Error is logged, flow continues without suggestion
 

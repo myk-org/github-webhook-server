@@ -332,6 +332,7 @@ This PR will be automatically approved when the following conditions are met:
 
 {self._prepare_available_labels_section}
 </details>
+{self._prepare_ai_features_welcome_section}\
 
 ### 💡 Tips
 
@@ -492,6 +493,64 @@ For more information, please refer to the project documentation or contact the m
         tips.append("* **Auto-verified Users**: Certain users have automatic verification and merge privileges")
 
         return "\n".join(tips)
+
+    @property
+    def _prepare_ai_features_welcome_section(self) -> str:
+        """Prepare the AI Features section for the welcome comment.
+
+        Only shown if at least one AI feature is configured.
+        """
+        try:
+            return self._build_ai_features_section()
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to build AI features welcome section")
+            return ""
+
+    def _build_ai_features_section(self) -> str:
+        features: list[str] = []
+
+        # Check ai-features config
+        ai_features = self.github_webhook.ai_features
+        if ai_features:
+            ai_provider = ai_features["ai-provider"]
+            ai_model = ai_features["ai-model"]
+            provider_info = f" ({ai_provider}/{ai_model})"
+
+            # Conventional title
+            conv_title = ai_features.get("conventional-title")
+            if conv_title and conv_title["enabled"]:
+                mode = conv_title.get("mode", "suggest")
+                features.append(f"* **Conventional Title**: Mode: `{mode}`{provider_info}")
+
+            # Cherry-pick conflict resolution
+            cherry_pick_ai = ai_features.get("resolve-cherry-pick-conflicts-with-ai")
+            if cherry_pick_ai and cherry_pick_ai["enabled"]:
+                features.append(f"* **Cherry-Pick Conflict Resolution**: Enabled{provider_info}")
+
+        # Check test-oracle config (separate from ai-features)
+        test_oracle_config = self.github_webhook.config.get_value("test-oracle")
+        if test_oracle_config:
+            oracle_provider = test_oracle_config["ai-provider"]
+            oracle_model = test_oracle_config["ai-model"]
+            oracle_info = f" ({oracle_provider}/{oracle_model})"
+            triggers = test_oracle_config.get("triggers", ["approved"])
+            triggers_str = ", ".join(f"`{t}`" for t in triggers)
+            test_oracle_line = f"* **Test Oracle**: Triggers: {triggers_str}{oracle_info}"
+            test_oracle_line += "; `/test-oracle` can be used anytime"
+            features.append(test_oracle_line)
+
+        if not features:
+            return ""
+
+        features_list = "\n".join(features)
+        return f"""
+<details>
+<summary><strong>AI Features</strong></summary>
+
+{features_list}
+
+</details>
+"""
 
     @property
     def _prepare_merge_requirements(self) -> str:
