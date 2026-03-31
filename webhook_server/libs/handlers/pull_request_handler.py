@@ -193,10 +193,11 @@ class PullRequestHandler:
             )
             return False
 
-    async def _post_clean_rebase_comment(self, pull_request: PullRequest, before_sha: str) -> None:
+    async def _post_clean_rebase_comment(
+        self, pull_request: PullRequest, before_sha: str, label_names: list[str]
+    ) -> None:
         """Post a comment about clean rebase detection. Best-effort -- failures are logged but don't block CI."""
         try:
-            label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             review_labels = [
                 name
                 for name in label_names
@@ -283,9 +284,14 @@ class PullRequestHandler:
 
             if clean_rebase:
                 before_sha: str = self.hook_data["before"]
+                label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
                 sync_tasks = [
-                    self._post_clean_rebase_comment(pull_request=pull_request, before_sha=before_sha),
-                    self.process_opened_or_synchronize_pull_request(pull_request=pull_request, is_clean_rebase=True),
+                    self._post_clean_rebase_comment(
+                        pull_request=pull_request, before_sha=before_sha, label_names=label_names
+                    ),
+                    self.process_opened_or_synchronize_pull_request(
+                        pull_request=pull_request, is_clean_rebase=True, label_names=label_names
+                    ),
                 ]
             else:
                 sync_tasks = [
@@ -644,7 +650,10 @@ For more information, please refer to the project documentation or contact the m
             tips.append("* **WIP Status**: Use `/wip` when your PR is not ready for review")
 
         if self.labels_handler.is_label_enabled(VERIFIED_LABEL_STR):
-            tips.append("* **Verification**: The verified label is automatically removed on each new commit")
+            tips.append(
+                "* **Verification**: The verified label is removed on new commits"
+                " unless the push is detected as a clean rebase"
+            )
 
         # Cherry-pick tip - check if cherry-pick labels are enabled
         if self.labels_handler.is_label_enabled(CHERRY_PICKED_LABEL):
@@ -1002,7 +1011,7 @@ For more information, please refer to the project documentation or contact the m
         await asyncio.to_thread(matching_issue.edit, state="closed")
 
     async def process_opened_or_synchronize_pull_request(
-        self, pull_request: PullRequest, is_clean_rebase: bool = False
+        self, pull_request: PullRequest, is_clean_rebase: bool = False, label_names: list[str] | None = None
     ) -> None:
         if self.ctx:
             self.ctx.start_step("pr_workflow_setup")
@@ -1034,7 +1043,10 @@ For more information, please refer to the project documentation or contact the m
             setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
 
         if is_clean_rebase:
-            setup_tasks.append(self._sync_verified_check_for_clean_rebase(pull_request=pull_request))
+            # label_names is guaranteed non-None when is_clean_rebase=True (caller always provides it)
+            setup_tasks.append(
+                self._sync_verified_check_for_clean_rebase(_pull_request=pull_request, label_names=label_names)  # type: ignore[arg-type]
+            )
         else:
             setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
@@ -1397,7 +1409,7 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
 
-    async def _sync_verified_check_for_clean_rebase(self, pull_request: PullRequest) -> None:
+    async def _sync_verified_check_for_clean_rebase(self, _pull_request: PullRequest, label_names: list[str]) -> None:
         """Sync the verified check run to the new commit SHA after a clean rebase.
 
         Unlike _process_verified_for_update_or_new_pull_request, this does NOT
@@ -1407,7 +1419,6 @@ For more information, please refer to the project documentation or contact the m
         if not self.github_webhook.verified_job:
             return
 
-        label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
         if VERIFIED_LABEL_STR in label_names:
             await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
         else:
