@@ -247,12 +247,17 @@ class TestPullRequestHandler:
     ) -> None:
         """Test processing pull request webhook data when action is synchronize."""
         pull_request_handler.hook_data["action"] = "synchronize"
+        pull_request_handler.hook_data["before"] = "aaa1111111111111111111111111111111111111"
+        pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
-        with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-            with patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels:
-                await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                mock_process.assert_called_once_with(pull_request=mock_pull_request)
-                mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
+        with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process,
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_process.assert_called_once_with(pull_request=mock_pull_request, is_clean_rebase=False)
+            mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_closed_action_not_merged(
@@ -2371,8 +2376,11 @@ class TestPullRequestHandler:
     ) -> None:
         """Test exception handling in async tasks for synchronize event."""
         mock_github_webhook.hook_data["action"] = "synchronize"
+        mock_github_webhook.hook_data["before"] = "aaa1111111111111111111111111111111111111"
+        mock_github_webhook.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
         with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(
                 pull_request_handler,
                 "process_opened_or_synchronize_pull_request",
@@ -3106,8 +3114,11 @@ class TestPullRequestHandler:
         Verifies trigger='pr-synchronized' when a PR is synchronized.
         """
         pull_request_handler.hook_data["action"] = "synchronize"
+        pull_request_handler.hook_data["before"] = "aaa1111111111111111111111111111111111111"
+        pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
         with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
             patch.object(pull_request_handler, "remove_labels_when_pull_request_sync"),
             patch(

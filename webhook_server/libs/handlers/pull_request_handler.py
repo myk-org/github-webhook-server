@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import shlex
 import traceback
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
@@ -40,6 +42,7 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -67,6 +70,161 @@ class PullRequestHandler:
         self.runner_handler = RunnerHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+
+    async def _is_clean_rebase(self, _pull_request: PullRequest) -> bool:
+        """Detect whether a synchronize event is a clean rebase (same code changes on a newer base).
+
+        Compares the sha256 hash of the diff between merge-base..HEAD for both
+        the old head (before) and the new head (after). If the hashes match,
+        the push was a pure rebase with no code changes.
+
+        Args:
+            _pull_request: The GitHub pull request object (unused; kept for caller compatibility).
+
+        Returns:
+            True if the push is a clean rebase, False otherwise.
+            On any failure (git command, exception, timeout), returns False (conservative).
+        """
+        try:
+            if not self.github_webhook._repo_cloned:
+                self.logger.debug(f"{self.log_prefix} Clean rebase detection: skipped, repository not cloned")
+                return False
+
+            before_sha: str = self.hook_data["before"]
+            after_sha: str = self.hook_data["after"]
+            base_ref: str = self.hook_data["pull_request"]["base"]["ref"]
+            clone_dir: str = self.github_webhook.clone_repo_dir
+
+            clone_dir_q = shlex.quote(clone_dir)
+            before_sha_q = shlex.quote(before_sha)
+            after_sha_q = shlex.quote(after_sha)
+            base_ref_q = shlex.quote(f"origin/{base_ref}")
+
+            # Step 1: Fetch the old head SHA (may not be in the clone)
+            rc, _, _ = await run_command(
+                command=f"git -C {clone_dir_q} fetch origin {before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to fetch old head {before_sha[:7]}"
+                )
+                return False
+
+            # Step 2: Get merge-base for old head
+            rc, old_merge_base_out, _ = await run_command(
+                command=f"git -C {clone_dir_q} merge-base {base_ref_q} {before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to find merge-base for old head {before_sha[:7]}"
+                )
+                return False
+            old_merge_base = old_merge_base_out.strip()
+            if not old_merge_base:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: empty merge-base for old head {before_sha[:7]}"
+                )
+                return False
+            old_merge_base_q = shlex.quote(old_merge_base)
+
+            # Step 3: Get merge-base for new head
+            rc, new_merge_base_out, _ = await run_command(
+                command=f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to find merge-base for new head {after_sha[:7]}"
+                )
+                return False
+            new_merge_base = new_merge_base_out.strip()
+            if not new_merge_base:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: empty merge-base for new head {after_sha[:7]}"
+                )
+                return False
+            new_merge_base_q = shlex.quote(new_merge_base)
+
+            # Step 4: Compute diff hash for old range
+            rc, old_diff, _ = await run_command(
+                command=f"git -C {clone_dir_q} diff --binary {old_merge_base_q}..{before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for old range")
+                return False
+
+            # Step 5: Compute diff hash for new range
+            rc, new_diff, _ = await run_command(
+                command=f"git -C {clone_dir_q} diff --binary {new_merge_base_q}..{after_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for new range")
+                return False
+
+            # Step 6: Compare hashes
+            old_hash = hashlib.sha256(old_diff.encode()).hexdigest()
+            new_hash = hashlib.sha256(new_diff.encode()).hexdigest()
+
+            is_clean = old_hash == new_hash
+            self.logger.info(
+                f"{self.log_prefix} Clean rebase detection: "
+                f"old_hash={old_hash[:12]}, new_hash={new_hash[:12]}, is_clean_rebase={is_clean}"
+            )
+            return is_clean
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(
+                f"{self.log_prefix} Clean rebase detection failed unexpectedly; treating as non-clean"
+            )
+            return False
+
+    async def _post_clean_rebase_comment(
+        self, pull_request: PullRequest, before_sha: str, label_names: list[str]
+    ) -> None:
+        """Post a comment about clean rebase detection. Best-effort -- failures are logged but don't block CI."""
+        try:
+            review_labels = [
+                name
+                for name in label_names
+                if name.startswith(APPROVED_BY_LABEL_PREFIX)
+                or name.startswith(LGTM_BY_LABEL_PREFIX)
+                or name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                or name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                or name == VERIFIED_LABEL_STR
+            ]
+
+            if review_labels:
+                labels_str = ", ".join(f"`{lbl}`" for lbl in review_labels)
+                comment_body = (
+                    f"**Clean rebase detected** \u2014 no code changes compared to "
+                    f"previous head (`{before_sha[:7]}`).\n"
+                    f"The following labels were preserved: {labels_str}."
+                )
+            else:
+                comment_body = (
+                    f"**Clean rebase detected** \u2014 no code changes compared to previous head (`{before_sha[:7]}`)."
+                )
+
+            await asyncio.to_thread(pull_request.create_issue_comment, body=comment_body)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to post clean-rebase comment")
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
@@ -122,10 +280,24 @@ class PullRequestHandler:
             return
 
         if hook_action == "synchronize":
-            sync_tasks: list[Coroutine[Any, Any, Any]] = []
+            clean_rebase = await self._is_clean_rebase(_pull_request=pull_request)
 
-            sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
-            sync_tasks.append(self.remove_labels_when_pull_request_sync(pull_request=pull_request))
+            if clean_rebase:
+                before_sha: str = self.hook_data["before"]
+                label_names = [label["name"] for label in pull_request_data.get("labels", [])]
+                sync_tasks = [
+                    self._post_clean_rebase_comment(
+                        pull_request=pull_request, before_sha=before_sha, label_names=label_names
+                    ),
+                    self.process_opened_or_synchronize_pull_request(
+                        pull_request=pull_request, is_clean_rebase=True, label_names=label_names
+                    ),
+                ]
+            else:
+                sync_tasks = [
+                    self.process_opened_or_synchronize_pull_request(pull_request=pull_request, is_clean_rebase=False),
+                    self.remove_labels_when_pull_request_sync(pull_request=pull_request),
+                ]
 
             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
@@ -478,7 +650,10 @@ For more information, please refer to the project documentation or contact the m
             tips.append("* **WIP Status**: Use `/wip` when your PR is not ready for review")
 
         if self.labels_handler.is_label_enabled(VERIFIED_LABEL_STR):
-            tips.append("* **Verification**: The verified label is automatically removed on each new commit")
+            tips.append(
+                "* **Verification**: The verified label is removed on new commits"
+                " unless the push is detected as a clean rebase"
+            )
 
         # Cherry-pick tip - check if cherry-pick labels are enabled
         if self.labels_handler.is_label_enabled(CHERRY_PICKED_LABEL):
@@ -835,7 +1010,9 @@ For more information, please refer to the project documentation or contact the m
         )
         await asyncio.to_thread(matching_issue.edit, state="closed")
 
-    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
+    async def process_opened_or_synchronize_pull_request(
+        self, pull_request: PullRequest, is_clean_rebase: bool = False, label_names: list[str] | None = None
+    ) -> None:
         if self.ctx:
             self.ctx.start_step("pr_workflow_setup")
 
@@ -865,7 +1042,13 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.build_and_push_container:
             setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
 
-        setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
+        if is_clean_rebase:
+            # label_names is guaranteed non-None when is_clean_rebase=True (caller always provides it)
+            setup_tasks.append(
+                self._sync_verified_check_for_clean_rebase(_pull_request=pull_request, label_names=label_names)  # type: ignore[arg-type]
+            )
+        else:
+            setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
         setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
 
@@ -1224,6 +1407,21 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
             # Remove verified label
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+            await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
+
+    async def _sync_verified_check_for_clean_rebase(self, _pull_request: PullRequest, label_names: list[str]) -> None:
+        """Sync the verified check run to the new commit SHA after a clean rebase.
+
+        Unlike _process_verified_for_update_or_new_pull_request, this does NOT
+        remove/re-add the verified label. It only refreshes the check run state
+        to match the existing label on the new head commit.
+        """
+        if not self.github_webhook.verified_job:
+            return
+
+        if VERIFIED_LABEL_STR in label_names:
+            await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
+        else:
             await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
