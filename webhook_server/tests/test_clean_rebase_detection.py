@@ -35,7 +35,7 @@ def mock_github_webhook() -> Mock:
         "action": "synchronize",
         "before": "aaa1111111111111111111111111111111111111",
         "after": "bbb2222222222222222222222222222222222222",
-        "pull_request": {"number": 42, "merged": False, "title": "Test PR"},
+        "pull_request": {"number": 42, "merged": False, "title": "Test PR", "base": {"ref": "main"}},
         "sender": {"login": "test-user"},
         "label": {"name": "bug"},
     }
@@ -346,8 +346,8 @@ class TestIsCleanRebase:
 
     @pytest.mark.asyncio
     async def test_uses_correct_base_ref(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
-        """Test that _is_clean_rebase uses pull_request.base.ref for merge-base commands."""
-        mock_pull_request.base.ref = "develop"
+        """Test that _is_clean_rebase uses hook_data base.ref for merge-base commands."""
+        handler.hook_data["pull_request"]["base"]["ref"] = "develop"
         commands_received: list[str] = []
 
         async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
@@ -601,6 +601,10 @@ class TestSynchronizeWithCleanRebase:
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch.object(handler, "remove_labels_when_pull_request_sync", new_callable=AsyncMock) as mock_remove_labels,
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -616,6 +620,10 @@ class TestSynchronizeWithCleanRebase:
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch.object(handler, "remove_labels_when_pull_request_sync", new_callable=AsyncMock) as mock_remove_labels,
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -636,6 +644,10 @@ class TestSynchronizeWithCleanRebase:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -660,6 +672,10 @@ class TestSynchronizeWithCleanRebase:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -679,6 +695,10 @@ class TestSynchronizeWithCleanRebase:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -697,6 +717,10 @@ class TestSynchronizeWithCleanRebase:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -715,6 +739,10 @@ class TestSynchronizeWithCleanRebase:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
@@ -739,7 +767,13 @@ class TestSynchronizeWithCleanRebase:
 
         handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR])
 
-        with patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True):
+        with (
+            patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
+        ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
         # Verified label should NOT have been removed (no _remove_label call for verified)
@@ -768,6 +802,10 @@ class TestSynchronizeWithCleanRebase:
                 "process_opened_or_synchronize_pull_request",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("test error"),
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
             ),
         ):
             # Should not raise even though process_opened_or_synchronize_pull_request fails
@@ -867,6 +905,10 @@ class TestPostCleanRebaseComment:
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 

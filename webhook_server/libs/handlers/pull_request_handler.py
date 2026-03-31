@@ -71,7 +71,7 @@ class PullRequestHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    async def _is_clean_rebase(self, pull_request: PullRequest) -> bool:
+    async def _is_clean_rebase(self, _pull_request: PullRequest) -> bool:
         """Detect whether a synchronize event is a clean rebase (same code changes on a newer base).
 
         Compares the sha256 hash of the diff between merge-base..HEAD for both
@@ -79,7 +79,7 @@ class PullRequestHandler:
         the push was a pure rebase with no code changes.
 
         Args:
-            pull_request: The GitHub pull request object.
+            _pull_request: The GitHub pull request object (unused; kept for caller compatibility).
 
         Returns:
             True if the push is a clean rebase, False otherwise.
@@ -92,7 +92,7 @@ class PullRequestHandler:
 
             before_sha: str = self.hook_data["before"]
             after_sha: str = self.hook_data["after"]
-            base_ref: str = await asyncio.to_thread(lambda: pull_request.base.ref)
+            base_ref: str = self.hook_data["pull_request"]["base"]["ref"]
             clone_dir: str = self.github_webhook.clone_repo_dir
 
             clone_dir_q = shlex.quote(clone_dir)
@@ -279,7 +279,7 @@ class PullRequestHandler:
             return
 
         if hook_action == "synchronize":
-            clean_rebase = await self._is_clean_rebase(pull_request=pull_request)
+            clean_rebase = await self._is_clean_rebase(_pull_request=pull_request)
 
             if clean_rebase:
                 before_sha: str = self.hook_data["before"]
