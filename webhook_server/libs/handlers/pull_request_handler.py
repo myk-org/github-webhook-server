@@ -1033,7 +1033,9 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.build_and_push_container:
             setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
 
-        if not is_clean_rebase:
+        if is_clean_rebase:
+            setup_tasks.append(self._sync_verified_check_for_clean_rebase(pull_request=pull_request))
+        else:
             setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
         setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
@@ -1393,6 +1395,22 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
             # Remove verified label
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+            await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
+
+    async def _sync_verified_check_for_clean_rebase(self, pull_request: PullRequest) -> None:
+        """Sync the verified check run to the new commit SHA after a clean rebase.
+
+        Unlike _process_verified_for_update_or_new_pull_request, this does NOT
+        remove/re-add the verified label. It only refreshes the check run state
+        to match the existing label on the new head commit.
+        """
+        if not self.github_webhook.verified_job:
+            return
+
+        label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
+        if VERIFIED_LABEL_STR in label_names:
+            await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
+        else:
             await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:

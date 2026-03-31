@@ -914,3 +914,41 @@ class TestPostCleanRebaseComment:
 
             # process_opened_or_synchronize_pull_request should still have been called
             mock_process.assert_called_once_with(pull_request=mock_pull_request, is_clean_rebase=True)
+
+
+class TestSyncVerifiedCheckForCleanRebase:
+    """Test suite for _sync_verified_check_for_clean_rebase method."""
+
+    @pytest.mark.asyncio
+    async def test_sets_check_success_when_verified_label_exists(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that check run is set to success when verified label is present on the PR."""
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR, "other"])
+
+        await handler._sync_verified_check_for_clean_rebase(pull_request=mock_pull_request)
+
+        handler.check_run_handler.set_check_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
+        handler.check_run_handler.set_check_queued.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sets_check_queued_when_verified_label_missing(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that check run is set to queued when verified label is not present on the PR."""
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=["other"])
+
+        await handler._sync_verified_check_for_clean_rebase(pull_request=mock_pull_request)
+
+        handler.check_run_handler.set_check_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
+        handler.check_run_handler.set_check_success.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_verified_job_disabled(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
+        """Test that neither check success nor queued is called when verified_job is disabled."""
+        handler.github_webhook.verified_job = False
+
+        await handler._sync_verified_check_for_clean_rebase(pull_request=mock_pull_request)
+
+        handler.check_run_handler.set_check_success.assert_not_called()
+        handler.check_run_handler.set_check_queued.assert_not_called()
