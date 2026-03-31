@@ -139,7 +139,7 @@ class PullRequestHandler:
 
         # Step 4: Compute diff hash for old range
         rc, old_diff, _ = await run_command(
-            command=f"git -C {clone_dir_q} diff {old_merge_base_q}..{before_sha_q}",
+            command=f"git -C {clone_dir_q} diff --binary {old_merge_base_q}..{before_sha_q}",
             log_prefix=self.log_prefix,
             mask_sensitive=self.github_webhook.mask_sensitive,
         )
@@ -149,7 +149,7 @@ class PullRequestHandler:
 
         # Step 5: Compute diff hash for new range
         rc, new_diff, _ = await run_command(
-            command=f"git -C {clone_dir_q} diff {new_merge_base_q}..{after_sha_q}",
+            command=f"git -C {clone_dir_q} diff --binary {new_merge_base_q}..{after_sha_q}",
             log_prefix=self.log_prefix,
             mask_sensitive=self.github_webhook.mask_sensitive,
         )

@@ -453,6 +453,38 @@ class TestIsCleanRebase:
         assert f"git -C {clone_dir_q} merge-base {base_ref_q} {before_sha_q}" == merge_base_cmds[0]
         assert f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}" == merge_base_cmds[1]
 
+    @pytest.mark.asyncio
+    async def test_diff_commands_use_binary_flag(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
+        """Test that git diff commands use --binary flag to prevent false positives with binary files."""
+        before_sha = handler.hook_data["before"]
+        after_sha = handler.hook_data["after"]
+        clone_dir = handler.github_webhook.clone_repo_dir
+        commands_received: list[str] = []
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            commands_received.append(command)
+            if "fetch" in command:
+                return (True, "", "")
+            if "merge-base" in command:
+                return (True, "merge_base_sha\n", "")
+            if "diff" in command:
+                return (True, "diff content\n", "")
+            return (True, "", "")
+
+        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+            await handler._is_clean_rebase(mock_pull_request)
+
+        clone_dir_q = shlex.quote(clone_dir)
+        merge_base_q = shlex.quote("merge_base_sha")
+        before_sha_q = shlex.quote(before_sha)
+        after_sha_q = shlex.quote(after_sha)
+
+        # Check diff commands include --binary flag
+        diff_cmds = [c for c in commands_received if "diff" in c]
+        assert len(diff_cmds) == 2
+        assert f"git -C {clone_dir_q} diff --binary {merge_base_q}..{before_sha_q}" == diff_cmds[0]
+        assert f"git -C {clone_dir_q} diff --binary {merge_base_q}..{after_sha_q}" == diff_cmds[1]
+
 
 class TestSynchronizeWithCleanRebase:
     """Test suite for synchronize handler with clean rebase detection."""
