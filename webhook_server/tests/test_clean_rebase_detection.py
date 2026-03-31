@@ -457,6 +457,54 @@ class TestIsCleanRebase:
         assert f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}" == merge_base_cmds[1]
 
     @pytest.mark.asyncio
+    async def test_returns_false_when_old_merge_base_stdout_empty(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _is_clean_rebase returns False when old merge-base stdout is empty after strip."""
+        before_sha = handler.hook_data["before"]
+        after_sha = handler.hook_data["after"]
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if f"fetch origin {before_sha}" in command:
+                return (True, "", "")
+            if "merge-base" in command and before_sha in command:
+                return (True, "  \n", "")  # empty after strip
+            if "merge-base" in command and after_sha in command:
+                return (True, "new_merge_base_sha\n", "")
+            return (True, "", "")
+
+        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+            result = await handler._is_clean_rebase(mock_pull_request)
+
+        assert result is False
+        handler.logger.warning.assert_called()
+        assert "empty merge-base" in str(handler.logger.warning.call_args)
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_new_merge_base_stdout_empty(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _is_clean_rebase returns False when new merge-base stdout is empty after strip."""
+        before_sha = handler.hook_data["before"]
+        after_sha = handler.hook_data["after"]
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if f"fetch origin {before_sha}" in command:
+                return (True, "", "")
+            if "merge-base" in command and before_sha in command:
+                return (True, "old_merge_base_sha\n", "")
+            if "merge-base" in command and after_sha in command:
+                return (True, "\n", "")  # empty after strip
+            return (True, "", "")
+
+        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+            result = await handler._is_clean_rebase(mock_pull_request)
+
+        assert result is False
+        handler.logger.warning.assert_called()
+        assert "empty merge-base" in str(handler.logger.warning.call_args)
+
+    @pytest.mark.asyncio
     async def test_returns_false_on_unexpected_exception(
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
@@ -579,13 +627,9 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase posts a comment listing preserved review labels."""
-        approved_label = Mock()
-        approved_label.name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
-        lgtm_label = Mock()
-        lgtm_label.name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
-        non_review_label = Mock()
-        non_review_label.name = "bug"
-        mock_pull_request.labels = [approved_label, lgtm_label, non_review_label]
+        approved_name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
+        lgtm_name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[approved_name, lgtm_name, "bug"])
 
         before_sha = handler.hook_data["before"]
 
@@ -600,8 +644,8 @@ class TestSynchronizeWithCleanRebase:
             comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
             assert "Clean rebase detected" in comment_body
             assert before_sha[:7] in comment_body
-            assert f"`{approved_label.name}`" in comment_body
-            assert f"`{lgtm_label.name}`" in comment_body
+            assert f"`{approved_name}`" in comment_body
+            assert f"`{lgtm_name}`" in comment_body
             assert "bug" not in comment_body
 
     @pytest.mark.asyncio
@@ -609,9 +653,7 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase with no review labels posts a simple comment."""
-        non_review_label = Mock()
-        non_review_label.name = "bug"
-        mock_pull_request.labels = [non_review_label]
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=["bug"])
 
         before_sha = handler.hook_data["before"]
 
@@ -632,9 +674,7 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase recognizes verified label as a review label to preserve."""
-        verified_label = Mock()
-        verified_label.name = VERIFIED_LABEL_STR
-        mock_pull_request.labels = [verified_label]
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR])
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -651,9 +691,8 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase recognizes changes-requested label as a review label."""
-        cr_label = Mock()
-        cr_label.name = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}reviewer1"
-        mock_pull_request.labels = [cr_label]
+        cr_name = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}reviewer1"
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[cr_name])
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -663,16 +702,15 @@ class TestSynchronizeWithCleanRebase:
 
             mock_pull_request.create_issue_comment.assert_called_once()
             comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
-            assert f"`{cr_label.name}`" in comment_body
+            assert f"`{cr_name}`" in comment_body
 
     @pytest.mark.asyncio
     async def test_synchronize_clean_rebase_preserves_commented_by_label(
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase recognizes commented-by label as a review label."""
-        commented_label = Mock()
-        commented_label.name = f"{COMMENTED_BY_LABEL_PREFIX}reviewer1"
-        mock_pull_request.labels = [commented_label]
+        commented_name = f"{COMMENTED_BY_LABEL_PREFIX}reviewer1"
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[commented_name])
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -682,7 +720,7 @@ class TestSynchronizeWithCleanRebase:
 
             mock_pull_request.create_issue_comment.assert_called_once()
             comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
-            assert f"`{commented_label.name}`" in comment_body
+            assert f"`{commented_name}`" in comment_body
 
     @pytest.mark.asyncio
     async def test_synchronize_clean_rebase_skips_verified_label_processing(
@@ -699,9 +737,7 @@ class TestSynchronizeWithCleanRebase:
         handler.github_webhook.parent_committer = "external-contributor"
         handler.github_webhook.auto_verified_and_merged_users = ["auto-user"]
 
-        verified_label = Mock()
-        verified_label.name = VERIFIED_LABEL_STR
-        mock_pull_request.labels = [verified_label]
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR])
 
         with patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True):
             await handler.process_pull_request_webhook_data(mock_pull_request)
@@ -723,7 +759,7 @@ class TestSynchronizeWithCleanRebase:
         When the clean rebase path runs comment posting and process in parallel via gather,
         an exception in one task should be logged but not crash the other.
         """
-        mock_pull_request.labels = []
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -749,13 +785,9 @@ class TestPostCleanRebaseComment:
     @pytest.mark.asyncio
     async def test_posts_comment_with_review_labels(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
         """Test that _post_clean_rebase_comment posts a comment listing preserved review labels."""
-        approved_label = Mock()
-        approved_label.name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
-        lgtm_label = Mock()
-        lgtm_label.name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
-        non_review_label = Mock()
-        non_review_label.name = "bug"
-        mock_pull_request.labels = [approved_label, lgtm_label, non_review_label]
+        approved_name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
+        lgtm_name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[approved_name, lgtm_name, "bug"])
 
         before_sha = "abc1234567890"  # pragma: allowlist secret
         await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
@@ -764,8 +796,8 @@ class TestPostCleanRebaseComment:
         comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
         assert "Clean rebase detected" in comment_body
         assert before_sha[:7] in comment_body
-        assert f"`{approved_label.name}`" in comment_body
-        assert f"`{lgtm_label.name}`" in comment_body
+        assert f"`{approved_name}`" in comment_body
+        assert f"`{lgtm_name}`" in comment_body
         assert "bug" not in comment_body
 
     @pytest.mark.asyncio
@@ -773,9 +805,7 @@ class TestPostCleanRebaseComment:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that _post_clean_rebase_comment posts a simple comment when no review labels exist."""
-        non_review_label = Mock()
-        non_review_label.name = "bug"
-        mock_pull_request.labels = [non_review_label]
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=["bug"])
 
         before_sha = "abc1234567890"  # pragma: allowlist secret
         await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
@@ -790,8 +820,7 @@ class TestPostCleanRebaseComment:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that _post_clean_rebase_comment logs the error and does not raise when labels fetch fails."""
-        # Make the labels property on the mock's type raise when accessed
-        type(mock_pull_request).labels = property(lambda self: (_ for _ in ()).throw(RuntimeError("API error")))
+        handler.labels_handler.pull_request_labels_names = AsyncMock(side_effect=RuntimeError("API error"))
 
         before_sha = "abc1234567890"  # pragma: allowlist secret
         # Should not raise
@@ -805,7 +834,7 @@ class TestPostCleanRebaseComment:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that _post_clean_rebase_comment logs the error when comment posting fails."""
-        mock_pull_request.labels = []
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
         mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
 
         before_sha = "abc1234567890"  # pragma: allowlist secret
@@ -818,7 +847,7 @@ class TestPostCleanRebaseComment:
     @pytest.mark.asyncio
     async def test_reraises_cancelled_error(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
         """Test that _post_clean_rebase_comment re-raises asyncio.CancelledError."""
-        type(mock_pull_request).labels = property(lambda self: (_ for _ in ()).throw(asyncio.CancelledError()))
+        handler.labels_handler.pull_request_labels_names = AsyncMock(side_effect=asyncio.CancelledError())
 
         before_sha = "abc1234567890"  # pragma: allowlist secret
         with pytest.raises(asyncio.CancelledError):
@@ -832,7 +861,7 @@ class TestPostCleanRebaseComment:
 
         This verifies that _post_clean_rebase_comment failure does not block CI processing.
         """
-        mock_pull_request.labels = []
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
         mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
 
         with (

@@ -126,6 +126,11 @@ class PullRequestHandler:
                 )
                 return False
             old_merge_base = old_merge_base_out.strip()
+            if not old_merge_base:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: empty merge-base for old head {before_sha[:7]}"
+                )
+                return False
             old_merge_base_q = shlex.quote(old_merge_base)
 
             # Step 3: Get merge-base for new head
@@ -141,6 +146,11 @@ class PullRequestHandler:
                 )
                 return False
             new_merge_base = new_merge_base_out.strip()
+            if not new_merge_base:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: empty merge-base for new head {after_sha[:7]}"
+                )
+                return False
             new_merge_base_q = shlex.quote(new_merge_base)
 
             # Step 4: Compute diff hash for old range
@@ -186,15 +196,15 @@ class PullRequestHandler:
     async def _post_clean_rebase_comment(self, pull_request: PullRequest, before_sha: str) -> None:
         """Post a comment about clean rebase detection. Best-effort -- failures are logged but don't block CI."""
         try:
-            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             review_labels = [
-                label.name
-                for label in labels
-                if label.name.startswith(APPROVED_BY_LABEL_PREFIX)
-                or label.name.startswith(LGTM_BY_LABEL_PREFIX)
-                or label.name.startswith(COMMENTED_BY_LABEL_PREFIX)
-                or label.name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
-                or label.name == VERIFIED_LABEL_STR
+                name
+                for name in label_names
+                if name.startswith(APPROVED_BY_LABEL_PREFIX)
+                or name.startswith(LGTM_BY_LABEL_PREFIX)
+                or name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                or name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                or name == VERIFIED_LABEL_STR
             ]
 
             if review_labels:
