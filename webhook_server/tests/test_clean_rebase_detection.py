@@ -597,7 +597,7 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that synchronize with clean rebase does NOT call remove_labels_when_pull_request_sync."""
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=["bug"])
+        handler.hook_data["pull_request"]["labels"] = [{"name": "bug"}]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -642,7 +642,7 @@ class TestSynchronizeWithCleanRebase:
         approved_name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
         lgtm_name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
         label_names = [approved_name, lgtm_name, "bug"]
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=label_names)
+        handler.hook_data["pull_request"]["labels"] = [{"name": name} for name in label_names]
 
         before_sha = handler.hook_data["before"]
 
@@ -656,8 +656,8 @@ class TestSynchronizeWithCleanRebase:
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
-            # Labels should be fetched exactly once (by the synchronize handler)
-            handler.labels_handler.pull_request_labels_names.assert_called_once_with(pull_request=mock_pull_request)
+            # Labels should NOT be fetched via API call - they come from webhook payload
+            handler.labels_handler.pull_request_labels_names.assert_not_called()
 
             # create_issue_comment is called via asyncio.to_thread which executes it
             mock_pull_request.create_issue_comment.assert_called_once()
@@ -673,7 +673,7 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase with no review labels posts a simple comment."""
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=["bug"])
+        handler.hook_data["pull_request"]["labels"] = [{"name": "bug"}]
 
         before_sha = handler.hook_data["before"]
 
@@ -698,7 +698,7 @@ class TestSynchronizeWithCleanRebase:
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test that clean rebase recognizes verified label as a review label to preserve."""
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR])
+        handler.hook_data["pull_request"]["labels"] = [{"name": VERIFIED_LABEL_STR}]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -720,7 +720,7 @@ class TestSynchronizeWithCleanRebase:
     ) -> None:
         """Test that clean rebase recognizes changes-requested label as a review label."""
         cr_name = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}reviewer1"
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[cr_name])
+        handler.hook_data["pull_request"]["labels"] = [{"name": cr_name}]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -742,7 +742,7 @@ class TestSynchronizeWithCleanRebase:
     ) -> None:
         """Test that clean rebase recognizes commented-by label as a review label."""
         commented_name = f"{COMMENTED_BY_LABEL_PREFIX}reviewer1"
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[commented_name])
+        handler.hook_data["pull_request"]["labels"] = [{"name": commented_name}]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -759,12 +759,15 @@ class TestSynchronizeWithCleanRebase:
             assert f"`{commented_name}`" in comment_body
 
     @pytest.mark.asyncio
-    async def test_synchronize_clean_rebase_fetches_labels_only_once(
+    async def test_synchronize_clean_rebase_reads_labels_from_webhook_payload(
         self, handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test that the synchronize clean-rebase path fetches labels exactly once and reuses them."""
-        label_names = [VERIFIED_LABEL_STR, f"{APPROVED_BY_LABEL_PREFIX}reviewer1"]
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=label_names)
+        """Test that the synchronize clean-rebase path reads labels from hook_data payload, not via API."""
+        approved_label = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
+        label_names = [VERIFIED_LABEL_STR, approved_label]
+
+        # Set labels in the webhook payload (hook_data["pull_request"]["labels"])
+        handler.hook_data["pull_request"]["labels"] = [{"name": name} for name in label_names]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -776,10 +779,10 @@ class TestSynchronizeWithCleanRebase:
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
-            # Labels fetched exactly once
-            handler.labels_handler.pull_request_labels_names.assert_called_once_with(pull_request=mock_pull_request)
+            # Labels should NOT be fetched via API call
+            handler.labels_handler.pull_request_labels_names.assert_not_called()
 
-            # label_names passed through to process_opened_or_synchronize_pull_request
+            # label_names from payload passed through to process_opened_or_synchronize_pull_request
             mock_process.assert_called_once_with(
                 pull_request=mock_pull_request, is_clean_rebase=True, label_names=label_names
             )
@@ -799,7 +802,7 @@ class TestSynchronizeWithCleanRebase:
         handler.github_webhook.parent_committer = "external-contributor"
         handler.github_webhook.auto_verified_and_merged_users = ["auto-user"]
 
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[VERIFIED_LABEL_STR])
+        handler.hook_data["pull_request"]["labels"] = [{"name": VERIFIED_LABEL_STR}]
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -827,7 +830,7 @@ class TestSynchronizeWithCleanRebase:
         When the clean rebase path runs comment posting and process in parallel via gather,
         an exception in one task should be logged but not crash the other.
         """
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
+        handler.hook_data["pull_request"]["labels"] = []
 
         with (
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
@@ -938,7 +941,7 @@ class TestPostCleanRebaseComment:
 
         This verifies that _post_clean_rebase_comment failure does not block CI processing.
         """
-        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
+        handler.hook_data["pull_request"]["labels"] = []
         mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
 
         with (

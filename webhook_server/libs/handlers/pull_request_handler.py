@@ -284,7 +284,7 @@ class PullRequestHandler:
 
             if clean_rebase:
                 before_sha: str = self.hook_data["before"]
-                label_names = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
+                label_names = [label["name"] for label in pull_request_data.get("labels", [])]
                 sync_tasks = [
                     self._post_clean_rebase_comment(
                         pull_request=pull_request, before_sha=before_sha, label_names=label_names
