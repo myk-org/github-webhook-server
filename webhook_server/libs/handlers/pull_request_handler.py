@@ -83,90 +83,137 @@ class PullRequestHandler:
 
         Returns:
             True if the push is a clean rebase, False otherwise.
-            On any git command failure, returns False (conservative).
+            On any failure (git command, exception, timeout), returns False (conservative).
         """
-        if not self.github_webhook._repo_cloned:
-            self.logger.debug(f"{self.log_prefix} Clean rebase detection: skipped, repository not cloned")
-            return False
+        try:
+            if not self.github_webhook._repo_cloned:
+                self.logger.debug(f"{self.log_prefix} Clean rebase detection: skipped, repository not cloned")
+                return False
 
-        before_sha: str = self.hook_data["before"]
-        after_sha: str = self.hook_data["after"]
-        base_ref: str = await asyncio.to_thread(lambda: pull_request.base.ref)
-        clone_dir: str = self.github_webhook.clone_repo_dir
+            before_sha: str = self.hook_data["before"]
+            after_sha: str = self.hook_data["after"]
+            base_ref: str = await asyncio.to_thread(lambda: pull_request.base.ref)
+            clone_dir: str = self.github_webhook.clone_repo_dir
 
-        clone_dir_q = shlex.quote(clone_dir)
-        before_sha_q = shlex.quote(before_sha)
-        after_sha_q = shlex.quote(after_sha)
-        base_ref_q = shlex.quote(f"origin/{base_ref}")
+            clone_dir_q = shlex.quote(clone_dir)
+            before_sha_q = shlex.quote(before_sha)
+            after_sha_q = shlex.quote(after_sha)
+            base_ref_q = shlex.quote(f"origin/{base_ref}")
 
-        # Step 1: Fetch the old head SHA (may not be in the clone)
-        rc, _, _ = await run_command(
-            command=f"git -C {clone_dir_q} fetch origin {before_sha_q}",
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to fetch old head {before_sha[:7]}")
-            return False
+            # Step 1: Fetch the old head SHA (may not be in the clone)
+            rc, _, _ = await run_command(
+                command=f"git -C {clone_dir_q} fetch origin {before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to fetch old head {before_sha[:7]}"
+                )
+                return False
 
-        # Step 2: Get merge-base for old head
-        rc, old_merge_base_out, _ = await run_command(
-            command=f"git -C {clone_dir_q} merge-base {base_ref_q} {before_sha_q}",
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(
-                f"{self.log_prefix} Clean rebase detection: failed to find merge-base for old head {before_sha[:7]}"
+            # Step 2: Get merge-base for old head
+            rc, old_merge_base_out, _ = await run_command(
+                command=f"git -C {clone_dir_q} merge-base {base_ref_q} {before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to find merge-base for old head {before_sha[:7]}"
+                )
+                return False
+            old_merge_base = old_merge_base_out.strip()
+            old_merge_base_q = shlex.quote(old_merge_base)
+
+            # Step 3: Get merge-base for new head
+            rc, new_merge_base_out, _ = await run_command(
+                command=f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Clean rebase detection: failed to find merge-base for new head {after_sha[:7]}"
+                )
+                return False
+            new_merge_base = new_merge_base_out.strip()
+            new_merge_base_q = shlex.quote(new_merge_base)
+
+            # Step 4: Compute diff hash for old range
+            rc, old_diff, _ = await run_command(
+                command=f"git -C {clone_dir_q} diff --binary {old_merge_base_q}..{before_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for old range")
+                return False
+
+            # Step 5: Compute diff hash for new range
+            rc, new_diff, _ = await run_command(
+                command=f"git -C {clone_dir_q} diff --binary {new_merge_base_q}..{after_sha_q}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=60,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for new range")
+                return False
+
+            # Step 6: Compare hashes
+            old_hash = hashlib.sha256(old_diff.encode()).hexdigest()
+            new_hash = hashlib.sha256(new_diff.encode()).hexdigest()
+
+            is_clean = old_hash == new_hash
+            self.logger.info(
+                f"{self.log_prefix} Clean rebase detection: "
+                f"old_hash={old_hash[:12]}, new_hash={new_hash[:12]}, is_clean_rebase={is_clean}"
+            )
+            return is_clean
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(
+                f"{self.log_prefix} Clean rebase detection failed unexpectedly; treating as non-clean"
             )
             return False
-        old_merge_base = old_merge_base_out.strip()
-        old_merge_base_q = shlex.quote(old_merge_base)
 
-        # Step 3: Get merge-base for new head
-        rc, new_merge_base_out, _ = await run_command(
-            command=f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}",
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(
-                f"{self.log_prefix} Clean rebase detection: failed to find merge-base for new head {after_sha[:7]}"
-            )
-            return False
-        new_merge_base = new_merge_base_out.strip()
-        new_merge_base_q = shlex.quote(new_merge_base)
+    async def _post_clean_rebase_comment(self, pull_request: PullRequest, before_sha: str) -> None:
+        """Post a comment about clean rebase detection. Best-effort -- failures are logged but don't block CI."""
+        try:
+            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            review_labels = [
+                label.name
+                for label in labels
+                if label.name.startswith(APPROVED_BY_LABEL_PREFIX)
+                or label.name.startswith(LGTM_BY_LABEL_PREFIX)
+                or label.name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                or label.name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                or label.name == VERIFIED_LABEL_STR
+            ]
 
-        # Step 4: Compute diff hash for old range
-        rc, old_diff, _ = await run_command(
-            command=f"git -C {clone_dir_q} diff --binary {old_merge_base_q}..{before_sha_q}",
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for old range")
-            return False
+            if review_labels:
+                labels_str = ", ".join(f"`{lbl}`" for lbl in review_labels)
+                comment_body = (
+                    f"**Clean rebase detected** \u2014 no code changes compared to "
+                    f"previous head (`{before_sha[:7]}`).\n"
+                    f"The following labels were preserved: {labels_str}."
+                )
+            else:
+                comment_body = (
+                    f"**Clean rebase detected** \u2014 no code changes compared to previous head (`{before_sha[:7]}`)."
+                )
 
-        # Step 5: Compute diff hash for new range
-        rc, new_diff, _ = await run_command(
-            command=f"git -C {clone_dir_q} diff --binary {new_merge_base_q}..{after_sha_q}",
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(f"{self.log_prefix} Clean rebase detection: failed to compute diff for new range")
-            return False
-
-        # Step 6: Compare hashes
-        old_hash = hashlib.sha256(old_diff.encode()).hexdigest()
-        new_hash = hashlib.sha256(new_diff.encode()).hexdigest()
-
-        is_clean = old_hash == new_hash
-        self.logger.info(
-            f"{self.log_prefix} Clean rebase detection: "
-            f"old_hash={old_hash[:12]}, new_hash={new_hash[:12]}, is_clean_rebase={is_clean}"
-        )
-        return is_clean
+            await asyncio.to_thread(pull_request.create_issue_comment, body=comment_body)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to post clean-rebase comment")
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
@@ -226,32 +273,8 @@ class PullRequestHandler:
 
             if clean_rebase:
                 before_sha: str = self.hook_data["before"]
-                labels = await asyncio.to_thread(lambda: list(pull_request.labels))
-                review_labels = [
-                    label.name
-                    for label in labels
-                    if label.name.startswith(APPROVED_BY_LABEL_PREFIX)
-                    or label.name.startswith(LGTM_BY_LABEL_PREFIX)
-                    or label.name.startswith(COMMENTED_BY_LABEL_PREFIX)
-                    or label.name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
-                    or label.name == VERIFIED_LABEL_STR
-                ]
-
-                if review_labels:
-                    labels_str = ", ".join(f"`{lbl}`" for lbl in review_labels)
-                    comment_body = (
-                        f"**Clean rebase detected** \u2014 no code changes compared to "
-                        f"previous head (`{before_sha[:7]}`).\n"
-                        f"The following labels were preserved: {labels_str}."
-                    )
-                else:
-                    comment_body = (
-                        f"**Clean rebase detected** \u2014 no code changes compared to "
-                        f"previous head (`{before_sha[:7]}`)."
-                    )
-
                 sync_tasks = [
-                    asyncio.to_thread(pull_request.create_issue_comment, body=comment_body),
+                    self._post_clean_rebase_comment(pull_request=pull_request, before_sha=before_sha),
                     self.process_opened_or_synchronize_pull_request(pull_request=pull_request, is_clean_rebase=True),
                 ]
             else:

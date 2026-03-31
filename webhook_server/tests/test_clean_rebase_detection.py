@@ -6,6 +6,7 @@ that preserves review labels on clean rebases.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shlex
 from typing import Any
@@ -375,13 +376,8 @@ class TestIsCleanRebase:
         diff_a = "diff --git a/file.py\n+line1\n"
         diff_b = "diff --git a/file.py\n+line1\n+line2\n"
 
-        # Ensure different diffs produce different hashes
-        hash_a = hashlib.sha256(diff_a.encode()).hexdigest()
-        hash_b = hashlib.sha256(diff_b.encode()).hexdigest()
-        assert hash_a != hash_b
-
         async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if f"fetch origin {before_sha}" in command:
+            if "fetch origin" in command:
                 return (True, "", "")
             if "merge-base" in command and before_sha in command:
                 return (True, "old_merge_base\n", "")
@@ -393,10 +389,17 @@ class TestIsCleanRebase:
                 return (True, diff_b, "")
             return (False, "", "unexpected")
 
-        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+        with (
+            patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.hashlib.sha256",
+                wraps=hashlib.sha256,
+            ) as mock_sha256,
+        ):
             result = await handler._is_clean_rebase(mock_pull_request)
 
         assert result is False
+        assert mock_sha256.call_count == 2
 
     @pytest.mark.asyncio
     async def test_returns_false_when_repo_not_cloned(
@@ -452,6 +455,58 @@ class TestIsCleanRebase:
         assert len(merge_base_cmds) == 2
         assert f"git -C {clone_dir_q} merge-base {base_ref_q} {before_sha_q}" == merge_base_cmds[0]
         assert f"git -C {clone_dir_q} merge-base {base_ref_q} {after_sha_q}" == merge_base_cmds[1]
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_unexpected_exception(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _is_clean_rebase returns False and logs when an unexpected exception occurs."""
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            raise RuntimeError("unexpected git failure")
+
+        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+            result = await handler._is_clean_rebase(mock_pull_request)
+
+        assert result is False
+        handler.logger.exception.assert_called_once()
+        assert "treating as non-clean" in str(handler.logger.exception.call_args)
+
+    @pytest.mark.asyncio
+    async def test_reraises_cancelled_error(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
+        """Test that _is_clean_rebase re-raises asyncio.CancelledError instead of catching it."""
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            raise asyncio.CancelledError()
+
+        with (
+            patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await handler._is_clean_rebase(mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_run_command_calls_include_timeout(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that all run_command calls include timeout=60 to prevent hanging."""
+        timeouts_received: list[int | None] = []
+
+        async def mock_run_command(command: str, log_prefix: str, **kwargs: Any) -> tuple[bool, str, str]:
+            timeouts_received.append(kwargs.get("timeout"))
+            if "fetch" in command:
+                return (True, "", "")
+            if "merge-base" in command:
+                return (True, "merge_base_sha\n", "")
+            if "diff" in command:
+                return (True, "diff content\n", "")
+            return (True, "", "")
+
+        with patch("webhook_server.libs.handlers.pull_request_handler.run_command", side_effect=mock_run_command):
+            await handler._is_clean_rebase(mock_pull_request)
+
+        assert len(timeouts_received) == 5
+        assert all(t == 60 for t in timeouts_received)
 
     @pytest.mark.asyncio
     async def test_diff_commands_use_binary_flag(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
@@ -686,3 +741,105 @@ class TestSynchronizeWithCleanRebase:
             handler.logger.error.assert_called()
             error_msg = str(handler.logger.error.call_args)
             assert "test error" in error_msg
+
+
+class TestPostCleanRebaseComment:
+    """Test suite for _post_clean_rebase_comment method."""
+
+    @pytest.mark.asyncio
+    async def test_posts_comment_with_review_labels(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
+        """Test that _post_clean_rebase_comment posts a comment listing preserved review labels."""
+        approved_label = Mock()
+        approved_label.name = f"{APPROVED_BY_LABEL_PREFIX}reviewer1"
+        lgtm_label = Mock()
+        lgtm_label.name = f"{LGTM_BY_LABEL_PREFIX}reviewer2"
+        non_review_label = Mock()
+        non_review_label.name = "bug"
+        mock_pull_request.labels = [approved_label, lgtm_label, non_review_label]
+
+        before_sha = "abc1234567890"  # pragma: allowlist secret
+        await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
+
+        mock_pull_request.create_issue_comment.assert_called_once()
+        comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
+        assert "Clean rebase detected" in comment_body
+        assert before_sha[:7] in comment_body
+        assert f"`{approved_label.name}`" in comment_body
+        assert f"`{lgtm_label.name}`" in comment_body
+        assert "bug" not in comment_body
+
+    @pytest.mark.asyncio
+    async def test_posts_simple_comment_without_review_labels(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _post_clean_rebase_comment posts a simple comment when no review labels exist."""
+        non_review_label = Mock()
+        non_review_label.name = "bug"
+        mock_pull_request.labels = [non_review_label]
+
+        before_sha = "abc1234567890"  # pragma: allowlist secret
+        await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
+
+        mock_pull_request.create_issue_comment.assert_called_once()
+        comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
+        assert "Clean rebase detected" in comment_body
+        assert "preserved" not in comment_body
+
+    @pytest.mark.asyncio
+    async def test_logs_and_does_not_raise_on_label_fetch_failure(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _post_clean_rebase_comment logs the error and does not raise when labels fetch fails."""
+        # Make the labels property on the mock's type raise when accessed
+        type(mock_pull_request).labels = property(lambda self: (_ for _ in ()).throw(RuntimeError("API error")))
+
+        before_sha = "abc1234567890"  # pragma: allowlist secret
+        # Should not raise
+        await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
+
+        handler.logger.exception.assert_called_once()
+        assert "Failed to post clean-rebase comment" in str(handler.logger.exception.call_args)
+
+    @pytest.mark.asyncio
+    async def test_logs_and_does_not_raise_on_comment_post_failure(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that _post_clean_rebase_comment logs the error when comment posting fails."""
+        mock_pull_request.labels = []
+        mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
+
+        before_sha = "abc1234567890"  # pragma: allowlist secret
+        # Should not raise
+        await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
+
+        handler.logger.exception.assert_called_once()
+        assert "Failed to post clean-rebase comment" in str(handler.logger.exception.call_args)
+
+    @pytest.mark.asyncio
+    async def test_reraises_cancelled_error(self, handler: PullRequestHandler, mock_pull_request: Mock) -> None:
+        """Test that _post_clean_rebase_comment re-raises asyncio.CancelledError."""
+        type(mock_pull_request).labels = property(lambda self: (_ for _ in ()).throw(asyncio.CancelledError()))
+
+        before_sha = "abc1234567890"  # pragma: allowlist secret
+        with pytest.raises(asyncio.CancelledError):
+            await handler._post_clean_rebase_comment(pull_request=mock_pull_request, before_sha=before_sha)
+
+    @pytest.mark.asyncio
+    async def test_synchronize_continues_when_comment_fails(
+        self, handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that synchronize handler's process_opened_or_synchronize runs even if comment fails.
+
+        This verifies that _post_clean_rebase_comment failure does not block CI processing.
+        """
+        mock_pull_request.labels = []
+        mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
+
+        with (
+            patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
+            patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
+        ):
+            await handler.process_pull_request_webhook_data(mock_pull_request)
+
+            # process_opened_or_synchronize_pull_request should still have been called
+            mock_process.assert_called_once_with(pull_request=mock_pull_request, is_clean_rebase=True)
