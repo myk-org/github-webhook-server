@@ -1795,22 +1795,31 @@ class TestPullRequestHandler:
             result = await pull_request_handler._check_if_pr_approved(labels=[f"not-{LGTM_BY_LABEL_PREFIX}{reviewer}"])
             assert "Missing lgtm from reviewers" in result
 
-    def test_check_labels_for_can_be_merged_approved_label_only_matches_prefix(
+    @pytest.mark.asyncio
+    async def test_check_if_pr_approved_approved_label_only_matches_prefix(
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test that only labels starting with approved prefix are matched."""
-        with patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", ["approver1"]):
-            # Valid approved label should not trigger changes-requested
-            result = pull_request_handler._check_labels_for_can_be_merged(
-                labels=[f"{APPROVED_BY_LABEL_PREFIX}approver1"]
-            )
+        approver = "approver1"
+        with (
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine({"repo/OWNERS": {"approvers": [approver]}}),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", [approver]),
+            patch.object(pull_request_handler.owners_file_handler, "root_approvers", []),
+            patch.object(pull_request_handler.owners_file_handler, "root_reviewers", []),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_reviewers", []),
+        ):
+            result = await pull_request_handler._check_if_pr_approved(labels=[f"{APPROVED_BY_LABEL_PREFIX}{approver}"])
             assert result == ""
 
-            # Label containing approved prefix in the middle should not match
-            result = pull_request_handler._check_labels_for_can_be_merged(
-                labels=[f"not-{APPROVED_BY_LABEL_PREFIX}approver1"]
+            result = await pull_request_handler._check_if_pr_approved(
+                labels=[f"not-{APPROVED_BY_LABEL_PREFIX}{approver}"]
             )
-            assert result == ""
+            assert "Missing approved from approvers" in result
 
     def test_check_labels_for_can_be_merged_changes_requested_label_only_matches_prefix(
         self, pull_request_handler: PullRequestHandler
