@@ -1680,6 +1680,64 @@ class TestPullRequestHandler:
             result = await pull_request_handler._check_if_pr_approved(labels=[f"{COMMENTED_BY_LABEL_PREFIX}reviewer1"])
             assert result == ""  # Empty string means no errors
 
+    @pytest.mark.asyncio
+    async def test_check_if_pr_approved_lgtm_hyphenated_username(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that LGTM labels with hyphenated usernames are parsed correctly."""
+        hyphenated_user = "Ahmad-Hafe"
+        with (
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 1),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
+            patch.object(pull_request_handler.owners_file_handler, "root_approvers", []),
+            patch.object(pull_request_handler.owners_file_handler, "root_reviewers", []),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_reviewers", [hyphenated_user]),
+            patch.object(pull_request_handler.github_webhook, "parent_committer", "someone-else"),
+        ):
+            result = await pull_request_handler._check_if_pr_approved(
+                labels=[f"{LGTM_BY_LABEL_PREFIX}{hyphenated_user}"]
+            )
+            assert result == ""  # Hyphenated username should be recognized as a valid reviewer
+
+    @pytest.mark.asyncio
+    async def test_check_if_pr_approved_approved_hyphenated_username(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that approved labels with hyphenated usernames are parsed correctly."""
+        hyphenated_user = "Ahmad-Hafe"
+        with (
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", [hyphenated_user]),
+            patch.object(pull_request_handler.owners_file_handler, "root_approvers", [hyphenated_user]),
+            patch.object(pull_request_handler.owners_file_handler, "root_reviewers", []),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_reviewers", []),
+        ):
+            result = await pull_request_handler._check_if_pr_approved(
+                labels=[f"{APPROVED_BY_LABEL_PREFIX}{hyphenated_user}"]
+            )
+            assert result == ""  # Hyphenated username should be recognized as an approver
+
+    def test_check_labels_for_can_be_merged_changes_requested_hyphenated_username(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that changes-requested labels with hyphenated usernames are parsed correctly."""
+        hyphenated_user = "Ahmad-Hafe"
+        with patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", [hyphenated_user]):
+            result = pull_request_handler._check_labels_for_can_be_merged(
+                labels=[f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{hyphenated_user}"]
+            )
+            assert "PR has changed requests from approvers" in result
+
     def test_check_labels_for_can_be_merged_approved(self, pull_request_handler: PullRequestHandler) -> None:
         # Mock the logic to return empty string (no errors) when appropriate
         with patch.object(pull_request_handler, "_check_if_pr_approved", return_value=""):
@@ -1709,6 +1767,68 @@ class TestPullRequestHandler:
         with patch.object(pull_request_handler, "_check_if_pr_approved", return_value=""):
             result = pull_request_handler._check_labels_for_can_be_merged(labels=["other-label"])
             assert result == ""  # Empty string means no errors
+
+    @pytest.mark.asyncio
+    async def test_check_if_pr_approved_lgtm_label_only_matches_prefix(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that only labels starting with LGTM prefix are counted as LGTM."""
+        reviewer = "reviewer1"
+        with (
+            patch.object(
+                pull_request_handler.owners_file_handler,
+                "owners_data_for_changed_files",
+                _owners_data_coroutine(),
+            ),
+            patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 1),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
+            patch.object(pull_request_handler.owners_file_handler, "root_approvers", []),
+            patch.object(pull_request_handler.owners_file_handler, "root_reviewers", []),
+            patch.object(pull_request_handler.owners_file_handler, "all_pull_request_reviewers", [reviewer]),
+            patch.object(pull_request_handler.github_webhook, "parent_committer", "someone-else"),
+        ):
+            # Valid LGTM label starting with prefix should count
+            result = await pull_request_handler._check_if_pr_approved(labels=[f"{LGTM_BY_LABEL_PREFIX}{reviewer}"])
+            assert result == ""
+
+            # Label containing prefix in the middle should NOT count
+            result = await pull_request_handler._check_if_pr_approved(labels=[f"not-{LGTM_BY_LABEL_PREFIX}{reviewer}"])
+            assert "Missing lgtm from reviewers" in result
+
+    def test_check_labels_for_can_be_merged_approved_label_only_matches_prefix(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that only labels starting with approved prefix are matched."""
+        with patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", ["approver1"]):
+            # Valid approved label should not trigger changes-requested
+            result = pull_request_handler._check_labels_for_can_be_merged(
+                labels=[f"{APPROVED_BY_LABEL_PREFIX}approver1"]
+            )
+            assert result == ""
+
+            # Label containing approved prefix in the middle should not match
+            result = pull_request_handler._check_labels_for_can_be_merged(
+                labels=[f"not-{APPROVED_BY_LABEL_PREFIX}approver1"]
+            )
+            assert result == ""
+
+    def test_check_labels_for_can_be_merged_changes_requested_label_only_matches_prefix(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that only labels starting with changes-requested prefix are matched."""
+        approver = "reviewer1"
+        with patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", [approver]):
+            # Valid changes-requested label should trigger the check
+            result = pull_request_handler._check_labels_for_can_be_merged(
+                labels=[f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{approver}"]
+            )
+            assert "PR has changed requests from approvers" in result
+
+            # Label containing prefix in the middle should NOT trigger
+            result = pull_request_handler._check_labels_for_can_be_merged(
+                labels=[f"not-{CHANGED_REQUESTED_BY_LABEL_PREFIX}{approver}"]
+            )
+            assert result == ""
 
     @pytest.mark.asyncio
     async def test_skip_if_pull_request_already_merged_merged(

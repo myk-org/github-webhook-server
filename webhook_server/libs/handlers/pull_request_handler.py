@@ -1593,16 +1593,17 @@ For more information, please refer to the project documentation or contact the m
 
         if self.github_webhook.minimum_lgtm:
             for _label in labels:
-                reviewer = _label.split(LABELS_SEPARATOR)[-1]
-                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
-                    lgtm_count += 1
-                    if reviewer in all_reviewers_without_pr_owner_and_lgtmed:
-                        all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
+                if _label.lower().startswith(LGTM_BY_LABEL_PREFIX.lower()):
+                    reviewer = _label[len(LGTM_BY_LABEL_PREFIX) :]
+                    if reviewer in all_reviewers_without_pr_owner:
+                        lgtm_count += 1
+                        if reviewer in all_reviewers_without_pr_owner_and_lgtmed:
+                            all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
         self.logger.debug(f"{self.log_prefix} lgtm_count: {lgtm_count}")
 
         for _label in labels:
-            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
+            if _label.lower().startswith(APPROVED_BY_LABEL_PREFIX.lower()):
+                approved_by.append(_label[len(APPROVED_BY_LABEL_PREFIX) :])
         self.logger.debug(f"{self.log_prefix} approved_by: {approved_by}")
 
         missing_approvers = list(set(self.owners_file_handler.all_pull_request_approvers.copy()))
@@ -1658,8 +1659,8 @@ For more information, please refer to the project documentation or contact the m
         failure_output = ""
 
         for _label in labels:
-            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                change_request_user = _label.split(LABELS_SEPARATOR)[-1]
+            if _label.lower().startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX.lower()):
+                change_request_user = _label[len(CHANGED_REQUESTED_BY_LABEL_PREFIX) :]
                 if change_request_user in self.owners_file_handler.all_pull_request_approvers:
                     failure_output += "PR has changed requests from approvers\n"
                     self.logger.debug(f"{self.log_prefix} Found changed request by {change_request_user}")
