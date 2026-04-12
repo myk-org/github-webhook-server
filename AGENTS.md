@@ -1,1 +1,1 @@
-/home/myakove/dotfiles/AGENTS.md
+CLAUDE.md
