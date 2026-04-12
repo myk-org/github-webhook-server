@@ -75,6 +75,7 @@ class RunnerHandler:
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
+        skip_merge: bool = False,
     ) -> AsyncGenerator[tuple[bool, str, str, str]]:
         """Create worktree from existing clone for handler operations.
 
@@ -86,6 +87,8 @@ class RunnerHandler:
             is_merged: Whether PR is merged
             checkout: Specific branch/commit to checkout
             tag_name: Tag name to checkout
+            skip_merge: Skip merging base branch into worktree (used by cherry-pick
+                which manages its own branch setup)
 
         Yields:
             tuple: (success: bool, worktree_path: str, stdout: str, stderr: str)
@@ -148,7 +151,7 @@ class RunnerHandler:
             result: tuple[bool, str, str, str] = (success, worktree_path, out, err)
 
             # Merge base branch if needed (for PR testing)
-            if success and pull_request and not is_merged and not tag_name:
+            if success and pull_request and not is_merged and not tag_name and not skip_merge:
                 merge_ref = base_ref
                 if merge_ref is None:
                     merge_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
@@ -850,7 +853,12 @@ Your team can configure additional types in the repository settings.
             pull_request_url = pull_request.html_url
             github_token = self.github_webhook.token
 
-            async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+            async with self._checkout_worktree(pull_request=pull_request, skip_merge=True) as (
+                success,
+                worktree_path,
+                out,
+                err,
+            ):
                 git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
                 pr_title = f"{CHERRY_PICKED_LABEL}: [{target_branch}] {commit_msg_striped}"
                 pr_body = (

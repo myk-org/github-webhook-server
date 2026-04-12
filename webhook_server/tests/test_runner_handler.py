@@ -1152,6 +1152,62 @@ class TestRunnerHandler:
                     assert out == "fail"
 
     @pytest.mark.asyncio
+    async def test_checkout_worktree_skip_merge(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test _checkout_worktree with skip_merge=True skips the merge step."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                return_value=(True, "/tmp/worktree-path", "success", "")
+            )
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "some-branch", "")),
+            ) as mock_run_cmd:
+                async with runner_handler._checkout_worktree(pull_request=mock_pull_request, skip_merge=True) as result:
+                    success, worktree_path, _, _ = result
+                    assert success is True
+                    assert worktree_path == "/tmp/worktree-path"
+                    # Verify merge command was NOT called (only rev-parse for branch check)
+                    for call in mock_run_cmd.call_args_list:
+                        cmd = call.kwargs.get("command", call.args[0] if call.args else "")
+                        assert "merge" not in cmd, (
+                            f"Merge command should not be called with skip_merge=True, got: {cmd}"
+                        )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_calls_checkout_worktree_with_skip_merge(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test cherry_pick passes skip_merge=True to _checkout_worktree."""
+        runner_handler.github_webhook.pypi = {"token": "dummy"}
+        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
+                with patch.object(runner_handler.check_run_handler, "set_check_success"):
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.run_command",
+                            new=AsyncMock(return_value=(True, "https://github.com/test/repo/pull/99", "")),
+                        ):
+                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()):
+                                with patch(
+                                    "asyncio.to_thread",
+                                    new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+                                ):
+                                    with patch(
+                                        "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                                        return_value=None,
+                                    ):
+                                        await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_checkout.assert_called_once_with(
+                                            pull_request=mock_pull_request, skip_merge=True
+                                        )
+
+    @pytest.mark.asyncio
     async def test_run_build_container_push_failure(self, runner_handler, mock_pull_request):
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         runner_handler.github_webhook.container_build_args = ["ARG1=1"]
