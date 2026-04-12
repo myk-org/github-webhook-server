@@ -60,7 +60,7 @@ class SafeRotatingFileHandler(RotatingFileHandler):
         """
         if self.stream:
             self.stream.close()
-            self.stream = None  # type: ignore[assignment]
+            self.stream = None
 
         if self.backupCount > 0:
             # Remove backup files that exceed backupCount, handle missing files
