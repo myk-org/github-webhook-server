@@ -73,6 +73,7 @@ def mock_github_webhook() -> Mock:
     mock_webhook.enabled_labels = None
     mock_webhook.custom_check_runs = []
     mock_webhook.ai_features = None
+    mock_webhook.ai_review_config = None
     mock_webhook.required_conversation_resolution = False
     mock_webhook.config = Mock()
     mock_webhook.config.get_value = Mock(return_value=None)

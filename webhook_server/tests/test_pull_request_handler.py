@@ -93,6 +93,7 @@ class TestPullRequestHandler:
         mock_webhook.enabled_labels = None  # Default: all labels enabled
         mock_webhook.custom_check_runs = []
         mock_webhook.ai_features = None
+        mock_webhook.ai_review_config = None
         mock_webhook.required_conversation_resolution = False
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -476,6 +477,7 @@ class TestPullRequestHandler:
     def test_prepare_ai_features_section_no_features(self, pull_request_handler: PullRequestHandler) -> None:
         """Test AI features section is empty when no features are configured."""
         pull_request_handler.github_webhook.ai_features = None
+        pull_request_handler.github_webhook.ai_review_config = None
         result = pull_request_handler._prepare_ai_features_welcome_section
         assert result == ""
 
@@ -3285,3 +3287,132 @@ class TestPullRequestHandler:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_test_oracle.assert_not_called()
             mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ai_review_triggered_on_opened(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_ai_reviewer is fired as a background task with trigger='pr-opened' when a PR is opened."""
+        pull_request_handler.hook_data["action"] = "opened"
+        pull_request_handler.github_webhook.ai_review_config = {
+            "server-url": "http://localhost:8001",
+            "providers": [{"ai-provider": "claude", "ai-model": "sonnet"}],
+        }
+
+        with (
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request"),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title"),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "set_pull_request_automerge"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_ai_reviewer",
+                new_callable=AsyncMock,
+            ) as mock_ai_reviewer,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_ai_reviewer.assert_called_once_with(
+                github_webhook=pull_request_handler.github_webhook,
+                pull_request=mock_pull_request,
+                trigger="pr-opened",
+            )
+            assert mock_create_task.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ai_review_not_triggered_when_config_none(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_ai_reviewer is NOT called when ai_review_config is None."""
+        pull_request_handler.hook_data["action"] = "opened"
+        pull_request_handler.github_webhook.ai_review_config = None
+
+        with (
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request"),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title"),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "set_pull_request_automerge"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_ai_reviewer",
+                new_callable=AsyncMock,
+            ) as mock_ai_reviewer,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_ai_reviewer.assert_not_called()
+            # Only test_oracle should create a task, not ai_reviewer
+            mock_create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ai_review_triggered_on_synchronize_non_clean(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_ai_reviewer is fired with trigger='pr-synchronized' on non-clean-rebase synchronize."""
+        pull_request_handler.hook_data["action"] = "synchronize"
+        pull_request_handler.hook_data["before"] = "aaa1111111111111111111111111111111111111"
+        pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
+        pull_request_handler.github_webhook.ai_review_config = {
+            "server-url": "http://localhost:8001",
+            "providers": [{"ai-provider": "claude", "ai-model": "sonnet"}],
+        }
+
+        with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_ai_reviewer",
+                new_callable=AsyncMock,
+            ) as mock_ai_reviewer,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_ai_reviewer.assert_called_once_with(
+                github_webhook=pull_request_handler.github_webhook,
+                pull_request=mock_pull_request,
+                trigger="pr-synchronized",
+            )
+            assert mock_create_task.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ai_review_not_triggered_on_clean_rebase(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that call_ai_reviewer is NOT called when synchronize is a clean rebase."""
+        pull_request_handler.hook_data["action"] = "synchronize"
+        pull_request_handler.hook_data["before"] = "aaa1111111111111111111111111111111111111"
+        pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
+        pull_request_handler.github_webhook.ai_review_config = {
+            "server-url": "http://localhost:8001",
+            "providers": [{"ai-provider": "claude", "ai-model": "sonnet"}],
+        }
+
+        with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
+            patch.object(pull_request_handler, "_post_clean_rebase_comment", new_callable=AsyncMock),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_ai_reviewer",
+                new_callable=AsyncMock,
+            ) as mock_ai_reviewer,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_ai_reviewer.assert_not_called()
+            # Only test_oracle should create a task, not ai_reviewer
+            mock_create_task.assert_called_once()

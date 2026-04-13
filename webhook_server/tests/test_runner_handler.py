@@ -57,6 +57,7 @@ class TestRunnerHandler:
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
         mock_webhook.ai_features = None
+        mock_webhook.ai_review_config = None
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
         return mock_webhook
@@ -754,6 +755,7 @@ class TestRunnerHandler:
         runner_handler.github_webhook.conventional_title = "feat,fix"
         mock_pull_request.title = "bad title"
         runner_handler.github_webhook.ai_features = None
+        runner_handler.github_webhook.ai_review_config = None
 
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
@@ -1811,6 +1813,7 @@ class TestRunnerHandler:
     ) -> None:
         """Cherry-pick conflicts + AI not configured — manual fallback, call_ai_cli not called."""
         runner_handler.github_webhook.ai_features = None
+        runner_handler.github_webhook.ai_review_config = None
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
             if "cherry-pick" in command and "--continue" not in command:

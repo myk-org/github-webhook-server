@@ -12,6 +12,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
+from webhook_server.libs.ai_review import call_ai_reviewer
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -275,6 +276,17 @@ class PullRequestHandler:
                 _background_tasks.add(task)
                 task.add_done_callback(_background_tasks.discard)
 
+            if hook_action == "opened" and self.github_webhook.ai_review_config:
+                ai_review_task = asyncio.create_task(
+                    call_ai_reviewer(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="pr-opened",
+                    )
+                )
+                _background_tasks.add(ai_review_task)
+                ai_review_task.add_done_callback(_background_tasks.discard)
+
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)
             return
@@ -314,6 +326,17 @@ class PullRequestHandler:
             )
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
+
+            if not clean_rebase and self.github_webhook.ai_review_config:
+                ai_review_task = asyncio.create_task(
+                    call_ai_reviewer(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="pr-synchronized",
+                    )
+                )
+                _background_tasks.add(ai_review_task)
+                ai_review_task.add_done_callback(_background_tasks.discard)
 
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)

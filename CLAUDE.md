@@ -682,3 +682,26 @@ AI-powered enhancements controlled by `ai-features` config (global or per-repo).
 **On AI CLI failure:** Error is logged, flow continues without suggestion
 
 **Module:** `webhook_server/libs/ai_cli.py` - shared AI CLI wrapper
+
+### AI Code Review Integration
+
+External AI service integration for PR code review via [pr-ai-reviewer](https://github.com/myk-org/pr-ai-reviewer).
+
+**Schema:** `webhook_server/config/schema.yaml` (`ai-review`), configurable globally or per-repo
+
+**Triggers:** `pr-opened`, `pr-synchronized` (skips clean rebases). Default: both enabled.
+
+**Module:** `webhook_server/libs/ai_review.py` - `call_ai_reviewer()` thin HTTP client
+
+**Features:**
+
+- 3 specialized review agents (quality, guidelines, security) from [pi-config](https://github.com/myk-org/pi-config)
+- Single provider: standard AI review
+- Multiple providers: peer review with consensus loop
+- Posts inline review comments on PR diff lines via GitHub Pull Request Review API
+
+**Error handling:**
+
+- Health check failure: PR comment posted, continue flow
+- Review errors: log only, no PR comment
+- Never breaks webhook processing

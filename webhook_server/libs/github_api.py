@@ -808,6 +808,9 @@ class GithubWebhook:
         self.ai_features: dict[str, Any] | None = self.config.get_value(
             value="ai-features", return_on_none=None, extra_dict=repository_config
         )
+        self.ai_review_config: dict[str, Any] | None = self.config.get_value(
+            value="ai-review", return_on_none=None, extra_dict=repository_config
+        )
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )

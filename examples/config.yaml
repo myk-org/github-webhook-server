@@ -123,6 +123,23 @@ test-oracle:
     # - pr-opened             # Run when PR is opened
     # - pr-synchronized       # Run when new commits pushed
 
+# AI Code Review integration
+# Reviews PR diffs using specialized AI review agents
+# See: https://github.com/myk-org/pr-ai-reviewer
+ai-review:
+  server-url: "http://localhost:8001"
+  providers:
+    - ai-provider: "claude"
+      ai-model: "claude-sonnet-4-20250514"
+    # Add more providers for peer review:
+    # - ai-provider: "gemini"
+    #   ai-model: "gemini-2.5-pro"
+  max-rounds: 3  # Max peer review rounds (default: 3)
+  timeout-minutes: 30  # Timeout per AI CLI call (default: 30)
+  triggers:  # Default: [pr-opened, pr-synchronized]
+    - pr-opened
+    - pr-synchronized
+
 # AI Features configuration
 # Enables AI-powered enhancements (e.g., conventional title suggestions)
 ai-features:
