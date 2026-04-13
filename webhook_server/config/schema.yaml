@@ -68,6 +68,73 @@ $defs:
       - ai-provider
       - ai-model
     additionalProperties: false
+  ai-review:
+    type: object
+    description: |
+      AI-powered code review for pull requests.
+      See https://github.com/myk-org/pr-ai-reviewer for server setup.
+      Each provider uses 3 specialized review agents (quality, guidelines, security).
+      Single provider: standard review.
+      Multiple providers: peer review (first = main, rest = peers).
+      They debate until consensus, then final comments are posted.
+    properties:
+      server-url:
+        type: string
+        format: uri
+        description: URL of the pr-ai-reviewer server (e.g., http://localhost:8001)
+      providers:
+        type: array
+        description: |
+          List of AI providers for code review.
+          Single provider: standard review.
+          Multiple providers: peer review (first = main reviewer, rest = peers).
+        items:
+          type: object
+          properties:
+            ai-provider:
+              type: string
+              enum:
+                - claude
+                - gemini
+                - cursor
+              description: AI CLI provider to use for review
+            ai-model:
+              type: string
+              description: AI model identifier
+          required:
+            - ai-provider
+            - ai-model
+          additionalProperties: false
+        minItems: 1
+      max-rounds:
+        type: integer
+        minimum: 1
+        maximum: 5
+        default: 3
+        description: Maximum peer review debate rounds before accepting main AI result
+      timeout-minutes:
+        type: integer
+        minimum: 1
+        default: 30
+        description: Timeout in minutes for each AI CLI call
+      triggers:
+        type: array
+        default:
+          - pr-opened
+          - pr-synchronized
+        items:
+          type: string
+          enum:
+            - pr-opened
+            - pr-synchronized
+        description: |
+          When to automatically run AI code review. Default: [pr-opened, pr-synchronized].
+          - pr-opened: Run when a new PR is opened
+          - pr-synchronized: Run when new commits are pushed to a PR (skips clean rebases)
+    required:
+      - server-url
+      - providers
+    additionalProperties: false
 type: object
 properties:
   log-level:
@@ -214,72 +281,7 @@ properties:
   ai-features:
     $ref: '#/$defs/ai-features'
   ai-review:
-    type: object
-    description: |
-      AI-powered code review for pull requests.
-      See https://github.com/myk-org/pr-ai-reviewer for server setup.
-      Each provider uses 3 specialized review agents (quality, guidelines, security).
-      Single provider: standard review.
-      Multiple providers: peer review (first = main, rest = peers).
-      They debate until consensus, then final comments are posted.
-    properties:
-      server-url:
-        type: string
-        format: uri
-        description: URL of the pr-ai-reviewer server (e.g., http://localhost:8001)
-      providers:
-        type: array
-        description: |
-          List of AI providers for code review.
-          Single provider: standard review.
-          Multiple providers: peer review (first = main reviewer, rest = peers).
-        items:
-          type: object
-          properties:
-            ai-provider:
-              type: string
-              enum:
-                - claude
-                - gemini
-                - cursor
-              description: AI CLI provider to use for review
-            ai-model:
-              type: string
-              description: AI model identifier
-          required:
-            - ai-provider
-            - ai-model
-          additionalProperties: false
-        minItems: 1
-      max-rounds:
-        type: integer
-        minimum: 1
-        maximum: 5
-        default: 3
-        description: Maximum peer review debate rounds before accepting main AI result
-      timeout-minutes:
-        type: integer
-        minimum: 1
-        default: 30
-        description: Timeout in minutes for each AI CLI call
-      triggers:
-        type: array
-        default:
-          - pr-opened
-          - pr-synchronized
-        items:
-          type: string
-          enum:
-            - pr-opened
-            - pr-synchronized
-        description: |
-          When to automatically run AI code review. Default: [pr-opened, pr-synchronized].
-          - pr-opened: Run when a new PR is opened
-          - pr-synchronized: Run when new commits are pushed to a PR (skips clean rebases)
-    required:
-      - server-url
-      - providers
-    additionalProperties: false
+    $ref: '#/$defs/ai-review'
   labels:
     type: object
     description: Configure which labels are enabled and their colors
@@ -645,72 +647,7 @@ properties:
         ai-features:
           $ref: '#/$defs/ai-features'
         ai-review:
-          type: object
-          description: |
-            AI-powered code review for pull requests.
-            See https://github.com/myk-org/pr-ai-reviewer for server setup.
-            Each provider uses 3 specialized review agents (quality, guidelines, security).
-            Single provider: standard review.
-            Multiple providers: peer review (first = main, rest = peers).
-            They debate until consensus, then final comments are posted.
-          properties:
-            server-url:
-              type: string
-              format: uri
-              description: URL of the pr-ai-reviewer server (e.g., http://localhost:8001)
-            providers:
-              type: array
-              description: |
-                List of AI providers for code review.
-                Single provider: standard review.
-                Multiple providers: peer review (first = main reviewer, rest = peers).
-              items:
-                type: object
-                properties:
-                  ai-provider:
-                    type: string
-                    enum:
-                      - claude
-                      - gemini
-                      - cursor
-                    description: AI CLI provider to use for review
-                  ai-model:
-                    type: string
-                    description: AI model identifier
-                required:
-                  - ai-provider
-                  - ai-model
-                additionalProperties: false
-              minItems: 1
-            max-rounds:
-              type: integer
-              minimum: 1
-              maximum: 5
-              default: 3
-              description: Maximum peer review debate rounds before accepting main AI result
-            timeout-minutes:
-              type: integer
-              minimum: 1
-              default: 30
-              description: Timeout in minutes for each AI CLI call
-            triggers:
-              type: array
-              default:
-                - pr-opened
-                - pr-synchronized
-              items:
-                type: string
-                enum:
-                  - pr-opened
-                  - pr-synchronized
-              description: |
-                When to automatically run AI code review. Default: [pr-opened, pr-synchronized].
-                - pr-opened: Run when a new PR is opened
-                - pr-synchronized: Run when new commits are pushed to a PR (skips clean rebases)
-          required:
-            - server-url
-            - providers
-          additionalProperties: false
+          $ref: '#/$defs/ai-review'
         custom-check-runs:
           type: array
           description: |

@@ -95,6 +95,7 @@ class TestCallAiReviewer:
                 await call_ai_reviewer(mock_github_webhook, mock_pull_request, mock_check_run_handler, trigger=None)
 
             mock_client.post.assert_called_once()
+        mock_check_run_handler.set_check_in_progress.assert_called_once()
         mock_check_run_handler.set_check_success.assert_called_once()
 
     @pytest.mark.asyncio
@@ -250,11 +251,38 @@ class TestCallAiReviewer:
     async def test_cancelled_error_reraised(
         self, mock_github_webhook: Mock, mock_pull_request: Mock, mock_check_run_handler: AsyncMock
     ) -> None:
-        with patch("webhook_server.libs.ai_review.httpx.AsyncClient", side_effect=asyncio.CancelledError):
-            with pytest.raises(asyncio.CancelledError):
-                await call_ai_reviewer(
-                    mock_github_webhook, mock_pull_request, mock_check_run_handler, trigger="pr-opened"
-                )
+        with (
+            patch("webhook_server.libs.ai_review.httpx.AsyncClient", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await call_ai_reviewer(mock_github_webhook, mock_pull_request, mock_check_run_handler, trigger="pr-opened")
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_sets_check_failure_when_in_progress(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock, mock_check_run_handler: AsyncMock
+    ) -> None:
+        """CancelledError after check is in_progress should mark it as failed before re-raising."""
+        with patch("webhook_server.libs.ai_review.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            # Health check succeeds, but review call raises CancelledError
+            mock_client.get = AsyncMock(return_value=Mock(raise_for_status=Mock()))
+            mock_client.post = AsyncMock(side_effect=asyncio.CancelledError)
+            mock_client_cls.return_value = mock_client
+
+            with patch("asyncio.to_thread", side_effect=lambda f, *a, **kw: f(*a, **kw) if callable(f) else f):
+                with pytest.raises(asyncio.CancelledError):
+                    await call_ai_reviewer(
+                        mock_github_webhook, mock_pull_request, mock_check_run_handler, trigger="pr-opened"
+                    )
+
+        # Verify check was marked in_progress then failed on cancellation
+        mock_check_run_handler.set_check_in_progress.assert_called_once()
+        mock_check_run_handler.set_check_failure.assert_called_once()
+        call_args = mock_check_run_handler.set_check_failure.call_args
+        assert call_args.kwargs["output"]["title"] == "AI Review Cancelled"
+        assert call_args.kwargs["output"]["summary"] == "Review was cancelled"
 
     @pytest.mark.asyncio
     async def test_provider_config_conversion(
