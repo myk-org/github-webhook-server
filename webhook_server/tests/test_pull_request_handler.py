@@ -3318,6 +3318,7 @@ class TestPullRequestHandler:
             mock_ai_reviewer.assert_called_once_with(
                 github_webhook=pull_request_handler.github_webhook,
                 pull_request=mock_pull_request,
+                check_run_handler=pull_request_handler.check_run_handler,
                 trigger="pr-opened",
             )
             assert mock_create_task.call_count == 2
@@ -3381,6 +3382,7 @@ class TestPullRequestHandler:
             mock_ai_reviewer.assert_called_once_with(
                 github_webhook=pull_request_handler.github_webhook,
                 pull_request=mock_pull_request,
+                check_run_handler=pull_request_handler.check_run_handler,
                 trigger="pr-synchronized",
             )
             assert mock_create_task.call_count == 2

@@ -20,6 +20,7 @@ from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.libs.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
     AI_RESOLVED_CONFLICTS_LABEL,
+    AI_REVIEW_STR,
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
@@ -281,6 +282,7 @@ class PullRequestHandler:
                     call_ai_reviewer(
                         github_webhook=self.github_webhook,
                         pull_request=pull_request,
+                        check_run_handler=self.check_run_handler,
                         trigger="pr-opened",
                     )
                 )
@@ -332,6 +334,7 @@ class PullRequestHandler:
                     call_ai_reviewer(
                         github_webhook=self.github_webhook,
                         pull_request=pull_request,
+                        check_run_handler=self.check_run_handler,
                         trigger="pr-synchronized",
                     )
                 )
@@ -1064,6 +1067,9 @@ For more information, please refer to the project documentation or contact the m
 
         if self.github_webhook.build_and_push_container:
             setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
+
+        if self.github_webhook.ai_review_config:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=AI_REVIEW_STR))
 
         if is_clean_rebase:
             # label_names is guaranteed non-None when is_clean_rebase=True (caller always provides it)

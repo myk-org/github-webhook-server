@@ -5,10 +5,13 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from webhook_server.utils.constants import AI_REVIEW_STR
+
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
     from webhook_server.libs.github_api import GithubWebhook
+    from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 
 DEFAULT_TRIGGERS: list[str] = ["pr-opened", "pr-synchronized"]
 
@@ -16,6 +19,7 @@ DEFAULT_TRIGGERS: list[str] = ["pr-opened", "pr-synchronized"]
 async def call_ai_reviewer(
     github_webhook: GithubWebhook,
     pull_request: PullRequest,
+    check_run_handler: CheckRunHandler,
     trigger: str | None = None,
 ) -> None:
     """Call the pr-ai-reviewer service to review a PR.
@@ -23,6 +27,7 @@ async def call_ai_reviewer(
     Args:
         github_webhook: The GithubWebhook instance with config and token.
         pull_request: The PyGithub PullRequest object.
+        check_run_handler: CheckRunHandler for updating check run status.
         trigger: The event trigger (e.g., "pr-opened", "pr-synchronized").
                  None means command-triggered (always runs if configured).
                  Command trigger is reserved for a future /ai-review comment command.
@@ -46,6 +51,8 @@ async def call_ai_reviewer(
     log_prefix: str = github_webhook.log_prefix
 
     try:
+        await check_run_handler.set_check_in_progress(name=AI_REVIEW_STR)
+
         async with httpx.AsyncClient(base_url=server_url) as client:
             # Health check
             try:
@@ -56,15 +63,12 @@ async def call_ai_reviewer(
                 if isinstance(e, httpx.HTTPStatusError):
                     status_info = f" (status {e.response.status_code})"
 
-                msg = f"AI Reviewer server at {server_url} is not responding{status_info}, skipping code review"
+                msg = f"AI Reviewer server at {server_url} is not responding{status_info}"
                 github_webhook.logger.warning(f"{log_prefix} {msg}")
-                try:
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment,
-                        f"AI Reviewer server is not responding{status_info}, skipping code review",
-                    )
-                except Exception:
-                    github_webhook.logger.exception(f"{log_prefix} Failed to post health check comment")
+                await check_run_handler.set_check_failure(
+                    name=AI_REVIEW_STR,
+                    output={"title": "AI Review Failed", "summary": msg},
+                )
                 return
 
             # Build review payload
@@ -109,12 +113,36 @@ async def call_ai_reviewer(
                     f"{log_prefix} AI Reviewer complete: {comments_count} comment(s), "
                     f"review_posted={review_posted}, summary={summary}"
                 )
+
+                await check_run_handler.set_check_success(
+                    name=AI_REVIEW_STR,
+                    output={
+                        "title": "AI Review Complete",
+                        "summary": f"{comments_count} comment(s) posted" if comments_count else "No issues found",
+                    },
+                )
             except httpx.HTTPError as e:
                 err_detail = f": {e.response.text}" if isinstance(e, httpx.HTTPStatusError) else ""
-                github_webhook.logger.error(f"{log_prefix} AI Reviewer request failed{err_detail}")
+                error_msg = f"AI Reviewer request failed{err_detail}"
+                github_webhook.logger.error(f"{log_prefix} {error_msg}")
+                await check_run_handler.set_check_failure(
+                    name=AI_REVIEW_STR,
+                    output={"title": "AI Review Failed", "summary": error_msg},
+                )
             except ValueError:
                 github_webhook.logger.error(f"{log_prefix} AI Reviewer returned invalid JSON response")
+                await check_run_handler.set_check_failure(
+                    name=AI_REVIEW_STR,
+                    output={"title": "AI Review Failed", "summary": "Invalid JSON response from AI Reviewer"},
+                )
     except asyncio.CancelledError:
         raise
     except Exception:
         github_webhook.logger.exception(f"{log_prefix} AI Reviewer call failed unexpectedly")
+        try:
+            await check_run_handler.set_check_failure(
+                name=AI_REVIEW_STR,
+                output={"title": "AI Review Failed", "summary": "Unexpected error"},
+            )
+        except Exception:
+            github_webhook.logger.exception(f"{log_prefix} Failed to set check run failure")

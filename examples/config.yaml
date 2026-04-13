@@ -130,13 +130,13 @@ ai-review:
   server-url: "http://localhost:8001"
   providers:
     - ai-provider: "claude"
-      ai-model: "claude-sonnet-4-20250514"
+      ai-model: "claude-opus-4-6[1m]"
     # Add more providers for peer review:
     # - ai-provider: "gemini"
     #   ai-model: "gemini-2.5-pro"
-  max-rounds: 3  # Max peer review rounds (default: 3)
-  timeout-minutes: 30  # Timeout per AI CLI call (default: 30)
-  triggers:  # Default: [pr-opened, pr-synchronized]
+  max-rounds: 3 # Max peer review rounds (default: 3)
+  timeout-minutes: 30 # Timeout per AI CLI call (default: 30)
+  triggers: # Default: [pr-opened, pr-synchronized]
     - pr-opened
     - pr-synchronized
 
@@ -147,11 +147,11 @@ ai-features:
   ai-model: "claude-opus-4-6[1m]"
   conventional-title:
     enabled: true
-    mode: suggest  # suggest: show in checkrun | fix: auto-update PR title
+    mode: suggest # suggest: show in checkrun | fix: auto-update PR title
     timeout-minutes: 10
   resolve-cherry-pick-conflicts-with-ai:
     enabled: true
-    timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
+    timeout-minutes: 10 # Timeout in minutes for AI CLI (default: 10)
 
 repositories:
   my-repository:
