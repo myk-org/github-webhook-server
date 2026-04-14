@@ -21,6 +21,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import strip_ansi_codes
 
 if TYPE_CHECKING:
@@ -83,7 +84,9 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
-                        await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                        await github_api_call(
+                            pull_request.merge, merge_method="SQUASH", logger=self.logger, log_prefix=self.log_prefix
+                        )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
@@ -176,7 +179,12 @@ class CheckRunHandler:
             self.logger.debug(
                 f"{self.log_prefix} Setting check run for {check_run}, status={status}, conclusion={conclusion}"
             )
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await github_api_call(
+                self.github_webhook.repository_by_github_app.create_check_run,
+                **kwargs,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.info(msg)
             return
@@ -187,7 +195,12 @@ class CheckRunHandler:
             self.logger.exception(f"{self.log_prefix} Failed to set check run status for {check_run}")
             kwargs["conclusion"] = FAILURE_STR
             kwargs["status"] = "completed"
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await github_api_call(
+                self.github_webhook.repository_by_github_app.create_check_run,
+                **kwargs,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
     def get_check_run_text(self, err: str, out: str) -> str:
         # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI
@@ -249,7 +262,12 @@ class CheckRunHandler:
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
+            runs = await github_api_call(
+                lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            for run in runs:
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
@@ -392,7 +410,9 @@ class CheckRunHandler:
     async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         # Check if private repo first (cache to avoid repeated API calls)
         if self._repository_private is None:
-            self._repository_private = await asyncio.to_thread(lambda: self.repository.private)
+            self._repository_private = await github_api_call(
+                lambda: self.repository.private, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         if self._repository_private:
             self.logger.info(
@@ -404,10 +424,22 @@ class CheckRunHandler:
         if self._branch_required_status_checks is not None:
             return self._branch_required_status_checks
 
-        pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
-        branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
-        branch_required_status_checks = await asyncio.to_thread(
-            lambda: branch_protection.required_status_checks.contexts
+        base_ref = await github_api_call(
+            lambda: pull_request.base.ref,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        pull_request_branch = await github_api_call(
+            self.repository.get_branch,
+            base_ref,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        branch_protection = await github_api_call(
+            pull_request_branch.get_protection, logger=self.logger, log_prefix=self.log_prefix
+        )
+        branch_required_status_checks = await github_api_call(
+            lambda: branch_protection.required_status_checks.contexts, logger=self.logger, log_prefix=self.log_prefix
         )
         self.logger.debug(f"{self.log_prefix} branch_required_status_checks: {branch_required_status_checks}")
         self._branch_required_status_checks = branch_required_status_checks

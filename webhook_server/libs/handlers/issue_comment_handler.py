@@ -35,6 +35,7 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+from webhook_server.utils.github_retry import github_api_call
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -96,7 +97,9 @@ class IssueCommentHandler:
             # Execute all commands in parallel
             if _user_commands:
                 # Cache draft status once to avoid repeated API calls
-                is_draft = await asyncio.to_thread(lambda: pull_request.draft)
+                is_draft = await github_api_call(
+                    lambda: pull_request.draft, logger=self.logger, log_prefix=self.log_prefix
+                )
 
                 tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
                 for user_command in _user_commands:
@@ -118,10 +121,9 @@ class IssueCommentHandler:
                 failed_commands: list[tuple[str, Exception]] = []
                 for idx, result in enumerate(results):
                     user_command = _user_commands[idx]
+                    if isinstance(result, asyncio.CancelledError):
+                        raise result
                     if isinstance(result, Exception):
-                        # Re-raise CancelledError immediately to allow cancellation to propagate
-                        if isinstance(result, asyncio.CancelledError):
-                            raise result
                         self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
                         failed_commands.append((user_command, result))
 
@@ -189,10 +191,12 @@ class IssueCommentHandler:
                         f"{self.log_prefix} Command {_command} is not allowed on draft PRs. "
                         f"Allowed commands: {allow_commands_on_draft}"
                     )
-                    await asyncio.to_thread(
+                    await github_api_call(
                         pull_request.create_issue_comment,
                         f"Command `/{_command}` is not allowed on draft PRs.\n"
                         f"Allowed commands on draft PRs: {', '.join(allow_commands_on_draft)}",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
                     return
 
@@ -221,7 +225,12 @@ class IssueCommentHandler:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, body=missing_command_arg_comment_msg)
+            await github_api_call(
+                pull_request.create_issue_comment,
+                body=missing_command_arg_comment_msg,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
             return
 
         if _command == AUTOMERGE_LABEL_STR:
@@ -231,7 +240,9 @@ class IssueCommentHandler:
             ):
                 msg = "Only maintainers or approvers can set pull request to auto-merge"
                 self.logger.debug(f"{self.log_prefix} {msg}")
-                await asyncio.to_thread(pull_request.create_issue_comment, body=msg)
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
                 return
 
             await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
@@ -245,7 +256,12 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
-            await asyncio.to_thread(pull_request.create_issue_comment, body=f"{_args} is now allowed to run commands")
+            await github_api_call(
+                pull_request.create_issue_comment,
+                body=f"{_args} is now allowed to run commands",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             await self.owners_file_handler.assign_reviewers(pull_request=pull_request)
@@ -301,38 +317,55 @@ class IssueCommentHandler:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.logger.debug(error_msg)
-                await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
                 if label_changed:
-                    pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                    pr_title = await github_api_call(
+                        lambda: pull_request.title, logger=self.logger, log_prefix=self.log_prefix
+                    )
                     # Case-insensitive check and removal of WIP prefix
                     pr_title_upper = pr_title.upper()
                     if pr_title_upper.startswith("WIP: "):
                         new_title = pr_title[5:]  # Remove "WIP: " (5 chars)
-                        await asyncio.to_thread(pull_request.edit, title=new_title)
+                        await github_api_call(
+                            pull_request.edit, title=new_title, logger=self.logger, log_prefix=self.log_prefix
+                        )
                     elif pr_title_upper.startswith("WIP:"):
                         new_title = pr_title[4:]  # Remove "WIP:" (4 chars)
-                        await asyncio.to_thread(pull_request.edit, title=new_title)
+                        await github_api_call(
+                            pull_request.edit, title=new_title, logger=self.logger, log_prefix=self.log_prefix
+                        )
             else:
                 label_changed = await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
                 if label_changed:
-                    pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                    pr_title = await github_api_call(
+                        lambda: pull_request.title, logger=self.logger, log_prefix=self.log_prefix
+                    )
                     # Case-insensitive check: only prepend if prefix is not already there (idempotent)
                     if not pr_title.upper().startswith("WIP:"):
-                        await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
+                        await github_api_call(
+                            pull_request.edit,
+                            title=f"{wip_for_title} {pr_title}",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
                 self.logger.debug(
                     f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
                 )
-                await asyncio.to_thread(
+                await github_api_call(
                     pull_request.create_issue_comment,
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
             else:
                 if remove:
@@ -367,23 +400,31 @@ class IssueCommentHandler:
                 task.add_done_callback(_background_tasks.discard)
 
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
-        _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)
-        await asyncio.to_thread(_comment.create_reaction, reaction)
+        _comment = await github_api_call(
+            pull_request.get_issue_comment, issue_comment_id, logger=self.logger, log_prefix=self.log_prefix
+        )
+        await github_api_call(_comment.create_reaction, reaction, logger=self.logger, log_prefix=self.log_prefix)
 
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
-        repo_contributors = list(await asyncio.to_thread(self.repository.get_contributors))
+        repo_contributors = await github_api_call(
+            lambda: list(self.repository.get_contributors()),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
         self.logger.debug(f"{self.log_prefix} Repo contributors are: {repo_contributors}")
 
         for contributer in repo_contributors:
             if contributer.login == reviewer:
-                await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+                await github_api_call(
+                    pull_request.create_review_request, [reviewer], logger=self.logger, log_prefix=self.log_prefix
+                )
                 return
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
-        await asyncio.to_thread(pull_request.create_issue_comment, _err)
+        await github_api_call(pull_request.create_issue_comment, _err, logger=self.logger, log_prefix=self.log_prefix)
 
     async def process_cherry_pick_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str
@@ -430,7 +471,9 @@ class IssueCommentHandler:
 
         for _target_branch in _target_branches:
             try:
-                await asyncio.to_thread(self.repository.get_branch, _target_branch)
+                await github_api_call(
+                    self.repository.get_branch, _target_branch, logger=self.logger, log_prefix=self.log_prefix
+                )
                 _exits_target_branches.add(_target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
@@ -441,13 +484,23 @@ class IssueCommentHandler:
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-            await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
+            await github_api_call(
+                pull_request.create_issue_comment,
+                _non_exits_target_branches_msg,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
         if not _exits_target_branches:
             return
 
         # Filter out branches that already have cherry-pick labels
-        existing_labels = {label.name for label in await asyncio.to_thread(lambda: list(pull_request.labels))}
+        existing_labels = {
+            label.name
+            for label in await github_api_call(
+                lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+            )
+        }
         _already_cherry_picked: list[str] = []
         _branches_to_process: set[str] = set()
 
@@ -460,10 +513,12 @@ class IssueCommentHandler:
 
         if _already_cherry_picked:
             already_msg = ", ".join(f"`{b}`" for b in _already_cherry_picked)
-            await asyncio.to_thread(
+            await github_api_call(
                 pull_request.create_issue_comment,
                 f"Cherry-pick label already present for: {already_msg}\n"
                 "To re-trigger, remove the cherry-pick label(s) and run the command again.",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
             )
 
         if not _branches_to_process:
@@ -478,7 +533,9 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 """
 
             self.logger.info(f"{self.log_prefix} {info_msg}")
-            await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
+            await github_api_call(
+                pull_request.create_issue_comment, info_msg, logger=self.logger, log_prefix=self.log_prefix
+            )
         else:
             for _branch in _branches_to_process:
                 label_added = await self.labels_handler._add_label(
@@ -518,7 +575,9 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             msg = "No test defined to retest"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, msg)
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
             return
 
         if "all" in command_args:
@@ -526,7 +585,9 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
-                await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
                 return
 
             else:
@@ -547,7 +608,9 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, msg)
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         if _supported_retests:
             # Use runner_handler.run_retests() to avoid duplication

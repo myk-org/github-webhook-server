@@ -166,7 +166,7 @@ def user(self):
 
 1. **Repository Data** - `repository_data` ALWAYS set before handlers instantiate
 2. **Webhook User Objects** - `user.node_id`, `user.type`, `sender` always exist
-3. **PyGithub REST API** - **🔴 CRITICAL:** PyGithub is blocking - **MUST** wrap with `asyncio.to_thread()`
+3. **PyGithub REST API** - **🔴 CRITICAL:** PyGithub is blocking - **MUST** wrap with `github_api_call()` (provides retry with exponential backoff)
 
 ---
 
@@ -220,7 +220,7 @@ FastAPI-based GitHub webhook server that automates repository management and pul
 
 - `webhook_server/libs/github_api.py` provides core `GithubWebhook` class
 - Uses PyGithub (REST API v3) for all GitHub operations
-- **🔴 CRITICAL:** PyGithub is synchronous/blocking - **MUST** wrap with `asyncio.to_thread()`
+- **🔴 CRITICAL:** PyGithub is synchronous/blocking - **MUST** wrap with `github_api_call()` from `webhook_server.utils.github_retry` (retries transient 500/502/503/504 errors with exponential backoff)
 - Supports multiple GitHub tokens with automatic failover
 
 **Log Viewer System:**
@@ -290,9 +290,9 @@ class SomeHandler:
         # Log results
 ```
 
-### 🔴 MANDATORY: Non-Blocking PyGithub Operations
+### 🔴 MANDATORY: Non-Blocking PyGithub Operations with Retry
 
-**CRITICAL:** PyGithub is synchronous - ALL operations MUST use `asyncio.to_thread()`
+**CRITICAL:** PyGithub is synchronous - ALL operations MUST use `github_api_call()` from `webhook_server.utils.github_retry`. This wraps `asyncio.to_thread()` with retry logic for transient GitHub API failures (HTTP 500/502/503/504).
 
 #### What Blocks the Event Loop
 
@@ -316,34 +316,38 @@ class SomeHandler:
 
 ```python
 import asyncio
-from github.PullRequest import PullRequest
 
-# ✅ CORRECT - Wrap ALL method calls
-await asyncio.to_thread(pull_request.create_issue_comment, "Comment")
-await asyncio.to_thread(pull_request.add_to_labels, "label")
-await asyncio.to_thread(repository.get_pull, number)
+from webhook_server.utils.github_retry import github_api_call
+
+# ✅ CORRECT - Wrap ALL method calls with github_api_call (includes retry)
+await github_api_call(pull_request.create_issue_comment, "Comment", logger=self.logger, log_prefix=self.log_prefix)
+await github_api_call(pull_request.add_to_labels, "label", logger=self.logger, log_prefix=self.log_prefix)
+await github_api_call(repository.get_pull, number, logger=self.logger, log_prefix=self.log_prefix)
 
 # ✅ CORRECT - Wrap ALL property accesses that may trigger API calls
-is_draft = await asyncio.to_thread(lambda: pull_request.draft)
-mergeable = await asyncio.to_thread(lambda: pull_request.mergeable)
-labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+is_draft = await github_api_call(lambda: pull_request.draft, logger=self.logger, log_prefix=self.log_prefix)
+mergeable = await github_api_call(lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix)
+labels = await github_api_call(lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix)
 
 # ✅ CORRECT - Wrap PaginatedList iteration
-commits = await asyncio.to_thread(lambda: list(pull_request.get_commits()))
+commits = await github_api_call(lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix)
 for commit in commits:
     await process_commit(commit)
 
 # ✅ CORRECT - Concurrent operations
 is_draft, mergeable, state = await asyncio.gather(
-    asyncio.to_thread(lambda: pull_request.draft),
-    asyncio.to_thread(lambda: pull_request.mergeable),
-    asyncio.to_thread(lambda: pull_request.state),
+    github_api_call(lambda: pull_request.draft, logger=self.logger, log_prefix=self.log_prefix),
+    github_api_call(lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix),
+    github_api_call(lambda: pull_request.state, logger=self.logger, log_prefix=self.log_prefix),
 )
 
 # ❌ WRONG - NEVER call PyGithub directly
 pull_request.create_issue_comment("Comment")  # BLOCKS!
 is_draft = pull_request.draft  # BLOCKS!
 for commit in pull_request.get_commits(): ...  # BLOCKS!
+
+# ❌ WRONG - NEVER use raw asyncio.to_thread (no retry protection)
+await asyncio.to_thread(pull_request.create_issue_comment, "Comment")  # NO RETRY!
 ```
 
 #### Decision Tree
@@ -351,17 +355,17 @@ for commit in pull_request.get_commits(): ...  # BLOCKS!
 Before accessing ANY PyGithub object:
 
 1. Is this a PyGithub object? → YES, it may block
-2. Calling a method? → **DEFINITELY BLOCKS** - wrap in `asyncio.to_thread()`
-3. Accessing a property? → **MAY BLOCK** - wrap in `asyncio.to_thread(lambda: obj.property)`
-4. Iterating PaginatedList? → **BLOCKS** - wrap in `asyncio.to_thread(lambda: list(...))`
+2. Calling a method? → **DEFINITELY BLOCKS** - wrap in `github_api_call()`
+3. Accessing a property? → **MAY BLOCK** - wrap in `github_api_call(lambda: obj.property, logger=self.logger, log_prefix=self.log_prefix)`
+4. Iterating PaginatedList? → **BLOCKS** - wrap in `github_api_call(lambda: list(...), logger=self.logger, log_prefix=self.log_prefix)`
 5. Webhook payload attribute? → Usually safe (`.number`, `.title`)
-6. **Unsure? ALWAYS wrap in `asyncio.to_thread()`**
+6. **Unsure? ALWAYS wrap in `github_api_call()`**
 
 **Why this is critical:**
 
 - PyGithub is synchronous - each operation blocks 100ms-2 seconds
 - Blocking = frozen server (no other webhooks processed)
-- `asyncio.to_thread()` runs code in thread pool, keeps event loop responsive
+- `github_api_call()` runs code in thread pool via `asyncio.to_thread()`, keeps event loop responsive, and retries on transient GitHub API failures
 - **NOT OPTIONAL** - required for correct async operation
 
 **Impact of blocking:**
@@ -376,13 +380,13 @@ Before accessing ANY PyGithub object:
 
 ```python
 async def add_pr_comment(self, pull_request: PullRequest, body: str) -> None:
-    await asyncio.to_thread(pull_request.create_issue_comment, body)
+    await github_api_call(pull_request.create_issue_comment, body, logger=self.logger, log_prefix=self.log_prefix)
 
 async def check_pr_status(self, pull_request: PullRequest) -> tuple[bool, bool, str]:
     return await asyncio.gather(
-        asyncio.to_thread(lambda: pull_request.draft),
-        asyncio.to_thread(lambda: pull_request.mergeable),
-        asyncio.to_thread(lambda: pull_request.state),
+        github_api_call(lambda: pull_request.draft, logger=self.logger, log_prefix=self.log_prefix),
+        github_api_call(lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix),
+        github_api_call(lambda: pull_request.state, logger=self.logger, log_prefix=self.log_prefix),
     )
 ```
 
@@ -605,6 +609,7 @@ mock_api = AsyncMock()
 mock_api.get_pull_request.return_value = mock_pr_data
 
 with patch("asyncio.to_thread", side_effect=mock_to_thread):
+    # Note: Tests patch asyncio.to_thread since github_api_call delegates to it internally
     result = await unified_api.get_pr_for_check_runs(owner, repo, number)
 ```
 

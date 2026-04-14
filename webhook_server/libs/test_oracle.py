@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from webhook_server.utils.github_retry import github_api_call
+
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
@@ -57,16 +59,20 @@ async def call_test_oracle(
                 msg = f"Test Oracle server at {server_url} is not responding{status_info}, skipping test analysis"
                 github_webhook.logger.warning(f"{log_prefix} {msg}")
                 try:
-                    await asyncio.to_thread(
+                    await github_api_call(
                         pull_request.create_issue_comment,
                         f"Test Oracle server is not responding{status_info}, skipping test analysis",
+                        logger=github_webhook.logger,
+                        log_prefix=log_prefix,
                     )
                 except Exception:
                     github_webhook.logger.exception(f"{log_prefix} Failed to post health check comment")
                 return
 
             # Build analyze payload
-            pr_url: str = await asyncio.to_thread(lambda: pull_request.html_url)
+            pr_url: str = await github_api_call(
+                lambda: pull_request.html_url, logger=github_webhook.logger, log_prefix=log_prefix
+            )
             payload: dict[str, Any] = {
                 "pr_url": pr_url,
                 "ai_provider": config["ai-provider"],

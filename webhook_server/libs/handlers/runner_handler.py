@@ -11,7 +11,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
-from github.Branch import Branch
+from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -30,6 +30,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
 )
 from webhook_server.utils.github_repository_settings import get_repository_github_app_token
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
@@ -96,8 +97,12 @@ class RunnerHandler:
         pr_number: int | None = None
         base_ref: str | None = None
         if pull_request:
-            pr_number = await asyncio.to_thread(lambda: pull_request.number)
-            base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+            pr_number = await github_api_call(
+                lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+            )
+            base_ref = await github_api_call(
+                lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         # Determine what to checkout
         checkout_target = ""
@@ -154,7 +159,9 @@ class RunnerHandler:
             if success and pull_request and not is_merged and not tag_name and not skip_merge:
                 merge_ref = base_ref
                 if merge_ref is None:
-                    merge_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+                    merge_ref = await github_api_call(
+                        lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+                    )
                 git_cmd = f"git -C {worktree_path}"
                 rc, out, err = await run_command(
                     command=f"{git_cmd} merge origin/{merge_ref} -m 'Merge {merge_ref}'",
@@ -278,8 +285,8 @@ class RunnerHandler:
         python_ver = (
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
-        # Wrap PyGithub property access in asyncio.to_thread to avoid blocking
-        base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+        # Wrap PyGithub property access to avoid blocking
+        base_ref = await github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix)
         _tox_tests = self.github_webhook.tox.get(base_ref, "")
 
         # Build tox command with {worktree_path} placeholder
@@ -402,7 +409,9 @@ class RunnerHandler:
                 if push_rc:
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
-                        await asyncio.to_thread(pull_request.create_issue_comment, push_msg)
+                        await github_api_call(
+                            pull_request.create_issue_comment, push_msg, logger=self.logger, log_prefix=self.log_prefix
+                        )
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -421,7 +430,9 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
-                        await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
+                        await github_api_call(
+                            pull_request.create_issue_comment, err_msg, logger=self.logger, log_prefix=self.log_prefix
+                        )
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -547,7 +558,9 @@ Your team can configure additional types in the repository settings.
                 if suggestion_valid and ai_suggestion != title:
                     self.logger.info(f"{self.log_prefix} AI fixing PR title from '{title}' to '{ai_suggestion}'")
                     try:
-                        await asyncio.to_thread(pull_request.edit, title=ai_suggestion)
+                        await github_api_call(
+                            pull_request.edit, title=ai_suggestion, logger=self.logger, log_prefix=self.log_prefix
+                        )
                         output["title"] = "Conventional Title"
                         output["summary"] = "PR title auto-fixed by AI"
                         output["text"] = (
@@ -708,8 +721,19 @@ Your team can configure additional types in the repository settings.
         )
         await self.run_check(pull_request=pull_request, check_config=unified_config)
 
-    async def is_branch_exists(self, branch: str) -> Branch:
-        return await asyncio.to_thread(self.repository.get_branch, branch)
+    async def is_branch_exists(self, branch: str) -> bool:
+        try:
+            await github_api_call(
+                self.repository.get_branch,
+                branch,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            return True
+        except GithubException as ex:
+            if ex.status == 404:
+                return False
+            raise
 
     async def _resolve_cherry_pick_with_ai(
         self,
@@ -833,8 +857,12 @@ Your team can configure additional types in the repository settings.
         target_branch: str,
         assign_to_pr_owner: bool = True,
     ) -> None:
-        pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
-        source_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
+        pr_author = await github_api_call(
+            lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+        )
+        source_branch = await github_api_call(
+            lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+        )
 
         self.logger.info(
             f"{self.log_prefix} Cherry-pick from {source_branch} to {target_branch}, PR owner: {pr_author}"
@@ -844,7 +872,9 @@ Your team can configure additional types in the repository settings.
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
+            await github_api_call(
+                pull_request.create_issue_comment, err_msg, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         else:
             await self.check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL)
@@ -907,7 +937,7 @@ Your team can configure additional types in the repository settings.
                         )
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        await asyncio.to_thread(
+                        await github_api_call(
                             pull_request.create_issue_comment,
                             f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
@@ -922,6 +952,8 @@ Your team can configure additional types in the repository settings.
                             f"# git cherry-pick -m 1 {commit_hash}\n"
                             f"git push origin {local_branch_name}\n"
                             "```",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
                         )
                         return
 
@@ -972,7 +1004,7 @@ Your team can configure additional types in the repository settings.
                         )
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        await asyncio.to_thread(
+                        await github_api_call(
                             pull_request.create_issue_comment,
                             f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
@@ -987,6 +1019,8 @@ Your team can configure additional types in the repository settings.
                             f"# git cherry-pick -m 1 {commit_hash}\n"
                             f"git push origin {local_branch_name}\n"
                             "```",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
                         )
                         return
                     cherry_pick_had_conflicts = True
@@ -1022,10 +1056,12 @@ Your team can configure additional types in the repository settings.
                 # Use GitHub App installation token for PR creation
                 # so the PR is owned by the app bot, allowing repo collaborators to push
                 try:
-                    app_token = await asyncio.to_thread(
+                    app_token = await github_api_call(
                         get_repository_github_app_token,
                         config_=self.github_webhook.config,
                         repository_name=self.github_webhook.repository_full_name,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
                 except Exception:
                     self.logger.exception(
@@ -1045,9 +1081,8 @@ Your team can configure additional types in the repository settings.
                 if not rc:
                     output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                     await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment,
-                        f"**Cherry-pick branch created, but PR creation failed**\n"
+                    body = (
+                        "**Cherry-pick branch created, but PR creation failed**\n"
                         f"Branch `{new_branch_name}` was pushed to the repository.\n"
                         f"Create the PR manually:\n"
                         "```\n"
@@ -1058,7 +1093,13 @@ Your team can configure additional types in the repository settings.
                         + (f" --label {AI_RESOLVED_CONFLICTS_LABEL}" if cherry_pick_had_conflicts else "")
                         + f" --title '{pr_title}'"
                         f" --body '{pr_body}'\n"
-                        "```",
+                        "```"
+                    )
+                    await github_api_call(
+                        pull_request.create_issue_comment,
+                        body,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
                     redacted_out = _redact_secrets(
                         out,
@@ -1081,7 +1122,9 @@ Your team can configure additional types in the repository settings.
                 # Get the cherry-pick PR object
                 try:
                     pr_number = int(cherry_pick_pr_url.rstrip("/").split("/")[-1])
-                    cherry_pick_pr = await asyncio.to_thread(self.repository.get_pull, pr_number)
+                    cherry_pick_pr = await github_api_call(
+                        self.repository.get_pull, pr_number, logger=self.logger, log_prefix=self.log_prefix
+                    )
                 except Exception:
                     self.logger.exception(
                         f"{self.log_prefix} Failed to get cherry-pick PR from URL: {cherry_pick_pr_url}"
@@ -1092,7 +1135,12 @@ Your team can configure additional types in the repository settings.
                     # Assign the PR to the original author (or fallback approver)
                     if assign_to_pr_owner:
                         try:
-                            await asyncio.to_thread(cherry_pick_pr.add_to_assignees, pr_author)
+                            await github_api_call(
+                                cherry_pick_pr.add_to_assignees,
+                                pr_author,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
                             self.logger.info(
                                 f"{self.log_prefix} Assigned {pr_author} to cherry-pick PR #{cherry_pick_pr.number}"
                             )
@@ -1104,7 +1152,12 @@ Your team can configure additional types in the repository settings.
                             try:
                                 fallback_approvers = self.owners_file_handler.root_approvers
                                 if fallback_approvers:
-                                    await asyncio.to_thread(cherry_pick_pr.add_to_assignees, fallback_approvers[0])
+                                    await github_api_call(
+                                        cherry_pick_pr.add_to_assignees,
+                                        fallback_approvers[0],
+                                        logger=self.logger,
+                                        log_prefix=self.log_prefix,
+                                    )
                                     self.logger.info(
                                         f"{self.log_prefix} Assigned fallback approver"
                                         f" {fallback_approvers[0]} to cherry-pick PR #{cherry_pick_pr.number}"
@@ -1125,7 +1178,9 @@ Your team can configure additional types in the repository settings.
                         labels_to_add = [cherry_picked_label]
                         if cherry_pick_had_conflicts:
                             labels_to_add.append(AI_RESOLVED_CONFLICTS_LABEL)
-                        await asyncio.to_thread(cherry_pick_pr.add_to_labels, *labels_to_add)
+                        await github_api_call(
+                            cherry_pick_pr.add_to_labels, *labels_to_add, logger=self.logger, log_prefix=self.log_prefix
+                        )
                         self.logger.info(
                             f"{self.log_prefix} Added labels {labels_to_add} to cherry-pick PR #{cherry_pick_pr.number}"
                         )
@@ -1133,31 +1188,40 @@ Your team can configure additional types in the repository settings.
                         self.logger.exception(f"{self.log_prefix} Failed to add labels to cherry-pick PR")
                         # Labels are critical for auto-verify skip — warn if they couldn't be added
                         try:
-                            await asyncio.to_thread(
+                            await github_api_call(
                                 pull_request.create_issue_comment,
                                 f"**Warning:** Failed to add labels to cherry-pick PR {cherry_pick_pr_url}. "
                                 f"Please manually add the `{cherry_picked_label}` label"
                                 + (f" and `{AI_RESOLVED_CONFLICTS_LABEL}` label" if cherry_pick_had_conflicts else "")
                                 + " to ensure correct auto-verify behavior.",
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
                             )
                         except Exception:
                             self.logger.exception(f"{self.log_prefix} Failed to post label warning comment")
 
                     # Request review from original PR author (independent of label success)
                     try:
-                        await asyncio.to_thread(cherry_pick_pr.create_review_request, reviewers=[pr_author])
+                        await github_api_call(
+                            cherry_pick_pr.create_review_request,
+                            reviewers=[pr_author],
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
                     except Exception:
                         self.logger.debug(
                             f"{self.log_prefix} Could not request review from {pr_author} (may not be a collaborator)"
                         )
                 else:
                     # PR was created but we couldn't fetch it — labels/reviewer not added
-                    await asyncio.to_thread(
+                    await github_api_call(
                         pull_request.create_issue_comment,
                         f"**Warning:** Cherry-pick PR was created ({cherry_pick_pr_url}) but failed to add labels. "
                         f"Please manually add the `{cherry_picked_label}` label"
                         + (f" and `{AI_RESOLVED_CONFLICTS_LABEL}` label" if cherry_pick_had_conflicts else "")
                         + " to ensure correct auto-verify behavior.",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -1167,17 +1231,21 @@ Your team can configure additional types in the repository settings.
                 ai_config = self.github_webhook.ai_features
                 ai_result = get_ai_config(ai_config)
                 ai_provider, ai_model = ai_result if ai_result else ("unknown", "unknown")
-                await asyncio.to_thread(
+                await github_api_call(
                     pull_request.create_issue_comment,
                     f"**Cherry-pick conflicts were resolved by AI**\n\n"
                     f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
                     f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
                     f"**Manual verification is required** — please review the changes and test before merging.",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
             else:
-                await asyncio.to_thread(
+                await github_api_call(
                     pull_request.create_issue_comment,
                     f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
 
     async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:

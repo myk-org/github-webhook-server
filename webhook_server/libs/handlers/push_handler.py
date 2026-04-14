@@ -1,4 +1,3 @@
-import asyncio
 import re
 import traceback
 from typing import TYPE_CHECKING
@@ -7,6 +6,7 @@ from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
@@ -67,12 +67,14 @@ class PushHandler:
             # Truncate to safe length (GitHub issue title limit is ~256 chars, use 250 for safety)
             if len(sanitized_title) > 250:
                 sanitized_title = sanitized_title[:247] + "..."
-            await asyncio.to_thread(
+            await github_api_call(
                 self.repository.create_issue,
                 title=sanitized_title,
                 body=f"""
 Publish to PYPI failed: `{_error}`
 """,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
             )
 
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")

@@ -14,6 +14,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
@@ -99,10 +100,10 @@ class OwnersFileHandler:
             RuntimeError: If git diff command fails
             asyncio.CancelledError: Propagates cancellation (never caught)
         """
-        # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
+        # Get base and head SHAs (wrap property accesses in github_api_call for retry support)
         base_sha, head_sha = await asyncio.gather(
-            asyncio.to_thread(lambda: pull_request.base.sha),
-            asyncio.to_thread(lambda: pull_request.head.sha),
+            github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
         )
 
         # Run git diff command on cloned repository
@@ -456,13 +457,18 @@ class OwnersFileHandler:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
-                    await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+                    await github_api_call(
+                        pull_request.create_review_request, [reviewer], logger=self.logger, log_prefix=self.log_prefix
+                    )
                     assigned_count += 1
 
                 except GithubException as ex:
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
+                    await github_api_call(
+                        pull_request.create_issue_comment,
+                        f"{reviewer} can not be added as reviewer. {ex}",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
                     failed_count += 1
 
@@ -483,11 +489,12 @@ Maintainers:
         self.logger.debug(f"{self.log_prefix} Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
-            for comment in [
-                _comment
-                for _comment in await asyncio.to_thread(pull_request.get_issue_comments)
-                if _comment.user.login in allowed_user_to_approve
-            ]:
+            issue_comments = await github_api_call(
+                lambda: list(pull_request.get_issue_comments()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            for comment in [_comment for _comment in issue_comments if _comment.user.login in allowed_user_to_approve]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
@@ -495,7 +502,9 @@ Maintainers:
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
-            await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
+            await github_api_call(
+                pull_request.create_issue_comment, comment_msg, logger=self.logger, log_prefix=self.log_prefix
+            )
             return False
 
         return True
@@ -516,25 +525,31 @@ Maintainers:
 
     async def get_all_repository_contributors(self) -> list[str]:
         contributors = await self.repository_contributors
-        return await asyncio.to_thread(lambda: [val.login for val in contributors])
+        return await github_api_call(
+            lambda: [val.login for val in contributors], logger=self.logger, log_prefix=self.log_prefix
+        )
 
     async def get_all_repository_collaborators(self) -> list[str]:
         collaborators = await self.repository_collaborators
-        return await asyncio.to_thread(lambda: [val.login for val in collaborators])
+        return await github_api_call(
+            lambda: [val.login for val in collaborators], logger=self.logger, log_prefix=self.log_prefix
+        )
 
     async def get_all_repository_maintainers(self) -> list[str]:
         maintainers: list[str] = []
 
         # Fix #1: Convert PaginatedList to list in thread pool to avoid blocking during iteration
         collaborators = await self.repository_collaborators
-        collaborators_list = await asyncio.to_thread(lambda: list(collaborators))
+        collaborators_list = await github_api_call(
+            lambda: list(collaborators), logger=self.logger, log_prefix=self.log_prefix
+        )
 
         for user in collaborators_list:
             # Fix #2: Wrap permissions access in thread pool (property makes blocking API call)
             def get_user_permissions(u: NamedUser = user) -> Permissions:
                 return u.permissions
 
-            permissions = await asyncio.to_thread(get_user_permissions)
+            permissions = await github_api_call(get_user_permissions, logger=self.logger, log_prefix=self.log_prefix)
             self.logger.debug(f"{self.log_prefix} User {user.login} permissions: {permissions}")
 
             if permissions.admin or permissions.maintain:
@@ -545,8 +560,8 @@ Maintainers:
 
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_collaborators)
+        return await github_api_call(self.repository.get_collaborators, logger=self.logger, log_prefix=self.log_prefix)
 
     @functools.cached_property
     async def repository_contributors(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_contributors)
+        return await github_api_call(self.repository.get_contributors, logger=self.logger, log_prefix=self.log_prefix)

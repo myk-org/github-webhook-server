@@ -46,6 +46,7 @@ from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,
     get_repository_github_app_api,
 )
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import (
     _redact_secrets,
     get_api_with_highest_rate_limit,
@@ -233,7 +234,9 @@ class GithubWebhook:
                     f"remaining: {remaining})"
                 )
 
-            final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
+            final_rate_limit = await github_api_call(
+                self.github_api.get_rate_limit, logger=self.logger, log_prefix=self.log_prefix
+            )
             final_remaining = final_rate_limit.rate.remaining
 
             # Fallback to global rate limit calculation (inaccurate under concurrency)
@@ -295,7 +298,9 @@ class GithubWebhook:
 
         try:
             github_token = self.token
-            clone_url = await asyncio.to_thread(lambda: self.repository.clone_url)
+            clone_url = await github_api_call(
+                lambda: self.repository.clone_url, logger=self.logger, log_prefix=self.log_prefix
+            )
             clone_url_with_token = clone_url.replace("https://", f"https://{github_token}@")
 
             rc, _, err = await run_command(
@@ -315,7 +320,9 @@ class GithubWebhook:
 
             # Configure git user
             git_cmd = f"git -C {self.clone_repo_dir}"
-            owner_login = await asyncio.to_thread(lambda: self.repository.owner.login)
+            owner_login = await github_api_call(
+                lambda: self.repository.owner.login, logger=self.logger, log_prefix=self.log_prefix
+            )
             rc, _, _ = await run_command(
                 command=f"{git_cmd} config user.name '{owner_login}'",
                 log_prefix=self.log_prefix,
@@ -335,7 +342,9 @@ class GithubWebhook:
             # Fetch only what's needed instead of all refs
             if pull_request:
                 # Fetch the base branch first (needed for checkout)
-                base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+                base_ref = await github_api_call(
+                    lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+                )
                 rc, _, err = await run_command(
                     command=f"{git_cmd} fetch origin {base_ref}",
                     log_prefix=self.log_prefix,
@@ -347,7 +356,9 @@ class GithubWebhook:
                     raise RuntimeError(f"Failed to fetch base branch {base_ref}: {redacted_err}")
 
                 # Fetch only this specific PR's ref
-                pr_number = await asyncio.to_thread(lambda: pull_request.number)
+                pr_number = await github_api_call(
+                    lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+                )
                 rc, _, err = await run_command(
                     command=f"{git_cmd} fetch origin +refs/pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}",
                     log_prefix=self.log_prefix,
@@ -372,7 +383,9 @@ class GithubWebhook:
 
             # Determine checkout target
             if pull_request:
-                checkout_target = await asyncio.to_thread(lambda: pull_request.base.ref)
+                checkout_target = await github_api_call(
+                    lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+                )
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
@@ -518,9 +531,15 @@ class GithubWebhook:
         if pull_request:
             # Update context with PR info
             if self.ctx:
-                pr_number = await asyncio.to_thread(lambda: pull_request.number)
-                pr_title = await asyncio.to_thread(lambda: pull_request.title)
-                pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+                pr_number = await github_api_call(
+                    lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+                )
+                pr_title = await github_api_call(
+                    lambda: pull_request.title, logger=self.logger, log_prefix=self.log_prefix
+                )
+                pr_author = await github_api_call(
+                    lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+                )
                 self.ctx.pr_number = pr_number
                 self.ctx.pr_title = pr_title
                 self.ctx.pr_author = pr_author
@@ -528,7 +547,7 @@ class GithubWebhook:
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
-            if await asyncio.to_thread(lambda: pull_request.draft):
+            if await github_api_call(lambda: pull_request.draft, logger=self.logger, log_prefix=self.log_prefix):
                 allow_commands_on_draft = self.config.get_value("allow-commands-on-draft-prs")
 
                 # Validate type: must be a list, treat invalid types as None (default-deny)
@@ -708,7 +727,9 @@ class GithubWebhook:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                rate_limit_remaining = await asyncio.to_thread(lambda: api.rate_limiting[-1])
+                rate_limit_remaining = await github_api_call(
+                    lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix
+                )
             except Exception as ex:
                 self.logger.warning(
                     f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
@@ -724,7 +745,9 @@ class GithubWebhook:
                 return None
 
             try:
-                _api_user = await asyncio.to_thread(lambda: api.get_user().login)
+                _api_user = await github_api_call(
+                    lambda: api.get_user().login, logger=self.logger, log_prefix=self.log_prefix
+                )
             except Exception as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
@@ -924,7 +947,9 @@ class GithubWebhook:
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
             self.logger.debug(f"{self.log_prefix} Attempting to get PR by number: {number}")
-            return await asyncio.to_thread(self.repository.get_pull, number)
+            return await github_api_call(
+                self.repository.get_pull, number, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         # Try to get PR number from hook_data
         self.logger.debug(f"{self.log_prefix} Attempting to get PR from webhook payload")
@@ -934,7 +959,9 @@ class GithubWebhook:
             if pr_number:
                 self.logger.debug(f"{self.log_prefix} Found PR number in payload: {pr_number}")
                 try:
-                    return await asyncio.to_thread(self.repository.get_pull, pr_number)
+                    return await github_api_call(
+                        self.repository.get_pull, pr_number, logger=self.logger, log_prefix=self.log_prefix
+                    )
                 except GithubException as ex:
                     self.logger.debug(f"{self.log_prefix} Failed to get PR {pr_number} from payload: {ex}")
             else:
@@ -948,8 +975,15 @@ class GithubWebhook:
         if self.github_event == "check_run":
             head_sha = self.hook_data["check_run"]["head_sha"]
             self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
-            open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
-            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            open_pulls = await github_api_call(
+                lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
+            )
+            head_shas = await asyncio.gather(
+                *(
+                    github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
+                    for pr in open_pulls
+                )
+            )
             for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
                 if pr_head_sha == head_sha:
                     self.logger.debug(
@@ -963,8 +997,15 @@ class GithubWebhook:
         if self.github_event == "status":
             sha = self.hook_data["sha"]
             self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
-            open_pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
-            head_shas = await asyncio.gather(*(asyncio.to_thread(_get_pr_head_sha, pr) for pr in open_pulls))
+            open_pulls = await github_api_call(
+                lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
+            )
+            head_shas = await asyncio.gather(
+                *(
+                    github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
+                    for pr in open_pulls
+                )
+            )
             for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
                 if pr_head_sha == sha:
                     self.logger.debug(
@@ -978,12 +1019,18 @@ class GithubWebhook:
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
             self.logger.debug(f"{self.log_prefix} Attempting to get PR from commit SHA: {commit.get('sha', 'unknown')}")
-            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
+            commit_obj = await github_api_call(
+                self.repository.get_commit, commit["sha"], logger=self.logger, log_prefix=self.log_prefix
+            )
             with contextlib.suppress(Exception):
-                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
-                if _pulls:
-                    self.logger.debug(f"{self.log_prefix} Found PR from commit SHA: {_pulls[0].number}")
-                    return _pulls[0]
+                pulls = await github_api_call(
+                    lambda: list(commit_obj.get_pulls()),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                if pulls:
+                    self.logger.debug(f"{self.log_prefix} Found PR from commit SHA: {pulls[0].number}")
+                    return pulls[0]
             self.logger.debug(f"{self.log_prefix} No PR found for commit SHA")
         else:
             self.logger.debug(f"{self.log_prefix} No commit data in webhook payload")
@@ -1045,16 +1092,56 @@ class GithubWebhook:
                     "prNumber": pr_number,
                     "cursor": cursor,
                 }
-                response = await client.post(
-                    "https://api.github.com/graphql",
-                    json={"query": query, "variables": variables},
-                    headers={
-                        "Authorization": f"Bearer {self.token}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=30.0,
-                )
-                response.raise_for_status()
+                last_exception: Exception | None = None
+                for attempt in range(5):  # max 4 retries
+                    try:
+                        response = await client.post(
+                            "https://api.github.com/graphql",
+                            json={"query": query, "variables": variables},
+                            headers={
+                                "Authorization": f"Bearer {self.token}",
+                                "Content-Type": "application/json",
+                            },
+                            timeout=30.0,
+                        )
+                        response.raise_for_status()
+                        last_exception = None
+                        break
+                    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as ex:
+                        last_exception = ex
+                        if attempt == 4:
+                            break
+                        delay = 2 * (2**attempt)
+                        self.logger.warning(
+                            "%s GraphQL API call failed (attempt %d/%d), retrying in %ds: %s: %s",
+                            self.log_prefix,
+                            attempt + 1,
+                            5,
+                            delay,
+                            type(ex).__name__,
+                            ex,
+                        )
+                        await asyncio.sleep(delay)
+                    except httpx.HTTPStatusError as ex:
+                        if ex.response.status_code in (500, 502, 503, 504):
+                            last_exception = ex
+                            if attempt == 4:
+                                break
+                            delay = 2 * (2**attempt)
+                            self.logger.warning(
+                                "%s GraphQL API call failed (attempt %d/%d), retrying in %ds: HTTP %d",
+                                self.log_prefix,
+                                attempt + 1,
+                                5,
+                                delay,
+                                ex.response.status_code,
+                            )
+                            await asyncio.sleep(delay)
+                        else:
+                            raise
+
+                if last_exception is not None:
+                    raise last_exception
                 data = response.json()
 
                 if "errors" in data:
@@ -1096,8 +1183,12 @@ class GithubWebhook:
         return unresolved_threads
 
     async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
-        _commits = await asyncio.to_thread(pull_request.get_commits)
-        return list(_commits)[-1]
+        commits = await github_api_call(
+            lambda: list(pull_request.get_commits()),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        return commits[-1]
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:

@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github import GithubException
 
 from webhook_server.libs.handlers.runner_handler import CheckConfig, RunnerHandler
 from webhook_server.utils.constants import (
@@ -972,11 +973,17 @@ class TestRunnerHandler:
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:
-        """Test is_branch_exists."""
+        """Test is_branch_exists returns True when branch exists, False on 404."""
         mock_branch = Mock()
         with patch("asyncio.to_thread", new=AsyncMock(return_value=mock_branch)):
             result = await runner_handler.is_branch_exists("main")
-            assert result == mock_branch
+            assert result is True
+
+        with patch(
+            "asyncio.to_thread", new=AsyncMock(side_effect=GithubException(status=404, data="not found", headers={}))
+        ):
+            result = await runner_handler.is_branch_exists("non-existent-branch")
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
