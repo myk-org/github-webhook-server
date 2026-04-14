@@ -27,6 +27,7 @@ from webhook_server.utils.constants import (
     STATIC_LABELS_DICT,
     WIP_STR,
 )
+from webhook_server.utils.github_retry import github_api_call
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -111,7 +112,11 @@ class LabelsHandler:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
     async def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
-        labels = await asyncio.to_thread(pull_request.get_labels)
+        labels = await github_api_call(
+            lambda: list(pull_request.get_labels()),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
         return [lb.name for lb in labels]
 
     async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
@@ -119,7 +124,9 @@ class LabelsHandler:
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
-                await asyncio.to_thread(pull_request.remove_from_labels, label)
+                await github_api_call(
+                    pull_request.remove_from_labels, label, logger=self.logger, log_prefix=self.log_prefix
+                )
                 success = await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
                 return success
         except Exception as exp:
@@ -155,16 +162,22 @@ class LabelsHandler:
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
-            _repo_label = await asyncio.to_thread(self.repository.get_label, label)
-            await asyncio.to_thread(_repo_label.edit, name=_repo_label.name, color=color)
+            _repo_label = await github_api_call(
+                self.repository.get_label, label, logger=self.logger, log_prefix=self.log_prefix
+            )
+            await github_api_call(
+                _repo_label.edit, name=_repo_label.name, color=color, logger=self.logger, log_prefix=self.log_prefix
+            )
             self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
 
         except UnknownObjectException:
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
-            await asyncio.to_thread(self.repository.create_label, name=label, color=color)
+            await github_api_call(
+                self.repository.create_label, name=label, color=color, logger=self.logger, log_prefix=self.log_prefix
+            )
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-        await asyncio.to_thread(pull_request.add_to_labels, label)
+        await github_api_call(pull_request.add_to_labels, label, logger=self.logger, log_prefix=self.log_prefix)
         return await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
@@ -297,8 +310,8 @@ class LabelsHandler:
     async def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
         additions, deletions = await asyncio.gather(
-            asyncio.to_thread(lambda: pull_request.additions),
-            asyncio.to_thread(lambda: pull_request.deletions),
+            github_api_call(lambda: pull_request.additions, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.deletions, logger=self.logger, log_prefix=self.log_prefix),
         )
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")

@@ -659,7 +659,7 @@ class TestSynchronizeWithCleanRebase:
             # Labels should NOT be fetched via API call - they come from webhook payload
             handler.labels_handler.pull_request_labels_names.assert_not_called()
 
-            # create_issue_comment is called via asyncio.to_thread which executes it
+            # create_issue_comment is called via github_api_call which executes it
             mock_pull_request.create_issue_comment.assert_called_once()
             comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
             assert "Clean rebase detected" in comment_body

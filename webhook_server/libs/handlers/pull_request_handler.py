@@ -42,6 +42,7 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
@@ -220,7 +221,9 @@ class PullRequestHandler:
                     f"**Clean rebase detected** \u2014 no code changes compared to previous head (`{before_sha[:7]}`)."
                 )
 
-            await asyncio.to_thread(pull_request.create_issue_comment, body=comment_body)
+            await github_api_call(
+                pull_request.create_issue_comment, body=comment_body, logger=self.logger, log_prefix=self.log_prefix
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -250,7 +253,14 @@ class PullRequestHandler:
 
             if hook_action in ("opened", "ready_for_review"):
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
+                tasks.append(
+                    github_api_call(
+                        pull_request.create_issue_comment,
+                        body=welcome_msg,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                )
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
@@ -325,7 +335,9 @@ class PullRequestHandler:
             if is_merged := pull_request_data.get("merged", False):
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
-                labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+                labels = await github_api_call(
+                    lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+                )
                 if cherry_pick_labels := [
                     _label for _label in labels if _label.name.startswith(CHERRY_PICK_LABEL_PREFIX)
                 ]:
@@ -365,7 +377,9 @@ class PullRequestHandler:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
-            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            labels = await github_api_call(
+                lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+            )
             self.logger.debug(f"{self.log_prefix} PR labels are {labels}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
@@ -795,7 +809,9 @@ For more information, please refer to the project documentation or contact the m
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
-        pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
+        pulls = await github_api_call(
+            lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
+        )
         for pull_request in pulls:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
@@ -868,10 +884,12 @@ For more information, please refer to the project documentation or contact the m
             for scope in ("orgs", "users"):
                 candidate_base = f"/{scope}/{owner_name}/packages/container/{package_name}"
                 try:
-                    _, versions = await asyncio.to_thread(
+                    _, versions = await github_api_call(
                         self.github_webhook.github_api.requester.requestJsonAndCheck,
                         "GET",
                         f"{candidate_base}/versions",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
                     package_api_base = candidate_base
                     break
@@ -905,8 +923,12 @@ For more information, please refer to the project documentation or contact the m
             # DELETE /{scope}/{owner}/packages/{package_type}/{package_name}/versions/{package_version_id}
             delete_url = f"{package_api_base}/versions/{version_to_delete_id}"
             try:
-                await asyncio.to_thread(
-                    self.github_webhook.github_api.requester.requestJsonAndCheck, "DELETE", delete_url
+                await github_api_call(
+                    self.github_webhook.github_api.requester.requestJsonAndCheck,
+                    "DELETE",
+                    delete_url,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
             except GithubException as ex:
                 if ex.status == 404:
@@ -918,9 +940,17 @@ For more information, please refer to the project documentation or contact the m
                 else:
                     raise
 
-            await asyncio.to_thread(
-                pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
-            )
+            try:
+                await github_api_call(
+                    pull_request.create_issue_comment,
+                    f"Successfully removed PR tag: {repository_full_tag}.",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Tag cleanup succeeded, but PR notification failed: {repository_full_tag}"
+                )
 
         except GithubException:
             self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
@@ -963,9 +993,18 @@ For more information, please refer to the project documentation or contact the m
                         redact_secrets=redact_values,
                     )
                     if rc:
-                        await asyncio.to_thread(
-                            pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
-                        )
+                        try:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                f"Successfully removed PR tag: {repository_full_tag}.",
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                        except Exception:
+                            self.logger.exception(
+                                f"{self.log_prefix} Tag cleanup succeeded,"
+                                f" but PR notification failed: {repository_full_tag}"
+                            )
                     else:
                         self.logger.error(
                             f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. "
@@ -981,10 +1020,17 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            await asyncio.to_thread(
-                pull_request.create_issue_comment,
-                f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
-            )
+            try:
+                await github_api_call(
+                    pull_request.create_issue_comment,
+                    f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Tag cleanup failed, and PR notification also failed: {repository_full_tag}"
+                )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
@@ -996,19 +1042,23 @@ For more information, please refer to the project documentation or contact the m
                     return existing_issue
             return None
 
-        matching_issue = await asyncio.to_thread(_find_matching_issue)
+        matching_issue = await github_api_call(_find_matching_issue, logger=self.logger, log_prefix=self.log_prefix)
         if not matching_issue:
             return
 
-        pr_title = await asyncio.to_thread(lambda: pull_request.title)
-        issue_title = await asyncio.to_thread(lambda: matching_issue.title)
+        pr_title = await github_api_call(lambda: pull_request.title, logger=self.logger, log_prefix=self.log_prefix)
+        issue_title = await github_api_call(
+            lambda: matching_issue.title, logger=self.logger, log_prefix=self.log_prefix
+        )
 
         self.logger.info(f"{self.log_prefix} Closing issue {issue_title} for PR: {pr_title}")
-        await asyncio.to_thread(
+        await github_api_call(
             matching_issue.create_comment,
             f"{self.log_prefix} Closing issue for PR: {pr_title}.\nPR was {hook_action}.",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
         )
-        await asyncio.to_thread(matching_issue.edit, state="closed")
+        await github_api_call(matching_issue.edit, state="closed", logger=self.logger, log_prefix=self.log_prefix)
 
     async def process_opened_or_synchronize_pull_request(
         self, pull_request: PullRequest, is_clean_rebase: bool = False, label_names: list[str] | None = None
@@ -1118,11 +1168,16 @@ For more information, please refer to the project documentation or contact the m
             return
 
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
-        await asyncio.to_thread(
+        assignee_login = await github_api_call(
+            lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+        )
+        await github_api_call(
             self.repository.create_issue,
             title=self._generate_issue_title(pull_request=pull_request),
             body=self._generate_issue_body(pull_request=pull_request),
-            assignee=pull_request.user.login,
+            assignee=assignee_login,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
         )
 
     def _generate_issue_title(self, pull_request: PullRequest) -> str:
@@ -1148,14 +1203,18 @@ For more information, please refer to the project documentation or contact the m
 
         if auto_merge:
             # AI-resolved cherry-picks should NEVER be auto-merged
-            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            labels = await github_api_call(
+                lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+            )
             if any(label.name == AI_RESOLVED_CONFLICTS_LABEL for label in labels):
                 if pull_request.raw_data.get("auto_merge"):
                     try:
                         self.logger.info(
                             f"{self.log_prefix} AI-resolved cherry-pick has auto-merge enabled, disabling it"
                         )
-                        await asyncio.to_thread(pull_request.disable_automerge)
+                        await github_api_call(
+                            pull_request.disable_automerge, logger=self.logger, log_prefix=self.log_prefix
+                        )
                     except Exception:
                         self.logger.exception(
                             f"{self.log_prefix} Failed to disable auto-merge for AI-resolved cherry-pick"
@@ -1172,7 +1231,12 @@ For more information, please refer to the project documentation or contact the m
                         f"is part of auto merge enabled rules"
                     )
 
-                    await asyncio.to_thread(pull_request.enable_automerge, merge_method="SQUASH")
+                    await github_api_call(
+                        pull_request.enable_automerge,
+                        merge_method="SQUASH",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
@@ -1181,7 +1245,9 @@ For more information, please refer to the project documentation or contact the m
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
-        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        labels = await github_api_call(
+            lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+        )
         for _label in labels:
             _label_name = _label.name
             if (
@@ -1225,10 +1291,12 @@ For more information, please refer to the project documentation or contact the m
             NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
         try:
-            _, data = await asyncio.to_thread(
+            _, data = await github_api_call(
                 self.repository._requester.requestJsonAndCheck,
                 "GET",
                 f"{self.repository.url}/compare/{base_ref}...{head_ref_full}",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
             )
             return data
         except GithubException:
@@ -1271,7 +1339,9 @@ For more information, please refer to the project documentation or contact the m
 
             # Step 1: Check for conflicts first
             # GitHub may return mergeable=None while computing - poll until definitive
-            mergeable = await asyncio.to_thread(lambda: pull_request.mergeable)
+            mergeable = await github_api_call(
+                lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix
+            )
 
             if mergeable is None:
                 self.logger.debug(
@@ -1291,7 +1361,7 @@ For more information, please refer to the project documentation or contact the m
                     return None  # pragma: no cover
 
                 try:
-                    mergeable = await asyncio.to_thread(_poll_mergeable)
+                    mergeable = await github_api_call(_poll_mergeable, logger=self.logger, log_prefix=self.log_prefix)
                 except asyncio.CancelledError:
                     raise
                 except TimeoutExpiredError:
@@ -1325,9 +1395,9 @@ For more information, please refer to the project documentation or contact the m
 
             # Step 3: Check if needs rebase via Compare API
             base_ref, head_user_login, head_ref = await asyncio.gather(
-                asyncio.to_thread(lambda: pull_request.base.ref),
-                asyncio.to_thread(lambda: pull_request.head.user.login),
-                asyncio.to_thread(lambda: pull_request.head.ref),
+                github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix),
+                github_api_call(lambda: pull_request.head.user.login, logger=self.logger, log_prefix=self.log_prefix),
+                github_api_call(lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix),
             )
             head_ref_full = f"{head_user_login}:{head_ref}"
 
@@ -1373,7 +1443,9 @@ For more information, please refer to the project documentation or contact the m
             return
 
         # Check if this is a cherry-picked PR
-        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        labels = await github_api_call(
+            lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+        )
 
         # AI-resolved cherry-picks are NEVER auto-verified (takes precedence over auto-verify-cherry-picked-prs)
         is_ai_resolved = any(label.name == AI_RESOLVED_CONFLICTS_LABEL for label in labels)
@@ -1427,13 +1499,23 @@ For more information, please refer to the project documentation or contact the m
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            await asyncio.to_thread(pull_request.add_to_assignees, pull_request.user.login)
+            assignee_login = await github_api_call(
+                lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+            )
+            await github_api_call(
+                pull_request.add_to_assignees, assignee_login, logger=self.logger, log_prefix=self.log_prefix
+            )
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 
             if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                await asyncio.to_thread(pull_request.add_to_assignees, self.owners_file_handler.root_approvers[0])
+                await github_api_call(
+                    pull_request.add_to_assignees,
+                    self.owners_file_handler.root_approvers[0],
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
 
     async def check_if_can_be_merged(self, pull_request: PullRequest) -> None:
         """
@@ -1467,8 +1549,16 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_check_in_progress(name=CAN_BE_MERGED_STR)
             # Fetch check runs, statuses, and optionally unresolved threads in parallel
-            _check_runs_task = asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_check_runs()))
-            _statuses_task = asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_statuses()))
+            _check_runs_task = github_api_call(
+                lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            _statuses_task = github_api_call(
+                lambda: list(self.github_webhook.last_commit.get_statuses()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
             _unresolved_threads: list[dict[str, Any]] = []
 
             if self.github_webhook.required_conversation_resolution:
@@ -1488,7 +1578,9 @@ For more information, please refer to the project documentation or contact the m
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
-            is_pr_mergable = await asyncio.to_thread(lambda: pull_request.mergeable)
+            is_pr_mergable = await github_api_call(
+                lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix
+            )
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
@@ -1677,7 +1769,7 @@ For more information, please refer to the project documentation or contact the m
         return failure_output
 
     async def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
-        if pull_request and await asyncio.to_thread(lambda: pull_request.is_merged()):
+        if await github_api_call(lambda: pull_request.is_merged(), logger=self.logger, log_prefix=self.log_prefix):
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
@@ -1692,7 +1784,7 @@ For more information, please refer to the project documentation or contact the m
                 for comment in pull_request.get_issue_comments()
             )
 
-        return await asyncio.to_thread(check_comments)
+        return await github_api_call(check_comments, logger=self.logger, log_prefix=self.log_prefix)
 
     async def regenerate_welcome_message(self, pull_request: PullRequest) -> None:
         """Regenerate and update the welcome message for this PR.
@@ -1710,13 +1802,15 @@ For more information, please refer to the project documentation or contact the m
                     return True
             return False
 
-        updated = await asyncio.to_thread(find_and_update_welcome_comment)
+        updated = await github_api_call(find_and_update_welcome_comment, logger=self.logger, log_prefix=self.log_prefix)
 
         if updated:
             self.logger.info(f"{self.log_prefix} Updated existing welcome message")
         else:
             self.logger.info(f"{self.log_prefix} Creating new welcome message")
-            await asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg)
+            await github_api_call(
+                pull_request.create_issue_comment, body=welcome_msg, logger=self.logger, log_prefix=self.log_prefix
+            )
 
     async def _tracking_issue_exists(self, pull_request: PullRequest) -> bool:
         """Check if tracking issue already exists for this PR."""
@@ -1725,7 +1819,7 @@ For more information, please refer to the project documentation or contact the m
         def check_issues() -> bool:
             return any(issue.body == expected_body for issue in self.repository.get_issues())
 
-        return await asyncio.to_thread(check_issues)
+        return await github_api_call(check_issues, logger=self.logger, log_prefix=self.log_prefix)
 
     async def process_new_or_reprocess_pull_request(self, pull_request: PullRequest) -> None:
         """Process a new or reprocessed PR - handles welcome message, tracking issue, and full workflow.
@@ -1739,7 +1833,11 @@ For more information, please refer to the project documentation or contact the m
         if not await self._welcome_comment_exists(pull_request=pull_request):
             self.logger.info(f"{self.log_prefix} Adding welcome message to PR")
             welcome_msg = self._prepare_welcome_comment()
-            tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
+            tasks.append(
+                github_api_call(
+                    pull_request.create_issue_comment, body=welcome_msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+            )
         else:
             self.logger.info(f"{self.log_prefix} Welcome message already exists, skipping")
 
@@ -1765,7 +1863,7 @@ For more information, please refer to the project documentation or contact the m
     async def process_command_reprocess(self, pull_request: PullRequest) -> None:
         """Handle /reprocess command - triggers full PR workflow from scratch."""
         # Check if PR is already merged - skip if merged
-        if await asyncio.to_thread(lambda: pull_request.is_merged()):
+        if await github_api_call(lambda: pull_request.is_merged(), logger=self.logger, log_prefix=self.log_prefix):
             self.logger.info(f"{self.log_prefix} PR is already merged, skipping reprocess")
             return
 
