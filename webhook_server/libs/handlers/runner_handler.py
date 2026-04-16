@@ -808,7 +808,14 @@ Your team can configure additional types in the repository settings.
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
             if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {err}")
+                redacted_err = _redact_secrets(
+                    err,
+                    [github_token, author_spec, author_email, author_name],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                self.logger.warning(
+                    f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {redacted_err}"
+                )
                 return False
 
             self.logger.info(f"{self.log_prefix} Restored original author on cherry-pick for DCO compliance")

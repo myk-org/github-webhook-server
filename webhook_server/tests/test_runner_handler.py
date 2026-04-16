@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -2183,6 +2184,39 @@ class TestRestoreOriginalAuthorForCherryPick:
                 github_token="test-token",  # pragma: allowlist secret
             )
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_api_failure_returns_false(self, runner_handler: RunnerHandler) -> None:
+        """github_api_call raises exception — return False (best-effort, don't block cherry-pick)."""
+        mock_pr = self._make_pr_with_commits(["feat: test\n\nSigned-off-by: User <user@example.com>\n"])
+
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.github_api_call",
+            new=AsyncMock(side_effect=RuntimeError("GitHub API unavailable")),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+            runner_handler.github_webhook.logger.exception.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_is_reraised(self, runner_handler: RunnerHandler) -> None:
+        """asyncio.CancelledError is re-raised, not swallowed."""
+        mock_pr = self._make_pr_with_commits(["feat: test\n\nSigned-off-by: User <user@example.com>\n"])
+
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.github_api_call",
+            new=AsyncMock(side_effect=asyncio.CancelledError()),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await runner_handler._restore_original_author_for_cherry_pick(
+                    pull_request=mock_pr,
+                    git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                    github_token="test-token",  # pragma: allowlist secret
+                )
 
 
 class TestCheckConfig:
