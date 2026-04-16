@@ -1036,7 +1036,11 @@ class TestRunnerHandler:
         """Test cherry_pick with successful execution."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with (
-            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
             patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
         ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
@@ -1063,6 +1067,7 @@ class TestRunnerHandler:
                                         ),
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_progress.assert_called_once()
                                         mock_set_success.assert_called_once()
                                         # Called twice: success comment + label warning (mock URL can't parse PR number)

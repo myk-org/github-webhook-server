@@ -756,57 +756,68 @@ Your team can configure additional types in the repository settings.
 
         Returns True if the commit was amended, False if no amendment was needed or possible.
         """
-        # Get the original PR's commits to find the Signed-off-by
-        commits = await github_api_call(
-            lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
-        )
-        if not commits:
-            self.logger.debug(f"{self.log_prefix} No commits found in original PR, skipping author restore")
-            return False
-
-        # Search original PR commits for a Signed-off-by trailer (check last commit first)
-        author_name: str | None = None
-        author_email: str | None = None
-        for commit in reversed(commits):
-            commit_msg = await github_api_call(
-                lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
+        try:
+            # Get the original PR's commits to find the Signed-off-by
+            commits = await github_api_call(
+                lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
             )
-            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
-            if signoff_match:
-                author_name, author_email = signoff_match[-1]
-                author_name = author_name.strip()
-                break
+            if not commits:
+                self.logger.debug(f"{self.log_prefix} No commits found in original PR, skipping author restore")
+                return False
 
-        if not author_name or not author_email:
-            self.logger.debug(f"{self.log_prefix} No Signed-off-by in original PR commits, skipping author restore")
+            # Search original PR commits for a Signed-off-by trailer (check last commit first)
+            author_name: str | None = None
+            author_email: str | None = None
+            for commit in reversed(commits):
+                commit_msg = await github_api_call(
+                    lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
+                )
+                signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+                if signoff_match:
+                    author_name, author_email = signoff_match[-1]
+                    author_name = author_name.strip()
+                    break
+
+            if not author_name or not author_email:
+                self.logger.debug(f"{self.log_prefix} No Signed-off-by in original PR commits, skipping author restore")
+                return False
+
+            # Check if the cherry-picked commit author already matches
+            rc, current_author_email, _ = await run_command(
+                command=f"{git_cmd} log -1 --format=%ae",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Could not read current author email, proceeding with author amend"
+                )
+            elif current_author_email.strip() == author_email:
+                self.logger.debug(
+                    f"{self.log_prefix} Author email already matches original PR sign-off, no amend needed"
+                )
+                return False
+
+            # Amend the commit author to match the original PR's Signed-off-by
+            author_spec = f"{author_name} <{author_email}>"
+            rc, _, err = await run_command(
+                command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(author_spec)}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token, author_spec, author_email, author_name],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {err}")
+                return False
+
+            self.logger.info(f"{self.log_prefix} Restored original author on cherry-pick for DCO compliance")
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to restore original author for cherry-pick")
             return False
-
-        # Check if the cherry-picked commit author already matches
-        rc, current_author_email, _ = await run_command(
-            command=f"{git_cmd} log -1 --format=%ae",
-            log_prefix=self.log_prefix,
-            redact_secrets=[github_token],
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(f"{self.log_prefix} Could not read current author email, proceeding with author amend")
-        elif current_author_email.strip() == author_email:
-            self.logger.debug(f"{self.log_prefix} Author email already matches original PR sign-off, no amend needed")
-            return False
-
-        # Amend the commit author to match the original PR's Signed-off-by
-        rc, _, err = await run_command(
-            command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(f'{author_name} <{author_email}>')}",
-            log_prefix=self.log_prefix,
-            redact_secrets=[github_token],
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        )
-        if not rc:
-            self.logger.warning(f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {err}")
-            return False
-
-        self.logger.info(f"{self.log_prefix} Restored original author '{author_name} <{author_email}>' on cherry-pick")
-        return True
 
     async def _resolve_cherry_pick_with_ai(
         self,
