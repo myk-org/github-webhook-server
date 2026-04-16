@@ -1998,8 +1998,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2029,8 +2029,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2046,8 +2046,8 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr = self._make_pr_with_commits(["feat: something\n\nNo sign-off here.\n"])
 
         with patch(
-            "webhook_server.libs.handlers.runner_handler.github_api_call",
-            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
                 pull_request=mock_pr,
@@ -2080,8 +2080,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2097,8 +2097,8 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr = self._make_pr_with_commits([])
 
         with patch(
-            "webhook_server.libs.handlers.runner_handler.github_api_call",
-            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
                 pull_request=mock_pr,
@@ -2132,8 +2132,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2174,8 +2174,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2216,8 +2216,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(
@@ -2256,8 +2256,8 @@ class TestRestoreOriginalAuthorForCherryPick:
                 new=AsyncMock(side_effect=run_command_side_effect),
             ),
             patch(
-                "webhook_server.libs.handlers.runner_handler.github_api_call",
-                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
             ),
         ):
             result = await runner_handler._restore_original_author_for_cherry_pick(

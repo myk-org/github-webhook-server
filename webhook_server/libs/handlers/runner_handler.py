@@ -789,11 +789,14 @@ Your team can configure additional types in the repository settings.
                 lambda: source_commit.commit.author.email, logger=self.logger, log_prefix=self.log_prefix
             )
 
+            author_spec = f"{author_name} <{author_email}>"
+            redact_list = [github_token, author_spec, author_email, author_name]
+
             # Check if the cherry-picked commit author already matches (both name and email)
             rc, current_author_info, _ = await run_command(
                 command=f"{git_cmd} log -1 --format=%an%n%ae",
                 log_prefix=self.log_prefix,
-                redact_secrets=[github_token],
+                redact_secrets=redact_list,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
             if not rc:
@@ -810,7 +813,7 @@ Your team can configure additional types in the repository settings.
             rc, current_msg, _ = await run_command(
                 command=f"{git_cmd} log -1 --format=%B",
                 log_prefix=self.log_prefix,
-                redact_secrets=[github_token],
+                redact_secrets=redact_list,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
             amended_msg: str | None = None
@@ -827,9 +830,6 @@ Your team can configure additional types in the repository settings.
                 amended_msg = "\n".join(filtered_lines) + "\n"
 
             # Amend the commit author and optionally the message
-            author_spec = f"{author_name} <{author_email}>"
-            redact_list = [github_token, author_spec, author_email, author_name]
-
             if amended_msg:
                 msg_file_path = ""
                 try:
