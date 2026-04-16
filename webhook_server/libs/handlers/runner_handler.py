@@ -735,6 +735,79 @@ Your team can configure additional types in the repository settings.
                 return False
             raise
 
+    async def _restore_original_author_for_cherry_pick(
+        self,
+        pull_request: PullRequest,
+        git_cmd: str,
+        github_token: str,
+    ) -> bool:
+        """Amend cherry-picked commit author to match the original PR's Signed-off-by.
+
+        GitHub squash-merges rewrite the author email to the noreply format
+        (e.g., 86722603+user@users.noreply.github.com). When git cherry-pick
+        replays such a commit, the DCO check fails because the author email
+        no longer matches the Signed-off-by trailer.
+
+        This method checks the original PR's commits for a Signed-off-by trailer.
+        If found, it amends the cherry-picked commit's author to match, restoring
+        the original PR owner's identity for DCO compliance.
+
+        Only amends if the original PR commits had a Signed-off-by.
+
+        Returns True if the commit was amended, False if no amendment was needed or possible.
+        """
+        # Get the original PR's commits to find the Signed-off-by
+        commits = await github_api_call(
+            lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
+        )
+        if not commits:
+            self.logger.debug(f"{self.log_prefix} No commits found in original PR, skipping author restore")
+            return False
+
+        # Search original PR commits for a Signed-off-by trailer (check last commit first)
+        author_name: str | None = None
+        author_email: str | None = None
+        for commit in reversed(commits):
+            commit_msg = await github_api_call(
+                lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
+            )
+            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+            if signoff_match:
+                author_name, author_email = signoff_match[-1]
+                author_name = author_name.strip()
+                break
+
+        if not author_name or not author_email:
+            self.logger.debug(f"{self.log_prefix} No Signed-off-by in original PR commits, skipping author restore")
+            return False
+
+        # Check if the cherry-picked commit author already matches
+        rc, current_author_email, _ = await run_command(
+            command=f"{git_cmd} log -1 --format=%ae",
+            log_prefix=self.log_prefix,
+            redact_secrets=[github_token],
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if not rc:
+            self.logger.warning(f"{self.log_prefix} Could not read current author email, proceeding with author amend")
+        elif current_author_email.strip() == author_email:
+            self.logger.debug(f"{self.log_prefix} Author email already matches original PR sign-off, no amend needed")
+            return False
+
+        # Amend the commit author to match the original PR's Signed-off-by
+        rc, _, err = await run_command(
+            command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(f'{author_name} <{author_email}>')}",
+            log_prefix=self.log_prefix,
+            redact_secrets=[github_token],
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if not rc:
+            self.logger.warning(f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {err}")
+            return False
+
+        self.logger.info(f"{self.log_prefix} Restored original author '{author_name} <{author_email}>' on cherry-pick")
+        return True
+
     async def _resolve_cherry_pick_with_ai(
         self,
         worktree_path: str,
@@ -1024,6 +1097,13 @@ Your team can configure additional types in the repository settings.
                         )
                         return
                     cherry_pick_had_conflicts = True
+
+                # Restore original PR author on cherry-pick for DCO compliance
+                await self._restore_original_author_for_cherry_pick(
+                    pull_request=pull_request,
+                    git_cmd=git_cmd,
+                    github_token=github_token,
+                )
 
                 # Push the branch
                 rc, out, err = await run_command(
