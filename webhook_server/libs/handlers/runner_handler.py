@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import tempfile
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
@@ -741,7 +742,7 @@ Your team can configure additional types in the repository settings.
         git_cmd: str,
         github_token: str,
     ) -> bool:
-        """Amend cherry-picked commit author to match the original PR's Signed-off-by.
+        """Amend cherry-picked commit to restore the original PR author for DCO compliance.
 
         GitHub squash-merges rewrite the author email to the noreply format
         (e.g., 86722603+user@users.noreply.github.com). When git cherry-pick
@@ -749,15 +750,16 @@ Your team can configure additional types in the repository settings.
         no longer matches the Signed-off-by trailer.
 
         This method checks the original PR's commits for a Signed-off-by trailer.
-        If found, it amends the cherry-picked commit's author to match, restoring
-        the original PR owner's identity for DCO compliance.
+        If found, it uses the original commit's git author identity (name and email)
+        to amend the cherry-picked commit's author and Signed-off-by trailer,
+        ensuring DCO compliance.
 
         Only amends if the original PR commits had a Signed-off-by.
 
         Returns True if the commit was amended, False if no amendment was needed or possible.
         """
         try:
-            # Get the original PR's commits to find the Signed-off-by
+            # Get the original PR's commits to find one with a Signed-off-by
             commits = await github_api_call(
                 lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
             )
@@ -765,52 +767,103 @@ Your team can configure additional types in the repository settings.
                 self.logger.debug(f"{self.log_prefix} No commits found in original PR, skipping author restore")
                 return False
 
-            # Search original PR commits for a Signed-off-by trailer (check last commit first)
-            author_name: str | None = None
-            author_email: str | None = None
+            # Find the last commit with a Signed-off-by trailer, and use its git author
+            source_commit = None
             for commit in reversed(commits):
                 commit_msg = await github_api_call(
                     lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
                 )
-                signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
-                if signoff_match:
-                    author_name, author_email = signoff_match[-1]
-                    author_name = author_name.strip()
+                if re.search(r"Signed-off-by:\s*.+?\s*<[^>]+>", commit_msg):
+                    source_commit = commit
                     break
 
-            if not author_name or not author_email:
+            if not source_commit:
                 self.logger.debug(f"{self.log_prefix} No Signed-off-by in original PR commits, skipping author restore")
                 return False
 
-            # Check if the cherry-picked commit author already matches
-            rc, current_author_email, _ = await run_command(
-                command=f"{git_cmd} log -1 --format=%ae",
+            # Use the original commit's git author — the authoritative identity before squash-merge rewrite
+            author_name = await github_api_call(
+                lambda: source_commit.commit.author.name, logger=self.logger, log_prefix=self.log_prefix
+            )
+            author_email = await github_api_call(
+                lambda: source_commit.commit.author.email, logger=self.logger, log_prefix=self.log_prefix
+            )
+
+            # Check if the cherry-picked commit author already matches (both name and email)
+            rc, current_author_info, _ = await run_command(
+                command=f"{git_cmd} log -1 --format=%an%n%ae",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(
-                    f"{self.log_prefix} Could not read current author email, proceeding with author amend"
+                    f"{self.log_prefix} Could not read current author info, proceeding with author amend"
                 )
-            elif current_author_email.strip() == author_email:
-                self.logger.debug(
-                    f"{self.log_prefix} Author email already matches original PR sign-off, no amend needed"
-                )
-                return False
+            else:
+                info_lines = current_author_info.strip().splitlines()
+                if len(info_lines) == 2 and info_lines[0] == author_name and info_lines[1] == author_email:
+                    self.logger.debug(f"{self.log_prefix} Author already matches original PR commit, no amend needed")
+                    return False
 
-            # Amend the commit author to match the original PR's Signed-off-by
-            author_spec = f"{author_name} <{author_email}>"
-            rc, _, err = await run_command(
-                command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(author_spec)}",
+            # Read the current commit message to fix Signed-off-by trailers
+            rc, current_msg, _ = await run_command(
+                command=f"{git_cmd} log -1 --format=%B",
                 log_prefix=self.log_prefix,
-                redact_secrets=[github_token, author_spec, author_email, author_name],
+                redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
+            amended_msg: str | None = None
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Could not read commit message, amending author only")
+            else:
+                # Remove all existing Signed-off-by trailers and add the correct one
+                msg_lines = current_msg.rstrip().splitlines()
+                filtered_lines = [line for line in msg_lines if not re.match(r"Signed-off-by:\s*", line)]
+                while filtered_lines and not filtered_lines[-1].strip():
+                    filtered_lines.pop()
+                filtered_lines.append("")
+                filtered_lines.append(f"Signed-off-by: {author_name} <{author_email}>")
+                amended_msg = "\n".join(filtered_lines) + "\n"
+
+            # Amend the commit author and optionally the message
+            author_spec = f"{author_name} <{author_email}>"
+            redact_list = [github_token, author_spec, author_email, author_name]
+
+            if amended_msg:
+                msg_file_path = ""
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", encoding="utf-8", suffix=".txt", delete=False
+                    ) as msg_file:
+                        msg_file.write(amended_msg)
+                        msg_file_path = msg_file.name
+
+                    rc, _, err = await run_command(
+                        command=(
+                            f"{git_cmd} commit --amend"
+                            f" --author={shlex.quote(author_spec)}"
+                            f" -F {shlex.quote(msg_file_path)}"
+                        ),
+                        log_prefix=self.log_prefix,
+                        redact_secrets=redact_list,
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                finally:
+                    if msg_file_path:
+                        os.unlink(msg_file_path)
+            else:
+                rc, _, err = await run_command(
+                    command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(author_spec)}",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=redact_list,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+
             if not rc:
                 redacted_err = _redact_secrets(
                     err,
-                    [github_token, author_spec, author_email, author_name],
+                    redact_list,
                     mask_sensitive=self.github_webhook.mask_sensitive,
                 )
                 self.logger.warning(

@@ -1956,13 +1956,19 @@ class TestRestoreOriginalAuthorForCherryPick:
         return RunnerHandler(mock_github_webhook, mock_owners_file_handler)
 
     @staticmethod
-    def _make_pr_with_commits(commit_messages: list[str]) -> Mock:
-        """Create a mock PullRequest with commits having the given messages."""
+    def _make_pr_with_commits(
+        commit_messages: list[str],
+        author_name: str = "Test User",
+        author_email: str = "test@example.com",
+    ) -> Mock:
+        """Create a mock PullRequest with commits having the given messages and author."""
         mock_pr = Mock()
         mock_commits = []
         for msg in commit_messages:
             mock_commit = Mock()
             mock_commit.commit.message = msg
+            mock_commit.commit.author.name = author_name
+            mock_commit.commit.author.email = author_email
             mock_commits.append(mock_commit)
         mock_pr.get_commits.return_value = mock_commits
         return mock_pr
@@ -1970,13 +1976,17 @@ class TestRestoreOriginalAuthorForCherryPick:
     @pytest.mark.asyncio
     async def test_amend_when_email_mismatch(self, runner_handler: RunnerHandler) -> None:
         """Original PR has Signed-off-by, cherry-pick author differs — amend."""
-        mock_pr = self._make_pr_with_commits([
-            "[Storage] Update owners\n\nSigned-off-by: Jenia Peimer <jpeimer@redhat.com>\n"
-        ])
+        mock_pr = self._make_pr_with_commits(
+            ["[Storage] Update owners\n\nSigned-off-by: Jenia Peimer <jpeimer@redhat.com>\n"],
+            author_name="Jenia Peimer",
+            author_email="jpeimer@redhat.com",
+        )
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
-                return (True, "86722603+jpeimer@users.noreply.github.com", "")
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "jpeimer\n86722603+jpeimer@users.noreply.github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "[Storage] Update owners\n\nSigned-off-by: jpeimer <jpeimer@redhat.com>\n", "")
             if "commit --amend" in command:
                 assert "Jenia Peimer <jpeimer@redhat.com>" in command
                 return (True, "success", "")
@@ -2000,13 +2010,17 @@ class TestRestoreOriginalAuthorForCherryPick:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_no_amend_when_email_matches(self, runner_handler: RunnerHandler) -> None:
-        """Original PR has Signed-off-by matching cherry-pick author — no amend."""
-        mock_pr = self._make_pr_with_commits(["feat: something\n\nSigned-off-by: Test User <test@example.com>\n"])
+    async def test_no_amend_when_author_matches(self, runner_handler: RunnerHandler) -> None:
+        """Original PR author matches cherry-pick author (name and email) — no amend."""
+        mock_pr = self._make_pr_with_commits(
+            ["feat: something\n\nSigned-off-by: Test User <test@example.com>\n"],
+            author_name="Test User",
+            author_email="test@example.com",
+        )
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
-                return (True, "test@example.com", "")
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "Test User\ntest@example.com", "")
             return (True, "", "")
 
         with (
@@ -2045,11 +2059,17 @@ class TestRestoreOriginalAuthorForCherryPick:
     @pytest.mark.asyncio
     async def test_amend_failure(self, runner_handler: RunnerHandler) -> None:
         """Amend command fails — return False without blocking cherry-pick."""
-        mock_pr = self._make_pr_with_commits(["feat: test\n\nSigned-off-by: User <user@example.com>\n"])
+        mock_pr = self._make_pr_with_commits(
+            ["feat: test\n\nSigned-off-by: User <user@example.com>\n"],
+            author_name="User",
+            author_email="user@example.com",
+        )
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
-                return (True, "noreply@github.com", "")
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: test\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
             if "commit --amend" in command:
                 return (False, "", "error: could not amend")
             return (True, "", "")
@@ -2088,13 +2108,19 @@ class TestRestoreOriginalAuthorForCherryPick:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_ae_read_failure_still_amends(self, runner_handler: RunnerHandler) -> None:
-        """Cannot read current author email — log warning and proceed to amend."""
-        mock_pr = self._make_pr_with_commits(["feat: test\n\nSigned-off-by: User <user@example.com>\n"])
+    async def test_author_info_read_failure_still_amends(self, runner_handler: RunnerHandler) -> None:
+        """Cannot read current author info — log warning and proceed to amend."""
+        mock_pr = self._make_pr_with_commits(
+            ["feat: test\n\nSigned-off-by: User <user@example.com>\n"],
+            author_name="User",
+            author_email="user@example.com",
+        )
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
+            if "log -1 --format=%an%n%ae" in command:
                 return (False, "", "fatal: bad revision")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: test\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
             if "commit --amend" in command:
                 assert "User <user@example.com>" in command
                 return (True, "success", "")
@@ -2120,15 +2146,23 @@ class TestRestoreOriginalAuthorForCherryPick:
 
     @pytest.mark.asyncio
     async def test_multiple_commits_finds_signoff_in_last(self, runner_handler: RunnerHandler) -> None:
-        """Multiple commits, only last has Signed-off-by — uses it."""
-        mock_pr = self._make_pr_with_commits([
-            "first commit without signoff",
-            "second commit\n\nSigned-off-by: Author Two <two@example.com>\n",
-        ])
+        """Multiple commits, only last has Signed-off-by — uses its git author."""
+        mock_pr = Mock()
+        commit1 = Mock()
+        commit1.commit.message = "first commit without signoff"
+        commit1.commit.author.name = "Author One"
+        commit1.commit.author.email = "one@example.com"
+        commit2 = Mock()
+        commit2.commit.message = "second commit\n\nSigned-off-by: Author Two <two@example.com>\n"
+        commit2.commit.author.name = "Author Two"
+        commit2.commit.author.email = "two@example.com"
+        mock_pr.get_commits.return_value = [commit1, commit2]
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
-                return (True, "noreply@github.com", "")
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "second commit\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
             if "commit --amend" in command:
                 assert "Author Two <two@example.com>" in command
                 return (True, "success", "")
@@ -2152,19 +2186,27 @@ class TestRestoreOriginalAuthorForCherryPick:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_multiple_signoffs_in_commit_uses_last(self, runner_handler: RunnerHandler) -> None:
-        """Single commit with multiple Signed-off-by trailers — uses last."""
-        mock_pr = self._make_pr_with_commits([
-            "feat: co-authored\n\n"
-            "Signed-off-by: First Author <first@example.com>\n"
-            "Signed-off-by: Second Author <second@example.com>\n",
-        ])
+    async def test_signoff_name_mismatch_uses_commit_author(self, runner_handler: RunnerHandler) -> None:
+        """Signed-off-by has username but commit author has full name — uses commit author."""
+        mock_pr = self._make_pr_with_commits(
+            ["docs: update docs\n\nSigned-off-by: rnetser <rnetser@redhat.com>\n"],
+            author_name="Ruth Netser",
+            author_email="rnetser@redhat.com",
+        )
+
+        amend_commands: list[str] = []
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
-            if "log -1 --format=%ae" in command:
-                return (True, "noreply@github.com", "")
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "rnetser\nrnetser@redhat.com", "")
+            if "log -1 --format=%B" in command:
+                return (
+                    True,
+                    "docs: update docs\n\nSigned-off-by: rnetser <rnetser@redhat.com>\n",
+                    "",
+                )
             if "commit --amend" in command:
-                assert "Second Author <second@example.com>" in command
+                amend_commands.append(command)
                 return (True, "success", "")
             return (True, "", "")
 
@@ -2184,6 +2226,47 @@ class TestRestoreOriginalAuthorForCherryPick:
                 github_token="test-token",  # pragma: allowlist secret
             )
             assert result is True
+            # Verify it used the commit author name, not the sign-off name
+            assert len(amend_commands) == 1
+            assert "Ruth Netser <rnetser@redhat.com>" in amend_commands[0]
+
+    @pytest.mark.asyncio
+    async def test_message_read_failure_amends_author_only(self, runner_handler: RunnerHandler) -> None:
+        """Cannot read commit message — fall back to amending author only (--no-edit)."""
+        mock_pr = self._make_pr_with_commits(
+            ["feat: test\n\nSigned-off-by: User <user@example.com>\n"],
+            author_name="User",
+            author_email="user@example.com",
+        )
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (False, "", "fatal: could not read")
+            if "commit --amend" in command:
+                assert "--no-edit" in command
+                assert "User <user@example.com>" in command
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.github_api_call",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn() if callable(fn) else fn),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+            runner_handler.github_webhook.logger.warning.assert_called()
 
     @pytest.mark.asyncio
     async def test_api_failure_returns_false(self, runner_handler: RunnerHandler) -> None:
