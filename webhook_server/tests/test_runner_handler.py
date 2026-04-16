@@ -1989,6 +1989,13 @@ class TestRestoreOriginalAuthorForCherryPick:
                 return (True, "[Storage] Update owners\n\nSigned-off-by: jpeimer <jpeimer@redhat.com>\n", "")
             if "commit --amend" in command:
                 assert "Jenia Peimer <jpeimer@redhat.com>" in command
+                # Verify the message file contains the corrected Signed-off-by trailer
+                assert "-F" in command
+                msg_path = command.rsplit("-F ", 1)[1].strip().strip("'\"")
+                with open(msg_path, encoding="utf-8") as f:
+                    msg_content = f.read()
+                assert "Signed-off-by: Jenia Peimer <jpeimer@redhat.com>" in msg_content
+                assert "Signed-off-by: jpeimer <jpeimer@redhat.com>" not in msg_content
                 return (True, "success", "")
             return (True, "", "")
 
@@ -2146,10 +2153,10 @@ class TestRestoreOriginalAuthorForCherryPick:
 
     @pytest.mark.asyncio
     async def test_multiple_commits_finds_signoff_in_last(self, runner_handler: RunnerHandler) -> None:
-        """Multiple commits, only last has Signed-off-by — uses its git author."""
+        """Multiple commits with sign-offs — uses the last commit's git author (newest-first)."""
         mock_pr = Mock()
         commit1 = Mock()
-        commit1.commit.message = "first commit without signoff"
+        commit1.commit.message = "first commit\n\nSigned-off-by: Author One <one@example.com>\n"
         commit1.commit.author.name = "Author One"
         commit1.commit.author.email = "one@example.com"
         commit2 = Mock()
@@ -2165,6 +2172,7 @@ class TestRestoreOriginalAuthorForCherryPick:
                 return (True, "second commit\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
             if "commit --amend" in command:
                 assert "Author Two <two@example.com>" in command
+                assert "Author One <one@example.com>" not in command
                 return (True, "success", "")
             return (True, "", "")
 
