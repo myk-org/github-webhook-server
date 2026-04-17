@@ -4,7 +4,6 @@ import os
 import re
 import shlex
 import shutil
-import tempfile
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
@@ -736,6 +735,47 @@ Your team can configure additional types in the repository settings.
                 return False
             raise
 
+    async def _find_signoff_source(
+        self,
+        pull_request: PullRequest,
+    ) -> tuple[Any, str | None]:
+        """Find a commit with a Signed-off-by trailer and return it with the sign-off email.
+
+        Checks the merge commit first (squash-merge). If the merge commit has no
+        Signed-off-by, falls back to scanning the PR's individual commits in
+        reverse order (regular merge).
+
+        Returns (source_commit, signoff_email) or (None, None) if no sign-off found.
+        """
+        # Try the merge commit first (squash-merge case)
+        merge_sha = await github_api_call(
+            lambda: pull_request.merge_commit_sha, logger=self.logger, log_prefix=self.log_prefix
+        )
+        if merge_sha:
+            merge_commit = await github_api_call(
+                self.github_webhook.repository.get_commit, merge_sha, logger=self.logger, log_prefix=self.log_prefix
+            )
+            commit_msg = await github_api_call(
+                lambda: merge_commit.commit.message, logger=self.logger, log_prefix=self.log_prefix
+            )
+            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+            if signoff_match:
+                return merge_commit, signoff_match[-1][1]
+
+        # Fall back to PR commits (regular merge case)
+        commits = await github_api_call(
+            lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
+        )
+        for commit in reversed(commits):
+            commit_msg = await github_api_call(
+                lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
+            )
+            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+            if signoff_match:
+                return commit, signoff_match[-1][1]
+
+        return None, None
+
     async def _restore_original_author_for_cherry_pick(
         self,
         pull_request: PullRequest,
@@ -749,45 +789,28 @@ Your team can configure additional types in the repository settings.
         replays such a commit, the DCO check fails because the author email
         no longer matches the Signed-off-by trailer.
 
-        This method checks the original PR's commits for a Signed-off-by trailer.
-        If found, it uses the original commit's git author identity (name and email)
-        to amend the cherry-picked commit's author and Signed-off-by trailer,
-        ensuring DCO compliance.
+        This method first checks the merge commit (via ``pull_request.merge_commit_sha``)
+        for a Signed-off-by trailer (squash-merge case). If not found, it falls back
+        to scanning the PR's individual commits (regular merge case).
 
-        Only amends if the original PR commits had a Signed-off-by.
+        The author identity is built from the source commit's git author name
+        (preserved by GitHub) combined with the email from the Signed-off-by trailer.
 
         Returns True if the commit was amended, False if no amendment was needed or possible.
         """
         try:
-            # Get the original PR's commits to find one with a Signed-off-by
-            commits = await github_api_call(
-                lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
-            )
-            if not commits:
-                self.logger.debug(f"{self.log_prefix} No commits found in original PR, skipping author restore")
+            # Try merge commit first (squash-merge), fall back to PR commits (regular merge)
+            source_commit, signoff_email = await self._find_signoff_source(pull_request)
+            if not source_commit or not signoff_email:
+                self.logger.debug(f"{self.log_prefix} No Signed-off-by found, skipping author restore")
                 return False
 
-            # Find the last commit with a Signed-off-by trailer, and use its git author
-            source_commit = None
-            for commit in reversed(commits):
-                commit_msg = await github_api_call(
-                    lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
-                )
-                if re.search(r"Signed-off-by:\s*.+?\s*<[^>]+>", commit_msg):
-                    source_commit = commit
-                    break
-
-            if not source_commit:
-                self.logger.debug(f"{self.log_prefix} No Signed-off-by in original PR commits, skipping author restore")
-                return False
-
-            # Use the original commit's git author — the authoritative identity before squash-merge rewrite
+            # Author name from the source commit's git author (GitHub preserves the display name)
+            # Author email from the Signed-off-by trailer (commit email may be noreply)
             author_name = await github_api_call(
                 lambda: source_commit.commit.author.name, logger=self.logger, log_prefix=self.log_prefix
             )
-            author_email = await github_api_call(
-                lambda: source_commit.commit.author.email, logger=self.logger, log_prefix=self.log_prefix
-            )
+            author_email = signoff_email
 
             author_spec = f"{author_name} <{author_email}>"
             redact_list = [github_token, author_spec, author_email, author_name]
@@ -830,35 +853,13 @@ Your team can configure additional types in the repository settings.
                 amended_msg = "\n".join(filtered_lines) + "\n"
 
             # Amend the commit author and optionally the message
-            if amended_msg:
-                msg_file_path = ""
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", encoding="utf-8", suffix=".txt", delete=False
-                    ) as msg_file:
-                        msg_file.write(amended_msg)
-                        msg_file_path = msg_file.name
-
-                    rc, _, err = await run_command(
-                        command=(
-                            f"{git_cmd} commit --amend"
-                            f" --author={shlex.quote(author_spec)}"
-                            f" -F {shlex.quote(msg_file_path)}"
-                        ),
-                        log_prefix=self.log_prefix,
-                        redact_secrets=redact_list,
-                        mask_sensitive=self.github_webhook.mask_sensitive,
-                    )
-                finally:
-                    if msg_file_path:
-                        os.unlink(msg_file_path)
-            else:
-                rc, _, err = await run_command(
-                    command=f"{git_cmd} commit --amend --no-edit --author={shlex.quote(author_spec)}",
-                    log_prefix=self.log_prefix,
-                    redact_secrets=redact_list,
-                    mask_sensitive=self.github_webhook.mask_sensitive,
-                )
+            msg_flag = f"-m {shlex.quote(amended_msg)}" if amended_msg else "--no-edit"
+            rc, _, err = await run_command(
+                command=f"{git_cmd} commit --amend --author={shlex.quote(author_spec)} {msg_flag}",
+                log_prefix=self.log_prefix,
+                redact_secrets=redact_list,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
 
             if not rc:
                 redacted_err = _redact_secrets(
