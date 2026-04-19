@@ -758,7 +758,7 @@ Your team can configure additional types in the repository settings.
             commit_msg = await github_api_call(
                 lambda: merge_commit.commit.message, logger=self.logger, log_prefix=self.log_prefix
             )
-            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+            signoff_match = re.findall(r"(?m)^Signed-off-by:\s*(.+?)\s*<([^>\n]+)>\s*$", commit_msg)
             if signoff_match:
                 return merge_commit, signoff_match[-1][1]
 
@@ -770,7 +770,7 @@ Your team can configure additional types in the repository settings.
             commit_msg = await github_api_call(
                 lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
             )
-            signoff_match = re.findall(r"Signed-off-by:\s*(.+?)\s*<([^>]+)>", commit_msg)
+            signoff_match = re.findall(r"(?m)^Signed-off-by:\s*(.+?)\s*<([^>\n]+)>\s*$", commit_msg)
             if signoff_match:
                 return commit, signoff_match[-1][1]
 
@@ -816,6 +816,7 @@ Your team can configure additional types in the repository settings.
             redact_list = [github_token, author_spec, author_email, author_name]
 
             # Check if the cherry-picked commit author already matches (both name and email)
+            needs_author_amend = True
             rc, current_author_info, _ = await run_command(
                 command=f"{git_cmd} log -1 --format=%an%n%ae",
                 log_prefix=self.log_prefix,
@@ -829,8 +830,7 @@ Your team can configure additional types in the repository settings.
             else:
                 info_lines = current_author_info.strip().splitlines()
                 if len(info_lines) == 2 and info_lines[0] == author_name and info_lines[1] == author_email:
-                    self.logger.debug(f"{self.log_prefix} Author already matches original PR commit, no amend needed")
-                    return False
+                    needs_author_amend = False
 
             # Read the current commit message to fix Signed-off-by trailers
             rc, current_msg, _ = await run_command(
@@ -839,6 +839,7 @@ Your team can configure additional types in the repository settings.
                 redact_secrets=redact_list,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
+            needs_message_amend = False
             amended_msg: str | None = None
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Could not read commit message, amending author only")
@@ -851,9 +852,14 @@ Your team can configure additional types in the repository settings.
                 filtered_lines.append("")
                 filtered_lines.append(f"Signed-off-by: {author_name} <{author_email}>")
                 amended_msg = "\n".join(filtered_lines) + "\n"
+                needs_message_amend = amended_msg != current_msg
+
+            if not needs_author_amend and not needs_message_amend:
+                self.logger.debug(f"{self.log_prefix} Author and Signed-off-by already match, no amend needed")
+                return False
 
             # Amend the commit author and optionally the message
-            msg_flag = f"-m {shlex.quote(amended_msg)}" if amended_msg else "--no-edit"
+            msg_flag = f"-m {shlex.quote(amended_msg)}" if needs_message_amend and amended_msg else "--no-edit"
             rc, _, err = await run_command(
                 command=f"{git_cmd} commit --amend --author={shlex.quote(author_spec)} {msg_flag}",
                 log_prefix=self.log_prefix,

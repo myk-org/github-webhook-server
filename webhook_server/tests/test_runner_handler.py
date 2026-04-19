@@ -1586,7 +1586,11 @@ class TestRunnerHandler:
             return (True, "success", "")
 
         with (
-            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
             patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
         ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
@@ -1614,6 +1618,7 @@ class TestRunnerHandler:
                                         return_value=None,
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
                                         # Verify prompt includes delete/modify conflict guidance
@@ -1660,7 +1665,11 @@ class TestRunnerHandler:
             return (True, "success", "")
 
         with (
-            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
             patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
         ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
@@ -1688,6 +1697,7 @@ class TestRunnerHandler:
                                         return_value=None,
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
                                         # Verify cherry-pick --continue was NOT called
@@ -1959,6 +1969,7 @@ class TestRestoreOriginalAuthorForCherryPick:
     def _make_merged_pr(
         merge_commit_msg: str,
         author_name: str = "Test User",
+        author_email: str = "test@example.com",
         merge_commit_sha: str = "abc123",
     ) -> tuple[Mock, Mock]:
         """Create a mock PullRequest with a merge commit.
@@ -1972,6 +1983,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_merge_commit = Mock()
         mock_merge_commit.commit.message = merge_commit_msg
         mock_merge_commit.commit.author.name = author_name
+        mock_merge_commit.commit.author.email = author_email
 
         return mock_pr, mock_merge_commit
 
@@ -1981,6 +1993,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="[Storage] Update owners\n\nSigned-off-by: Jenia Peimer <jpeimer@redhat.com>\n",
             author_name="Jenia Peimer",
+            author_email="jpeimer@redhat.com",
         )
         runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
 
@@ -2016,8 +2029,8 @@ class TestRestoreOriginalAuthorForCherryPick:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_no_amend_when_author_matches(self, runner_handler: RunnerHandler) -> None:
-        """Merge commit author matches cherry-pick author (name and email) — no amend."""
+    async def test_no_amend_when_author_and_signoff_match(self, runner_handler: RunnerHandler) -> None:
+        """Author and Signed-off-by both match — no amend needed."""
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="feat: something\n\nSigned-off-by: Test User <test@example.com>\n",
             author_name="Test User",
@@ -2027,6 +2040,8 @@ class TestRestoreOriginalAuthorForCherryPick:
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
             if "log -1 --format=%an%n%ae" in command:
                 return (True, "Test User\ntest@example.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: something\n\nSigned-off-by: Test User <test@example.com>\n", "")
             return (True, "", "")
 
         with (
@@ -2074,6 +2089,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
             author_name="User",
+            author_email="user@example.com",
         )
         runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
 
@@ -2117,6 +2133,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         pr_commit = Mock()
         pr_commit.commit.message = "feat: add feature\n\nSigned-off-by: Test User <test@example.com>\n"
         pr_commit.commit.author.name = "Test User"
+        pr_commit.commit.author.email = "test@example.com"
         mock_pr.get_commits.return_value = [pr_commit]
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
@@ -2176,6 +2193,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
             author_name="User",
+            author_email="user@example.com",
         )
         runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
 
@@ -2213,6 +2231,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="docs: update docs\n\nSigned-off-by: rnetser <rnetser@redhat.com>\n",
             author_name="Ruth Netser",
+            author_email="rnetser@redhat.com",
         )
         runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
 
@@ -2258,6 +2277,7 @@ class TestRestoreOriginalAuthorForCherryPick:
         mock_pr, mock_merge_commit = self._make_merged_pr(
             merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
             author_name="User",
+            author_email="user@example.com",
         )
         runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
 
