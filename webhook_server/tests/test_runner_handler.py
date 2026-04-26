@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -1035,7 +1036,14 @@ class TestRunnerHandler:
     async def test_cherry_pick_success(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick with successful execution."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+        ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
@@ -1060,6 +1068,7 @@ class TestRunnerHandler:
                                         ),
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_progress.assert_called_once()
                                         mock_set_success.assert_called_once()
                                         # Called twice: success comment + label warning (mock URL can't parse PR number)
@@ -1187,7 +1196,10 @@ class TestRunnerHandler:
     ) -> None:
         """Test cherry_pick passes skip_merge=True to _checkout_worktree."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+        with (
+            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+        ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
                 with patch.object(runner_handler.check_run_handler, "set_check_success"):
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
@@ -1336,7 +1348,10 @@ class TestRunnerHandler:
     ) -> AsyncGenerator[CherryPickMocks]:
         """Common setup for cherry-pick tests."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+        with (
+            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+        ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
@@ -1570,7 +1585,14 @@ class TestRunnerHandler:
                 return (True, "https://github.com/test-org/test-repo/pull/99", "")
             return (True, "success", "")
 
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+        ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
@@ -1596,6 +1618,7 @@ class TestRunnerHandler:
                                         return_value=None,
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
                                         # Verify prompt includes delete/modify conflict guidance
@@ -1641,7 +1664,14 @@ class TestRunnerHandler:
                 return (True, "https://github.com/test-org/test-repo/pull/99", "")
             return (True, "success", "")
 
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ) as mock_restore_author,
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+        ):
             with patch.object(runner_handler.check_run_handler, "set_check_in_progress"):
                 with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
@@ -1667,6 +1697,7 @@ class TestRunnerHandler:
                                         return_value=None,
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
+                                        mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
                                         mock_ai_cli.assert_called_once()
                                         # Verify cherry-pick --continue was NOT called
@@ -1887,6 +1918,432 @@ class TestRunnerHandler:
                                     await runner_handler.cherry_pick(mock_pull_request, "main")
                                     mock_set_failure.assert_called()
                                     mock_ai_cli.assert_not_called()
+
+
+class TestRestoreOriginalAuthorForCherryPick:
+    """Test suite for _restore_original_author_for_cherry_pick method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance."""
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"action": "opened"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
+        mock_webhook.repository.owner.login = "test-owner"
+        mock_webhook.token = "test-token"  # pragma: allowlist secret
+        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.tox = {}
+        mock_webhook.pre_commit = False
+        mock_webhook.build_and_push_container = False
+        mock_webhook.pypi = {}
+        mock_webhook.conventional_title = ""
+        mock_webhook.container_repository_username = ""
+        mock_webhook.container_repository_password = ""  # pragma: allowlist secret
+        mock_webhook.slack_webhook_url = ""
+        mock_webhook.repository_full_name = "test/repo"
+        mock_webhook.dockerfile = ""
+        mock_webhook.container_build_args = []
+        mock_webhook.container_command_args = []
+        mock_webhook.ctx = None
+        mock_webhook.custom_check_runs = []
+        mock_webhook.ai_features = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        mock_webhook.mask_sensitive = False
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_owners_file_handler(self) -> Mock:
+        """Create a mock OwnersFileHandler instance."""
+        return Mock()
+
+    @pytest.fixture
+    def runner_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> RunnerHandler:
+        """Create a RunnerHandler instance with mocked dependencies."""
+        return RunnerHandler(mock_github_webhook, mock_owners_file_handler)
+
+    @staticmethod
+    def _make_merged_pr(
+        merge_commit_msg: str,
+        author_name: str = "Test User",
+        author_email: str = "test@example.com",
+        merge_commit_sha: str = "abc123",
+    ) -> tuple[Mock, Mock]:
+        """Create a mock PullRequest with a merge commit.
+
+        Returns (mock_pr, mock_merge_commit) so tests can configure the
+        repository.get_commit() return value.
+        """
+        mock_pr = Mock()
+        mock_pr.merge_commit_sha = merge_commit_sha
+
+        mock_merge_commit = Mock()
+        mock_merge_commit.commit.message = merge_commit_msg
+        mock_merge_commit.commit.author.name = author_name
+        mock_merge_commit.commit.author.email = author_email
+
+        return mock_pr, mock_merge_commit
+
+    @pytest.mark.asyncio
+    async def test_amend_when_email_mismatch(self, runner_handler: RunnerHandler) -> None:
+        """Merge commit has Signed-off-by, cherry-pick author differs — amend."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="[Storage] Update owners\n\nSigned-off-by: Jenia Peimer <jpeimer@redhat.com>\n",
+            author_name="Jenia Peimer",
+            author_email="jpeimer@redhat.com",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "jpeimer\n86722603+jpeimer@users.noreply.github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "[Storage] Update owners\n\nSigned-off-by: jpeimer <jpeimer@redhat.com>\n", "")
+            if "commit --amend" in command:
+                assert "Jenia Peimer <jpeimer@redhat.com>" in command
+                # Verify the -m message contains the corrected Signed-off-by trailer
+                assert "-m" in command
+                assert "Signed-off-by: Jenia Peimer <jpeimer@redhat.com>" in command
+                assert "Signed-off-by: jpeimer <jpeimer@redhat.com>" not in command
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_no_amend_when_author_and_signoff_match(self, runner_handler: RunnerHandler) -> None:
+        """Author and Signed-off-by both match — no amend needed."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="feat: something\n\nSigned-off-by: Test User <test@example.com>\n",
+            author_name="Test User",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "Test User\ntest@example.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: something\n\nSigned-off-by: Test User <test@example.com>\n", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_no_signoff_in_merge_commit(self, runner_handler: RunnerHandler) -> None:
+        """Merge commit has no Signed-off-by, PR commits also have none — skip."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="feat: something\n\nNo sign-off here.\n",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+        pr_commit = Mock()
+        pr_commit.commit.message = "feat: no sign-off"
+        mock_pr.get_commits.return_value = [pr_commit]
+
+        with patch(
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_amend_failure(self, runner_handler: RunnerHandler) -> None:
+        """Amend command fails — return False without blocking cherry-pick."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
+            author_name="User",
+            author_email="user@example.com",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: test\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
+            if "commit --amend" in command:
+                return (False, "", "error: could not amend")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_pr_commits(self, runner_handler: RunnerHandler) -> None:
+        """Merge commit has no Signed-off-by (regular merge) — falls back to PR commits."""
+        # Merge commit without sign-off (regular merge message)
+        mock_pr = Mock()
+        mock_pr.merge_commit_sha = "merge123"
+        mock_merge_commit = Mock()
+        mock_merge_commit.commit.message = "Merge pull request #42 from user/branch"
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        # PR commit with sign-off
+        pr_commit = Mock()
+        pr_commit.commit.message = "feat: add feature\n\nSigned-off-by: Test User <test@example.com>\n"
+        pr_commit.commit.author.name = "Test User"
+        pr_commit.commit.author.email = "test@example.com"
+        mock_pr.get_commits.return_value = [pr_commit]
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: add feature\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
+            if "commit --amend" in command:
+                assert "Test User <test@example.com>" in command
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_no_signoff_anywhere(self, runner_handler: RunnerHandler) -> None:
+        """No Signed-off-by in merge commit or PR commits — skip."""
+        mock_pr = Mock()
+        mock_pr.merge_commit_sha = "merge123"
+        mock_merge_commit = Mock()
+        mock_merge_commit.commit.message = "Merge pull request #42 from user/branch"
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        pr_commit = Mock()
+        pr_commit.commit.message = "feat: no sign-off here"
+        mock_pr.get_commits.return_value = [pr_commit]
+
+        with patch(
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_author_info_read_failure_still_amends(self, runner_handler: RunnerHandler) -> None:
+        """Cannot read current author info — log warning and proceed to amend."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
+            author_name="User",
+            author_email="user@example.com",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (False, "", "fatal: bad revision")
+            if "log -1 --format=%B" in command:
+                return (True, "feat: test\n\nSigned-off-by: noreply <noreply@github.com>\n", "")
+            if "commit --amend" in command:
+                assert "User <user@example.com>" in command
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+            runner_handler.github_webhook.logger.warning.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_signoff_name_mismatch_uses_merge_commit_author(self, runner_handler: RunnerHandler) -> None:
+        """Signed-off-by has username but merge commit author has full name — uses merge commit author."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="docs: update docs\n\nSigned-off-by: rnetser <rnetser@redhat.com>\n",
+            author_name="Ruth Netser",
+            author_email="rnetser@redhat.com",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        amend_commands: list[str] = []
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "rnetser\nrnetser@redhat.com", "")
+            if "log -1 --format=%B" in command:
+                return (
+                    True,
+                    "docs: update docs\n\nSigned-off-by: rnetser <rnetser@redhat.com>\n",
+                    "",
+                )
+            if "commit --amend" in command:
+                amend_commands.append(command)
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+            # Verify it used the merge commit author name, not the sign-off name
+            assert len(amend_commands) == 1
+            assert "Ruth Netser <rnetser@redhat.com>" in amend_commands[0]
+
+    @pytest.mark.asyncio
+    async def test_message_read_failure_amends_author_only(self, runner_handler: RunnerHandler) -> None:
+        """Cannot read commit message — fall back to amending author only (--no-edit)."""
+        mock_pr, mock_merge_commit = self._make_merged_pr(
+            merge_commit_msg="feat: test\n\nSigned-off-by: User <user@example.com>\n",
+            author_name="User",
+            author_email="user@example.com",
+        )
+        runner_handler.github_webhook.repository.get_commit.return_value = mock_merge_commit
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "log -1 --format=%an%n%ae" in command:
+                return (True, "noreply\nnoreply@github.com", "")
+            if "log -1 --format=%B" in command:
+                return (False, "", "fatal: could not read")
+            if "commit --amend" in command:
+                assert "--no-edit" in command
+                assert "User <user@example.com>" in command
+                return (True, "success", "")
+            return (True, "", "")
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is True
+            runner_handler.github_webhook.logger.warning.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_api_failure_returns_false(self, runner_handler: RunnerHandler) -> None:
+        """github_api_call raises exception — return False (best-effort, don't block cherry-pick)."""
+        mock_pr = Mock()
+        mock_pr.merge_commit_sha = "abc123"
+
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.github_api_call",
+            new=AsyncMock(side_effect=RuntimeError("GitHub API unavailable")),
+        ):
+            result = await runner_handler._restore_original_author_for_cherry_pick(
+                pull_request=mock_pr,
+                git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                github_token="test-token",  # pragma: allowlist secret
+            )
+            assert result is False
+            runner_handler.github_webhook.logger.exception.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_is_reraised(self, runner_handler: RunnerHandler) -> None:
+        """asyncio.CancelledError is re-raised, not swallowed."""
+        mock_pr = Mock()
+        mock_pr.merge_commit_sha = "abc123"
+
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.github_api_call",
+            new=AsyncMock(side_effect=asyncio.CancelledError()),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await runner_handler._restore_original_author_for_cherry_pick(
+                    pull_request=mock_pr,
+                    git_cmd="git --work-tree=/tmp/test --git-dir=/tmp/test/.git",
+                    github_token="test-token",  # pragma: allowlist secret
+                )
 
 
 class TestCheckConfig:

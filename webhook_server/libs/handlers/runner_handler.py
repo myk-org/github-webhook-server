@@ -735,6 +735,157 @@ Your team can configure additional types in the repository settings.
                 return False
             raise
 
+    async def _find_signoff_source(
+        self,
+        pull_request: PullRequest,
+    ) -> tuple[Any, str | None]:
+        """Find a commit with a Signed-off-by trailer and return it with the sign-off email.
+
+        Checks the merge commit first (squash-merge). If the merge commit has no
+        Signed-off-by, falls back to scanning the PR's individual commits in
+        reverse order (regular merge).
+
+        Returns (source_commit, signoff_email) or (None, None) if no sign-off found.
+        """
+        # Try the merge commit first (squash-merge case)
+        merge_sha = await github_api_call(
+            lambda: pull_request.merge_commit_sha, logger=self.logger, log_prefix=self.log_prefix
+        )
+        if merge_sha:
+            merge_commit = await github_api_call(
+                self.github_webhook.repository.get_commit, merge_sha, logger=self.logger, log_prefix=self.log_prefix
+            )
+            commit_msg = await github_api_call(
+                lambda: merge_commit.commit.message, logger=self.logger, log_prefix=self.log_prefix
+            )
+            signoff_match = re.findall(r"(?m)^Signed-off-by:\s*(.+?)\s*<([^>\n]+)>\s*$", commit_msg)
+            if signoff_match:
+                return merge_commit, signoff_match[-1][1]
+
+        # Fall back to PR commits (regular merge case)
+        commits = await github_api_call(
+            lambda: list(pull_request.get_commits()), logger=self.logger, log_prefix=self.log_prefix
+        )
+        for commit in reversed(commits):
+            commit_msg = await github_api_call(
+                lambda c=commit: c.commit.message, logger=self.logger, log_prefix=self.log_prefix
+            )
+            signoff_match = re.findall(r"(?m)^Signed-off-by:\s*(.+?)\s*<([^>\n]+)>\s*$", commit_msg)
+            if signoff_match:
+                return commit, signoff_match[-1][1]
+
+        return None, None
+
+    async def _restore_original_author_for_cherry_pick(
+        self,
+        pull_request: PullRequest,
+        git_cmd: str,
+        github_token: str,
+    ) -> bool:
+        """Amend cherry-picked commit to restore the original PR author for DCO compliance.
+
+        GitHub squash-merges rewrite the author email to the noreply format
+        (e.g., 86722603+user@users.noreply.github.com). When git cherry-pick
+        replays such a commit, the DCO check fails because the author email
+        no longer matches the Signed-off-by trailer.
+
+        This method first checks the merge commit (via ``pull_request.merge_commit_sha``)
+        for a Signed-off-by trailer (squash-merge case). If not found, it falls back
+        to scanning the PR's individual commits (regular merge case).
+
+        The author identity is built from the source commit's git author name
+        (preserved by GitHub) combined with the email from the Signed-off-by trailer.
+
+        Returns True if the commit was amended, False if no amendment was needed or possible.
+        """
+        try:
+            # Try merge commit first (squash-merge), fall back to PR commits (regular merge)
+            source_commit, signoff_email = await self._find_signoff_source(pull_request)
+            if not source_commit or not signoff_email:
+                self.logger.debug(f"{self.log_prefix} No Signed-off-by found, skipping author restore")
+                return False
+
+            # Author name from the source commit's git author (GitHub preserves the display name)
+            # Author email from the Signed-off-by trailer (commit email may be noreply)
+            author_name = await github_api_call(
+                lambda: source_commit.commit.author.name, logger=self.logger, log_prefix=self.log_prefix
+            )
+            author_email = signoff_email
+
+            author_spec = f"{author_name} <{author_email}>"
+            redact_list = [github_token, author_spec, author_email, author_name]
+
+            # Check if the cherry-picked commit author already matches (both name and email)
+            needs_author_amend = True
+            rc, current_author_info, _ = await run_command(
+                command=f"{git_cmd} log -1 --format=%an%n%ae",
+                log_prefix=self.log_prefix,
+                redact_secrets=redact_list,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Could not read current author info, proceeding with author amend"
+                )
+            else:
+                info_lines = current_author_info.strip().splitlines()
+                if len(info_lines) == 2 and info_lines[0] == author_name and info_lines[1] == author_email:
+                    needs_author_amend = False
+
+            # Read the current commit message to fix Signed-off-by trailers
+            rc, current_msg, _ = await run_command(
+                command=f"{git_cmd} log -1 --format=%B",
+                log_prefix=self.log_prefix,
+                redact_secrets=redact_list,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            needs_message_amend = False
+            amended_msg: str | None = None
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Could not read commit message, amending author only")
+            else:
+                # Remove all existing Signed-off-by trailers and add the correct one
+                msg_lines = current_msg.rstrip().splitlines()
+                filtered_lines = [line for line in msg_lines if not re.match(r"Signed-off-by:\s*", line)]
+                while filtered_lines and not filtered_lines[-1].strip():
+                    filtered_lines.pop()
+                filtered_lines.append("")
+                filtered_lines.append(f"Signed-off-by: {author_name} <{author_email}>")
+                amended_msg = "\n".join(filtered_lines) + "\n"
+                needs_message_amend = amended_msg != current_msg
+
+            if not needs_author_amend and not needs_message_amend:
+                self.logger.debug(f"{self.log_prefix} Author and Signed-off-by already match, no amend needed")
+                return False
+
+            # Amend the commit author and optionally the message
+            msg_flag = f"-m {shlex.quote(amended_msg)}" if needs_message_amend and amended_msg else "--no-edit"
+            rc, _, err = await run_command(
+                command=f"{git_cmd} commit --amend --author={shlex.quote(author_spec)} {msg_flag}",
+                log_prefix=self.log_prefix,
+                redact_secrets=redact_list,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+
+            if not rc:
+                redacted_err = _redact_secrets(
+                    err,
+                    redact_list,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                self.logger.warning(
+                    f"{self.log_prefix} Failed to amend cherry-pick author for DCO compliance: {redacted_err}"
+                )
+                return False
+
+            self.logger.info(f"{self.log_prefix} Restored original author on cherry-pick for DCO compliance")
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to restore original author for cherry-pick")
+            return False
+
     async def _resolve_cherry_pick_with_ai(
         self,
         worktree_path: str,
@@ -1024,6 +1175,13 @@ Your team can configure additional types in the repository settings.
                         )
                         return
                     cherry_pick_had_conflicts = True
+
+                # Restore original PR author on cherry-pick for DCO compliance
+                await self._restore_original_author_for_cherry_pick(
+                    pull_request=pull_request,
+                    git_cmd=git_cmd,
+                    github_token=github_token,
+                )
 
                 # Push the branch
                 rc, out, err = await run_command(
