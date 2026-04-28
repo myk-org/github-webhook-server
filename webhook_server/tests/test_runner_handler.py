@@ -1,7 +1,9 @@
 import asyncio
+import shlex
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -53,9 +55,19 @@ class TestRunnerHandler:
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
         mock_webhook.repository_full_name = "test/repo"
+        mock_webhook.repository_name = "repo"
         mock_webhook.dockerfile = "Dockerfile"
         mock_webhook.container_build_args = []
         mock_webhook.container_command_args = []
+        mock_webhook.container_oci_annotations_enabled = False
+        mock_webhook.container_oci_static_annotations = {}
+        mock_webhook.container_oci_auto_annotations = {
+            "created": True,
+            "source": True,
+            "revision": True,
+            "version": True,
+            "title": True,
+        }
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
         mock_webhook.ai_features = None
@@ -2547,3 +2559,196 @@ class TestRunCheck:
             # Should still run the check even if already in progress (log and re-run)
             runner_handler.check_run_handler.set_check_in_progress.assert_called_once()
             runner_handler.check_run_handler.set_check_success.assert_called_once()
+
+
+class TestBuildOciAnnotations:
+    """Test suite for _build_oci_annotations method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Create a mock GithubWebhook for OCI annotation tests."""
+        mock_webhook = Mock()
+        mock_webhook.repository_full_name = "test-org/test-repo"
+        mock_webhook.repository_name = "test-repo"
+        mock_webhook.hook_data = {"head_commit": {"id": "push-sha-123"}}
+        mock_webhook.container_oci_annotations_enabled = True
+        mock_webhook.container_oci_static_annotations = {}
+        mock_webhook.container_oci_auto_annotations = {
+            "created": True,
+            "source": True,
+            "revision": True,
+            "version": True,
+            "title": True,
+        }
+        return mock_webhook
+
+    @pytest.fixture
+    def runner_handler(self, mock_github_webhook: Mock) -> RunnerHandler:
+        """Create a RunnerHandler with OCI-enabled mock."""
+        return RunnerHandler(mock_github_webhook, Mock())
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        """Create a mock PullRequest."""
+        mock_pr = Mock()
+        mock_pr.head.sha = "pr-sha-abc123"
+        return mock_pr
+
+    def test_disabled_returns_empty(self, runner_handler: RunnerHandler) -> None:
+        """Test that disabled OCI annotations return empty string."""
+        runner_handler.github_webhook.container_oci_annotations_enabled = False
+        assert runner_handler._build_oci_annotations() == ""
+
+    def test_auto_annotations_with_pull_request(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test auto-populated annotations with a pull request."""
+        result = runner_handler._build_oci_annotations(pull_request=mock_pull_request, tag="v1.0.0")
+
+        assert "--annotation" in result
+        assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in result
+        assert "org.opencontainers.image.revision=pr-sha-abc123" in result
+        assert "org.opencontainers.image.version=v1.0.0" in result
+        assert "org.opencontainers.image.title=test-repo" in result
+        assert "org.opencontainers.image.created=" in result
+
+    def test_auto_annotations_push_event(self, runner_handler: RunnerHandler) -> None:
+        """Test auto-populated annotations on push event (no PR, uses head_commit)."""
+        result = runner_handler._build_oci_annotations(tag="v2.0.0")
+
+        assert "org.opencontainers.image.revision=push-sha-123" in result
+        assert "org.opencontainers.image.version=v2.0.0" in result
+
+    def test_no_revision_without_pr_or_push(self, runner_handler: RunnerHandler) -> None:
+        """Test no revision annotation when no PR and no head_commit."""
+        runner_handler.github_webhook.hook_data = {}
+        result = runner_handler._build_oci_annotations()
+
+        assert "org.opencontainers.image.revision" not in result
+        assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in result
+
+    def test_no_version_without_tag(self, runner_handler: RunnerHandler) -> None:
+        """Test no version annotation when tag is empty."""
+        result = runner_handler._build_oci_annotations(tag="")
+
+        assert "org.opencontainers.image.version" not in result
+
+    def test_static_annotations(self, runner_handler: RunnerHandler) -> None:
+        """Test static annotations are included."""
+        runner_handler.github_webhook.container_oci_static_annotations = {
+            "org.opencontainers.image.vendor": "Test Corp",
+            "org.opencontainers.image.licenses": "Apache-2.0",
+        }
+        result = runner_handler._build_oci_annotations()
+
+        assert "org.opencontainers.image.vendor=Test Corp" in result
+        assert "org.opencontainers.image.licenses=Apache-2.0" in result
+
+    def test_static_overrides_auto(self, runner_handler: RunnerHandler) -> None:
+        """Test static annotations override auto-populated ones."""
+        runner_handler.github_webhook.container_oci_static_annotations = {
+            "org.opencontainers.image.title": "Custom Title",
+        }
+        result = runner_handler._build_oci_annotations()
+
+        assert "org.opencontainers.image.title=Custom Title" in result
+        # Should NOT contain auto-generated title
+        assert "org.opencontainers.image.title=test-repo" not in result
+
+    def test_selective_auto_disable(self, runner_handler: RunnerHandler) -> None:
+        """Test selectively disabling auto annotations."""
+        runner_handler.github_webhook.container_oci_auto_annotations = {
+            "created": False,
+            "source": False,
+            "revision": True,
+            "version": True,
+            "title": True,
+        }
+        result = runner_handler._build_oci_annotations(pull_request=Mock(head=Mock(sha="sha1")), tag="v1.0")
+
+        assert "org.opencontainers.image.created" not in result
+        assert "org.opencontainers.image.source" not in result
+        assert "org.opencontainers.image.revision=sha1" in result
+        assert "org.opencontainers.image.version=v1.0" in result
+        assert "org.opencontainers.image.title=test-repo" in result
+
+    def test_all_auto_disabled_no_static_returns_empty(self, runner_handler: RunnerHandler) -> None:
+        """Test that disabling all auto annotations with no static returns empty."""
+        runner_handler.github_webhook.container_oci_auto_annotations = {
+            "created": False,
+            "source": False,
+            "revision": False,
+            "version": False,
+            "title": False,
+        }
+        runner_handler.github_webhook.hook_data = {}
+        assert runner_handler._build_oci_annotations() == ""
+
+    def test_custom_annotation_keys(self, runner_handler: RunnerHandler) -> None:
+        """Test custom annotation keys (non-OCI standard)."""
+        runner_handler.github_webhook.container_oci_auto_annotations = {
+            "created": False,
+            "source": False,
+            "revision": False,
+            "version": False,
+            "title": False,
+        }
+        runner_handler.github_webhook.container_oci_static_annotations = {
+            "com.example.team": "platform",
+            "com.example.build-id": "12345",
+        }
+        result = runner_handler._build_oci_annotations()
+
+        assert "com.example.team=platform" in result
+        assert "com.example.build-id=12345" in result
+
+    def test_annotation_values_are_shell_safe(self, runner_handler: RunnerHandler) -> None:
+        """Test that annotation values with special characters are properly quoted."""
+        runner_handler.github_webhook.container_oci_static_annotations = {
+            "org.opencontainers.image.description": "A test image; with special chars & more",
+        }
+        result = runner_handler._build_oci_annotations()
+
+        tokens = shlex.split(result)
+        assert "--annotation" in tokens
+        assert "org.opencontainers.image.description=A test image; with special chars & more" in tokens
+
+    @pytest.mark.asyncio
+    async def test_build_container_includes_oci_annotations(
+        self, runner_handler: RunnerHandler, tmp_path: Path
+    ) -> None:
+        """Test that run_build_container passes OCI annotation flags to podman build."""
+        runner_handler.github_webhook.build_and_push_container = True
+        runner_handler.github_webhook.container_build_args = []
+        runner_handler.github_webhook.container_command_args = []
+        runner_handler.github_webhook.dockerfile = "Dockerfile"
+        runner_handler.github_webhook.container_repository_username = ""
+        runner_handler.github_webhook.pypi = {}
+
+        with (
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "ok", ""))
+            ) as mock_cmd,
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "get_check_run_text", return_value="test output"),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, str(tmp_path / "wt"), "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            mock_pr = Mock()
+            mock_pr.number = 1
+            mock_pr.head.sha = "abc123"
+            mock_pr.base.ref = "main"
+
+            await runner_handler.run_build_container(pull_request=mock_pr)
+
+            cmd_arg = mock_cmd.call_args[1].get("command", "") if mock_cmd.call_args[1] else mock_cmd.call_args[0][0]
+            assert "--annotation" in cmd_arg, f"Expected --annotation in podman build command: {cmd_arg}"
+            assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in cmd_arg

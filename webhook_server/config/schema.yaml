@@ -385,6 +385,45 @@ properties:
               items:
                 type: string
               description: Additional arguments for build command
+            oci-annotations:
+              type: object
+              description: OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+              properties:
+                enabled:
+                  type: boolean
+                  description: Enable OCI annotations on built images
+                  default: false
+                static:
+                  type: object
+                  description: Static annotations (key-value pairs). Keys should use reverse domain notation.
+                  additionalProperties:
+                    type: string
+                auto:
+                  type: object
+                  description: Auto-populated annotations from webhook context (all default to true when enabled)
+                  properties:
+                    created:
+                      type: boolean
+                      description: Add org.opencontainers.image.created (build timestamp)
+                      default: true
+                    source:
+                      type: boolean
+                      description: Add org.opencontainers.image.source (repo URL)
+                      default: true
+                    revision:
+                      type: boolean
+                      description: Add org.opencontainers.image.revision (commit SHA)
+                      default: true
+                    version:
+                      type: boolean
+                      description: Add org.opencontainers.image.version (tag on release builds)
+                      default: true
+                    title:
+                      type: boolean
+                      description: Add org.opencontainers.image.title (repo name)
+                      default: true
+                  additionalProperties: false
+              additionalProperties: false
         auto-verified-and-merged-users:
           type: array
           items:
