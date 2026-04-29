@@ -180,6 +180,18 @@ repositories:
         - my-build-arg2=2
       args: # args to send to podman build command
         - --format docker
+      oci-annotations: # OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+        enabled: true
+        static: # User-defined static annotations
+          org.opencontainers.image.vendor: "My Organization"
+          org.opencontainers.image.licenses: "Apache-2.0"
+          org.opencontainers.image.documentation: "https://docs.example.com"
+        auto: # Auto-populated from webhook context (all default to true when enabled)
+          created: true   # org.opencontainers.image.created - build timestamp
+          source: true    # org.opencontainers.image.source - repository URL
+          revision: true  # org.opencontainers.image.revision - commit SHA
+          version: true   # org.opencontainers.image.version - tag on release builds
+          title: true     # org.opencontainers.image.title - repository name
 
     auto-verified-and-merged-users: # override auto verified users per repository
       - "my[bot]"

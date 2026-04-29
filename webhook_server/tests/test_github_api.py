@@ -2394,3 +2394,116 @@ class TestGithubWebhook:
                                         # Early exit: no rate limit burned, no PR fetched
                                         mock_add_api_users.assert_not_awaited()
                                         mock_get_pr.assert_not_awaited()
+
+    @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    def test_oci_annotations_config_parsing(
+        self,
+        mock_color: Mock,
+        mock_get_app_api: Mock,
+        mock_get_repo_api: Mock,
+        mock_get_api: Mock,
+        mock_config: Mock,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+        logger: Mock,
+    ) -> None:
+        """Test OCI annotations are correctly parsed from container config."""
+        container_config = {
+            "username": "user",
+            "password": "pass",  # pragma: allowlist secret
+            "repository": "quay.io/org/img",
+            "oci-annotations": {
+                "enabled": True,
+                "static": {
+                    "org.opencontainers.image.vendor": "Test Corp",
+                    "org.opencontainers.image.licenses": "MIT",
+                },
+                "auto": {
+                    "created": True,
+                    "source": False,
+                    "revision": True,
+                    "version": False,
+                    "title": True,
+                },
+            },
+        }
+
+        def mock_get_value(value: str, return_on_none: Any = None, extra_dict: Any = None) -> Any:
+            if value == "container":
+                return container_config
+            return return_on_none
+
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_config.return_value.get_value = mock_get_value
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo_api.return_value = Mock()
+        mock_get_app_api.return_value = Mock()
+        mock_color.return_value = "test-repo"
+
+        gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+        assert gh.container_oci_annotations_enabled is True
+        assert gh.container_oci_static_annotations == {
+            "org.opencontainers.image.vendor": "Test Corp",
+            "org.opencontainers.image.licenses": "MIT",
+        }
+        assert gh.container_oci_auto_annotations == {
+            "created": True,
+            "source": False,
+            "revision": True,
+            "version": False,
+            "title": True,
+        }
+
+    @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    def test_oci_annotations_defaults_when_not_configured(
+        self,
+        mock_color: Mock,
+        mock_get_app_api: Mock,
+        mock_get_repo_api: Mock,
+        mock_get_api: Mock,
+        mock_config: Mock,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+        logger: Mock,
+    ) -> None:
+        """Test OCI annotations defaults when container has no oci-annotations key."""
+        container_config = {
+            "username": "user",
+            "password": "pass",  # pragma: allowlist secret
+            "repository": "quay.io/org/img",
+        }
+
+        def mock_get_value(value: str, return_on_none: Any = None, extra_dict: Any = None) -> Any:
+            if value == "container":
+                return container_config
+            return return_on_none
+
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_config.return_value.get_value = mock_get_value
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo_api.return_value = Mock()
+        mock_get_app_api.return_value = Mock()
+        mock_color.return_value = "test-repo"
+
+        gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+        assert gh.container_oci_annotations_enabled is False
+        assert gh.container_oci_static_annotations == {}
+        assert gh.container_oci_auto_annotations == {
+            "created": True,
+            "source": True,
+            "revision": True,
+            "version": True,
+            "title": True,
+        }

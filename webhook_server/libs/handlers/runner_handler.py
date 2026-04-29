@@ -7,6 +7,7 @@ import shutil
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -307,6 +308,50 @@ class RunnerHandler:
         check_config = CheckConfig(name=PRE_COMMIT_STR, command=cmd, title="Pre-Commit")
         await self.run_check(pull_request=pull_request, check_config=check_config)
 
+    def _build_oci_annotations(
+        self,
+        pull_request: PullRequest | None = None,
+        tag: str = "",
+    ) -> str:
+        """Build OCI annotation flags for podman build command.
+
+        Returns a string of --annotation flags to append to the build command.
+        """
+        if not self.github_webhook.container_oci_annotations_enabled:
+            return ""
+
+        annotations: dict[str, str] = {}
+        auto = self.github_webhook.container_oci_auto_annotations
+
+        # Auto-populated annotations
+        if auto.get("created", True):
+            annotations["org.opencontainers.image.created"] = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        if auto.get("source", True):
+            annotations["org.opencontainers.image.source"] = (
+                f"https://github.com/{self.github_webhook.repository_full_name}"
+            )
+
+        if auto.get("revision", True):
+            if pull_request:
+                annotations["org.opencontainers.image.revision"] = pull_request.head.sha
+            elif self.github_webhook.hook_data.get("head_commit", {}).get("id"):
+                annotations["org.opencontainers.image.revision"] = self.github_webhook.hook_data["head_commit"]["id"]
+
+        if auto.get("version", True) and tag:
+            annotations["org.opencontainers.image.version"] = tag
+
+        if auto.get("title", True):
+            annotations["org.opencontainers.image.title"] = self.github_webhook.repository_name
+
+        # Static annotations override auto-populated ones
+        annotations.update(self.github_webhook.container_oci_static_annotations)
+
+        if not annotations:
+            return ""
+
+        return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
+
     async def run_build_container(
         self,
         pull_request: PullRequest | None = None,
@@ -353,6 +398,10 @@ class RunnerHandler:
                 f"{worktree_path}/{self.github_webhook.dockerfile} "
                 f"{worktree_path} -t {_container_repository_and_tag}"
             )
+
+            oci_annotation_flags = self._build_oci_annotations(pull_request=pull_request, tag=tag)
+            if oci_annotation_flags:
+                build_cmd = f"{oci_annotation_flags} {build_cmd}"
 
             if self.github_webhook.container_build_args:
                 build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)

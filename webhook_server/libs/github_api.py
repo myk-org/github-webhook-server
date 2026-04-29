@@ -806,6 +806,19 @@ class GithubWebhook:
             self.container_command_args: list[str] = [str(a) for a in _cmd_args]
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
+            _oci_annotations = self.build_and_push_container.get("oci-annotations", {})
+            self.container_oci_annotations_enabled: bool = _oci_annotations.get("enabled", False)
+            _static = _oci_annotations.get("static", {})
+            self.container_oci_static_annotations: dict[str, str] = {str(k): str(v) for k, v in _static.items()}
+            _auto = _oci_annotations.get("auto", {})
+            self.container_oci_auto_annotations: dict[str, bool] = {
+                "created": _auto.get("created", True),
+                "source": _auto.get("source", True),
+                "revision": _auto.get("revision", True),
+                "version": _auto.get("version", True),
+                "title": _auto.get("title", True),
+            }
+
         self.pre_commit: bool = self.config.get_value(
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
