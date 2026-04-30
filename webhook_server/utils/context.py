@@ -105,7 +105,7 @@ class WebhookContext:
         started_at: Webhook processing start time (UTC)
         completed_at: Webhook processing completion time (UTC)
         workflow_steps: Dict of workflow steps keyed by step name
-        token_spend: GitHub API tokens consumed (rate_limit_before - rate_limit_after)
+        token_spend: GitHub API calls counted by this webhook's requester wrapper
         initial_rate_limit: GitHub API rate limit at start
         final_rate_limit: GitHub API rate limit at end
         success: Overall execution success status

@@ -156,6 +156,45 @@ class TestHelpers:
             assert token == "valid_token"
             assert user == "user2"
 
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    @patch("webhook_server.utils.helpers.log_rate_limit")
+    def test_get_api_with_highest_rate_limit_single_token(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
+        """Test single-token short-circuit skips comparison loop."""
+        mock_api = Mock()
+        mock_api.rate_limiting = [100, 5000]
+        mock_api.get_user.return_value.login = "user1"
+        mock_rate_limit = Mock()
+        mock_rate_limit.rate.remaining = 4500
+        mock_rate_limit.rate.reset = Mock()
+        mock_rate_limit.rate.limit = 5000
+        mock_api.get_rate_limit.return_value = mock_rate_limit
+
+        mock_get_apis.return_value = [(mock_api, "token1")]
+
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        assert api == mock_api
+        assert token == "token1"
+        assert user == "user1"
+        # Should call get_rate_limit for logging, but not for comparison
+        mock_api.get_rate_limit.assert_called_once()
+        mock_log_rate_limit.assert_called_once()
+
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_get_api_with_highest_rate_limit_single_token_invalid(self, mock_get_apis: Mock) -> None:
+        """Test single-token path rejects invalid token (rate limit 60)."""
+        mock_api = Mock()
+        mock_api.rate_limiting = [30, 60]  # Invalid token indicator
+
+        mock_get_apis.return_value = [(mock_api, "invalid_token")]
+
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            with pytest.raises(NoApiTokenError, match="rate limit 60"):
+                get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
     def test_get_logger_with_params_log_file_path(self, tmp_path, monkeypatch):
         """Test get_logger_with_params with log_file that is not an absolute path."""
         # Patch Config.get_value to return a log file name

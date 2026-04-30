@@ -119,7 +119,10 @@ def github_webhook(mocker, request):
 
     mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
     mocker.patch("github.AuthenticatedUser", return_value=True)
-    mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=("API", "TOKEN", "USER"))
+    mock_github_api = mocker.Mock()
+    mock_github_api._Github__requester = mocker.Mock()
+    mock_github_api.get_rate_limit.return_value.rate.remaining = 5000
+    mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=(mock_github_api, "TOKEN", "USER"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
     mocker.patch(f"{base_import_path}.GithubWebhook.add_api_users_to_auto_verified_and_merged_users", return_value=None)
 
