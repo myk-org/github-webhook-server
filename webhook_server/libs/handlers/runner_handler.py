@@ -690,17 +690,6 @@ Your team can configure additional types in the repository settings.
         else:
             types_info = f"Allowed types: {', '.join(allowed_names)}"
 
-        prompt = (
-            "You are in a git repository checked out to a PR branch.\n"
-            "Look at the recent commits and changes to understand what this PR does.\n"
-            f"Current PR title: {title}\n"
-            f"{types_info}\n"
-            f"Required format: <type>[optional scope]: <description>\n"
-            f"Output ONLY the corrected title on a single line.\n"
-            f"Do NOT include any explanation, reasoning, markdown, or quotes.\n"
-            f"Example output: feat: add user authentication"
-        )
-
         cli_flags: list[str] = []
         if ai_provider == "claude":
             cli_flags = ["--dangerously-skip-permissions"]
@@ -710,10 +699,27 @@ Your team can configure additional types in the repository settings.
             cli_flags = ["--force"]
 
         try:
+            base_ref = await github_api_call(
+                lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+            )
+
             async with self._checkout_worktree(pull_request=pull_request) as (wt_success, worktree_path, _, _):
                 if not wt_success:
                     self.logger.warning(f"{self.log_prefix} Failed to create worktree for AI title suggestion")
                     return None
+
+                prompt = (
+                    "You are in a git repository checked out to a PR branch.\n"
+                    f"Run `git diff origin/{base_ref}` to see the changes in this PR.\n"
+                    f"Run `git log origin/{base_ref}..HEAD --oneline` to see the commit messages.\n"
+                    f"Based on the diff and commit messages, suggest a conventional commit title.\n\n"
+                    f"Current PR title: {title}\n"
+                    f"{types_info}\n"
+                    f"Required format: <type>[optional scope]: <description>\n"
+                    f"Output ONLY the corrected title on a single line.\n"
+                    f"Do NOT include any explanation, reasoning, markdown, or quotes.\n"
+                    f"Example output: feat: add user authentication"
+                )
 
                 success, result = await call_ai_cli(
                     prompt=prompt,
