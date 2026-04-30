@@ -61,21 +61,45 @@ class CountingRequester:
     """
     Wrapper around PyGithub Requester to count API calls for a specific instance.
     Intercepts request* methods to increment a counter.
+    Also intercepts withLazy() so derived Requester instances share the same counter.
     """
 
-    def __init__(self, requester: Any) -> None:
+    def __init__(
+        self,
+        requester: Any,
+        shared_count: list[int] | None = None,
+        shared_lock: threading.Lock | None = None,
+    ) -> None:
         self._requester = requester
-        self.count = 0
-        self._thread_lock = threading.Lock()
+        self._shared_count: list[int] = shared_count if shared_count is not None else [0]
+        self._thread_lock = shared_lock or threading.Lock()
+
+    @property
+    def count(self) -> int:
+        return self._shared_count[0]
+
+    @count.setter
+    def count(self, value: int) -> None:
+        self._shared_count[0] = value
+
+    def withLazy(self, lazy: Any) -> CountingRequester:
+        new_requester = self._requester.withLazy(lazy)
+        return CountingRequester(
+            new_requester,
+            shared_count=self._shared_count,
+            shared_lock=self._thread_lock,
+        )
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._requester, name)
+        # PyGithub >=2.4.0 uses request* methods (requestJson, requestJsonAndCheck, etc.)
+        # for all REST API calls. This is tied to our pinned version — audit on PyGithub upgrades.
         if name.startswith("request") and callable(attr):
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
                 # Increment counter with thread safety since PyGithub may run in threads.
                 with self._thread_lock:
-                    self.count += 1
+                    self._shared_count[0] += 1
                 return attr(*args, **kwargs)
 
             return wrapper
@@ -107,7 +131,6 @@ class GithubWebhook:
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
         self.requester_wrapper: CountingRequester | None = None
-        self.initial_wrapper_count: int = 0
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -121,20 +144,16 @@ class GithubWebhook:
         if github_api and self.token:
             self.github_api = github_api
 
-            # Wrap the requester to count API calls per this webhook instance
-            # This must be done BEFORE creating self.repository so it shares the wrapped requester
-            # PyGithub stores the requester in _Github__requester (name mangling)
-            if hasattr(self.github_api, "_Github__requester"):
-                requester = self.github_api._Github__requester
-                if isinstance(requester, CountingRequester):
-                    # Already wrapped (shared Github instance), reuse existing wrapper
-                    self.requester_wrapper = requester
-                else:
-                    self.requester_wrapper = CountingRequester(requester)
-                    self.github_api._Github__requester = self.requester_wrapper
+            # Wrap the requester to count API calls per this webhook instance.
+            # This must be done BEFORE creating self.repository so it shares the wrapped requester.
+            # PyGithub >=2.4.0 stores the requester in _Github__requester (name mangling).
+            requester = self.github_api._Github__requester
+            # Unwrap existing CountingRequester to get the real requester
+            if isinstance(requester, CountingRequester):
+                requester = requester._requester
 
-                # Capture initial count for per-webhook delta calculation
-                self.initial_wrapper_count = self.requester_wrapper.count
+            self.requester_wrapper = CountingRequester(requester)
+            self.github_api._Github__requester = self.requester_wrapper
 
             # Track initial rate limit for token spend calculation
             # Note: log_prefix not set yet, so we can't use it in error messages here
@@ -195,14 +214,14 @@ class GithubWebhook:
             return
 
         if self.requester_wrapper:
-            self.ctx.token_spend = self.requester_wrapper.count - self.initial_wrapper_count
+            self.ctx.token_spend = self.requester_wrapper.count
 
         if self.initial_rate_limit_remaining is not None:
             self.ctx.initial_rate_limit = self.initial_rate_limit_remaining
             if self.requester_wrapper:
-                self.ctx.final_rate_limit = max(
-                    0, self.initial_rate_limit_remaining - (self.requester_wrapper.count - self.initial_wrapper_count)
-                )
+                # Heuristic: assumes each REST call consumes one rate limit unit.
+                # Does not account for GitHub App client calls or endpoint-specific costs.
+                self.ctx.final_rate_limit = max(0, self.initial_rate_limit_remaining - self.requester_wrapper.count)
 
         # Update api_user
         self.ctx.api_user = self.api_user
@@ -223,9 +242,8 @@ class GithubWebhook:
             # Use the wrapper count if available (thread-safe per request)
             # We skip checking global rate limit to avoid inflating the API call count with an extra call
             if self.requester_wrapper:
-                token_spend = self.requester_wrapper.count - self.initial_wrapper_count
-                # If rate limit was already low, or if the delta calculation leads to negative
-                # values due to race conditions (unlikely with correct locking), clamp to 0
+                token_spend = self.requester_wrapper.count
+                # Clamp to 0 in case rate limit reset occurred between initial check and now
                 remaining = max(0, self.initial_rate_limit_remaining - token_spend)
 
                 return (

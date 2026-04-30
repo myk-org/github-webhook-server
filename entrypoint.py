@@ -1,7 +1,9 @@
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 
@@ -14,6 +16,7 @@ _ip_bind = _root_config.get("ip-bind", "0.0.0.0")
 _port = _root_config.get("port", 5000)
 _max_workers = _root_config.get("max-workers", 10)
 _webhook_secret = _root_config.get("webhook-secret")
+_dev_mode = os.environ.get("WEBHOOK_SERVER_DEV_MODE", "").lower() in ("1", "true", "yes")
 
 
 def run_podman_cleanup() -> None:
@@ -53,10 +56,12 @@ if __name__ == "__main__":
     # - Application logs use simple-logger with console=True for colored output in Docker logs
     # - Both logging systems work together: uvicorn handles HTTP request logs,
     #   while simple-logger handles application-level logs with structured formatting
-    uvicorn.run(
-        "webhook_server.app:FASTAPI_APP",
-        host=_ip_bind,
-        port=int(_port),
-        workers=int(_max_workers),
-        reload=False,
-    )
+    uvicorn_kwargs: dict[str, Any] = {
+        "host": _ip_bind,
+        "port": int(_port),
+        "reload": _dev_mode,
+    }
+    if not _dev_mode:
+        uvicorn_kwargs["workers"] = int(_max_workers)
+
+    uvicorn.run("webhook_server.app:FASTAPI_APP", **uvicorn_kwargs)

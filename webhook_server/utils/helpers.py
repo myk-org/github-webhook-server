@@ -492,6 +492,23 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     apis_and_tokens = get_apis_and_tokes_from_config(config=config)
     logger.debug(f"Checking {len(apis_and_tokens)} API(s) for highest rate limit")
 
+    # Short-circuit: single token doesn't need rate limit comparison
+    if len(apis_and_tokens) == 1:
+        _api, _token = apis_and_tokens[0]
+        if _api.rate_limiting[-1] == 60:
+            raise NoApiTokenError("Single configured token has rate limit 60 (indicates invalid token)")
+
+        try:
+            _api_user = _api.get_user().login
+        except GithubException as ex:
+            raise NoApiTokenError(f"Single configured token is invalid: {ex}") from ex
+
+        _rate_limit = _api.get_rate_limit()
+        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
+
+        logger.info(f"API user {_api_user} selected (single token configured)")
+        return _api, _token, _api_user
+
     for _api, _token in apis_and_tokens:
         if _api.rate_limiting[-1] == 60:
             logger.warning("API has rate limit set to 60 which indicates an invalid token, skipping")

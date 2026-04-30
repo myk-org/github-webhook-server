@@ -186,7 +186,7 @@ For containerized deployments, put these runtime settings in `config.yaml`:
 - `verify-github-ips`
 - `verify-cloudflare-ips`
 
-> **Warning:** The checked-in Compose example shows `MAX_WORKERS`, `WEBHOOK_SERVER_IP_BIND`, `WEBHOOK_SERVER_PORT`, `WEBHOOK_SECRET`, `VERIFY_GITHUB_IPS`, and `VERIFY_CLOUDFLARE_IPS` as environment variables, but the application code reads those values from `config.yaml` keys (`max-workers`, `ip-bind`, `port`, `webhook-secret`, `verify-github-ips`, and `verify-cloudflare-ips`). The environment variables consumed directly at runtime are `WEBHOOK_SERVER_DATA_DIR`, `ENABLE_LOG_SERVER`, and `ENABLE_MCP_SERVER`. The Podman cleanup script also reads `PUID`. `PGID` appears in the example, but the application code does not read it.
+> **Warning:** The checked-in Compose example shows `MAX_WORKERS`, `WEBHOOK_SERVER_IP_BIND`, `WEBHOOK_SERVER_PORT`, `WEBHOOK_SECRET`, `VERIFY_GITHUB_IPS`, and `VERIFY_CLOUDFLARE_IPS` as environment variables, but the application code reads those values from `config.yaml` keys (`max-workers`, `ip-bind`, `port`, `webhook-secret`, `verify-github-ips`, and `verify-cloudflare-ips`). The environment variables consumed directly at runtime are `WEBHOOK_SERVER_DATA_DIR`, `ENABLE_LOG_SERVER`, `ENABLE_MCP_SERVER`, and `WEBHOOK_SERVER_DEV_MODE`. The Podman cleanup script also reads `PUID`. `PGID` appears in the example, but the application code does not read it.
 
 > **Note:** `ENABLE_LOG_SERVER` and `ENABLE_MCP_SERVER` are enabled only when they are set to the literal string `true`.
 
