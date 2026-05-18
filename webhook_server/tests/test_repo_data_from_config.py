@@ -80,3 +80,47 @@ def test_tox_python_version_nested_takes_priority_over_legacy(process_github_web
 
     assert process_github_webhook.tox_python_version == "3.12"
     assert "deprecated" not in caplog.text.lower()
+
+
+def test_tox_config_not_mutated_by_repo_data_from_config(process_github_webhook):
+    """Calling _repo_data_from_config must NOT mutate the shared tox dict
+    returned by config.get_value. A shallow copy should be used instead."""
+    shared_tox_dict = {"main": "all", "args": "-v", "python-version": "3.10"}
+    original_get_value = process_github_webhook.config.get_value
+
+    def patched_get_value(value, *args, **kwargs):
+        if value == "tox":
+            return shared_tox_dict
+        return original_get_value(value, *args, **kwargs)
+
+    with patch.object(process_github_webhook.config, "get_value", side_effect=patched_get_value):
+        process_github_webhook._repo_data_from_config(repository_config={})
+
+    # The original dict must still contain all its original keys
+    assert "args" in shared_tox_dict, "shared tox dict was mutated: 'args' key was removed"
+    assert "python-version" in shared_tox_dict, "shared tox dict was mutated: 'python-version' key was removed"
+    assert shared_tox_dict == {"main": "all", "args": "-v", "python-version": "3.10"}
+
+
+def test_tox_python_version_empty_string_uses_presence_not_truthiness(process_github_webhook, caplog):
+    """When 'python-version' is explicitly set to empty string under 'tox',
+    it should still take precedence over a legacy 'tox-python-version' value.
+    Precedence is by key presence, not by truthiness."""
+    original_get_value = process_github_webhook.config.get_value
+
+    def patched_get_value(value, *args, **kwargs):
+        if value == "tox":
+            # python-version is present but empty
+            return {"args": "-x", "python-version": ""}
+        if value == "tox-python-version":
+            return "3.11"
+        return original_get_value(value, *args, **kwargs)
+
+    with patch.object(process_github_webhook.config, "get_value", side_effect=patched_get_value):
+        with caplog.at_level(python_logging.WARNING):
+            process_github_webhook._repo_data_from_config(repository_config={})
+
+    # Empty string should win over legacy because the key IS present
+    assert process_github_webhook.tox_python_version == ""
+    # No deprecation warning since nested key is present
+    assert "deprecated" not in caplog.text.lower()
