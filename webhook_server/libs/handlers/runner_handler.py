@@ -296,6 +296,9 @@ class RunnerHandler:
             tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"
 
+        if self.github_webhook.tox_args:
+            cmd += f" {self.github_webhook.tox_args}"
+
         check_config = CheckConfig(name=TOX_STR, command=cmd, title="Tox")
         await self.run_check(pull_request=pull_request, check_config=check_config)
 

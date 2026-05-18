@@ -33,9 +33,8 @@ tox:
   main: "tests,linting" # Commands for main branch
   develop: "tests" # Commands for develop branch
   feature/*: ["tests", "quick-lint"] # Array format also supported
-
-# Python version for tox execution
-tox-python-version: "3.11"
+  args: "-p -e py314" # Additional CLI arguments passed to tox
+  python-version: "3.11" # Python version for tox (also accepts top-level tox-python-version)
 
 # Pre-commit hooks
 pre-commit: true

@@ -296,6 +296,60 @@ class TestConfigSchema:
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_tox_args_nested_under_tox(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that args is nested under tox config and loaded by Config."""
+        # Verify tox-args is NOT a standalone schema property (it lives under tox now)
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "config",
+            "schema.yaml",
+        )
+        with open(schema_path) as fh:
+            schema = yaml.safe_load(fh)
+
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert "tox-args" not in repo_props, "tox-args must NOT be a standalone property"
+
+        # Verify Config loads tox.args correctly
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["tox"] = {
+            "main": "all",
+            "args": "-p -x",
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+            config_obj = Config()
+            tox_config = config_obj.root_data["repositories"]["test-repo"]["tox"]
+            assert tox_config["main"] == "all"
+            assert tox_config["args"] == "-p -x"
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_tox_args_schema_enforces_string_type(self) -> None:
+        """Test that tox schema has explicit properties block enforcing args as string.
+
+        Without an explicit properties block, args falls through to the catch-all
+        patternProperties which allows arrays. The schema must have an explicit
+        properties.args with type: string to prevent this.
+        """
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "config",
+            "schema.yaml",
+        )
+        with open(schema_path) as fh:
+            schema = yaml.safe_load(fh)
+
+        tox_schema = schema["properties"]["repositories"]["additionalProperties"]["properties"]["tox"]
+        assert "properties" in tox_schema, "tox schema must have an explicit 'properties' block"
+        assert "args" in tox_schema["properties"], "tox.properties must include 'args'"
+        assert tox_schema["properties"]["args"]["type"] == "string", "tox.args must enforce type: string"
+
     def test_protected_branches_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
         """Test that protected-branches accepts both arrays and objects."""
         config = valid_minimal_config.copy()

@@ -798,7 +798,13 @@ class GithubWebhook:
         )
         _tox = self.config.get_value(value="tox", extra_dict=repository_config)
         self.tox: dict[str, str] = _tox if isinstance(_tox, dict) else {}
-        self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
+        self.tox_args: str = self.tox.pop("args", "")
+        _tox_python_version_nested = self.tox.pop("python-version", "")
+        _tox_python_version_legacy = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
+        self.tox_python_version: str = _tox_python_version_nested or _tox_python_version_legacy
+
+        if not _tox_python_version_nested and _tox_python_version_legacy:
+            self.logger.warning("'tox-python-version' is deprecated, use 'python-version' under 'tox' instead")
         self.slack_webhook_url: str = self.config.get_value(value="slack-webhook-url", extra_dict=repository_config)
 
         _container = self.config.get_value(value="container", return_on_none={}, extra_dict=repository_config)
