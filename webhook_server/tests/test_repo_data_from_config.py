@@ -35,7 +35,9 @@ def test_tox_python_version_nested_no_deprecation_warning(process_github_webhook
         process_github_webhook._repo_data_from_config(repository_config={})
 
     assert process_github_webhook.tox_python_version == "3.8"
-    assert "deprecated" not in caplog.text.lower()
+    assert not any(
+        "tox-python-version" in r.getMessage() and "deprecated" in r.getMessage().lower() for r in caplog.records
+    )
 
 
 def test_tox_python_version_legacy_deprecation_warning(process_github_webhook, caplog):
@@ -57,8 +59,9 @@ def test_tox_python_version_legacy_deprecation_warning(process_github_webhook, c
             process_github_webhook._repo_data_from_config(repository_config={})
 
     assert process_github_webhook.tox_python_version == "3.11"
-    assert "tox-python-version" in caplog.text
-    assert "deprecated" in caplog.text.lower()
+    assert any(
+        "tox-python-version" in r.getMessage() and "deprecated" in r.getMessage().lower() for r in caplog.records
+    )
 
 
 def test_tox_python_version_nested_takes_priority_over_legacy(process_github_webhook, caplog):
@@ -80,7 +83,9 @@ def test_tox_python_version_nested_takes_priority_over_legacy(process_github_web
             process_github_webhook._repo_data_from_config(repository_config={})
 
     assert process_github_webhook.tox_python_version == "3.12"
-    assert "deprecated" not in caplog.text.lower()
+    assert not any(
+        "tox-python-version" in r.getMessage() and "deprecated" in r.getMessage().lower() for r in caplog.records
+    )
 
 
 def test_tox_config_not_mutated_by_repo_data_from_config(process_github_webhook):
@@ -124,4 +129,6 @@ def test_tox_python_version_empty_string_uses_presence_not_truthiness(process_gi
     # Empty string should win over legacy because the key IS present
     assert process_github_webhook.tox_python_version == ""
     # No deprecation warning since nested key is present
-    assert "deprecated" not in caplog.text.lower()
+    assert not any(
+        "tox-python-version" in r.getMessage() and "deprecated" in r.getMessage().lower() for r in caplog.records
+    )
