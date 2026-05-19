@@ -1,4 +1,5 @@
 import logging as python_logging
+from typing import Any
 from unittest.mock import patch
 
 
@@ -42,7 +43,7 @@ def test_tox_python_version_legacy_deprecation_warning(process_github_webhook, c
     a deprecation warning should be logged."""
     original_get_value = process_github_webhook.config.get_value
 
-    def patched_get_value(value, *args, **kwargs):
+    def patched_get_value(value: str, *args: Any, **kwargs: Any) -> Any:
         # Override tox to return a dict WITHOUT python-version
         if value == "tox":
             return {"args": "-x --no-header"}
@@ -65,7 +66,7 @@ def test_tox_python_version_nested_takes_priority_over_legacy(process_github_web
     nested takes priority and no deprecation warning is logged."""
     original_get_value = process_github_webhook.config.get_value
 
-    def patched_get_value(value, *args, **kwargs):
+    def patched_get_value(value: str, *args: Any, **kwargs: Any) -> Any:
         # tox dict has python-version set
         if value == "tox":
             return {"args": "-x --no-header", "python-version": "3.12"}
@@ -88,7 +89,7 @@ def test_tox_config_not_mutated_by_repo_data_from_config(process_github_webhook)
     shared_tox_dict = {"main": "all", "args": "-v", "python-version": "3.10"}
     original_get_value = process_github_webhook.config.get_value
 
-    def patched_get_value(value, *args, **kwargs):
+    def patched_get_value(value: str, *args: Any, **kwargs: Any) -> Any:
         if value == "tox":
             return shared_tox_dict
         return original_get_value(value, *args, **kwargs)
@@ -108,7 +109,7 @@ def test_tox_python_version_empty_string_uses_presence_not_truthiness(process_gi
     Precedence is by key presence, not by truthiness."""
     original_get_value = process_github_webhook.config.get_value
 
-    def patched_get_value(value, *args, **kwargs):
+    def patched_get_value(value: str, *args: Any, **kwargs: Any) -> Any:
         if value == "tox":
             # python-version is present but empty
             return {"args": "-x", "python-version": ""}
