@@ -324,6 +324,13 @@ properties:
           description: GitHub events to listen to
         tox:
           type: object
+          properties:
+            args:
+              type: string
+              description: Additional CLI arguments to pass to tox (e.g. "-p -v")
+            python-version:
+              type: string
+              description: Python version for tox execution (e.g. "3.11")
           patternProperties:
             "^.*$":
               oneOf:

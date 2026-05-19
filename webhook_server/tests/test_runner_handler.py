@@ -47,6 +47,7 @@ class TestRunnerHandler:
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.tox = {"main": "all"}
         mock_webhook.tox_python_version = "3.12"
+        mock_webhook.tox_args = ""
         mock_webhook.pre_commit = True
         mock_webhook.build_and_push_container = True
         mock_webhook.pypi = {"token": "dummy"}
@@ -264,6 +265,40 @@ class TestRunnerHandler:
                             mock_set_failure.assert_called_once_with(
                                 name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
                             )
+
+    @pytest.mark.asyncio
+    async def test_run_tox_with_tox_args(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test run_tox appends tox_args to the command when configured."""
+        runner_handler.github_webhook.tox_args = "-- -k test_something"
+        with patch.object(runner_handler, "run_check", new_callable=AsyncMock) as mock_run_check:
+            await runner_handler.run_tox(mock_pull_request)
+            mock_run_check.assert_called_once()
+            check_config = mock_run_check.call_args[1]["check_config"]
+            assert check_config.command.endswith("-- -k test_something")
+
+    @pytest.mark.asyncio
+    async def test_run_tox_without_tox_args(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test run_tox does not append tox_args when not configured."""
+        runner_handler.github_webhook.tox_args = ""
+        with patch.object(runner_handler, "run_check", new_callable=AsyncMock) as mock_run_check:
+            await runner_handler.run_tox(mock_pull_request)
+            mock_run_check.assert_called_once()
+            check_config = mock_run_check.call_args[1]["check_config"]
+            assert "-- -k" not in check_config.command
+
+    @pytest.mark.asyncio
+    async def test_run_tox_with_tox_args_and_specific_tests(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_tox appends tox_args after -e tests."""
+        runner_handler.github_webhook.tox = {"main": "py312,lint"}
+        runner_handler.github_webhook.tox_args = "--parallel"
+        with patch.object(runner_handler, "run_check", new_callable=AsyncMock) as mock_run_check:
+            await runner_handler.run_tox(mock_pull_request)
+            mock_run_check.assert_called_once()
+            check_config = mock_run_check.call_args[1]["check_config"]
+            assert "-e py312,lint" in check_config.command
+            assert check_config.command.endswith("--parallel")
 
     @pytest.mark.asyncio
     async def test_run_pre_commit_disabled(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
