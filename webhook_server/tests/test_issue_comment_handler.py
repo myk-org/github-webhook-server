@@ -758,10 +758,10 @@ class TestIssueCommentHandler:
     async def test_add_reviewer_by_user_comment_success(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test adding reviewer by user comment successfully."""
         mock_pull_request = Mock()
-        mock_contributor = Mock()
-        mock_contributor.login = "reviewer1"
+        mock_collaborator = Mock()
+        mock_collaborator.login = "reviewer1"
 
-        with patch.object(issue_comment_handler.repository, "get_contributors", return_value=[mock_contributor]):
+        with patch.object(issue_comment_handler.repository, "get_collaborators", return_value=[mock_collaborator]):
             with patch.object(mock_pull_request, "create_review_request") as mock_create_request:
                 await issue_comment_handler._add_reviewer_by_user_comment(
                     pull_request=mock_pull_request,
@@ -770,16 +770,16 @@ class TestIssueCommentHandler:
                 mock_create_request.assert_called_once_with(["reviewer1"])
 
     @pytest.mark.asyncio
-    async def test_add_reviewer_by_user_comment_not_contributor(
+    async def test_add_reviewer_by_user_comment_not_collaborator(
         self,
         issue_comment_handler: IssueCommentHandler,
     ) -> None:
-        """Test adding reviewer by user comment when user is not a contributor."""
+        """Test adding reviewer by user comment when user is not a collaborator."""
         mock_pull_request = Mock()
-        mock_contributor = Mock()
-        mock_contributor.login = "other-user"
+        mock_collaborator = Mock()
+        mock_collaborator.login = "other-user"
 
-        with patch.object(issue_comment_handler.repository, "get_contributors", return_value=[mock_contributor]):
+        with patch.object(issue_comment_handler.repository, "get_collaborators", return_value=[mock_collaborator]):
             with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
                 await issue_comment_handler._add_reviewer_by_user_comment(
                     pull_request=mock_pull_request,
