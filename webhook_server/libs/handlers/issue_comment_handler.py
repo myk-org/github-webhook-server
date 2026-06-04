@@ -413,7 +413,7 @@ class IssueCommentHandler:
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
-        self.logger.debug(f"{self.log_prefix} Repo collaborators are: {[c.login for c in repo_collaborators]}")
+        self.logger.debug(f"{self.log_prefix} Found {len(repo_collaborators)} repo collaborators")
 
         for collaborator in repo_collaborators:
             if collaborator.login == reviewer:
