@@ -408,21 +408,21 @@ class IssueCommentHandler:
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
-        repo_contributors = await github_api_call(
-            lambda: list(self.repository.get_contributors()),
+        repo_collaborators = await github_api_call(
+            lambda: list(self.repository.get_collaborators()),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
-        self.logger.debug(f"{self.log_prefix} Repo contributors are: {repo_contributors}")
+        self.logger.debug(f"{self.log_prefix} Repo collaborators are: {repo_collaborators}")
 
-        for contributer in repo_contributors:
-            if contributer.login == reviewer:
+        for collaborator in repo_collaborators:
+            if collaborator.login == reviewer:
                 await github_api_call(
                     pull_request.create_review_request, [reviewer], logger=self.logger, log_prefix=self.log_prefix
                 )
                 return
 
-        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
+        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not a repository collaborator"
         self.logger.debug(f"{self.log_prefix} {_err}")
         await github_api_call(pull_request.create_issue_comment, _err, logger=self.logger, log_prefix=self.log_prefix)
 
