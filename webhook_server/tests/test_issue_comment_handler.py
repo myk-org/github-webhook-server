@@ -2097,7 +2097,9 @@ class TestIssueCommentHandler:
         mock_existing_cp_pr.title = "CherryPicked: [release-1.0] Some commit"
         mock_existing_cp_pr.body = "Cherry-pick from main, original PR: https://github.com/test/repo/pull/123"
         mock_existing_cp_pr.user = Mock()
-        mock_existing_cp_pr.user.type = "Bot"
+        mock_existing_cp_pr.user.login = "manage-repositories-app[bot]"
+
+        issue_comment_handler.github_webhook.app_bot_login = "manage-repositories-app[bot]"
         mock_existing_cp_pr.edit = Mock()
         mock_existing_cp_pr.create_issue_comment = Mock()
 
@@ -2223,7 +2225,9 @@ class TestIssueCommentHandler:
         mock_human_pr.title = "CherryPicked: [release-1.0] Manual cherry-pick"
         mock_human_pr.body = "original PR: https://github.com/test/repo/pull/123"
         mock_human_pr.user = Mock()
-        mock_human_pr.user.type = "User"  # Not a Bot
+        mock_human_pr.user.login = "human-user"  # Not our app bot
+
+        issue_comment_handler.github_webhook.app_bot_login = "manage-repositories-app[bot]"
         mock_human_pr.edit = Mock()
 
         issue_comment_handler.repository.get_pulls = Mock(return_value=[mock_human_pr])

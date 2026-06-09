@@ -1617,20 +1617,12 @@ Your team can configure additional types in the repository settings.
             )
             return
 
-        pr_user_type = await github_api_call(
-            lambda: pull_request.user.type, logger=self.logger, log_prefix=self.log_prefix
-        )
         pr_user_login = await github_api_call(
             lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
         )
 
-        # Check if PR is managed by our app (has cherry-pick labels), not any bot PR (e.g. Renovate, Dependabot)
-        pr_labels = await github_api_call(
-            lambda: [label.name for label in pull_request.labels], logger=self.logger, log_prefix=self.log_prefix
-        )
-        is_bot_pr = pr_user_type == "Bot" and any(
-            label.startswith(CHERRY_PICKED_LABEL) or label.startswith("cherry-pick-") for label in pr_labels
-        )
+        # Check if PR was created by our app's bot
+        is_bot_pr = pr_user_login == self.github_webhook.app_bot_login
 
         if is_bot_pr:
             # For bot-owned PRs, validate the user is the PR assignee or a maintainer

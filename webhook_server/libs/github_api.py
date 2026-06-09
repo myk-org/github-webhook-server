@@ -195,6 +195,12 @@ class GithubWebhook:
             github_app_api=github_app_api, repository=self.repository_full_name
         )
 
+        # Store the app's bot login for identifying PRs created by our app
+        try:
+            self.app_bot_login: str = github_app_api.get_user().login
+        except Exception:
+            self.app_bot_login = ""
+
         if not (self.repository or self.repository_by_github_app):
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return

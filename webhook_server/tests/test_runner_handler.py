@@ -2901,6 +2901,7 @@ class TestRebasePr:
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.mask_sensitive = False
         mock_webhook.auto_verified_and_merged_users = ["bot-user[bot]"]
+        mock_webhook.app_bot_login = "manage-repositories-app[bot]"
         mock_webhook.repository_full_name = "test/repo"
         mock_webhook.ctx = None
         mock_webhook.config = Mock()
@@ -2956,11 +2957,7 @@ class TestRebasePr:
     @pytest.mark.asyncio
     async def test_rebase_pr_bot_pr_unauthorized(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test rebase_pr rejects unauthorized users on bot-owned PRs."""
-        mock_pull_request.user.login = "bot-user[bot]"
-        mock_pull_request.user.type = "Bot"
-        mock_cherry_pick_label = Mock()
-        mock_cherry_pick_label.name = "CherryPicked-from-main"
-        mock_pull_request.labels = [mock_cherry_pick_label]
+        mock_pull_request.user.login = "manage-repositories-app[bot]"
         mock_pull_request.assignees = [Mock(login="original-author")]
 
         with patch(
@@ -2976,11 +2973,7 @@ class TestRebasePr:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test rebase_pr allows PR assignee on bot-owned PRs."""
-        mock_pull_request.user.login = "bot-user[bot]"
-        mock_pull_request.user.type = "Bot"
-        mock_cherry_pick_label = Mock()
-        mock_cherry_pick_label.name = "CherryPicked-from-main"
-        mock_pull_request.labels = [mock_cherry_pick_label]
+        mock_pull_request.user.login = "manage-repositories-app[bot]"
         mock_pull_request.assignees = [Mock(login="test-user")]
 
         with (
@@ -3008,11 +3001,7 @@ class TestRebasePr:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test rebase_pr allows maintainers on bot-owned PRs."""
-        mock_pull_request.user.login = "bot-user[bot]"
-        mock_pull_request.user.type = "Bot"
-        mock_cherry_pick_label = Mock()
-        mock_cherry_pick_label.name = "CherryPicked-from-main"
-        mock_pull_request.labels = [mock_cherry_pick_label]
+        mock_pull_request.user.login = "manage-repositories-app[bot]"
         mock_pull_request.assignees = [Mock(login="original-author")]
 
         with (
