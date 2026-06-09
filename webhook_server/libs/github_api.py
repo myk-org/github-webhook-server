@@ -115,6 +115,8 @@ class GithubWebhook:
         self.repository_full_name: str = hook_data["repository"]["full_name"]
         self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
+        self.pr_base_sha: str = ""
+        self.pr_head_sha: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
@@ -605,8 +607,8 @@ class GithubWebhook:
                 and isinstance(pr_payload.get("head"), dict)
             ):
                 # pull_request event — base.sha and head.sha guaranteed by GitHub webhook spec
-                self.pr_base_sha: str = pr_payload["base"]["sha"]
-                self.pr_head_sha: str = pr_payload["head"]["sha"]
+                self.pr_base_sha = pr_payload["base"]["sha"]
+                self.pr_head_sha = pr_payload["head"]["sha"]
             else:
                 self.pr_base_sha, self.pr_head_sha = await asyncio.gather(
                     github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
