@@ -1274,13 +1274,25 @@ Your team can configure additional types in the repository settings.
                     if not rc_pc:
                         # Pre-commit returned non-zero — check if any files were
                         # actually modified before committing.
-                        rc_diff, out_diff, _ = await run_command(
+                        rc_diff, out_diff, err_diff = await run_command(
                             command=f"{git_cmd} diff --name-only",
                             log_prefix=self.log_prefix,
                             redact_secrets=[github_token],
                             mask_sensitive=self.github_webhook.mask_sensitive,
                         )
-                        if rc_diff and out_diff.strip():
+                        if not rc_diff:
+                            # git diff itself failed — report as worktree error, not pre-commit
+                            self.logger.error(f"{self.log_prefix} git diff failed after pre-commit: {err_diff}")
+                            output["text"] = self.check_run_handler.get_check_run_text(err=err_diff, out=out_diff)
+                            await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                "Cherry-pick failed: git diff error after pre-commit run. Check worktree state.",
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                            return
+                        elif out_diff.strip():
                             self.logger.info(f"{self.log_prefix} Pre-commit modified files, committing fixes")
                             rc_add, _, err_add = await run_command(
                                 command=f"{git_cmd} add -A",
