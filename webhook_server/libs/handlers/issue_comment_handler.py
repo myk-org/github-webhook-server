@@ -20,7 +20,6 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL,
     COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
@@ -671,52 +670,62 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 
         # Find and close existing failed cherry-pick PR for this branch (created by bot)
         pr_title_prefix = f"CherryPicked: [{target_branch}]"
+        original_pr_url = await github_api_call(
+            lambda: pull_request.html_url, logger=self.logger, log_prefix=self.log_prefix
+        )
+        self.logger.debug(
+            f"{self.log_prefix} Cherry-pick retry: looking for open PRs with title prefix "
+            f"'{pr_title_prefix}' referencing {original_pr_url}"
+        )
         open_pulls = await github_api_call(
             lambda: list(self.repository.get_pulls(state="open")),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
+        self.logger.debug(f"{self.log_prefix} Cherry-pick retry: found {len(open_pulls)} open PRs to scan")
+        closed_old_pr = False
         for open_pr in open_pulls:
             pr_title = await github_api_call(
                 lambda _pr=open_pr: _pr.title, logger=self.logger, log_prefix=self.log_prefix
             )
-            if pr_title.startswith(pr_title_prefix):
-                # Verify the PR was created by our app (bot with cherry-pick labels), not any bot
-                pr_user_type = await github_api_call(
-                    lambda _pr=open_pr: _pr.user.type, logger=self.logger, log_prefix=self.log_prefix
+            if not pr_title.startswith(pr_title_prefix):
+                self.logger.debug(
+                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title "
+                    f"'{pr_title}' does not match prefix '{pr_title_prefix}', skipping"
                 )
-                if pr_user_type != "Bot":
-                    continue  # Skip non-bot PRs
+                continue
 
-                pr_labels = await github_api_call(
-                    lambda _pr=open_pr: [label.name for label in _pr.labels],
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
-                if not any(
-                    label.startswith(CHERRY_PICKED_LABEL) or label.startswith("cherry-pick-") for label in pr_labels
-                ):
-                    continue  # Skip bot PRs not managed by our app
+            self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title matches prefix")
 
-                # Check if the PR body references the original PR
-                pr_body = await github_api_call(
-                    lambda _pr=open_pr: _pr.body or "", logger=self.logger, log_prefix=self.log_prefix
+            # Check if the PR body references the original PR
+            pr_body = await github_api_call(
+                lambda _pr=open_pr: _pr.body or "", logger=self.logger, log_prefix=self.log_prefix
+            )
+            if original_pr_url not in pr_body:
+                self.logger.debug(
+                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} body does not "
+                    f"contain original PR URL '{original_pr_url}', skipping"
                 )
-                if pull_request.html_url in pr_body:
-                    self.logger.info(f"{self.log_prefix} Closing existing cherry-pick PR #{open_pr.number} for retry")
-                    await github_api_call(
-                        open_pr.edit,
-                        state="closed",
-                        logger=self.logger,
-                        log_prefix=self.log_prefix,
-                    )
-                    await github_api_call(
-                        open_pr.create_issue_comment,
-                        f"Closed by cherry-pick retry requested by @{reviewed_user} on {pull_request.html_url}",
-                        logger=self.logger,
-                        log_prefix=self.log_prefix,
-                    )
-                    break
+                continue
+
+            self.logger.info(f"{self.log_prefix} Closing existing cherry-pick PR #{open_pr.number} for retry")
+            await github_api_call(
+                open_pr.edit,
+                state="closed",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            await github_api_call(
+                open_pr.create_issue_comment,
+                f"Closed by cherry-pick retry requested by @{reviewed_user} on {original_pr_url}",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            closed_old_pr = True
+            break
+
+        if not closed_old_pr:
+            self.logger.debug(f"{self.log_prefix} Cherry-pick retry: no existing cherry-pick PR found to close")
 
         # Re-run cherry-pick for the target branch
         self.logger.info(f"{self.log_prefix} Retrying cherry-pick to {target_branch}")

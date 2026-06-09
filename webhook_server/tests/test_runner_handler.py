@@ -2935,7 +2935,9 @@ class TestRebasePr:
         mock_pr.head.repo.full_name = "test/repo"  # Same repo (not a fork)
         mock_pr.user = Mock()
         mock_pr.user.login = "test-user"
+        mock_pr.user.type = "User"
         mock_pr.assignees = []
+        mock_pr.labels = []  # No labels by default
         mock_pr.create_issue_comment = Mock()
         return mock_pr
 
@@ -2955,6 +2957,10 @@ class TestRebasePr:
     async def test_rebase_pr_bot_pr_unauthorized(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test rebase_pr rejects unauthorized users on bot-owned PRs."""
         mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.user.type = "Bot"
+        mock_cherry_pick_label = Mock()
+        mock_cherry_pick_label.name = "CherryPicked-from-main"
+        mock_pull_request.labels = [mock_cherry_pick_label]
         mock_pull_request.assignees = [Mock(login="original-author")]
 
         with patch(
@@ -2971,6 +2977,10 @@ class TestRebasePr:
     ) -> None:
         """Test rebase_pr allows PR assignee on bot-owned PRs."""
         mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.user.type = "Bot"
+        mock_cherry_pick_label = Mock()
+        mock_cherry_pick_label.name = "CherryPicked-from-main"
+        mock_pull_request.labels = [mock_cherry_pick_label]
         mock_pull_request.assignees = [Mock(login="test-user")]
 
         with (
@@ -2999,6 +3009,10 @@ class TestRebasePr:
     ) -> None:
         """Test rebase_pr allows maintainers on bot-owned PRs."""
         mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.user.type = "Bot"
+        mock_cherry_pick_label = Mock()
+        mock_cherry_pick_label.name = "CherryPicked-from-main"
+        mock_pull_request.labels = [mock_cherry_pick_label]
         mock_pull_request.assignees = [Mock(login="original-author")]
 
         with (
