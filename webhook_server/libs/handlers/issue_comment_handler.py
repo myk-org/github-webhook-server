@@ -24,7 +24,9 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
+    COMMAND_CHERRY_PICK_RETRY_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REBASE_STR,
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
@@ -160,6 +162,8 @@ class IssueCommentHandler:
             COMMAND_RETEST_STR,
             COMMAND_REPROCESS_STR,
             COMMAND_CHERRY_PICK_STR,
+            COMMAND_CHERRY_PICK_RETRY_STR,
+            COMMAND_REBASE_STR,
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
             BUILD_AND_PUSH_CONTAINER_STR,
@@ -219,6 +223,7 @@ class IssueCommentHandler:
                 COMMAND_RETEST_STR,
                 COMMAND_ASSIGN_REVIEWER_STR,
                 COMMAND_ADD_ALLOWED_USER_STR,
+                COMMAND_CHERRY_PICK_RETRY_STR,
             )
             and not _args
         ):
@@ -253,6 +258,10 @@ class IssueCommentHandler:
         self.logger.debug(f"{self.log_prefix} Added reaction to comment.")
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
@@ -264,15 +273,43 @@ class IssueCommentHandler:
             )
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             await self.owners_file_handler.assign_reviewers(pull_request=pull_request)
 
         elif _command == COMMAND_CHECK_CAN_MERGE_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == COMMAND_CHERRY_PICK_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             await self.process_cherry_pick_command(
                 pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
             )
+
+        elif _command == COMMAND_CHERRY_PICK_RETRY_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
+            await self.process_cherry_pick_retry_command(
+                pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
+            )
+
+        elif _command == COMMAND_REBASE_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
+            await self.runner_handler.rebase_pr(pull_request=pull_request, reviewed_user=reviewed_user)
 
         elif _command == COMMAND_RETEST_STR:
             await self.process_retest_command(
@@ -295,6 +332,10 @@ class IssueCommentHandler:
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
 
         elif _command == COMMAND_TEST_ORACLE_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             task = asyncio.create_task(
                 call_test_oracle(
                     github_webhook=self.github_webhook,
@@ -322,6 +363,10 @@ class IssueCommentHandler:
                 )
 
         elif _command == WIP_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
@@ -374,6 +419,10 @@ class IssueCommentHandler:
                     await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
         elif _command == VERIFIED_LABEL_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
                 await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
@@ -557,6 +606,110 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 
         for _cp_label in cp_labels:
             await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
+
+    async def process_cherry_pick_retry_command(
+        self, pull_request: PullRequest, command_args: str, reviewed_user: str
+    ) -> None:
+        """Process cherry-pick-retry command on a merged PR.
+
+        Retries a cherry-pick for a specific branch when the original cherry-pick
+        failed or the cherry-pick PR has issues. Only works on merged PRs where
+        the cherry-pick label already exists.
+
+        Steps:
+        1. Validate the PR is merged
+        2. Validate the cherry-pick label exists (this is a retry, not a new cherry-pick)
+        3. Close any existing failed cherry-pick PR for that branch (created by bot)
+        4. Re-run cherry_pick() for the target branch
+
+        Args:
+            pull_request: The original merged pull request
+            command_args: Target branch name to retry cherry-pick for
+            reviewed_user: User who requested the retry
+        """
+        target_branch = command_args.strip()
+        self.logger.info(f"{self.log_prefix} Processing cherry-pick retry for branch {target_branch}")
+
+        # Validate PR is merged
+        if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
+            msg = "Cherry-pick retry can only be used on merged PRs"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        # Validate the cherry-pick label exists (this is a retry, not a new cherry-pick)
+        cherry_pick_label = f"{CHERRY_PICK_LABEL_PREFIX}{target_branch}"
+        existing_labels = {
+            label.name
+            for label in await github_api_call(
+                lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+            )
+        }
+        if cherry_pick_label not in existing_labels:
+            msg = (
+                f"Cherry-pick label `{cherry_pick_label}` not found on this PR.\n"
+                f"Use `/{COMMAND_CHERRY_PICK_STR} {target_branch}` to create a new cherry-pick."
+            )
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        # Find and close existing failed cherry-pick PR for this branch (created by bot)
+        pr_title_prefix = f"CherryPicked: [{target_branch}]"
+        open_pulls = await github_api_call(
+            lambda: list(self.repository.get_pulls(state="open")),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        for open_pr in open_pulls:
+            pr_title = await github_api_call(
+                lambda _pr=open_pr: _pr.title, logger=self.logger, log_prefix=self.log_prefix
+            )
+            if pr_title.startswith(pr_title_prefix):
+                # Verify the PR was created by a bot (not a human-created PR)
+                pr_author = await github_api_call(
+                    lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
+                )
+                if pr_author not in self.github_webhook.auto_verified_and_merged_users:
+                    continue  # Skip non-bot PRs
+
+                # Check if the PR body references the original PR
+                pr_body = await github_api_call(
+                    lambda _pr=open_pr: _pr.body or "", logger=self.logger, log_prefix=self.log_prefix
+                )
+                if pull_request.html_url in pr_body:
+                    self.logger.info(f"{self.log_prefix} Closing existing cherry-pick PR #{open_pr.number} for retry")
+                    await github_api_call(
+                        open_pr.edit,
+                        state="closed",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                    await github_api_call(
+                        open_pr.create_issue_comment,
+                        f"Closed by cherry-pick retry requested by @{reviewed_user} on {pull_request.html_url}",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                    break
+
+        # Re-run cherry-pick for the target branch
+        self.logger.info(f"{self.log_prefix} Retrying cherry-pick to {target_branch}")
+        await github_api_call(
+            pull_request.create_issue_comment,
+            f"Retrying cherry-pick to `{target_branch}` requested by @{reviewed_user}",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        await self.runner_handler.cherry_pick(
+            pull_request=pull_request,
+            target_branch=target_branch,
+            assign_to_pr_owner=self.github_webhook.cherry_pick_assign_to_pr_author,
+        )
 
     async def process_retest_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str, automerge: bool = False

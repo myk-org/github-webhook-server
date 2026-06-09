@@ -795,8 +795,12 @@ For more information, please refer to the project documentation or contact the m
             return """#### Cherry-pick Operations
 * `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
   * Multiple branches: `/cherry-pick branch1 branch2 branch3`
+* `/cherry-pick-retry <branch>` - Retry a failed cherry-pick (merged PRs only)
+
+#### Branch Management
+* `/rebase` - Rebase this PR branch onto its base branch
 """
-        return ""
+        return "\n#### Branch Management\n* `/rebase` - Rebase this PR branch onto its base branch\n"
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """

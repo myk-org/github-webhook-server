@@ -2883,3 +2883,421 @@ class TestBuildOciAnnotations:
             cmd_arg = mock_cmd.call_args[1].get("command", "") if mock_cmd.call_args[1] else mock_cmd.call_args[0][0]
             assert "--annotation" in cmd_arg, f"Expected --annotation in podman build command: {cmd_arg}"
             assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in cmd_arg
+
+
+class TestRebasePr:
+    """Test suite for rebase_pr method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance."""
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"action": "opened"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
+        mock_webhook.token = "test-token"  # pragma: allowlist secret
+        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.mask_sensitive = False
+        mock_webhook.auto_verified_and_merged_users = ["bot-user[bot]"]
+        mock_webhook.ctx = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        mock_webhook.pre_commit = False
+        mock_webhook.tox = {}
+        mock_webhook.build_and_push_container = False
+        mock_webhook.pypi = {}
+        mock_webhook.conventional_title = ""
+        mock_webhook.custom_check_runs = []
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_owners_file_handler(self) -> Mock:
+        mock_handler = Mock()
+        mock_handler.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+        mock_handler.get_all_repository_maintainers = AsyncMock(return_value=["maintainer1"])
+        return mock_handler
+
+    @pytest.fixture
+    def runner_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> RunnerHandler:
+        return RunnerHandler(mock_github_webhook, mock_owners_file_handler)
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.state = "open"
+        mock_pr.base.ref = "main"
+        mock_pr.head.ref = "feature-branch"
+        mock_pr.user = Mock()
+        mock_pr.user.login = "test-user"
+        mock_pr.assignees = []
+        mock_pr.create_issue_comment = Mock()
+        return mock_pr
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_not_open(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr rejects closed PRs."""
+        mock_pull_request.state = "closed"
+        with patch(
+            "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+        ):
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "open" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_bot_pr_unauthorized(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr rejects unauthorized users on bot-owned PRs."""
+        mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.assignees = [Mock(login="original-author")]
+
+        with patch(
+            "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+        ):
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="random-user")
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "not authorized" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_bot_pr_assignee_allowed(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test rebase_pr allows PR assignee on bot-owned PRs."""
+        mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.assignees = [Mock(login="test-user")]
+
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            # Should succeed - verify success comment
+            assert any(
+                "successfully" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_bot_pr_maintainer_allowed(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test rebase_pr allows maintainers on bot-owned PRs."""
+        mock_pull_request.user.login = "bot-user[bot]"
+        mock_pull_request.assignees = [Mock(login="original-author")]
+
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="maintainer1")
+            assert any(
+                "successfully" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_success(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test successful rebase operation."""
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            assert any(
+                "successfully" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_conflict_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr handles rebase conflicts."""
+        call_count = 0
+
+        async def side_effect_rebase(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            nonlocal call_count
+            call_count += 1
+            cmd = kwargs.get("command", args[0] if args else "")
+            if "rebase origin/" in cmd:
+                return (False, "", "CONFLICT (content): Merge conflict in file.py")
+            if "rebase --abort" in cmd:
+                return (True, "", "")
+            return (True, "success", "")
+
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=side_effect_rebase),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            assert any(
+                "rebase failed" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_worktree_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr handles worktree failure."""
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(False, "", "worktree error", "stderr"))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "worktree" in call_body.lower() or "failed" in call_body.lower()
+
+
+class TestCherryPickPreCommitAutoFix:
+    """Test suite for pre-commit auto-fix in cherry_pick method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"action": "opened"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
+        mock_webhook.repository.owner.login = "test-owner"
+        mock_webhook.repository.owner.email = "test@example.com"
+        mock_webhook.token = "test-token"  # pragma: allowlist secret
+        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.mask_sensitive = False
+        mock_webhook.pre_commit = True  # Enable pre-commit
+        mock_webhook.tox = {}
+        mock_webhook.build_and_push_container = False
+        mock_webhook.pypi = {}
+        mock_webhook.conventional_title = ""
+        mock_webhook.custom_check_runs = []
+        mock_webhook.cherry_pick_assign_to_pr_author = True
+        mock_webhook.repository_full_name = "test/repo"
+        mock_webhook.repository_name = "repo"
+        mock_webhook.ctx = None
+        mock_webhook.ai_features = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_owners_file_handler(self) -> Mock:
+        mock_handler = Mock()
+        mock_handler.root_approvers = ["maintainer1"]
+        return mock_handler
+
+    @pytest.fixture
+    def runner_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> RunnerHandler:
+        return RunnerHandler(mock_github_webhook, mock_owners_file_handler)
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.title = "feat: Test PR"
+        mock_pr.base.ref = "main"
+        mock_pr.head.ref = "feature-branch"
+        mock_pr.merge_commit_sha = "abc123"
+        mock_pr.html_url = "https://github.com/test/repo/pull/123"
+        mock_pr.user = Mock()
+        mock_pr.user.login = "test-pr-author"
+        mock_pr.create_issue_comment = Mock()
+        return mock_pr
+
+    @pytest.fixture(autouse=True)
+    def patch_check_run_text(self) -> Generator[None]:
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+            return_value="dummy output",
+        ):
+            yield
+
+    @pytest.fixture(autouse=True)
+    def patch_shutil_rmtree(self) -> Generator[None]:
+        with patch("shutil.rmtree"):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_runs_pre_commit_when_enabled(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that cherry_pick runs pre-commit when pre_commit is enabled."""
+        commands_executed: list[str] = []
+
+        async def mock_run_command(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            cmd = kwargs.get("command", args[0] if args else "")
+            commands_executed.append(cmd)
+            return (True, "success", "")
+
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_success"),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=mock_run_command),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+
+            # Verify pre-commit was executed
+            pre_commit_cmds = [c for c in commands_executed if "prek" in c and "run" in c]
+            assert len(pre_commit_cmds) >= 1, f"Expected pre-commit command, got: {commands_executed}"
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_pre_commit_fixes_committed(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that pre-commit file fixes are committed."""
+        commands_executed: list[str] = []
+
+        async def mock_run_command(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            cmd = kwargs.get("command", args[0] if args else "")
+            commands_executed.append(cmd)
+            if "prek" in cmd and "run" in cmd:
+                return (False, "", "Fixing files...")  # pre-commit modified files
+            if "diff --name-only" in cmd:
+                return (True, "file1.py\nfile2.py", "")  # Files modified
+            return (True, "success", "")
+
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_success"),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=mock_run_command),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+
+            # Verify git add and commit were run after pre-commit fix
+            add_cmds = [c for c in commands_executed if "add -A" in c]
+            commit_cmds = [c for c in commands_executed if "pre-commit auto-fix" in c]
+            assert len(add_cmds) >= 1, f"Expected git add, got: {commands_executed}"
+            assert len(commit_cmds) >= 1, f"Expected commit, got: {commands_executed}"
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_skips_pre_commit_when_disabled(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that cherry_pick does NOT run pre-commit when disabled."""
+        runner_handler.github_webhook.pre_commit = False
+        commands_executed: list[str] = []
+
+        async def mock_run_command(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            cmd = kwargs.get("command", args[0] if args else "")
+            commands_executed.append(cmd)
+            return (True, "success", "")
+
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_success"),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=mock_run_command),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+
+            # Verify pre-commit was NOT executed
+            pre_commit_cmds = [c for c in commands_executed if "prek" in c and "run" in c]
+            assert len(pre_commit_cmds) == 0, f"Pre-commit should not run when disabled: {commands_executed}"

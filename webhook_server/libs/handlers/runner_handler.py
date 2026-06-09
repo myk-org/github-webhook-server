@@ -1261,6 +1261,54 @@ Your team can configure additional types in the repository settings.
                     github_token=github_token,
                 )
 
+                # Run pre-commit auto-fix if enabled for the repo
+                if self.github_webhook.pre_commit:
+                    self.logger.info(f"{self.log_prefix} Running pre-commit on cherry-pick worktree")
+                    pre_commit_cmd = f"uvx --directory {worktree_path} {PREK_STR} run --all-files"
+                    rc_pc, _out_pc, _err_pc = await run_command(
+                        command=pre_commit_cmd,
+                        log_prefix=self.log_prefix,
+                        redact_secrets=[github_token],
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                    )
+                    if not rc_pc:
+                        # Pre-commit returned non-zero — check if any files were
+                        # actually modified before committing.
+                        rc_diff, out_diff, _ = await run_command(
+                            command=f"{git_cmd} diff --name-only",
+                            log_prefix=self.log_prefix,
+                            redact_secrets=[github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
+                        if rc_diff and out_diff.strip():
+                            self.logger.info(f"{self.log_prefix} Pre-commit modified files, committing fixes")
+                            rc_add, _, err_add = await run_command(
+                                command=f"{git_cmd} add -A",
+                                log_prefix=self.log_prefix,
+                                redact_secrets=[github_token],
+                                mask_sensitive=self.github_webhook.mask_sensitive,
+                            )
+                            if not rc_add:
+                                self.logger.warning(f"{self.log_prefix} git add failed after pre-commit fix: {err_add}")
+                            rc_commit, _, err_commit = await run_command(
+                                command=(
+                                    f"{git_cmd} commit -m"
+                                    f" {shlex.quote('pre-commit auto-fix for cherry-pick')}"
+                                    " --no-verify"
+                                ),
+                                log_prefix=self.log_prefix,
+                                redact_secrets=[github_token],
+                                mask_sensitive=self.github_webhook.mask_sensitive,
+                            )
+                            if not rc_commit:
+                                self.logger.warning(
+                                    f"{self.log_prefix} git commit failed after pre-commit fix: {err_commit}"
+                                )
+                        else:
+                            self.logger.debug(f"{self.log_prefix} Pre-commit failed but no files modified")
+                    else:
+                        self.logger.debug(f"{self.log_prefix} Pre-commit passed without modifications")
+
                 # Push the branch
                 rc, out, err = await run_command(
                     command=push_command,
@@ -1483,6 +1531,158 @@ Your team can configure additional types in the repository settings.
                     logger=self.logger,
                     log_prefix=self.log_prefix,
                 )
+
+    async def rebase_pr(self, pull_request: PullRequest, reviewed_user: str) -> None:
+        """Rebase a PR branch onto its base branch.
+
+        Fetches the base branch and rebases the PR head branch onto it,
+        then force-pushes the result. For bot-owned PRs (e.g., cherry-pick PRs),
+        validates the user is the cherry-pick initiator (PR assignee) or a maintainer.
+
+        Args:
+            pull_request: The pull request to rebase
+            reviewed_user: User who requested the rebase
+        """
+        pr_state = await github_api_call(lambda: pull_request.state, logger=self.logger, log_prefix=self.log_prefix)
+        if pr_state != "open":
+            msg = "Rebase can only be used on open PRs"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        pr_user_login = await github_api_call(
+            lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+        )
+
+        # Check if PR is bot-owned (e.g., cherry-pick PRs created by the app)
+        is_bot_pr = pr_user_login in self.github_webhook.auto_verified_and_merged_users
+
+        if is_bot_pr:
+            # For bot-owned PRs, validate the user is the PR assignee or a maintainer
+            assignees = await github_api_call(
+                lambda: [a.login for a in pull_request.assignees],
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
+            if reviewed_user not in assignees and reviewed_user not in maintainers:
+                msg = (
+                    f"@{reviewed_user} is not authorized to rebase this bot-owned PR.\n"
+                    "Only the PR assignee (cherry-pick initiator) or maintainers can rebase."
+                )
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+        base_ref = await github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix)
+        head_ref = await github_api_call(lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix)
+        github_token = self.github_webhook.token
+
+        self.logger.info(f"{self.log_prefix} Rebasing {head_ref} onto {base_ref}")
+
+        async with self._checkout_worktree(pull_request=pull_request, skip_merge=True) as (
+            success,
+            worktree_path,
+            out,
+            err,
+        ):
+            if not success:
+                msg = "Failed to prepare worktree for rebase"
+                self.logger.error(f"{self.log_prefix} {msg}: {out} --- {err}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+
+            # Checkout the PR head branch
+            rc, out, err = await run_command(
+                command=f"{git_cmd} checkout {head_ref}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.github_webhook.mask_sensitive)
+                msg = f"Failed to checkout branch `{head_ref}`: {redacted_err}"
+                self.logger.error(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            # Fetch the base branch
+            rc, out, err = await run_command(
+                command=f"{git_cmd} fetch origin {base_ref}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.github_webhook.mask_sensitive)
+                msg = f"Failed to fetch base branch `{base_ref}`: {redacted_err}"
+                self.logger.error(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            # Rebase onto base branch
+            rc, out, err = await run_command(
+                command=f"{git_cmd} rebase origin/{base_ref}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                # Abort the rebase to clean up
+                await run_command(
+                    command=f"{git_cmd} rebase --abort",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[github_token],
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.github_webhook.mask_sensitive)
+                redacted_out = _redact_secrets(out, [github_token], mask_sensitive=self.github_webhook.mask_sensitive)
+                msg = (
+                    f"**Rebase failed** for `{head_ref}` onto `{base_ref}`:\n"
+                    f"```\n{redacted_out}\n{redacted_err}\n```\n"
+                    "Please resolve conflicts manually."
+                )
+                self.logger.error(f"{self.log_prefix} Rebase failed: {redacted_out} --- {redacted_err}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            # Force push the rebased branch
+            rc, out, err = await run_command(
+                command=f"{git_cmd} push --force-with-lease origin {head_ref}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.github_webhook.mask_sensitive)
+                msg = f"Rebase succeeded but push failed for `{head_ref}`: {redacted_err}"
+                self.logger.error(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            self.logger.info(f"{self.log_prefix} Successfully rebased {head_ref} onto {base_ref}")
+            await github_api_call(
+                pull_request.create_issue_comment,
+                f"Successfully rebased `{head_ref}` onto `{base_ref}` ✅",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
     async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:
         """Run the specified retests for a pull request.
