@@ -136,6 +136,20 @@ ai-features:
     enabled: true
     timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
 
+# Security Checks configuration
+# Detects potentially malicious PR patterns like modifications to
+# security-sensitive paths or mismatched committer identities.
+security-checks:
+  suspicious-paths:
+    - ".claude/"
+    - ".vscode/"
+    - ".cursor/"
+    - ".devcontainer/"
+    - ".pi/"
+    - ".github/workflows/"
+    - ".github/actions/"
+  committer-identity-check: true
+
 repositories:
   my-repository:
     name: my-org/my-repository

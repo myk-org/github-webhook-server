@@ -68,6 +68,28 @@ $defs:
       - ai-provider
       - ai-model
     additionalProperties: false
+  security-checks:
+    type: object
+    description: |
+      Security checks for pull requests. Detects potentially malicious PR patterns
+      such as modifications to security-sensitive paths or mismatched committer identities.
+    properties:
+      suspicious-paths:
+        type: array
+        description: |
+          List of path prefixes considered security-sensitive.
+          PRs modifying files under these paths will fail the security-suspicious-paths check run
+          and have auto-merge blocked.
+          Default: [".claude/", ".vscode/", ".cursor/", ".devcontainer/", ".pi/", ".github/workflows/", ".github/actions/"]
+        items:
+          type: string
+      committer-identity-check:
+        type: boolean
+        description: |
+          When enabled, compares the PR author (parent committer) against the last commit's
+          committer. Fails the security-committer-identity check run if they differ.
+        default: true
+    additionalProperties: false
 type: object
 properties:
   log-level:
@@ -213,6 +235,8 @@ properties:
     additionalProperties: false
   ai-features:
     $ref: '#/$defs/ai-features'
+  security-checks:
+    $ref: '#/$defs/security-checks'
   labels:
     type: object
     description: Configure which labels are enabled and their colors

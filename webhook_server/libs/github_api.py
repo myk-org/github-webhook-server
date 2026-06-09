@@ -35,6 +35,7 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
+    DEFAULT_SUSPICIOUS_PATHS,
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -635,7 +636,7 @@ class GithubWebhook:
 
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
-            self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
+            self.last_committer = getattr(self.last_commit.committer, "login", "unknown")
 
             # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
             # For pull_request events, base.sha and head.sha are guaranteed by GitHub webhook spec.
@@ -926,6 +927,14 @@ class GithubWebhook:
         self.ai_features: dict[str, Any] | None = self.config.get_value(
             value="ai-features", return_on_none=None, extra_dict=repository_config
         )
+        _security_checks: dict[str, Any] | None = self.config.get_value(value="security-checks", return_on_none=None)
+        _security_config = _security_checks if isinstance(_security_checks, dict) else {}
+        _suspicious_paths = _security_config.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
+        self.security_suspicious_paths: list[str] = (
+            _suspicious_paths if isinstance(_suspicious_paths, list) else DEFAULT_SUSPICIOUS_PATHS
+        )
+        self.security_committer_identity_check: bool = _security_config.get("committer-identity-check", True)
+
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )

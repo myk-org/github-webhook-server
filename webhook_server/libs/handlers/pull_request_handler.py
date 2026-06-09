@@ -37,6 +37,8 @@ from webhook_server.utils.constants import (
     NEEDS_REBASE_LABEL_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
@@ -519,6 +521,7 @@ This PR will be automatically approved when the following conditions are met:
 {self._prepare_available_labels_section}
 </details>
 {self._prepare_ai_features_welcome_section}\
+{self._prepare_security_checks_welcome_section}\
 
 ### 💡 Tips
 
@@ -737,6 +740,31 @@ For more information, please refer to the project documentation or contact the m
 <summary><strong>AI Features</strong></summary>
 
 {features_list}
+
+</details>
+"""
+
+    @property
+    def _prepare_security_checks_welcome_section(self) -> str:
+        """Prepare the Security Checks section for the welcome comment."""
+        checks: list[str] = []
+
+        if self.github_webhook.security_suspicious_paths:
+            paths_str = ", ".join(f"`{p}`" for p in self.github_webhook.security_suspicious_paths)
+            checks.append(f"* **Suspicious Path Detection**: Monitors paths: {paths_str}")
+
+        if self.github_webhook.security_committer_identity_check:
+            checks.append("* **Committer Identity Check**: Verifies last committer matches PR author")
+
+        if not checks:
+            return ""
+
+        checks_list = "\n".join(checks)
+        return f"""
+<details>
+<summary><strong>Security Checks</strong></summary>
+
+{checks_list}
 
 </details>
 """
@@ -1105,6 +1133,13 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_check_queued(name=CONVENTIONAL_TITLE_STR))
 
+        # Queue security check runs
+        if self.github_webhook.security_suspicious_paths:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=SECURITY_SUSPICIOUS_PATHS_STR))
+
+        if self.github_webhook.security_committer_identity_check:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=SECURITY_COMMITTER_IDENTITY_STR))
+
         # Queue custom check runs (same as built-in checks)
         # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
         # so name is guaranteed to exist
@@ -1135,6 +1170,13 @@ For more information, please refer to the project documentation or contact the m
 
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+
+        # Launch security check runs
+        if self.github_webhook.security_suspicious_paths:
+            ci_tasks.append(self.runner_handler.run_security_suspicious_paths())
+
+        if self.github_webhook.security_committer_identity_check:
+            ci_tasks.append(self.runner_handler.run_security_committer_identity())
 
         # Launch custom check runs (same as built-in checks)
         for custom_check in self.github_webhook.custom_check_runs:
@@ -1200,6 +1242,27 @@ For more information, please refer to the project documentation or contact the m
         auto_merge = set_auto_merge_base_branch or parent_committer_in_auto_merge_users
 
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.base.ref}")
+
+        # Security override: block auto-merge if PR modifies suspicious paths
+        if auto_merge and self.github_webhook.security_suspicious_paths:
+            changed_files = self.owners_file_handler.changed_files
+            suspicious_matches = [
+                f
+                for f in changed_files
+                if any(f.startswith(prefix) for prefix in self.github_webhook.security_suspicious_paths)
+            ]
+            if suspicious_matches:
+                auto_merge = False
+                files_list = ", ".join(f"`{f}`" for f in suspicious_matches)
+                self.logger.info(
+                    f"{self.log_prefix} Auto-merge blocked: PR modifies security-sensitive paths: {suspicious_matches}"
+                )
+                await github_api_call(
+                    pull_request.create_issue_comment,
+                    f"Auto-merge blocked: PR modifies security-sensitive paths: {files_list}",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
 
         if auto_merge:
             # AI-resolved cherry-picks should NEVER be auto-merged
