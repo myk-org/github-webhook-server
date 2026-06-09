@@ -818,6 +818,7 @@ class GithubWebhook:
             self.container_repository_password: str = self.build_and_push_container["password"]
             self.container_repository: str = self.build_and_push_container["repository"]
             self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
+            self.container_context: str = self.build_and_push_container.get("context", "")
             self.container_tag: str = self.build_and_push_container.get("tag", "latest")
             _build_args = self.build_and_push_container.get("build-args", [])
             _cmd_args = self.build_and_push_container.get("args", [])

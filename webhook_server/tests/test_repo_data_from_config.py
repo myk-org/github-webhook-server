@@ -19,6 +19,7 @@ def test_repo_data_from_config_repository_found(process_github_webhook):
     assert process_github_webhook.container_repository_password == "registry_password"  # pragma: allowlist secret
     assert process_github_webhook.container_repository == "registry_repository_full_path"
     assert process_github_webhook.dockerfile == "Dockerfile"
+    assert process_github_webhook.container_context == ""
     assert process_github_webhook.container_tag == "image_tag"
     assert process_github_webhook.container_build_args == ["my-build-arg1=1", "my-build-arg2=2"]
     assert process_github_webhook.container_command_args == ["--format docker"]
@@ -27,6 +28,32 @@ def test_repo_data_from_config_repository_found(process_github_webhook):
     assert process_github_webhook.auto_verified_and_merged_users == ["my[bot]"]
     assert process_github_webhook.can_be_merged_required_labels == ["my-label1", "my-label2"]
     assert process_github_webhook.minimum_lgtm == 0
+
+
+def test_container_context_from_config(process_github_webhook) -> None:
+    """Test that container context is read from repository config."""
+    original_get_value = process_github_webhook.config.get_value
+
+    def patched_get_value(value: str, *args: Any, **kwargs: Any) -> Any:
+        if value == "container":
+            return {
+                "username": "user",
+                "password": "pass",  # pragma: allowlist secret
+                "repository": "registry/repo",
+                "context": "src/app",
+            }
+        return original_get_value(value, *args, **kwargs)
+
+    with patch.object(process_github_webhook.config, "get_value", side_effect=patched_get_value):
+        process_github_webhook._repo_data_from_config(repository_config={})
+
+    assert process_github_webhook.container_context == "src/app"
+
+
+def test_container_context_defaults_to_empty_string(process_github_webhook) -> None:
+    """Test that container context defaults to empty string when not set."""
+    process_github_webhook._repo_data_from_config(repository_config={})
+    assert process_github_webhook.container_context == ""
 
 
 def test_tox_python_version_nested_no_deprecation_warning(process_github_webhook, caplog):

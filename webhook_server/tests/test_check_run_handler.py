@@ -455,6 +455,59 @@ class TestCheckRunHandler:
         # Verify the fix: it should end with the code block closer
         assert result.endswith("\n```")
 
+    def test_get_check_run_text_logs_full_redacted_output_before_truncation(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that full redacted output is logged via debug before truncation.
+
+        The debug log must fire AFTER redaction to avoid leaking secrets to log
+        aggregation systems, and BEFORE truncation so the complete build output
+        is preserved in server logs.
+        """
+        # Create text that exceeds 65534 characters to trigger truncation
+        long_err = "E" * 10000
+        long_out = "O" * 60000
+
+        check_run_handler.get_check_run_text(long_err, long_out)
+
+        # Verify debug was called with the full output
+        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
+        full_output_logged = any(
+            "Full check run output" in call and "will be truncated" in call for call in debug_calls
+        )
+        assert full_output_logged, "Expected debug log with full output before truncation"
+
+    def test_get_check_run_text_full_log_has_secrets_redacted(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that the full output debug log redacts secrets before logging."""
+        # Build output that contains secrets and exceeds truncation threshold
+        # Total (err_clean + out_clean + WRAPPER_OVERHEAD=10) must exceed MAX_LEN=65534
+        long_out = "O" * 66000
+        err_with_secret = "Error: auth failed with token test-token and user test-user"  # pragma: allowlist secret
+
+        check_run_handler.get_check_run_text(err_with_secret, long_out)
+
+        # Verify the debug log does NOT contain the raw secrets
+        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
+        full_log_calls = [c for c in debug_calls if "Full check run output" in c]
+        assert full_log_calls, "Expected full output debug log"
+        for call in full_log_calls:
+            assert "test-token" not in call, "Secret token leaked in debug log"
+            assert "test-user" not in call, "Username leaked in debug log"
+            assert "*****" in call, "Expected redacted placeholder in debug log"
+
+    def test_get_check_run_text_no_log_when_not_truncated(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that no full output debug log is emitted when output fits within limit."""
+        err = "Short error"
+        out = "Short output"
+
+        check_run_handler.logger.debug.reset_mock()
+        check_run_handler.get_check_run_text(err, out)
+
+        # Debug should NOT contain "Full check run output" for short text
+        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
+        full_output_logged = any("Full check run output" in call for call in debug_calls)
+        assert not full_output_logged, "Should not log full output when no truncation needed"
+
     def test_get_check_run_text_token_replacement(self, check_run_handler: CheckRunHandler) -> None:
         """Test that sensitive tokens are replaced in check run text."""
         err = "Error with token: test-token"
