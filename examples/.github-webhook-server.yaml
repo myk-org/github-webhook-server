@@ -1,6 +1,10 @@
 # Example .github-webhook-server.yaml
 # This file should be placed in the root of your repository to configure
 # repository-specific webhook server behavior.
+#
+# NOTE: security-checks is NOT configurable per-repository.
+# Security policy is controlled server-side only (in config.yaml) to prevent
+# attackers from weakening security checks via in-repo config overrides.
 
 # Logging configuration (overrides global settings)
 log-level: DEBUG # Options: INFO, DEBUG

@@ -1255,7 +1255,8 @@ For more information, please refer to the project documentation or contact the m
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.base.ref}")
 
         # Security override: block auto-merge if PR modifies suspicious paths
-        if auto_merge and self.github_webhook.security_suspicious_paths:
+        # Also disable already-enabled auto-merge (e.g., PR gained suspicious paths after auto-merge was set)
+        if (auto_merge or pull_request.raw_data.get("auto_merge")) and self.github_webhook.security_suspicious_paths:
             changed_files = self.owners_file_handler.changed_files
             suspicious_matches = [
                 f

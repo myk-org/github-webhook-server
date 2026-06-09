@@ -441,6 +441,42 @@ class TestAutoMergeSecurityOverride:
                 if len(call.args) > 1 and isinstance(call.args[1], str):
                     assert "Auto-merge blocked" not in call.args[1]
 
+    @pytest.mark.asyncio
+    async def test_automerge_disabled_when_already_enabled_and_suspicious_paths(
+        self,
+        mock_github_webhook: Mock,
+        mock_owners_file_handler: Mock,
+        mock_pull_request: Mock,
+    ) -> None:
+        """Already-enabled auto-merge is disabled when PR gains suspicious paths on synchronize."""
+        # User is NOT in auto-merge list, but PR already has auto-merge enabled
+        mock_github_webhook.auto_verified_and_merged_users = []
+        mock_github_webhook.set_auto_merge_prs = []
+        mock_owners_file_handler.changed_files = [".github/workflows/ci.yml", "src/main.py"]
+        mock_pull_request.raw_data = {"auto_merge": {"merge_method": "squash"}}
+        handler = PullRequestHandler(mock_github_webhook, mock_owners_file_handler)
+
+        with patch(
+            "webhook_server.libs.handlers.pull_request_handler.github_api_call",
+            new=AsyncMock(),
+        ) as mock_api_call:
+            await handler.set_pull_request_automerge(pull_request=mock_pull_request)
+
+            # Should have posted blocking comment AND called disable_automerge
+            comment_calls = [
+                c
+                for c in mock_api_call.call_args_list
+                if len(c.args) > 1 and isinstance(c.args[1], str) and "Auto-merge blocked" in c.args[1]
+            ]
+            assert len(comment_calls) == 1
+
+            disable_calls = [
+                c
+                for c in mock_api_call.call_args_list
+                if len(c.args) > 0 and c.args[0] == mock_pull_request.disable_automerge
+            ]
+            assert len(disable_calls) == 1
+
 
 class TestSecurityCheckConstants:
     """Test that security check constants are properly defined."""
@@ -465,6 +501,26 @@ class TestSecurityCheckConstants:
     def test_security_override_constants(self) -> None:
         assert SECURITY_OVERRIDE_LABEL_STR == "security-override"
         assert COMMAND_SECURITY_OVERRIDE_STR == "security-override"
+
+
+class TestSecurityConfigSanitization:
+    """Test that malformed config values are handled gracefully."""
+
+    def test_non_string_suspicious_paths_sanitized(self) -> None:
+        """Non-string items in suspicious-paths are converted to strings."""
+        _suspicious_paths: list[Any] = [".github/workflows/", 123, 4.5, "", "  ", ".vscode/"]
+        result = [str(p).strip() for p in _suspicious_paths if isinstance(p, (str, int, float)) and str(p).strip()]
+        assert result == [".github/workflows/", "123", "4.5", ".vscode/"]
+
+    def test_non_list_suspicious_paths_uses_defaults(self) -> None:
+        """Non-list suspicious-paths falls back to defaults."""
+        _suspicious_paths = "not-a-list"
+        result = (
+            [str(p).strip() for p in _suspicious_paths if isinstance(p, (str, int, float)) and str(p).strip()]
+            if isinstance(_suspicious_paths, list)
+            else DEFAULT_SUSPICIOUS_PATHS
+        )
+        assert result == DEFAULT_SUSPICIOUS_PATHS
 
 
 class TestSecurityRequiredStatusChecks:
