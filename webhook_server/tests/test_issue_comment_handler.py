@@ -2021,6 +2021,23 @@ class TestIssueCommentHandler:
             mock_retry.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_multiple_branches_rejected(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick-retry rejects multiple branch names."""
+        mock_pull_request = Mock()
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="branch1 branch2",
+                reviewed_user="test-user",
+            )
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "exactly one" in call_body.lower()
+
+    @pytest.mark.asyncio
     async def test_process_cherry_pick_retry_not_merged(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test cherry-pick-retry rejects if PR is not merged."""
         mock_pull_request = Mock()

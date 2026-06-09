@@ -2901,6 +2901,7 @@ class TestRebasePr:
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.mask_sensitive = False
         mock_webhook.auto_verified_and_merged_users = ["bot-user[bot]"]
+        mock_webhook.repository_full_name = "test/repo"
         mock_webhook.ctx = None
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -2930,6 +2931,8 @@ class TestRebasePr:
         mock_pr.state = "open"
         mock_pr.base.ref = "main"
         mock_pr.head.ref = "feature-branch"
+        mock_pr.head.repo = Mock()
+        mock_pr.head.repo.full_name = "test/repo"  # Same repo (not a fork)
         mock_pr.user = Mock()
         mock_pr.user.login = "test-user"
         mock_pr.assignees = []
@@ -3090,6 +3093,61 @@ class TestRebasePr:
             mock_pull_request.create_issue_comment.assert_called_once()
             call_body = str(mock_pull_request.create_issue_comment.call_args)
             assert "worktree" in call_body.lower() or "failed" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_fork_pr_rejected(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr rejects fork PRs."""
+        mock_pull_request.head.repo.full_name = "fork-owner/repo"  # Different from test/repo
+
+        with patch(
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+        ):
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "fork" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_non_owner_non_maintainer_rejected(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test rebase_pr rejects non-owner non-maintainer users on user-owned PRs."""
+        mock_pull_request.user.login = "pr-owner"
+
+        with patch(
+            "asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+        ):
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="random-user")
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "not authorized" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_owner_allowed(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test rebase_pr allows the PR owner."""
+        mock_pull_request.user.login = "test-user"
+
+        with (
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="test-user")
+            assert any(
+                "successfully" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
 
 
 class TestCherryPickPreCommitAutoFix:
@@ -3255,6 +3313,10 @@ class TestCherryPickPreCommitAutoFix:
             commit_cmds = [c for c in commands_executed if "pre-commit auto-fix" in c]
             assert len(add_cmds) >= 1, f"Expected git add, got: {commands_executed}"
             assert len(commit_cmds) >= 1, f"Expected commit, got: {commands_executed}"
+            # Verify --signoff is included for DCO compliance
+            assert any("--signoff" in c for c in commit_cmds), (
+                f"Expected --signoff in commit command, got: {commit_cmds}"
+            )
 
     @pytest.mark.asyncio
     async def test_cherry_pick_skips_pre_commit_when_disabled(
@@ -3301,3 +3363,105 @@ class TestCherryPickPreCommitAutoFix:
             # Verify pre-commit was NOT executed
             pre_commit_cmds = [c for c in commands_executed if "prek" in c and "run" in c]
             assert len(pre_commit_cmds) == 0, f"Pre-commit should not run when disabled: {commands_executed}"
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_pre_commit_unfixable_aborts(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that cherry_pick aborts when pre-commit fails with no file modifications."""
+
+        async def mock_run_command(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            cmd = kwargs.get("command", args[0] if args else "")
+            if "prek" in cmd and "run" in cmd:
+                return (False, "lint error output", "unfixable error")  # pre-commit failed
+            if "diff --name-only" in cmd:
+                return (True, "", "")  # No files modified
+            return (True, "success", "")
+
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure,
+            patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=mock_run_command),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+
+            # Should abort — set_check_failure called, set_check_success NOT called
+            mock_set_failure.assert_called()
+            mock_set_success.assert_not_called()
+            # Should post comment about unfixable errors
+            assert any(
+                "unfixable" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_pre_commit_git_add_failure_aborts(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that cherry_pick aborts when git add fails after pre-commit fix."""
+
+        async def mock_run_command(*args: Any, **kwargs: Any) -> tuple[bool, str, str]:
+            cmd = kwargs.get("command", args[0] if args else "")
+            if "prek" in cmd and "run" in cmd:
+                return (False, "", "Fixing files...")  # pre-commit modified files
+            if "diff --name-only" in cmd:
+                return (True, "file1.py", "")  # Files modified
+            if "add -A" in cmd:
+                return (False, "", "git add failed")  # git add fails
+            return (True, "success", "")
+
+        with (
+            patch.object(
+                runner_handler,
+                "_restore_original_author_for_cherry_pick",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure,
+            patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=mock_run_command),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "main")
+
+            mock_set_failure.assert_called()
+            mock_set_success.assert_not_called()
+            assert any("git add" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list)

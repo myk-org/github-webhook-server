@@ -1289,23 +1289,54 @@ Your team can configure additional types in the repository settings.
                                 mask_sensitive=self.github_webhook.mask_sensitive,
                             )
                             if not rc_add:
-                                self.logger.warning(f"{self.log_prefix} git add failed after pre-commit fix: {err_add}")
+                                self.logger.error(f"{self.log_prefix} git add failed after pre-commit fix: {err_add}")
+                                output["text"] = self.check_run_handler.get_check_run_text(err=err_add, out="")
+                                await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    "Cherry-pick pre-commit auto-fix failed during `git add`. "
+                                    "Manual intervention needed.",
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                                return
                             rc_commit, _, err_commit = await run_command(
                                 command=(
                                     f"{git_cmd} commit -m"
                                     f" {shlex.quote('pre-commit auto-fix for cherry-pick')}"
-                                    " --no-verify"
+                                    " --signoff --no-verify"
                                 ),
                                 log_prefix=self.log_prefix,
                                 redact_secrets=[github_token],
                                 mask_sensitive=self.github_webhook.mask_sensitive,
                             )
                             if not rc_commit:
-                                self.logger.warning(
+                                self.logger.error(
                                     f"{self.log_prefix} git commit failed after pre-commit fix: {err_commit}"
                                 )
+                                output["text"] = self.check_run_handler.get_check_run_text(err=err_commit, out="")
+                                await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    "Cherry-pick pre-commit auto-fix failed during `git commit`. "
+                                    "Manual intervention needed.",
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                                return
                         else:
-                            self.logger.debug(f"{self.log_prefix} Pre-commit failed but no files modified")
+                            # Pre-commit failed with no fixable changes — abort
+                            self.logger.error(f"{self.log_prefix} Pre-commit failed with unfixable errors")
+                            output["text"] = self.check_run_handler.get_check_run_text(err=_err_pc, out=_out_pc)
+                            await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                "Cherry-pick pre-commit check failed with unfixable errors. "
+                                "Manual intervention needed.",
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                            return
                     else:
                         self.logger.debug(f"{self.log_prefix} Pre-commit passed without modifications")
 
@@ -1552,6 +1583,18 @@ Your team can configure additional types in the repository settings.
             )
             return
 
+        # Reject fork PRs — force-push would target the base repo
+        head_repo_full_name = await github_api_call(
+            lambda: pull_request.head.repo.full_name, logger=self.logger, log_prefix=self.log_prefix
+        )
+        if head_repo_full_name != self.github_webhook.repository_full_name:
+            msg = "Rebase is not supported for fork PRs — the head branch is in a different repository."
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
         pr_user_login = await github_api_call(
             lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
         )
@@ -1577,6 +1620,20 @@ Your team can configure additional types in the repository settings.
                     pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
                 )
                 return
+        else:
+            # For user-owned PRs, only the PR owner or maintainers can rebase
+            if reviewed_user != pr_user_login:
+                maintainers = await self.owners_file_handler.get_all_repository_maintainers()
+                if reviewed_user not in maintainers:
+                    msg = (
+                        f"@{reviewed_user} is not authorized to rebase this PR.\n"
+                        "Only the PR owner or maintainers can rebase."
+                    )
+                    self.logger.debug(f"{self.log_prefix} {msg}")
+                    await github_api_call(
+                        pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    return
 
         base_ref = await github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix)
         head_ref = await github_api_call(lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix)

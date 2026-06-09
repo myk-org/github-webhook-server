@@ -628,6 +628,16 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             reviewed_user: User who requested the retry
         """
         target_branch = command_args.strip()
+
+        # Validate exactly one branch name
+        if " " in target_branch:
+            msg = "cherry-pick-retry accepts exactly one branch name"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
         self.logger.info(f"{self.log_prefix} Processing cherry-pick retry for branch {target_branch}")
 
         # Validate PR is merged
