@@ -931,7 +931,9 @@ class GithubWebhook:
         _security_config = _security_checks if isinstance(_security_checks, dict) else {}
         _suspicious_paths = _security_config.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
         self.security_suspicious_paths: list[str] = (
-            _suspicious_paths if isinstance(_suspicious_paths, list) else DEFAULT_SUSPICIOUS_PATHS
+            [str(p).strip() for p in _suspicious_paths if isinstance(p, (str, int, float)) and str(p).strip()]
+            if isinstance(_suspicious_paths, list)
+            else DEFAULT_SUSPICIOUS_PATHS
         )
         self.security_committer_identity_check: bool = _security_config.get("committer-identity-check", True)
         self.security_mandatory: bool = _security_config.get("mandatory", True)

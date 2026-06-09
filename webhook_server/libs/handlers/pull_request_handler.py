@@ -1275,6 +1275,16 @@ For more information, please refer to the project documentation or contact the m
                     log_prefix=self.log_prefix,
                 )
 
+                # Disable already-enabled auto-merge on the PR
+                if pull_request.raw_data.get("auto_merge"):
+                    try:
+                        self.logger.info(f"{self.log_prefix} Suspicious paths detected, disabling existing auto-merge")
+                        await github_api_call(
+                            pull_request.disable_automerge, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                    except Exception:
+                        self.logger.exception(f"{self.log_prefix} Failed to disable auto-merge for suspicious paths PR")
+
         if auto_merge:
             # AI-resolved cherry-picks should NEVER be auto-merged
             labels = await github_api_call(
