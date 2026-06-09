@@ -28,7 +28,7 @@ class OwnersFileHandler:
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
 
-    async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
+    async def initialize(self) -> "OwnersFileHandler":
         """Initialize handler with PR data (optimized with parallel operations).
 
         Phase 1: Fetch independent data in parallel (changed files + OWNERS data)
@@ -37,7 +37,7 @@ class OwnersFileHandler:
 
         # Phase 1: Parallel data fetching - independent GitHub API operations
         self.changed_files, self.all_repository_approvers_and_reviewers = await asyncio.gather(
-            self.list_changed_files(pull_request=pull_request),
+            self.list_changed_files(),
             self.get_all_repository_approvers_and_reviewers(),
         )
 
@@ -84,14 +84,19 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
         return _allowed_users
 
-    async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
+    async def list_changed_files(self) -> list[str]:
         """List changed files in the PR using git diff on cloned repository.
 
         Uses local git diff command instead of GitHub API to reduce API calls.
         The repository is already cloned to self.github_webhook.clone_repo_dir.
+        SHAs are read from the webhook payload to avoid race conditions with
+        live API calls (base branch may receive new commits between clone and API call).
 
-        Args:
-            pull_request: PyGithub PullRequest object
+        Note:
+            If the PR is force-pushed between webhook delivery and processing,
+            the payload SHAs may not exist in the clone. This is a pre-existing
+            edge case (not introduced by using payload SHAs) and is handled by
+            the git diff error path which raises RuntimeError.
 
         Returns:
             List of changed file paths relative to repository root
@@ -100,11 +105,11 @@ class OwnersFileHandler:
             RuntimeError: If git diff command fails
             asyncio.CancelledError: Propagates cancellation (never caught)
         """
-        # Get base and head SHAs (wrap property accesses in github_api_call for retry support)
-        base_sha, head_sha = await asyncio.gather(
-            github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
-            github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
-        )
+        # SHAs are stored on the GithubWebhook instance during process():
+        # - From webhook payload for pull_request events (avoids race condition with live API)
+        # - From PullRequest object for other event types (issue_comment, check_run, etc.)
+        base_sha = self.github_webhook.pr_base_sha
+        head_sha = self.github_webhook.pr_head_sha
 
         # Run git diff command on cloned repository
         # Quote clone_repo_dir to handle paths with spaces or special characters

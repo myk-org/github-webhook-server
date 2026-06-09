@@ -35,7 +35,7 @@ class TestOwnersFileHandler:
         return OwnersFileHandler(mock_github_webhook)
 
     @pytest.mark.asyncio
-    async def test_initialize(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
+    async def test_initialize(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test the initialize method."""
         with patch.object(owners_file_handler, "list_changed_files", new=AsyncMock()) as mock_list_files:
             with patch.object(
@@ -60,7 +60,7 @@ class TestOwnersFileHandler:
                                 mock_get_pr_approvers.return_value = ["user1"]
                                 mock_get_pr_reviewers.return_value = ["user2"]
 
-                                result = await owners_file_handler.initialize(mock_pull_request)
+                                result = await owners_file_handler.initialize()
 
                                 assert result == owners_file_handler
                                 assert owners_file_handler.changed_files == ["file1.py", "file2.py"]
@@ -87,13 +87,11 @@ class TestOwnersFileHandler:
         owners_file_handler._ensure_initialized()  # Should not raise
 
     @pytest.mark.asyncio
-    async def test_list_changed_files(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
-    ) -> None:
-        """Test list_changed_files method using git diff."""
-        # Set up mock PR SHAs
-        mock_pull_request.base.sha = "base123abc"
-        mock_pull_request.head.sha = "head456def"
+    async def test_list_changed_files(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test list_changed_files reads SHAs from GithubWebhook instance."""
+        # SHAs are stored on the GithubWebhook instance during process()
+        owners_file_handler.github_webhook.pr_base_sha = "base123abc"
+        owners_file_handler.github_webhook.pr_head_sha = "head456def"
 
         # Set up handler properties
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
@@ -105,7 +103,7 @@ class TestOwnersFileHandler:
         ) as mock_run_command:
             mock_run_command.return_value = (True, "file1.py\nfile2.py\n", "")
 
-            result = await owners_file_handler.list_changed_files(mock_pull_request)
+            result = await owners_file_handler.list_changed_files()
 
             # Verify result
             assert result == ["file1.py", "file2.py"]

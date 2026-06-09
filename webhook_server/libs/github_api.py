@@ -449,7 +449,7 @@ class GithubWebhook:
         """
         await self._clone_repository(pull_request=pull_request)
         owners_file_handler = OwnersFileHandler(github_webhook=self)
-        owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+        owners_file_handler = await owners_file_handler.initialize()
         await PullRequestHandler(github_webhook=self, owners_file_handler=owners_file_handler).check_if_can_be_merged(
             pull_request=pull_request
         )
@@ -596,6 +596,23 @@ class GithubWebhook:
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
+            # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
+            # Fall back to PullRequest object for non-pull_request events (issue_comment, check_run, etc.)
+            pr_payload = self.hook_data.get("pull_request")
+            if (
+                isinstance(pr_payload, dict)
+                and isinstance(pr_payload.get("base"), dict)
+                and isinstance(pr_payload.get("head"), dict)
+            ):
+                # pull_request event — base.sha and head.sha guaranteed by GitHub webhook spec
+                self.pr_base_sha: str = pr_payload["base"]["sha"]
+                self.pr_head_sha: str = pr_payload["head"]["sha"]
+            else:
+                self.pr_base_sha, self.pr_head_sha = await asyncio.gather(
+                    github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
+                    github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
+                )
+
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
             # cloning happens later only when needed (inside their respective handlers)
@@ -604,7 +621,7 @@ class GithubWebhook:
 
             if self.github_event == "issue_comment":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -618,7 +635,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -632,7 +649,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request_review":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -678,7 +695,7 @@ class GithubWebhook:
                 await self._clone_repository(pull_request=pull_request)
 
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
                 handled = await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request)
