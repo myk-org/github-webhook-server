@@ -379,14 +379,14 @@ class TestAutoMergeSecurityOverride:
         ) as mock_api_call:
             await handler.set_pull_request_automerge(pull_request=mock_pull_request)
 
-            # Should have called github_api_call for the comment
-            mock_api_call.assert_called_once()
-            call_args = mock_api_call.call_args
-            # First positional arg is the function to call
-            assert call_args.args[0] == mock_pull_request.create_issue_comment
-            # Second positional arg is the comment body
-            assert "Auto-merge blocked" in call_args.args[1]
-            assert ".github/workflows/ci.yml" in call_args.args[1]
+            # Should have called github_api_call for labels fetch + blocking comment
+            comment_calls = [
+                c
+                for c in mock_api_call.call_args_list
+                if len(c.args) > 1 and isinstance(c.args[1], str) and "Auto-merge blocked" in c.args[1]
+            ]
+            assert len(comment_calls) == 1
+            assert ".github/workflows/ci.yml" in comment_calls[0].args[1]
 
     @pytest.mark.asyncio
     async def test_automerge_allowed_without_suspicious_paths(

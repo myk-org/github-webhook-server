@@ -38,6 +38,7 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_OVERRIDE_LABEL_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
     USER_LABELS_DICT,
@@ -1264,29 +1265,46 @@ For more information, please refer to the project documentation or contact the m
                 if any(f.startswith(prefix) for prefix in self.github_webhook.security_suspicious_paths)
             ]
             if suspicious_matches:
-                auto_merge = False
-                files_list = ", ".join(f"`{f}`" for f in suspicious_matches)
-                self.logger.info(
-                    f"{self.log_prefix} Auto-merge blocked: PR modifies security-sensitive paths: {suspicious_matches}"
+                # Check if security-override label is present (maintainer bypass)
+                _labels = await github_api_call(
+                    lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
                 )
-                await github_api_call(
-                    pull_request.create_issue_comment,
-                    f"Auto-merge blocked: PR modifies security-sensitive paths: {files_list}",
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
+                _label_names = {label.name for label in _labels}
 
-                # Disable already-enabled auto-merge on the PR
-                if pull_request.raw_data.get("auto_merge"):
-                    try:
-                        self.logger.info(f"{self.log_prefix} Suspicious paths detected, disabling existing auto-merge")
-                        await github_api_call(
-                            pull_request.disable_automerge, logger=self.logger, log_prefix=self.log_prefix
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        self.logger.exception(f"{self.log_prefix} Failed to disable auto-merge for suspicious paths PR")
+                if SECURITY_OVERRIDE_LABEL_STR not in _label_names:
+                    auto_merge = False
+                    files_list = ", ".join(f"`{f}`" for f in suspicious_matches)
+                    self.logger.info(
+                        f"{self.log_prefix} Auto-merge blocked: "
+                        f"PR modifies security-sensitive paths: {suspicious_matches}"
+                    )
+                    await github_api_call(
+                        pull_request.create_issue_comment,
+                        f"Auto-merge blocked: PR modifies security-sensitive paths: {files_list}",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+
+                    # Disable already-enabled auto-merge on the PR
+                    if pull_request.raw_data.get("auto_merge"):
+                        try:
+                            self.logger.info(
+                                f"{self.log_prefix} Suspicious paths detected, disabling existing auto-merge"
+                            )
+                            await github_api_call(
+                                pull_request.disable_automerge, logger=self.logger, log_prefix=self.log_prefix
+                            )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            self.logger.exception(
+                                f"{self.log_prefix} Failed to disable auto-merge for suspicious paths PR"
+                            )
+                else:
+                    self.logger.info(
+                        f"{self.log_prefix} Suspicious paths detected but {SECURITY_OVERRIDE_LABEL_STR} "
+                        f"label present, allowing auto-merge"
+                    )
 
         if auto_merge:
             # AI-resolved cherry-picks should NEVER be auto-merged
