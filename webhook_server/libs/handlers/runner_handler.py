@@ -1617,12 +1617,15 @@ Your team can configure additional types in the repository settings.
             )
             return
 
+        pr_user_type = await github_api_call(
+            lambda: pull_request.user.type, logger=self.logger, log_prefix=self.log_prefix
+        )
         pr_user_login = await github_api_call(
             lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
         )
 
         # Check if PR is bot-owned (e.g., cherry-pick PRs created by the app)
-        is_bot_pr = pr_user_login in self.github_webhook.auto_verified_and_merged_users
+        is_bot_pr = pr_user_type == "Bot"
 
         if is_bot_pr:
             # For bot-owned PRs, validate the user is the PR assignee or a maintainer

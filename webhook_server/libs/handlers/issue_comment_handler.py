@@ -681,10 +681,10 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             )
             if pr_title.startswith(pr_title_prefix):
                 # Verify the PR was created by a bot (not a human-created PR)
-                pr_author = await github_api_call(
-                    lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
+                pr_user_type = await github_api_call(
+                    lambda _pr=open_pr: _pr.user.type, logger=self.logger, log_prefix=self.log_prefix
                 )
-                if pr_author not in self.github_webhook.auto_verified_and_merged_users:
+                if pr_user_type != "Bot":
                     continue  # Skip non-bot PRs
 
                 # Check if the PR body references the original PR
