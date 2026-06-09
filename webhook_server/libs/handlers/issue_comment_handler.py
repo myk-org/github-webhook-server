@@ -20,6 +20,7 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
@@ -680,12 +681,22 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
                 lambda _pr=open_pr: _pr.title, logger=self.logger, log_prefix=self.log_prefix
             )
             if pr_title.startswith(pr_title_prefix):
-                # Verify the PR was created by a bot (not a human-created PR)
+                # Verify the PR was created by our app (bot with cherry-pick labels), not any bot
                 pr_user_type = await github_api_call(
                     lambda _pr=open_pr: _pr.user.type, logger=self.logger, log_prefix=self.log_prefix
                 )
                 if pr_user_type != "Bot":
                     continue  # Skip non-bot PRs
+
+                pr_labels = await github_api_call(
+                    lambda _pr=open_pr: [label.name for label in _pr.labels],
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                if not any(
+                    label.startswith(CHERRY_PICKED_LABEL) or label.startswith("cherry-pick-") for label in pr_labels
+                ):
+                    continue  # Skip bot PRs not managed by our app
 
                 # Check if the PR body references the original PR
                 pr_body = await github_api_call(
