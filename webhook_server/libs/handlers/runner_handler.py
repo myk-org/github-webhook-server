@@ -401,6 +401,12 @@ class RunnerHandler:
                 "text": None,
             }
 
+            if not success:
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                if pull_request and set_check:
+                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                return
+
             # Build container build command with worktree path
             # Use configured context subdirectory for build context (default: repo root)
             _context = self.github_webhook.container_context
@@ -443,12 +449,6 @@ class RunnerHandler:
 
             podman_build_cmd: str = f"podman build {build_cmd}"
             self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
-
-            if not success:
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                if pull_request and set_check:
-                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
-                return
 
             build_rc, build_out, build_err = await self.run_podman_command(
                 command=podman_build_cmd,
