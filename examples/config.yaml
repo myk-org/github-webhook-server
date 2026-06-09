@@ -140,6 +140,7 @@ ai-features:
 # Detects potentially malicious PR patterns like modifications to
 # security-sensitive paths or mismatched committer identities.
 security-checks:
+  mandatory: true  # true (default) = blocks can-be-merged. false = advisory only
   suspicious-paths:
     - ".claude/"
     - ".vscode/"

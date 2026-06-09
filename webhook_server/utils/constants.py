@@ -18,6 +18,8 @@ PYTHON_MODULE_INSTALL_STR: str = "python-module-install"
 CONVENTIONAL_TITLE_STR: str = "conventional-title"
 SECURITY_SUSPICIOUS_PATHS_STR: str = "security-suspicious-paths"
 SECURITY_COMMITTER_IDENTITY_STR: str = "security-committer-identity"
+SECURITY_OVERRIDE_LABEL_STR: str = "security-override"
+COMMAND_SECURITY_OVERRIDE_STR: str = "security-override"
 WIP_STR: str = "wip"
 LGTM_STR: str = "lgtm"
 APPROVE_STR: str = "approve"
@@ -88,6 +90,7 @@ STATIC_LABELS_DICT: dict[str, str] = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL: "1D76DB",
     AI_RESOLVED_CONFLICTS_LABEL: "FFA500",
+    SECURITY_OVERRIDE_LABEL_STR: "FFA500",
     f"{SIZE_LABEL_PREFIX}L": "F5621C",
     f"{SIZE_LABEL_PREFIX}M": "F09C74",
     f"{SIZE_LABEL_PREFIX}S": "0E8A16",

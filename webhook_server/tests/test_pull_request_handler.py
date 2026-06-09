@@ -96,6 +96,7 @@ class TestPullRequestHandler:
         mock_webhook.required_conversation_resolution = False
         mock_webhook.security_suspicious_paths = []
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_mandatory = True
         mock_webhook.last_committer = "test-user"
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)

@@ -12,12 +12,16 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     BUILTIN_CHECK_NAMES,
+    COMMAND_SECURITY_OVERRIDE_STR,
     DEFAULT_SUSPICIOUS_PATHS,
     SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_OVERRIDE_LABEL_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
 )
 
@@ -310,6 +314,7 @@ class TestAutoMergeSecurityOverride:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_mandatory = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None
@@ -454,6 +459,261 @@ class TestSecurityCheckConstants:
         assert ".github/actions/" in DEFAULT_SUSPICIOUS_PATHS
 
     def test_security_checks_in_builtin_check_names(self) -> None:
-
         assert SECURITY_SUSPICIOUS_PATHS_STR in BUILTIN_CHECK_NAMES
         assert SECURITY_COMMITTER_IDENTITY_STR in BUILTIN_CHECK_NAMES
+
+    def test_security_override_constants(self) -> None:
+        assert SECURITY_OVERRIDE_LABEL_STR == "security-override"
+        assert COMMAND_SECURITY_OVERRIDE_STR == "security-override"
+
+
+class TestSecurityRequiredStatusChecks:
+    """Test security checks in all_required_status_checks."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"action": "opened"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.token = TEST_GITHUB_TOKEN
+        mock_webhook.tox = {}
+        mock_webhook.verified_job = True
+        mock_webhook.build_and_push_container = {}
+        mock_webhook.pypi = {}
+        mock_webhook.conventional_title = ""
+        mock_webhook.custom_check_runs = []
+        mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
+        mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_mandatory = True
+        mock_webhook.last_commit = Mock()
+        mock_webhook.last_commit.sha = "abc123"
+        mock_webhook.ctx = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_owners_file_handler(self) -> Mock:
+        mock_handler = Mock()
+        return mock_handler
+
+    @pytest.fixture
+    def check_run_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> CheckRunHandler:
+        return CheckRunHandler(mock_github_webhook, mock_owners_file_handler)
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.base.ref = "main"
+        mock_pr.labels = []  # No security-override label
+        return mock_pr
+
+    @pytest.fixture(autouse=True)
+    def patch_check_run_text(self) -> Generator[None]:
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+            return_value="dummy output",
+        ):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_security_checks_required_when_mandatory(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Security checks are in required checks when mandatory=true."""
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+            new=AsyncMock(return_value=[]),
+        ):
+            with patch.object(
+                check_run_handler,
+                "get_branch_required_status_checks",
+                new=AsyncMock(return_value=[]),
+            ):
+                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+                assert SECURITY_SUSPICIOUS_PATHS_STR in checks
+                assert SECURITY_COMMITTER_IDENTITY_STR in checks
+
+    @pytest.mark.asyncio
+    async def test_security_checks_not_required_when_not_mandatory(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Security checks are NOT in required checks when mandatory=false."""
+        check_run_handler.github_webhook.security_mandatory = False
+
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+            new=AsyncMock(return_value=[]),
+        ):
+            with patch.object(
+                check_run_handler,
+                "get_branch_required_status_checks",
+                new=AsyncMock(return_value=[]),
+            ):
+                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
+                assert SECURITY_COMMITTER_IDENTITY_STR not in checks
+
+    @pytest.mark.asyncio
+    async def test_security_checks_skipped_with_override_label(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Security checks skipped from required when security-override label is present."""
+        override_label = Mock()
+        override_label.name = SECURITY_OVERRIDE_LABEL_STR
+
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+            new=AsyncMock(return_value=[override_label]),
+        ):
+            with patch.object(
+                check_run_handler,
+                "get_branch_required_status_checks",
+                new=AsyncMock(return_value=[]),
+            ):
+                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
+                assert SECURITY_COMMITTER_IDENTITY_STR not in checks
+
+    @pytest.mark.asyncio
+    async def test_security_checks_partial_config(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Only configured security checks are added to required list."""
+        check_run_handler.github_webhook.security_suspicious_paths = []
+        check_run_handler.github_webhook.security_committer_identity_check = True
+
+        with patch(
+            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+            new=AsyncMock(return_value=[]),
+        ):
+            with patch.object(
+                check_run_handler,
+                "get_branch_required_status_checks",
+                new=AsyncMock(return_value=[]),
+            ):
+                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
+                assert SECURITY_COMMITTER_IDENTITY_STR in checks
+
+
+class TestSecurityOverrideCommand:
+    """Test /security-override command handling."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"action": "created"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.repository_full_name = "test-org/test-repo"
+        mock_webhook.token = TEST_GITHUB_TOKEN
+        mock_webhook.security_mandatory = True
+        mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
+        mock_webhook.security_committer_identity_check = True
+        mock_webhook.ctx = None
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.labels = []
+        mock_pr.create_issue_comment = Mock()
+        return mock_pr
+
+    @pytest.mark.asyncio
+    async def test_security_override_by_maintainer(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """Maintainers can add the security-override label."""
+
+        mock_owners = Mock()
+        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.all_repository_approvers = ["approver1"]
+        mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+
+        handler = IssueCommentHandler(mock_github_webhook, mock_owners)
+
+        with (
+            patch.object(handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add,
+            patch.object(handler, "create_comment_reaction", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
+                new=AsyncMock(),
+            ),
+        ):
+            await handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_SECURITY_OVERRIDE_STR,
+                reviewed_user="maintainer-user",
+                issue_comment_id=1,
+                is_draft=False,
+            )
+
+            mock_add.assert_called_once_with(pull_request=mock_pull_request, label=SECURITY_OVERRIDE_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_security_override_rejected_for_non_maintainer(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Non-maintainers cannot use /security-override."""
+
+        mock_owners = Mock()
+        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.all_repository_approvers = ["approver1"]
+        mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+
+        handler = IssueCommentHandler(mock_github_webhook, mock_owners)
+
+        with (
+            patch.object(handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add,
+            patch.object(handler, "create_comment_reaction", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
+                new=AsyncMock(),
+            ),
+        ):
+            await handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_SECURITY_OVERRIDE_STR,
+                reviewed_user="random-user",
+                issue_comment_id=1,
+                is_draft=False,
+            )
+
+            # Label should NOT be added
+            mock_add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_security_override_cancel(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+        """/security-override cancel removes the label."""
+
+        mock_owners = Mock()
+        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.all_repository_approvers = ["approver1"]
+        mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+
+        handler = IssueCommentHandler(mock_github_webhook, mock_owners)
+
+        with (
+            patch.object(handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove,
+            patch.object(handler, "create_comment_reaction", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
+                new=AsyncMock(),
+            ),
+        ):
+            await handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_SECURITY_OVERRIDE_STR} cancel",
+                reviewed_user="maintainer-user",
+                issue_comment_id=1,
+                is_draft=False,
+            )
+
+            mock_remove.assert_called_once_with(pull_request=mock_pull_request, label=SECURITY_OVERRIDE_LABEL_STR)

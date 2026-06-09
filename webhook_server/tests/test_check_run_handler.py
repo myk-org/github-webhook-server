@@ -48,6 +48,9 @@ class TestCheckRunHandler:
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = False
+        mock_webhook.security_mandatory = False
         return mock_webhook
 
     @pytest.fixture

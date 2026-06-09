@@ -28,9 +28,11 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_SECURITY_OVERRIDE_STR,
     COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
+    SECURITY_OVERRIDE_LABEL_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -167,6 +169,7 @@ class IssueCommentHandler:
             COMMAND_ADD_ALLOWED_USER_STR,
             COMMAND_REGENERATE_WELCOME_STR,
             COMMAND_TEST_ORACLE_STR,
+            COMMAND_SECURITY_OVERRIDE_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -320,6 +323,23 @@ class IssueCommentHandler:
                 await github_api_call(
                     pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
                 )
+
+        elif _command == COMMAND_SECURITY_OVERRIDE_STR:
+            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
+            if reviewed_user not in maintainers:
+                msg = "Only maintainers can use `/security-override`"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            if remove:
+                await self.labels_handler._remove_label(pull_request=pull_request, label=SECURITY_OVERRIDE_LABEL_STR)
+                self.logger.info(f"{self.log_prefix} Security override removed by {reviewed_user}")
+            else:
+                await self.labels_handler._add_label(pull_request=pull_request, label=SECURITY_OVERRIDE_LABEL_STR)
+                self.logger.info(f"{self.log_prefix} Security override applied by {reviewed_user}")
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"

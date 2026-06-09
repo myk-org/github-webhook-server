@@ -638,6 +638,10 @@ For more information, please refer to the project documentation or contact the m
         )
         commands.append("* `/regenerate-welcome` - Regenerate this welcome message")
 
+        if self.github_webhook.security_mandatory:
+            commands.append("* `/security-override` - Bypass security checks for this PR (maintainers only)")
+            commands.append("* `/security-override cancel` - Remove security override")
+
         return "\n".join(commands)
 
     @property
@@ -758,6 +762,13 @@ For more information, please refer to the project documentation or contact the m
 
         if not checks:
             return ""
+
+        mandatory_note = (
+            "* **Mandatory**: Security checks block merge (use `/security-override` to bypass — maintainers only)"
+            if self.github_webhook.security_mandatory
+            else "* **Advisory**: Security checks are informational only (do not block merge)"
+        )
+        checks.append(mandatory_note)
 
         checks_list = "\n".join(checks)
         return f"""

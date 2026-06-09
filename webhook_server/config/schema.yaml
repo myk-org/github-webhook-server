@@ -74,6 +74,12 @@ $defs:
       Security checks for pull requests. Detects potentially malicious PR patterns
       such as modifications to security-sensitive paths or mismatched committer identities.
     properties:
+      mandatory:
+        type: boolean
+        description: |
+          When true (default), security checks block can-be-merged.
+          When false, security checks are advisory only (run but don't block merge).
+        default: true
       suspicious-paths:
         type: array
         description: |
