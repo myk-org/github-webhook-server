@@ -2091,11 +2091,13 @@ class TestIssueCommentHandler:
             "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
         }
 
-        # Mock existing cherry-pick PR to close
+        # Mock existing cherry-pick PR to close (created by bot)
         mock_existing_cp_pr = Mock()
         mock_existing_cp_pr.number = 456
         mock_existing_cp_pr.title = "CherryPicked: [release-1.0] Some commit"
         mock_existing_cp_pr.body = "Cherry-pick from main, original PR: https://github.com/test/repo/pull/123"
+        mock_existing_cp_pr.user = Mock()
+        mock_existing_cp_pr.user.type = "Bot"
         mock_existing_cp_pr.edit = Mock()
         mock_existing_cp_pr.create_issue_comment = Mock()
 
@@ -2196,6 +2198,51 @@ class TestIssueCommentHandler:
             )
             # PR with different body URL should NOT be closed
             mock_other_pr.edit.assert_not_called()
+            # Cherry-pick should still be re-run
+            mock_cherry_pick.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_skips_human_created_pr(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick-retry does NOT close a human-created PR matching the title and body."""
+        mock_pull_request = Mock()
+        mock_pull_request.html_url = "https://github.com/test/repo/pull/123"
+        mock_label = Mock()
+        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
+        mock_pull_request.labels = [mock_label]
+
+        issue_comment_handler.hook_data["issue"] = {
+            "number": 123,
+            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
+        }
+
+        # Human-created PR with matching title and body URL
+        mock_human_pr = Mock()
+        mock_human_pr.number = 789
+        mock_human_pr.title = "CherryPicked: [release-1.0] Manual cherry-pick"
+        mock_human_pr.body = "original PR: https://github.com/test/repo/pull/123"
+        mock_human_pr.user = Mock()
+        mock_human_pr.user.type = "User"  # Not a Bot
+        mock_human_pr.edit = Mock()
+
+        issue_comment_handler.repository.get_pulls = Mock(return_value=[mock_human_pr])
+
+        with (
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick,
+        ):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            # Human PR should NOT be closed
+            mock_human_pr.edit.assert_not_called()
             # Cherry-pick should still be re-run
             mock_cherry_pick.assert_awaited_once()
 

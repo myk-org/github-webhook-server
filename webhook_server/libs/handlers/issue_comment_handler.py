@@ -697,6 +697,19 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 
             self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title matches prefix")
 
+            # Verify the PR was created by a bot (not a human)
+            pr_user_type = await github_api_call(
+                lambda _pr=open_pr: _pr.user.type, logger=self.logger, log_prefix=self.log_prefix
+            )
+            if pr_user_type != "Bot":
+                self.logger.debug(
+                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author type "
+                    f"is '{pr_user_type}', not 'Bot', skipping"
+                )
+                continue
+
+            self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author is Bot")
+
             # Check if the PR body references the original PR
             pr_body = await github_api_call(
                 lambda _pr=open_pr: _pr.body or "", logger=self.logger, log_prefix=self.log_prefix
