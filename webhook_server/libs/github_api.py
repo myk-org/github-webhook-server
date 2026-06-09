@@ -195,11 +195,7 @@ class GithubWebhook:
             github_app_api=github_app_api, repository=self.repository_full_name
         )
 
-        # Store the app's bot login for identifying PRs created by our app
-        try:
-            self.app_bot_login: str = github_app_api.get_user().login
-        except Exception:
-            self.app_bot_login = ""
+        self.app_bot_login: str = ""  # Initialized async in process()
 
         if not (self.repository or self.repository_by_github_app):
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
@@ -542,6 +538,23 @@ class GithubWebhook:
 
         # Initialize auto-verified users from API users (async operation)
         await self.add_api_users_to_auto_verified_and_merged_users()
+
+        # Initialize app bot login for bot-PR identification (async)
+        if not self.app_bot_login:
+            _github_app_api = get_repository_github_app_api(
+                config_=self.config, repository_name=self.repository_full_name
+            )
+            if _github_app_api:
+                try:
+                    self.app_bot_login = await github_api_call(
+                        lambda: _github_app_api.get_user().login,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                except Exception:
+                    self.logger.warning(
+                        f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work"
+                    )
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
