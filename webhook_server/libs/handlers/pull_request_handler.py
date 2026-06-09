@@ -1283,6 +1283,8 @@ For more information, please refer to the project documentation or contact the m
                         await github_api_call(
                             pull_request.disable_automerge, logger=self.logger, log_prefix=self.log_prefix
                         )
+                    except asyncio.CancelledError:
+                        raise
                     except Exception:
                         self.logger.exception(f"{self.log_prefix} Failed to disable auto-merge for suspicious paths PR")
 
