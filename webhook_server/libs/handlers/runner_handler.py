@@ -1282,8 +1282,18 @@ Your team can configure additional types in the repository settings.
                         )
                         if not rc_diff:
                             # git diff itself failed — report as worktree error, not pre-commit
-                            self.logger.error(f"{self.log_prefix} git diff failed after pre-commit: {err_diff}")
-                            output["text"] = self.check_run_handler.get_check_run_text(err=err_diff, out=out_diff)
+                            redacted_err_diff = _redact_secrets(
+                                err_diff, [github_token], mask_sensitive=self.github_webhook.mask_sensitive
+                            )
+                            redacted_out_diff = _redact_secrets(
+                                out_diff, [github_token], mask_sensitive=self.github_webhook.mask_sensitive
+                            )
+                            self.logger.error(
+                                f"{self.log_prefix} git diff failed after pre-commit: {redacted_err_diff}"
+                            )
+                            output["text"] = self.check_run_handler.get_check_run_text(
+                                err=redacted_err_diff, out=redacted_out_diff
+                            )
                             await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
                             await github_api_call(
                                 pull_request.create_issue_comment,
