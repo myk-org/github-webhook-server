@@ -94,6 +94,10 @@ class TestPullRequestHandler:
         mock_webhook.custom_check_runs = []
         mock_webhook.ai_features = None
         mock_webhook.required_conversation_resolution = False
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_mandatory = True
+        mock_webhook.last_committer = "test-user"
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
         return mock_webhook
@@ -136,6 +140,8 @@ class TestPullRequestHandler:
         handler.runner_handler.run_conventional_title_check = AsyncMock()
         handler.runner_handler.run_build_container = AsyncMock()
         handler.runner_handler.run_install_python_module = AsyncMock()
+        handler.runner_handler.run_security_suspicious_paths = AsyncMock()
+        handler.runner_handler.run_security_committer_identity = AsyncMock()
         handler.runner_handler.run_podman_command = AsyncMock(return_value=(0, "", ""))
         handler.runner_handler.cherry_pick = AsyncMock()
 
@@ -2636,6 +2642,8 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_conventional_title_check", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_security_suspicious_paths", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_security_committer_identity", new=AsyncMock()),
         ):
             await pull_request_handler.process_opened_or_synchronize_pull_request(mock_pull_request)
 
@@ -2664,6 +2672,8 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.runner_handler, "run_pre_commit", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_security_suspicious_paths", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_security_committer_identity", new=AsyncMock()),
         ):
             await pull_request_handler.process_opened_or_synchronize_pull_request(mock_pull_request)
 

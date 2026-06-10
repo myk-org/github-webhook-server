@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
@@ -30,9 +30,12 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_SECURITY_OVERRIDE_STR,
     COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -171,6 +174,7 @@ class IssueCommentHandler:
             COMMAND_ADD_ALLOWED_USER_STR,
             COMMAND_REGENERATE_WELCOME_STR,
             COMMAND_TEST_ORACLE_STR,
+            COMMAND_SECURITY_OVERRIDE_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -360,6 +364,64 @@ class IssueCommentHandler:
                 self.logger.debug(error_msg)
                 await github_api_call(
                     pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+
+        elif _command == COMMAND_SECURITY_OVERRIDE_STR:
+            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
+            if reviewed_user not in maintainers:
+                msg = "Only maintainers can use `/security-override`"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            if remove:
+                # Re-run security checks to re-evaluate
+                await self.runner_handler.run_security_suspicious_paths()
+                await self.runner_handler.run_security_committer_identity()
+                self.logger.info(f"{self.log_prefix} Security checks re-run by {reviewed_user}")
+                await github_api_call(
+                    pull_request.create_issue_comment,
+                    body=f"Security override removed by @{reviewed_user}. Security checks re-run.",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            else:
+                # Set security check runs to success (override)
+                if (
+                    not self.github_webhook.security_suspicious_paths
+                    and not self.github_webhook.security_committer_identity_check
+                ):
+                    msg = "No security checks are enabled — nothing to override."
+                    self.logger.debug(f"{self.log_prefix} {msg}")
+                    await github_api_call(
+                        pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    return
+
+                override_output: CheckRunOutput = {
+                    "title": f"Overridden by maintainer @{reviewed_user}",
+                    "summary": "Security check overridden by maintainer",
+                    "text": (
+                        f"This security check was overridden by maintainer @{reviewed_user}.\n\n"
+                        "Use `/security-override cancel` to re-run security checks."
+                    ),
+                }
+                if self.github_webhook.security_suspicious_paths:
+                    await self.check_run_handler.set_check_success(
+                        name=SECURITY_SUSPICIOUS_PATHS_STR, output=override_output
+                    )
+                if self.github_webhook.security_committer_identity_check:
+                    await self.check_run_handler.set_check_success(
+                        name=SECURITY_COMMITTER_IDENTITY_STR, output=override_output
+                    )
+                self.logger.info(f"{self.log_prefix} Security override applied by {reviewed_user}")
+                await github_api_call(
+                    pull_request.create_issue_comment,
+                    body=f"Security checks overridden by @{reviewed_user}. Security check runs set to pass.",
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
 
         elif _command == WIP_STR:

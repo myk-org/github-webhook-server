@@ -16,6 +16,9 @@ CAN_BE_MERGED_STR: str = "can-be-merged"
 BUILD_CONTAINER_STR: str = "build-container"
 PYTHON_MODULE_INSTALL_STR: str = "python-module-install"
 CONVENTIONAL_TITLE_STR: str = "conventional-title"
+SECURITY_SUSPICIOUS_PATHS_STR: str = "security-suspicious-paths"
+SECURITY_COMMITTER_IDENTITY_STR: str = "security-committer-identity"
+COMMAND_SECURITY_OVERRIDE_STR: str = "security-override"
 WIP_STR: str = "wip"
 LGTM_STR: str = "lgtm"
 APPROVE_STR: str = "approve"
@@ -140,7 +143,19 @@ BUILTIN_CHECK_NAMES: frozenset[str] = frozenset({
     PYTHON_MODULE_INSTALL_STR,
     CONVENTIONAL_TITLE_STR,
     CAN_BE_MERGED_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
 })
+
+DEFAULT_SUSPICIOUS_PATHS: list[str] = [
+    ".claude/",
+    ".vscode/",
+    ".cursor/",
+    ".devcontainer/",
+    ".pi/",
+    ".github/workflows/",
+    ".github/actions/",
+]
 
 
 class REACTIONS:

@@ -171,3 +171,11 @@ test-oracle:
     - "tests/**/*.py"
   triggers:
     - approved
+
+# Security Checks (overrides global config)
+security-checks:
+  mandatory: true
+  suspicious-paths:
+    - ".github/workflows/"
+    - ".github/actions/"
+  committer-identity-check: true

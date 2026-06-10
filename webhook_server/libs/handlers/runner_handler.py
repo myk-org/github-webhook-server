@@ -28,6 +28,8 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
 )
 from webhook_server.utils.github_repository_settings import get_repository_github_app_token
@@ -310,6 +312,136 @@ class RunnerHandler:
         cmd = f"uvx --directory {{worktree_path}} {PREK_STR} run --all-files"
         check_config = CheckConfig(name=PRE_COMMIT_STR, command=cmd, title="Pre-Commit")
         await self.run_check(pull_request=pull_request, check_config=check_config)
+
+    async def run_security_suspicious_paths(self) -> None:
+        """Check if PR modifies security-sensitive paths.
+
+        Fails the check run if any changed files match the configured suspicious path prefixes.
+        Uses changed_files from owners_file_handler (already computed during PR processing).
+        """
+        suspicious_paths = self.github_webhook.security_suspicious_paths
+        if not suspicious_paths:
+            self.logger.debug(f"{self.log_prefix} No suspicious paths configured, skipping security check")
+            return
+
+        await self.check_run_handler.set_check_in_progress(name=SECURITY_SUSPICIOUS_PATHS_STR)
+
+        try:
+            changed_files = self.owners_file_handler.changed_files
+            matched_files = [f for f in changed_files if any(f.startswith(prefix) for prefix in suspicious_paths)]
+
+            if matched_files:
+                files_list = "\n".join(f"- `{f}`" for f in matched_files)
+                output: CheckRunOutput = {
+                    "title": "\u274c Security: Suspicious Paths Detected",
+                    "summary": f"{len(matched_files)} file(s) modify security-sensitive paths",
+                    "text": (
+                        f"## Suspicious Path Detection\n\n"
+                        f"This PR modifies files in security-sensitive locations:\n\n"
+                        f"{files_list}\n\n"
+                        f"**Configured suspicious path prefixes:**\n"
+                        + "\n".join(f"- `{p}`" for p in suspicious_paths)
+                        + "\n\n"
+                        "These paths control development tooling, CI/CD workflows, or IDE configurations "
+                        "and require careful review to prevent supply-chain attacks."
+                    ),
+                }
+                self.logger.warning(f"{self.log_prefix} PR modifies suspicious paths: {matched_files}")
+                await self.check_run_handler.set_check_failure(name=SECURITY_SUSPICIOUS_PATHS_STR, output=output)
+            else:
+                output = {
+                    "title": "Security: Suspicious Paths",
+                    "summary": "No security-sensitive paths modified",
+                    "text": (
+                        "No changed files match the configured suspicious path prefixes.\n\n"
+                        "**Configured prefixes:**\n" + "\n".join(f"- `{p}`" for p in suspicious_paths)
+                    ),
+                }
+                await self.check_run_handler.set_check_success(name=SECURITY_SUSPICIOUS_PATHS_STR, output=output)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Security suspicious paths check failed")
+            await self.check_run_handler.set_check_failure(
+                name=SECURITY_SUSPICIOUS_PATHS_STR,
+                output={"title": "Security check error", "summary": "Unexpected error during check", "text": None},
+            )
+
+    async def run_security_committer_identity(self) -> None:
+        """Check if the last committer matches the PR author.
+
+        Fails the check run if the last commit's committer differs from the PR author
+        (parent_committer), which may indicate a commit was authored by someone unexpected.
+        """
+        if not self.github_webhook.security_committer_identity_check:
+            self.logger.debug(f"{self.log_prefix} Committer identity check disabled, skipping")
+            return
+
+        await self.check_run_handler.set_check_in_progress(name=SECURITY_COMMITTER_IDENTITY_STR)
+
+        try:
+            parent_committer = self.github_webhook.parent_committer
+            last_committer = self.github_webhook.last_committer
+
+            if last_committer == "unknown":
+                output: CheckRunOutput = {
+                    "title": "\u274c Security: Committer Identity Unknown",
+                    "summary": "Committer identity could not be verified",
+                    "text": (
+                        "## Committer Identity Check\n\n"
+                        f"**PR author:** `{parent_committer}`\n"
+                        "**Last commit committer:** unknown\n\n"
+                        "Committer identity could not be verified \u2014 "
+                        "last commit has no associated GitHub user.\n\n"
+                        "This may indicate:\n"
+                        "- A commit was made with a local Git identity not linked to a GitHub account\n"
+                        "- The committer's email is not verified on GitHub\n\n"
+                        "Please verify the commit authorship before merging."
+                    ),
+                }
+                self.logger.warning(
+                    f"{self.log_prefix} Committer identity unknown: "
+                    f"PR author={parent_committer}, last committer has no GitHub user"
+                )
+                await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+            elif last_committer != parent_committer:
+                output = {
+                    "title": "\u274c Security: Committer Identity Mismatch",
+                    "summary": f"Last committer '{last_committer}' differs from PR author '{parent_committer}'",
+                    "text": (
+                        f"## Committer Identity Check\n\n"
+                        f"**PR author:** `{parent_committer}`\n"
+                        f"**Last commit committer:** `{last_committer}`\n\n"
+                        f"The last commit in this PR was made by a different user than the PR author. "
+                        f"This may indicate:\n"
+                        f"- An unauthorized commit was pushed to the PR branch\n"
+                        f"- A bot or automation tool committed with unexpected credentials\n"
+                        f"- A legitimate co-author contribution (review carefully)\n\n"
+                        f"Please verify this is expected before merging."
+                    ),
+                }
+                self.logger.warning(
+                    f"{self.log_prefix} Committer identity mismatch: "
+                    f"PR author={parent_committer}, last committer={last_committer}"
+                )
+                await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+            else:
+                output = {
+                    "title": "Security: Committer Identity",
+                    "summary": "Committer identity verified",
+                    "text": (
+                        f"The last commit committer (`{last_committer}`) matches the PR author (`{parent_committer}`)."
+                    ),
+                }
+                await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Security committer identity check failed")
+            await self.check_run_handler.set_check_failure(
+                name=SECURITY_COMMITTER_IDENTITY_STR,
+                output={"title": "Security check error", "summary": "Unexpected error during check", "text": None},
+            )
 
     def _build_oci_annotations(
         self,

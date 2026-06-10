@@ -168,6 +168,9 @@ class TestCheckRunHandlerCustomCheckMethods:
             {"name": "lint", "command": "uv tool run --from ruff ruff check"},
             {"name": "security-scan", "command": "uv tool run --from bandit bandit -r ."},
         ]
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = False
+        mock_webhook.security_mandatory = False
         return mock_webhook
 
     @pytest.fixture
@@ -288,6 +291,9 @@ class TestCustomCheckMandatoryOption:
             {"name": "mandatory-check-2", "command": "echo test3", "mandatory": True},
             {"name": "default-mandatory-check", "command": "echo test4"},  # No mandatory field = default to true
         ]
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = False
+        mock_webhook.security_mandatory = False
         return mock_webhook
 
     @pytest.mark.asyncio
@@ -1023,6 +1029,9 @@ class TestCustomCheckRunsEdgeCases:
         mock_webhook.clone_repo_dir = str(tmp_path / "test-repo")
         mock_webhook.mask_sensitive = True
         mock_webhook.custom_check_runs = []
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = False
+        mock_webhook.security_mandatory = False
         return mock_webhook
 
     @pytest.mark.asyncio

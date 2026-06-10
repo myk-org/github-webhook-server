@@ -506,7 +506,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         _rate_limit = _api.get_rate_limit()
         log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
 
-        logger.info(f"API user {_api_user} selected (single token configured)")
+        logger.info(f"API user {_api_user} selected (single API configured)")
         return _api, _token, _api_user
 
     for _api, _token in apis_and_tokens:
