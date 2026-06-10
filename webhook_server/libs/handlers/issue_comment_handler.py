@@ -679,21 +679,20 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             f"{self.log_prefix} Cherry-pick retry: looking for open PRs with title prefix "
             f"'{pr_title_prefix}' referencing {original_pr_url}"
         )
+        # Convert PaginatedList to list inside github_api_call to avoid blocking iteration.
+        # After materialization, basic properties (.title, .number, .user.login, .body) are cached.
         open_pulls = await github_api_call(
-            lambda: self.repository.get_pulls(state="open"),
+            lambda: list(self.repository.get_pulls(state="open")),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
+        self.logger.debug(f"{self.log_prefix} Cherry-pick retry: found {len(open_pulls)} open PRs to scan")
         closed_old_pr = False
-        # Iterate lazily — PyGithub's PaginatedList fetches pages on demand
         for open_pr in open_pulls:
-            pr_title = await github_api_call(
-                lambda _pr=open_pr: _pr.title, logger=self.logger, log_prefix=self.log_prefix
-            )
-            if not pr_title.startswith(pr_title_prefix):
+            if not open_pr.title.startswith(pr_title_prefix):
                 self.logger.debug(
                     f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title "
-                    f"'{pr_title}' does not match prefix '{pr_title_prefix}', skipping"
+                    f"'{open_pr.title}' does not match prefix '{pr_title_prefix}', skipping"
                 )
                 continue
 
@@ -708,13 +707,10 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
                 )
                 break
 
-            pr_author_login = await github_api_call(
-                lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
-            )
-            if pr_author_login != self.github_webhook.app_bot_login:
+            if open_pr.user.login != self.github_webhook.app_bot_login:
                 self.logger.debug(
                     f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author "
-                    f"'{pr_author_login}' is not our app bot "
+                    f"'{open_pr.user.login}' is not our app bot "
                     f"'{self.github_webhook.app_bot_login}', skipping"
                 )
                 continue
@@ -722,9 +718,7 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author matches our app bot")
 
             # Check if the PR body references the original PR
-            pr_body = await github_api_call(
-                lambda _pr=open_pr: _pr.body or "", logger=self.logger, log_prefix=self.log_prefix
-            )
+            pr_body = open_pr.body or ""
             if original_pr_url not in pr_body:
                 self.logger.debug(
                     f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} body does not "
