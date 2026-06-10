@@ -578,10 +578,7 @@ class TestOwnersFileHandler:
 
                             assert result is False
                             mock_create_comment.assert_called_once()
-                            assert (
-                                "invalid_user is not allowed to run retest commands"
-                                in mock_create_comment.call_args[0][0]
-                            )
+                            assert "invalid_user is not allowed to run commands" in mock_create_comment.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_valid_users_to_run_commands(self, owners_file_handler: OwnersFileHandler) -> None:
