@@ -661,6 +661,8 @@ properties:
           additionalProperties: false
         ai-features:
           $ref: '#/$defs/ai-features'
+        security-checks:
+          $ref: '#/$defs/security-checks'
         custom-check-runs:
           type: array
           description: |

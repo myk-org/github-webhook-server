@@ -19,7 +19,6 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     SECURITY_COMMITTER_IDENTITY_STR,
-    SECURITY_OVERRIDE_LABEL_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
     SUCCESS_STR,
     TOX_STR,
@@ -430,24 +429,13 @@ class CheckRunHandler:
                 check_name = custom_check["name"]
                 all_required_status_checks.append(check_name)
 
-        # Add mandatory security checks (skip if security-override label is present)
+        # Add mandatory security checks
         if self.github_webhook.security_mandatory:
-            _labels = await github_api_call(
-                lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
-            )
-            _label_names = {label.name for label in _labels}
+            if self.github_webhook.security_suspicious_paths:
+                all_required_status_checks.append(SECURITY_SUSPICIOUS_PATHS_STR)
 
-            if SECURITY_OVERRIDE_LABEL_STR not in _label_names:
-                if self.github_webhook.security_suspicious_paths:
-                    all_required_status_checks.append(SECURITY_SUSPICIOUS_PATHS_STR)
-
-                if self.github_webhook.security_committer_identity_check:
-                    all_required_status_checks.append(SECURITY_COMMITTER_IDENTITY_STR)
-            else:
-                self.logger.info(
-                    f"{self.log_prefix} Security checks skipped from required checks: "
-                    f"{SECURITY_OVERRIDE_LABEL_STR} label present"
-                )
+            if self.github_webhook.security_committer_identity_check:
+                all_required_status_checks.append(SECURITY_COMMITTER_IDENTITY_STR)
 
         # Use ordered deduplication to combine branch and config checks without duplicates
         _all_required_status_checks = list(dict.fromkeys(branch_required_status_checks + all_required_status_checks))

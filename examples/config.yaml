@@ -301,3 +301,10 @@ repositories:
         - "tests/**/*.py"
       triggers:
         - approved
+
+    # Security Checks (overrides global)
+    # security-checks:
+    #   suspicious-paths:
+    #     - ".github/workflows/"
+    #     - ".github/actions/"
+    #   committer-identity-check: true

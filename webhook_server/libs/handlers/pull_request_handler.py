@@ -38,8 +38,8 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     SECURITY_COMMITTER_IDENTITY_STR,
-    SECURITY_OVERRIDE_LABEL_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
+    SUCCESS_STR,
     TOX_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
@@ -640,8 +640,8 @@ For more information, please refer to the project documentation or contact the m
         commands.append("* `/regenerate-welcome` - Regenerate this welcome message")
 
         if self.github_webhook.security_mandatory:
-            commands.append("* `/security-override` - Bypass security checks for this PR (maintainers only)")
-            commands.append("* `/security-override cancel` - Remove security override")
+            commands.append("* `/security-override` - Set security check runs to pass (maintainers only)")
+            commands.append("* `/security-override cancel` - Re-run security checks")
 
         return "\n".join(commands)
 
@@ -1265,13 +1265,17 @@ For more information, please refer to the project documentation or contact the m
                 if any(f.startswith(prefix) for prefix in self.github_webhook.security_suspicious_paths)
             ]
             if suspicious_matches:
-                # Check if security-override label is present (maintainer bypass)
-                _labels = await github_api_call(
-                    lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+                # Check if security check run was already overridden (set to success by maintainer)
+                _check_runs = await github_api_call(
+                    lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
-                _label_names = {label.name for label in _labels}
+                security_check_passed = any(
+                    cr.name == SECURITY_SUSPICIOUS_PATHS_STR and cr.conclusion == SUCCESS_STR for cr in _check_runs
+                )
 
-                if SECURITY_OVERRIDE_LABEL_STR not in _label_names:
+                if not security_check_passed:
                     auto_merge = False
                     files_list = ", ".join(f"`{f}`" for f in suspicious_matches)
                     self.logger.info(
@@ -1302,8 +1306,8 @@ For more information, please refer to the project documentation or contact the m
                             )
                 else:
                     self.logger.info(
-                        f"{self.log_prefix} Suspicious paths detected but {SECURITY_OVERRIDE_LABEL_STR} "
-                        f"label present, allowing auto-merge"
+                        f"{self.log_prefix} Suspicious paths detected but security check already passed "
+                        f"(maintainer override), allowing auto-merge"
                     )
 
         if auto_merge:

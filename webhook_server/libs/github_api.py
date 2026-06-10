@@ -927,7 +927,9 @@ class GithubWebhook:
         self.ai_features: dict[str, Any] | None = self.config.get_value(
             value="ai-features", return_on_none=None, extra_dict=repository_config
         )
-        _security_checks: dict[str, Any] | None = self.config.get_value(value="security-checks", return_on_none=None)
+        _security_checks: dict[str, Any] | None = self.config.get_value(
+            value="security-checks", return_on_none=None, extra_dict=repository_config
+        )
         _security_config = _security_checks if isinstance(_security_checks, dict) else {}
         _suspicious_paths = _security_config.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
         self.security_suspicious_paths: list[str] = (

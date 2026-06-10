@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
@@ -21,7 +22,6 @@ from webhook_server.utils.constants import (
     COMMAND_SECURITY_OVERRIDE_STR,
     DEFAULT_SUSPICIOUS_PATHS,
     SECURITY_COMMITTER_IDENTITY_STR,
-    SECURITY_OVERRIDE_LABEL_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
 )
 
@@ -499,28 +499,49 @@ class TestSecurityCheckConstants:
         assert SECURITY_COMMITTER_IDENTITY_STR in BUILTIN_CHECK_NAMES
 
     def test_security_override_constants(self) -> None:
-        assert SECURITY_OVERRIDE_LABEL_STR == "security-override"
         assert COMMAND_SECURITY_OVERRIDE_STR == "security-override"
 
 
 class TestSecurityConfigSanitization:
-    """Test that malformed config values are handled gracefully."""
+    """Test config sanitization through the production code path."""
 
-    def test_non_string_suspicious_paths_sanitized(self) -> None:
+    @pytest.fixture
+    def mock_webhook_for_config(self) -> Mock:
+        """Create a minimal mock GithubWebhook for _repo_data_from_config testing."""
+
+        mock = Mock()
+        mock.logger = Mock()
+        mock.log_prefix = "[TEST]"
+        mock.config = Mock()
+        return mock
+
+    def test_non_string_suspicious_paths_sanitized(self, mock_webhook_for_config: Mock) -> None:
         """Non-string items in suspicious-paths are converted to strings."""
-        _suspicious_paths: list[Any] = [".github/workflows/", 123, 4.5, "", "  ", ".vscode/"]
-        result = [str(p).strip() for p in _suspicious_paths if isinstance(p, (str, int, float)) and str(p).strip()]
-        assert result == [".github/workflows/", "123", "4.5", ".vscode/"]
 
-    def test_non_list_suspicious_paths_uses_defaults(self) -> None:
-        """Non-list suspicious-paths falls back to defaults."""
-        _suspicious_paths = "not-a-list"
-        result = (
-            [str(p).strip() for p in _suspicious_paths if isinstance(p, (str, int, float)) and str(p).strip()]
-            if isinstance(_suspicious_paths, list)
-            else DEFAULT_SUSPICIOUS_PATHS
+        security_config: dict[str, Any] = {
+            "suspicious-paths": [".github/workflows/", 123, 4.5, "", "  ", ".vscode/"],
+            "committer-identity-check": True,
+        }
+        mock_webhook_for_config.config.get_value = Mock(
+            side_effect=lambda value, **kwargs: security_config if value == "security-checks" else None
         )
-        assert result == DEFAULT_SUSPICIOUS_PATHS
+
+        GithubWebhook._repo_data_from_config(mock_webhook_for_config, repository_config={})
+        assert mock_webhook_for_config.security_suspicious_paths == [".github/workflows/", "123", "4.5", ".vscode/"]
+
+    def test_non_list_suspicious_paths_uses_defaults(self, mock_webhook_for_config: Mock) -> None:
+        """Non-list suspicious-paths falls back to defaults."""
+
+        security_config: dict[str, Any] = {
+            "suspicious-paths": "not-a-list",
+            "committer-identity-check": True,
+        }
+        mock_webhook_for_config.config.get_value = Mock(
+            side_effect=lambda value, **kwargs: security_config if value == "security-checks" else None
+        )
+
+        GithubWebhook._repo_data_from_config(mock_webhook_for_config, repository_config={})
+        assert mock_webhook_for_config.security_suspicious_paths == DEFAULT_SUSPICIOUS_PATHS
 
 
 class TestSecurityRequiredStatusChecks:
@@ -580,18 +601,14 @@ class TestSecurityRequiredStatusChecks:
         self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
     ) -> None:
         """Security checks are in required checks when mandatory=true."""
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+        with patch.object(
+            check_run_handler,
+            "get_branch_required_status_checks",
             new=AsyncMock(return_value=[]),
         ):
-            with patch.object(
-                check_run_handler,
-                "get_branch_required_status_checks",
-                new=AsyncMock(return_value=[]),
-            ):
-                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
-                assert SECURITY_SUSPICIOUS_PATHS_STR in checks
-                assert SECURITY_COMMITTER_IDENTITY_STR in checks
+            checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+            assert SECURITY_SUSPICIOUS_PATHS_STR in checks
+            assert SECURITY_COMMITTER_IDENTITY_STR in checks
 
     @pytest.mark.asyncio
     async def test_security_checks_not_required_when_not_mandatory(
@@ -600,39 +617,14 @@ class TestSecurityRequiredStatusChecks:
         """Security checks are NOT in required checks when mandatory=false."""
         check_run_handler.github_webhook.security_mandatory = False
 
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+        with patch.object(
+            check_run_handler,
+            "get_branch_required_status_checks",
             new=AsyncMock(return_value=[]),
         ):
-            with patch.object(
-                check_run_handler,
-                "get_branch_required_status_checks",
-                new=AsyncMock(return_value=[]),
-            ):
-                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
-                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
-                assert SECURITY_COMMITTER_IDENTITY_STR not in checks
-
-    @pytest.mark.asyncio
-    async def test_security_checks_skipped_with_override_label(
-        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
-    ) -> None:
-        """Security checks skipped from required when security-override label is present."""
-        override_label = Mock()
-        override_label.name = SECURITY_OVERRIDE_LABEL_STR
-
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.github_api_call",
-            new=AsyncMock(return_value=[override_label]),
-        ):
-            with patch.object(
-                check_run_handler,
-                "get_branch_required_status_checks",
-                new=AsyncMock(return_value=[]),
-            ):
-                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
-                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
-                assert SECURITY_COMMITTER_IDENTITY_STR not in checks
+            checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+            assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
+            assert SECURITY_COMMITTER_IDENTITY_STR not in checks
 
     @pytest.mark.asyncio
     async def test_security_checks_partial_config(
@@ -642,18 +634,14 @@ class TestSecurityRequiredStatusChecks:
         check_run_handler.github_webhook.security_suspicious_paths = []
         check_run_handler.github_webhook.security_committer_identity_check = True
 
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.github_api_call",
+        with patch.object(
+            check_run_handler,
+            "get_branch_required_status_checks",
             new=AsyncMock(return_value=[]),
         ):
-            with patch.object(
-                check_run_handler,
-                "get_branch_required_status_checks",
-                new=AsyncMock(return_value=[]),
-            ):
-                checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
-                assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
-                assert SECURITY_COMMITTER_IDENTITY_STR in checks
+            checks = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+            assert SECURITY_SUSPICIOUS_PATHS_STR not in checks
+            assert SECURITY_COMMITTER_IDENTITY_STR in checks
 
 
 class TestSecurityOverrideCommand:
@@ -686,7 +674,7 @@ class TestSecurityOverrideCommand:
 
     @pytest.mark.asyncio
     async def test_security_override_by_maintainer(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
-        """Maintainers can add the security-override label."""
+        """Maintainers can set security check runs to success."""
 
         mock_owners = Mock()
         mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
@@ -696,7 +684,7 @@ class TestSecurityOverrideCommand:
         handler = IssueCommentHandler(mock_github_webhook, mock_owners)
 
         with (
-            patch.object(handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add,
+            patch.object(handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success,
             patch.object(handler, "create_comment_reaction", new=AsyncMock()),
             patch(
                 "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
@@ -711,7 +699,10 @@ class TestSecurityOverrideCommand:
                 is_draft=False,
             )
 
-            mock_add.assert_called_once_with(pull_request=mock_pull_request, label=SECURITY_OVERRIDE_LABEL_STR)
+            # Both security check runs should be set to success
+            success_names = [c.kwargs["name"] for c in mock_success.call_args_list]
+            assert SECURITY_SUSPICIOUS_PATHS_STR in success_names
+            assert SECURITY_COMMITTER_IDENTITY_STR in success_names
 
     @pytest.mark.asyncio
     async def test_security_override_rejected_for_non_maintainer(
@@ -727,7 +718,7 @@ class TestSecurityOverrideCommand:
         handler = IssueCommentHandler(mock_github_webhook, mock_owners)
 
         with (
-            patch.object(handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add,
+            patch.object(handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success,
             patch.object(handler, "create_comment_reaction", new=AsyncMock()),
             patch(
                 "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
@@ -742,12 +733,12 @@ class TestSecurityOverrideCommand:
                 is_draft=False,
             )
 
-            # Label should NOT be added
-            mock_add.assert_not_called()
+            # Check runs should NOT be set to success
+            mock_success.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_security_override_cancel(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
-        """/security-override cancel removes the label."""
+        """/security-override cancel re-runs security checks."""
 
         mock_owners = Mock()
         mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
@@ -757,7 +748,10 @@ class TestSecurityOverrideCommand:
         handler = IssueCommentHandler(mock_github_webhook, mock_owners)
 
         with (
-            patch.object(handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove,
+            patch.object(handler.runner_handler, "run_security_suspicious_paths", new=AsyncMock()) as mock_run_paths,
+            patch.object(
+                handler.runner_handler, "run_security_committer_identity", new=AsyncMock()
+            ) as mock_run_identity,
             patch.object(handler, "create_comment_reaction", new=AsyncMock()),
             patch(
                 "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
@@ -772,4 +766,5 @@ class TestSecurityOverrideCommand:
                 is_draft=False,
             )
 
-            mock_remove.assert_called_once_with(pull_request=mock_pull_request, label=SECURITY_OVERRIDE_LABEL_STR)
+            mock_run_paths.assert_called_once()
+            mock_run_identity.assert_called_once()
