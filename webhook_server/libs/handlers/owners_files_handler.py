@@ -91,12 +91,8 @@ class OwnersFileHandler:
         The repository is already cloned to self.github_webhook.clone_repo_dir.
         SHAs are read from the webhook payload to avoid race conditions with
         live API calls (base branch may receive new commits between clone and API call).
-
-        Note:
-            If the PR is force-pushed between webhook delivery and processing,
-            the payload SHAs may not exist in the clone. This is a pre-existing
-            edge case (not introduced by using payload SHAs) and is handled by
-            the git diff error path which raises RuntimeError.
+        If the PR is force-pushed between webhook delivery and processing,
+        _clone_repository() explicitly fetches payload SHAs to ensure they exist.
 
         Returns:
             List of changed file paths relative to repository root

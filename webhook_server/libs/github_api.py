@@ -388,6 +388,29 @@ class GithubWebhook:
                     redacted_err = redact_output(err)
                     self.logger.error(f"{self.log_prefix} Failed to fetch PR {pr_number} ref: {redacted_err}")
                     raise RuntimeError(f"Failed to fetch PR {pr_number} ref: {redacted_err}")
+
+                # Fetch payload SHAs explicitly to handle force-push race condition
+                # The webhook payload SHAs may differ from the current PR ref if the PR
+                # was force-pushed between webhook delivery and processing
+                if self.pr_base_sha and self.pr_head_sha:
+                    for sha in (self.pr_base_sha, self.pr_head_sha):
+                        # Check if SHA exists in clone
+                        rc_check, _, _ = await run_command(
+                            command=f"{git_cmd} cat-file -e {sha}^{{commit}}",
+                            log_prefix=self.log_prefix,
+                            verify_stderr=False,
+                            mask_sensitive=self.mask_sensitive,
+                        )
+                        if not rc_check:
+                            self.logger.debug(
+                                f"{self.log_prefix} Payload SHA {sha[:7]} not in clone, fetching explicitly"
+                            )
+                            await run_command(
+                                command=f"{git_cmd} fetch origin {sha}",
+                                log_prefix=self.log_prefix,
+                                redact_secrets=[github_token],
+                                mask_sensitive=self.mask_sensitive,
+                            )
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
