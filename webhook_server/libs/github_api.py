@@ -541,8 +541,12 @@ class GithubWebhook:
 
         # Initialize app bot login for bot-PR identification (async)
         if not self.app_bot_login:
-            _github_app_api = get_repository_github_app_api(
-                config_=self.config, repository_name=self.repository_full_name
+            _github_app_api = await github_api_call(
+                get_repository_github_app_api,
+                config_=self.config,
+                repository_name=self.repository_full_name,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
             )
             if _github_app_api:
                 try:

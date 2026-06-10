@@ -697,19 +697,24 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 
             self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title matches prefix")
 
-            # Verify the PR was created by our app's bot
-            pr_author_login = await github_api_call(
-                lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
-            )
-            if pr_author_login != self.github_webhook.app_bot_login:
-                self.logger.debug(
-                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author "
-                    f"'{pr_author_login}' is not our app bot "
-                    f"'{self.github_webhook.app_bot_login}', skipping"
+            # Verify the PR was created by our app's bot (if app_bot_login is available)
+            if self.github_webhook.app_bot_login:
+                pr_author_login = await github_api_call(
+                    lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
                 )
-                continue
+                if pr_author_login != self.github_webhook.app_bot_login:
+                    self.logger.debug(
+                        f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author "
+                        f"'{pr_author_login}' is not our app bot "
+                        f"'{self.github_webhook.app_bot_login}', skipping"
+                    )
+                    continue
 
-            self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author matches our app bot")
+                self.logger.debug(
+                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author matches our app bot"
+                )
+            else:
+                self.logger.debug(f"{self.log_prefix} Cherry-pick retry: app_bot_login not set, skipping author check")
 
             # Check if the PR body references the original PR
             pr_body = await github_api_call(
