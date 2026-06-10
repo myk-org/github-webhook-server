@@ -39,7 +39,7 @@ class TestGithubWebhook:
                 "number": 123,
                 "title": "Test PR",
                 "user": {"login": "testuser"},
-                "base": {"ref": "main"},
+                "base": {"ref": "main", "sha": "base123"},
                 "head": {"sha": "abc123"},
             },
         }
@@ -418,6 +418,113 @@ class TestGithubWebhook:
         ):
             await webhook.process()
             mock_process_comment.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_pr_sha_storage_from_webhook_payload(
+        self, pull_request_payload: dict[str, Any], webhook_headers: Headers
+    ) -> None:
+        """Test that pr_base_sha/pr_head_sha are stored from webhook payload for pull_request events."""
+        # Add base SHA to the payload (head SHA already present)
+        pull_request_payload["pull_request"]["base"]["sha"] = "base-sha-from-payload"
+        pull_request_payload["pull_request"]["head"]["sha"] = "head-sha-from-payload"
+
+        with (
+            patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}),
+            patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_api_rate_limit,
+            patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_repo_api,
+            patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config") as mock_get_apis,
+            patch("webhook_server.libs.config.Config.repository_local_data") as mock_repo_local_data,
+            patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
+        ):
+            mock_api = Mock()
+            mock_api.rate_limiting = [100, 5000]
+            mock_user = Mock()
+            mock_user.login = "test-user"
+            mock_api.get_user.return_value = mock_user
+            mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+            mock_repo_api.return_value = Mock()
+            mock_get_apis.return_value = []
+            mock_repo_local_data.return_value = {}
+
+            webhook = GithubWebhook(hook_data=pull_request_payload, headers=webhook_headers, logger=Mock())
+
+            mock_pr = Mock()
+            mock_pr.draft = False
+            mock_pr.user.login = "testuser"
+            mock_pr.base.ref = "main"
+            # These API SHAs should NOT be used (payload takes priority)
+            mock_pr.base.sha = "api-base-sha-should-not-be-used"
+            mock_pr.head.sha = "api-head-sha-should-not-be-used"
+            mock_commit = Mock()
+            mock_pr.get_commits.return_value = [mock_commit]
+
+            with (
+                patch.object(webhook, "get_pull_request", return_value=mock_pr),
+                patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+                patch.object(OwnersFileHandler, "initialize", new=AsyncMock(return_value=None)),
+                patch(
+                    "webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data",
+                    new=AsyncMock(return_value=None),
+                ),
+            ):
+                await webhook.process()
+
+                # Verify SHAs came from webhook payload, not live API
+                assert webhook.pr_base_sha == "base-sha-from-payload"
+                assert webhook.pr_head_sha == "head-sha-from-payload"
+
+    @pytest.mark.asyncio
+    async def test_pr_sha_storage_fallback_for_non_pr_events(self, issue_comment_payload: dict[str, Any]) -> None:
+        """Test that pr_base_sha/pr_head_sha fall back to API for non-pull_request events.
+
+        issue_comment payloads have no top-level 'pull_request' dict with SHAs,
+        so the code must fall back to the PullRequest object's base.sha/head.sha.
+        """
+        with (
+            patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}),
+            patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_api_rate_limit,
+            patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_repo_api,
+            patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config") as mock_get_apis,
+            patch("webhook_server.libs.config.Config.repository_local_data") as mock_repo_local_data,
+            patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
+        ):
+            mock_api = Mock()
+            mock_api.rate_limiting = [100, 5000]
+            mock_user = Mock()
+            mock_user.login = "test-user"
+            mock_api.get_user.return_value = mock_user
+            mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+            mock_repo_api.return_value = Mock()
+            mock_get_apis.return_value = []
+            mock_repo_local_data.return_value = {}
+
+            headers = Headers({"X-GitHub-Event": "issue_comment"})
+            webhook = GithubWebhook(hook_data=issue_comment_payload, headers=headers, logger=Mock())
+
+            mock_pr = Mock()
+            mock_pr.draft = False
+            mock_pr.user.login = "testuser"
+            mock_pr.base.ref = "main"
+            # These API SHAs SHOULD be used (no payload SHAs for issue_comment)
+            mock_pr.base.sha = "api-base-sha-fallback"
+            mock_pr.head.sha = "api-head-sha-fallback"
+            mock_commit = Mock()
+            mock_pr.get_commits.return_value = [mock_commit]
+
+            with (
+                patch.object(webhook, "get_pull_request", return_value=mock_pr),
+                patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+                patch.object(OwnersFileHandler, "initialize", new=AsyncMock(return_value=None)),
+                patch(
+                    "webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data",
+                    new=AsyncMock(return_value=None),
+                ),
+            ):
+                await webhook.process()
+
+                # Verify SHAs came from API fallback (no payload SHAs for issue_comment)
+                assert webhook.pr_base_sha == "api-base-sha-fallback"
+                assert webhook.pr_head_sha == "api-head-sha-fallback"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")

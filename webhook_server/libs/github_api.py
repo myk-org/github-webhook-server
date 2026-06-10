@@ -56,6 +56,8 @@ from webhook_server.utils.helpers import (
     run_command,
 )
 
+_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
 
 class CountingRequester:
     """
@@ -115,6 +117,8 @@ class GithubWebhook:
         self.repository_full_name: str = hook_data["repository"]["full_name"]
         self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
+        self.pr_base_sha: str = ""
+        self.pr_head_sha: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
@@ -386,6 +390,43 @@ class GithubWebhook:
                     redacted_err = redact_output(err)
                     self.logger.error(f"{self.log_prefix} Failed to fetch PR {pr_number} ref: {redacted_err}")
                     raise RuntimeError(f"Failed to fetch PR {pr_number} ref: {redacted_err}")
+
+                # Fetch payload SHAs explicitly to handle force-push race condition
+                # The webhook payload SHAs may differ from the current PR ref if the PR
+                # was force-pushed between webhook delivery and processing
+                # Validate SHA format first — reset invalid SHAs so the fetch is skipped
+                for sha_attr in ("pr_base_sha", "pr_head_sha"):
+                    sha = getattr(self, sha_attr)
+                    if not isinstance(sha, str) or (sha and not _SHA_PATTERN.match(sha)):
+                        self.logger.warning(
+                            f"{self.log_prefix} Invalid {sha_attr} format: {str(sha)[:20]}, will use API fallback"
+                        )
+                        setattr(self, sha_attr, "")
+
+                if self.pr_base_sha and self.pr_head_sha:
+                    for sha in (self.pr_base_sha, self.pr_head_sha):
+                        # Check if SHA exists in clone
+                        rc_check, _, _ = await run_command(
+                            command=f"{git_cmd} cat-file -e {sha}^{{commit}}",
+                            log_prefix=self.log_prefix,
+                            verify_stderr=False,
+                            mask_sensitive=self.mask_sensitive,
+                        )
+                        if not rc_check:
+                            self.logger.debug(
+                                f"{self.log_prefix} Payload SHA {sha[:7]} not in clone, fetching explicitly"
+                            )
+                            rc_fetch, _, _ = await run_command(
+                                command=f"{git_cmd} fetch origin {sha}",
+                                log_prefix=self.log_prefix,
+                                redact_secrets=[github_token],
+                                mask_sensitive=self.mask_sensitive,
+                            )
+                            if not rc_fetch:
+                                self.logger.warning(
+                                    f"{self.log_prefix} Failed to fetch payload SHA {sha[:7]} — "
+                                    f"git diff may fail if this SHA is unreachable"
+                                )
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
@@ -449,7 +490,7 @@ class GithubWebhook:
         """
         await self._clone_repository(pull_request=pull_request)
         owners_file_handler = OwnersFileHandler(github_webhook=self)
-        owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+        owners_file_handler = await owners_file_handler.initialize()
         await PullRequestHandler(github_webhook=self, owners_file_handler=owners_file_handler).check_if_can_be_merged(
             pull_request=pull_request
         )
@@ -596,6 +637,18 @@ class GithubWebhook:
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
+            # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
+            # For pull_request events, base.sha and head.sha are guaranteed by GitHub webhook spec.
+            # For other events (issue_comment, check_run), fall back to PullRequest API object.
+            if self.github_event == "pull_request":
+                self.pr_base_sha = self.hook_data["pull_request"]["base"]["sha"]
+                self.pr_head_sha = self.hook_data["pull_request"]["head"]["sha"]
+            else:
+                self.pr_base_sha, self.pr_head_sha = await asyncio.gather(
+                    github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
+                    github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
+                )
+
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
             # cloning happens later only when needed (inside their respective handlers)
@@ -604,7 +657,7 @@ class GithubWebhook:
 
             if self.github_event == "issue_comment":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -618,7 +671,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -632,7 +685,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request_review":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
 
                 await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -678,7 +731,7 @@ class GithubWebhook:
                 await self._clone_repository(pull_request=pull_request)
 
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize()
                 handled = await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request)
