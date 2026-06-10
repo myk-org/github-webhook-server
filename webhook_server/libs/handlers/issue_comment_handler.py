@@ -575,7 +575,8 @@ class IssueCommentHandler:
 
         cp_labels: list[str] = [f"{CHERRY_PICK_LABEL_PREFIX}{_branch}" for _branch in _branches_to_process]
 
-        if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
+        is_merged = await github_api_call(lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix)
+        if not is_merged:
             info_msg: str = f"""
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is merged
@@ -641,7 +642,8 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
         self.logger.info(f"{self.log_prefix} Processing cherry-pick retry for branch {target_branch}")
 
         # Validate PR is merged
-        if not self.hook_data["issue"].get("pull_request", {}).get("merged_at"):
+        is_merged = await github_api_call(lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix)
+        if not is_merged:
             msg = "Cherry-pick retry can only be used on merged PRs"
             self.logger.debug(f"{self.log_prefix} {msg}")
             await github_api_call(
@@ -678,12 +680,12 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             f"'{pr_title_prefix}' referencing {original_pr_url}"
         )
         open_pulls = await github_api_call(
-            lambda: list(self.repository.get_pulls(state="open")),
+            lambda: self.repository.get_pulls(state="open"),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
-        self.logger.debug(f"{self.log_prefix} Cherry-pick retry: found {len(open_pulls)} open PRs to scan")
         closed_old_pr = False
+        # Iterate lazily — PyGithub's PaginatedList fetches pages on demand
         for open_pr in open_pulls:
             pr_title = await github_api_call(
                 lambda _pr=open_pr: _pr.title, logger=self.logger, log_prefix=self.log_prefix

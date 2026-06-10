@@ -798,24 +798,23 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []
-        # Patch is_merged as a method
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
-                with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
-                    with patch.object(
-                        issue_comment_handler.labels_handler,
-                        "_add_label",
-                        new_callable=AsyncMock,
-                    ) as mock_add_label:
-                        await issue_comment_handler.process_cherry_pick_command(
-                            pull_request=mock_pull_request,
-                            command_args="branch1 branch2",
-                            reviewed_user="test-user",
-                        )
-                        mock_get_branch.assert_any_call("branch1")
-                        mock_get_branch.assert_any_call("branch2")
-                        mock_comment.assert_called_once()
-                        assert mock_add_label.call_count == 2
+        mock_pull_request.merged = False
+        with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
+            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+                with patch.object(
+                    issue_comment_handler.labels_handler,
+                    "_add_label",
+                    new_callable=AsyncMock,
+                ) as mock_add_label:
+                    await issue_comment_handler.process_cherry_pick_command(
+                        pull_request=mock_pull_request,
+                        command_args="branch1 branch2",
+                        reviewed_user="test-user",
+                    )
+                    mock_get_branch.assert_any_call("branch1")
+                    mock_get_branch.assert_any_call("branch2")
+                    mock_comment.assert_called_once()
+                    assert mock_add_label.call_count == 2
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_non_existing_branches(
@@ -840,8 +839,7 @@ class TestIssueCommentHandler:
         """Test processing cherry pick command for merged PR."""
         mock_pull_request = Mock()
         mock_pull_request.labels = []
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -883,9 +881,8 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []
+        mock_pull_request.merged = True
 
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -943,8 +940,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author = False
         mock_pull_request = Mock()
         mock_pull_request.labels = []
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -980,9 +976,8 @@ class TestIssueCommentHandler:
         existing_label = Mock()
         existing_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.labels = [existing_label]
+        mock_pull_request.merged = True
 
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -1036,8 +1031,7 @@ class TestIssueCommentHandler:
         label2 = Mock()
         label2.name = f"{CHERRY_PICK_LABEL_PREFIX}branch2"
         mock_pull_request.labels = [label1, label2]
-
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -1077,8 +1071,7 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []  # No existing labels in snapshot
-
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2024-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
 
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
@@ -1114,9 +1107,7 @@ class TestIssueCommentHandler:
         existing_label = Mock()
         existing_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.labels = [existing_label]
-
-        # Set merged_at to None to simulate an unmerged PR
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": None}
+        mock_pull_request.merged = False
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -2041,8 +2032,7 @@ class TestIssueCommentHandler:
     async def test_process_cherry_pick_retry_not_merged(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test cherry-pick-retry rejects if PR is not merged."""
         mock_pull_request = Mock()
-        # PR not merged
-        issue_comment_handler.hook_data["issue"] = {"number": 123, "pull_request": {}}
+        mock_pull_request.merged = False
 
         with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
             await issue_comment_handler.process_cherry_pick_retry_command(
@@ -2059,11 +2049,7 @@ class TestIssueCommentHandler:
         """Test cherry-pick-retry rejects if the cherry-pick label is missing."""
         mock_pull_request = Mock()
         mock_pull_request.labels = []  # No labels
-        # PR is merged
-        issue_comment_handler.hook_data["issue"] = {
-            "number": 123,
-            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
-        }
+        mock_pull_request.merged = True
 
         with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
             await issue_comment_handler.process_cherry_pick_retry_command(
@@ -2084,12 +2070,7 @@ class TestIssueCommentHandler:
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
         mock_pull_request.labels = [mock_label]
-
-        # PR is merged
-        issue_comment_handler.hook_data["issue"] = {
-            "number": 123,
-            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
-        }
+        mock_pull_request.merged = True
 
         # Mock existing cherry-pick PR to close (created by bot)
         mock_existing_cp_pr = Mock()
@@ -2135,11 +2116,7 @@ class TestIssueCommentHandler:
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
         mock_pull_request.labels = [mock_label]
-
-        issue_comment_handler.hook_data["issue"] = {
-            "number": 123,
-            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
-        }
+        mock_pull_request.merged = True
 
         # No open PRs matching
         issue_comment_handler.repository.get_pulls = Mock(return_value=[])
@@ -2170,11 +2147,7 @@ class TestIssueCommentHandler:
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
         mock_pull_request.labels = [mock_label]
-
-        issue_comment_handler.hook_data["issue"] = {
-            "number": 123,
-            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
-        }
+        mock_pull_request.merged = True
 
         # PR with matching title but body references a different original PR
         mock_other_pr = Mock()
@@ -2213,11 +2186,7 @@ class TestIssueCommentHandler:
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
         mock_pull_request.labels = [mock_label]
-
-        issue_comment_handler.hook_data["issue"] = {
-            "number": 123,
-            "pull_request": {"merged_at": "2024-01-01T00:00:00Z"},
-        }
+        mock_pull_request.merged = True
 
         # Human-created PR with matching title and body URL
         mock_human_pr = Mock()

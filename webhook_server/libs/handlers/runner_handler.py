@@ -1264,7 +1264,7 @@ Your team can configure additional types in the repository settings.
                 # Run pre-commit auto-fix if enabled for the repo
                 if self.github_webhook.pre_commit:
                     self.logger.info(f"{self.log_prefix} Running pre-commit on cherry-pick worktree")
-                    pre_commit_cmd = f"uvx --directory {worktree_path} {PREK_STR} run --all-files"
+                    pre_commit_cmd = f"uvx --directory {shlex.quote(worktree_path)} {PREK_STR} run --all-files"
                     rc_pc, _out_pc, _err_pc = await run_command(
                         command=pre_commit_cmd,
                         log_prefix=self.log_prefix,
@@ -1684,11 +1684,11 @@ Your team can configure additional types in the repository settings.
                 )
                 return
 
-            git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+            git_cmd = f"git --work-tree={shlex.quote(worktree_path)} --git-dir={shlex.quote(worktree_path + '/.git')}"
 
             # Checkout the PR head branch
             rc, out, err = await run_command(
-                command=f"{git_cmd} checkout {head_ref}",
+                command=f"{git_cmd} checkout {shlex.quote(head_ref)}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
@@ -1704,7 +1704,7 @@ Your team can configure additional types in the repository settings.
 
             # Fetch the base branch
             rc, out, err = await run_command(
-                command=f"{git_cmd} fetch origin {base_ref}",
+                command=f"{git_cmd} fetch origin {shlex.quote(base_ref)}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
@@ -1720,7 +1720,7 @@ Your team can configure additional types in the repository settings.
 
             # Rebase onto base branch
             rc, out, err = await run_command(
-                command=f"{git_cmd} rebase origin/{base_ref}",
+                command=f"{git_cmd} rebase origin/{shlex.quote(base_ref)}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
@@ -1748,7 +1748,7 @@ Your team can configure additional types in the repository settings.
 
             # Force push the rebased branch
             rc, out, err = await run_command(
-                command=f"{git_cmd} push --force-with-lease origin {head_ref}",
+                command=f"{git_cmd} push --force-with-lease origin {shlex.quote(head_ref)}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
