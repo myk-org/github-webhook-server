@@ -938,7 +938,14 @@ class GithubWebhook:
             else DEFAULT_SUSPICIOUS_PATHS
         )
         self.security_committer_identity_check: bool = _security_config.get("committer-identity-check", True)
-        self.security_mandatory: bool = bool(_security_config.get("mandatory", True))
+        _mandatory_raw = _security_config.get("mandatory", True)
+        if not isinstance(_mandatory_raw, bool):
+            self.logger.warning(
+                f"{self.log_prefix} security-checks.mandatory must be boolean, got {type(_mandatory_raw).__name__}. "
+                "Defaulting to true."
+            )
+            _mandatory_raw = True
+        self.security_mandatory: bool = _mandatory_raw
 
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config

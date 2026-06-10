@@ -1292,6 +1292,7 @@ For more information, please refer to the project documentation or contact the m
                     )
                     already_commented = any(
                         c.body.startswith("Auto-merge blocked: PR modifies security-sensitive paths:")
+                        and c.user.login == self.github_webhook.api_user
                         for c in existing_comments
                     )
 
