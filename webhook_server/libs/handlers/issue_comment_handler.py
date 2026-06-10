@@ -669,6 +669,21 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             return
 
         # Find and close existing failed cherry-pick PR for this branch (created by bot)
+        # Abort early if app_bot_login is not set — we cannot verify PR ownership
+        if not self.github_webhook.app_bot_login:
+            self.logger.error(
+                f"{self.log_prefix} Cannot identify app bot — app_bot_login not set. "
+                "Cherry-pick retry cannot verify PR ownership. Aborting close step."
+            )
+            await github_api_call(
+                pull_request.create_issue_comment,
+                "Cherry-pick retry failed: cannot identify app bot for PR ownership verification. "
+                "Please check GitHub App configuration.",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            return
+
         pr_title_prefix = f"CherryPicked: [{target_branch}]"
         original_pr_url = await github_api_call(
             lambda: pull_request.html_url, logger=self.logger, log_prefix=self.log_prefix
@@ -697,24 +712,19 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
 
             self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title matches prefix")
 
-            # Verify the PR was created by our app's bot (if app_bot_login is available)
-            if self.github_webhook.app_bot_login:
-                pr_author_login = await github_api_call(
-                    lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
-                )
-                if pr_author_login != self.github_webhook.app_bot_login:
-                    self.logger.debug(
-                        f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author "
-                        f"'{pr_author_login}' is not our app bot "
-                        f"'{self.github_webhook.app_bot_login}', skipping"
-                    )
-                    continue
-
+            # Verify the PR was created by our app's bot
+            pr_author_login = await github_api_call(
+                lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
+            )
+            if pr_author_login != self.github_webhook.app_bot_login:
                 self.logger.debug(
-                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author matches our app bot"
+                    f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author "
+                    f"'{pr_author_login}' is not our app bot "
+                    f"'{self.github_webhook.app_bot_login}', skipping"
                 )
-            else:
-                self.logger.debug(f"{self.log_prefix} Cherry-pick retry: app_bot_login not set, skipping author check")
+                continue
+
+            self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} author matches our app bot")
 
             # Check if the PR body references the original PR
             pr_body = await github_api_call(

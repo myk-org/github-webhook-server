@@ -1622,6 +1622,21 @@ Your team can configure additional types in the repository settings.
         )
 
         # Check if PR was created by our app's bot
+        # If app_bot_login is not set, we cannot verify bot ownership — abort for safety
+        if not self.github_webhook.app_bot_login:
+            self.logger.error(
+                f"{self.log_prefix} Cannot identify app bot — app_bot_login not set. "
+                "Rebase cannot verify bot-PR ownership. Aborting."
+            )
+            await github_api_call(
+                pull_request.create_issue_comment,
+                "Rebase failed: cannot identify app bot for PR ownership verification. "
+                "Please check GitHub App configuration.",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            return
+
         is_bot_pr = pr_user_login == self.github_webhook.app_bot_login
 
         if is_bot_pr:
