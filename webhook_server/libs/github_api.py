@@ -394,12 +394,17 @@ class GithubWebhook:
                 # Fetch payload SHAs explicitly to handle force-push race condition
                 # The webhook payload SHAs may differ from the current PR ref if the PR
                 # was force-pushed between webhook delivery and processing
+                # Validate SHA format first — reset invalid SHAs so the fetch is skipped
+                for sha_attr in ("pr_base_sha", "pr_head_sha"):
+                    sha = getattr(self, sha_attr)
+                    if not isinstance(sha, str) or (sha and not _SHA_PATTERN.match(sha)):
+                        self.logger.warning(
+                            f"{self.log_prefix} Invalid {sha_attr} format: {str(sha)[:20]}, will use API fallback"
+                        )
+                        setattr(self, sha_attr, "")
+
                 if self.pr_base_sha and self.pr_head_sha:
                     for sha in (self.pr_base_sha, self.pr_head_sha):
-                        if not _SHA_PATTERN.match(sha):
-                            self.logger.warning(f"{self.log_prefix} Invalid SHA format: {sha[:20]}, skipping fetch")
-                            continue
-
                         # Check if SHA exists in clone
                         rc_check, _, _ = await run_command(
                             command=f"{git_cmd} cat-file -e {sha}^{{commit}}",
