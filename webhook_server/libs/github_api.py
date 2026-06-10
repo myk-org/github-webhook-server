@@ -638,16 +638,11 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
-            # Fall back to PullRequest object for non-pull_request events (issue_comment, check_run, etc.)
-            pr_payload = self.hook_data.get("pull_request")
-            if (
-                isinstance(pr_payload, dict)
-                and isinstance(pr_payload.get("base"), dict)
-                and isinstance(pr_payload.get("head"), dict)
-            ):
-                # pull_request event — base.sha and head.sha guaranteed by GitHub webhook spec
-                self.pr_base_sha = pr_payload["base"]["sha"]
-                self.pr_head_sha = pr_payload["head"]["sha"]
+            # For pull_request events, base.sha and head.sha are guaranteed by GitHub webhook spec.
+            # For other events (issue_comment, check_run), fall back to PullRequest API object.
+            if self.github_event == "pull_request":
+                self.pr_base_sha = self.hook_data["pull_request"]["base"]["sha"]
+                self.pr_head_sha = self.hook_data["pull_request"]["head"]["sha"]
             else:
                 self.pr_base_sha, self.pr_head_sha = await asyncio.gather(
                     github_api_call(lambda: pull_request.base.sha, logger=self.logger, log_prefix=self.log_prefix),
