@@ -1271,9 +1271,10 @@ For more information, please refer to the project documentation or contact the m
                     logger=self.logger,
                     log_prefix=self.log_prefix,
                 )
-                security_check_passed = any(
-                    cr.name == SECURITY_SUSPICIOUS_PATHS_STR and cr.conclusion == SUCCESS_STR for cr in _check_runs
-                )
+                # Find the latest check run for security-suspicious-paths
+                security_path_runs = [cr for cr in _check_runs if cr.name == SECURITY_SUSPICIOUS_PATHS_STR]
+                # Check runs are returned newest-first by GitHub API
+                security_check_passed = bool(security_path_runs) and security_path_runs[0].conclusion == SUCCESS_STR
 
                 if not security_check_passed:
                     auto_merge = False
