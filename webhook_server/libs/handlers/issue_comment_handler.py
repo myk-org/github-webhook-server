@@ -389,6 +389,17 @@ class IssueCommentHandler:
                 )
             else:
                 # Set security check runs to success (override)
+                if (
+                    not self.github_webhook.security_suspicious_paths
+                    and not self.github_webhook.security_committer_identity_check
+                ):
+                    msg = "No security checks are enabled — nothing to override."
+                    self.logger.debug(f"{self.log_prefix} {msg}")
+                    await github_api_call(
+                        pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    return
+
                 override_output: CheckRunOutput = {
                     "title": f"Overridden by maintainer @{reviewed_user}",
                     "summary": "Security check overridden by maintainer",

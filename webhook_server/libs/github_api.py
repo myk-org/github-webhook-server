@@ -964,7 +964,14 @@ class GithubWebhook:
             if isinstance(_suspicious_paths, list)
             else DEFAULT_SUSPICIOUS_PATHS
         )
-        self.security_committer_identity_check: bool = _security_config.get("committer-identity-check", True)
+        _committer_check_raw = _security_config.get("committer-identity-check", True)
+        if not isinstance(_committer_check_raw, bool):
+            self.logger.warning(
+                f"{self.log_prefix} security-checks.committer-identity-check must be boolean, "
+                f"got {type(_committer_check_raw).__name__}. Defaulting to true."
+            )
+            _committer_check_raw = True
+        self.security_committer_identity_check: bool = _committer_check_raw
         _mandatory_raw = _security_config.get("mandatory", True)
         if not isinstance(_mandatory_raw, bool):
             self.logger.warning(
