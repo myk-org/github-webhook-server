@@ -56,6 +56,8 @@ from webhook_server.utils.helpers import (
     run_command,
 )
 
+_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
 
 class CountingRequester:
     """
@@ -394,6 +396,10 @@ class GithubWebhook:
                 # was force-pushed between webhook delivery and processing
                 if self.pr_base_sha and self.pr_head_sha:
                     for sha in (self.pr_base_sha, self.pr_head_sha):
+                        if not _SHA_PATTERN.match(sha):
+                            self.logger.warning(f"{self.log_prefix} Invalid SHA format: {sha[:20]}, skipping fetch")
+                            continue
+
                         # Check if SHA exists in clone
                         rc_check, _, _ = await run_command(
                             command=f"{git_cmd} cat-file -e {sha}^{{commit}}",
@@ -405,12 +411,17 @@ class GithubWebhook:
                             self.logger.debug(
                                 f"{self.log_prefix} Payload SHA {sha[:7]} not in clone, fetching explicitly"
                             )
-                            await run_command(
+                            rc_fetch, _, _ = await run_command(
                                 command=f"{git_cmd} fetch origin {sha}",
                                 log_prefix=self.log_prefix,
                                 redact_secrets=[github_token],
                                 mask_sensitive=self.mask_sensitive,
                             )
+                            if not rc_fetch:
+                                self.logger.warning(
+                                    f"{self.log_prefix} Failed to fetch payload SHA {sha[:7]} — "
+                                    f"git diff may fail if this SHA is unreachable"
+                                )
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
