@@ -669,21 +669,6 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             return
 
         # Find and close existing failed cherry-pick PR for this branch (created by bot)
-        # Abort early if app_bot_login is not set — we cannot verify PR ownership
-        if not self.github_webhook.app_bot_login:
-            self.logger.error(
-                f"{self.log_prefix} Cannot identify app bot — app_bot_login not set. "
-                "Cherry-pick retry cannot verify PR ownership. Aborting close step."
-            )
-            await github_api_call(
-                pull_request.create_issue_comment,
-                "Cherry-pick retry failed: cannot identify app bot for PR ownership verification. "
-                "Please check GitHub App configuration.",
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
-            return
-
         pr_title_prefix = f"CherryPicked: [{target_branch}]"
         original_pr_url = await github_api_call(
             lambda: pull_request.html_url, logger=self.logger, log_prefix=self.log_prefix
@@ -713,6 +698,14 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
             self.logger.debug(f"{self.log_prefix} Cherry-pick retry: PR #{open_pr.number} title matches prefix")
 
             # Verify the PR was created by our app's bot
+            # If app_bot_login is not set, skip the close step entirely — can't verify ownership
+            if not self.github_webhook.app_bot_login:
+                self.logger.error(
+                    f"{self.log_prefix} Cherry-pick retry: app_bot_login not set — "
+                    "cannot verify PR ownership, skipping close step"
+                )
+                break
+
             pr_author_login = await github_api_call(
                 lambda _pr=open_pr: _pr.user.login, logger=self.logger, log_prefix=self.log_prefix
             )
