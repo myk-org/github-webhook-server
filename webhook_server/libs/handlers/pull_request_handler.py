@@ -1283,12 +1283,25 @@ For more information, please refer to the project documentation or contact the m
                         f"{self.log_prefix} Auto-merge blocked: "
                         f"PR modifies security-sensitive paths: {suspicious_matches}"
                     )
-                    await github_api_call(
-                        pull_request.create_issue_comment,
-                        f"Auto-merge blocked: PR modifies security-sensitive paths: {files_list}",
+
+                    # Avoid posting duplicate comments on every synchronize event
+                    existing_comments = await github_api_call(
+                        lambda: list(pull_request.get_issue_comments()),
                         logger=self.logger,
                         log_prefix=self.log_prefix,
                     )
+                    already_commented = any(
+                        c.body.startswith("Auto-merge blocked: PR modifies security-sensitive paths:")
+                        for c in existing_comments
+                    )
+
+                    if not already_commented:
+                        await github_api_call(
+                            pull_request.create_issue_comment,
+                            f"Auto-merge blocked: PR modifies security-sensitive paths: {files_list}",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
 
                     # Disable already-enabled auto-merge on the PR
                     if pull_request.raw_data.get("auto_merge"):
