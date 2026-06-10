@@ -481,7 +481,7 @@ class OwnersFileHandler:
         allow_user_comment = f"/{COMMAND_ADD_ALLOWED_USER_STR} @{reviewed_user}"
 
         comment_msg = f"""
-{reviewed_user} is not allowed to run retest commands.
+{reviewed_user} is not allowed to run commands.
 maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}

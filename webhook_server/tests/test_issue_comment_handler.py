@@ -12,7 +12,9 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
+    COMMAND_CHERRY_PICK_RETRY_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REBASE_STR,
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
@@ -796,24 +798,23 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []
-        # Patch is_merged as a method
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
-                with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
-                    with patch.object(
-                        issue_comment_handler.labels_handler,
-                        "_add_label",
-                        new_callable=AsyncMock,
-                    ) as mock_add_label:
-                        await issue_comment_handler.process_cherry_pick_command(
-                            pull_request=mock_pull_request,
-                            command_args="branch1 branch2",
-                            reviewed_user="test-user",
-                        )
-                        mock_get_branch.assert_any_call("branch1")
-                        mock_get_branch.assert_any_call("branch2")
-                        mock_comment.assert_called_once()
-                        assert mock_add_label.call_count == 2
+        mock_pull_request.merged = False
+        with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
+            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+                with patch.object(
+                    issue_comment_handler.labels_handler,
+                    "_add_label",
+                    new_callable=AsyncMock,
+                ) as mock_add_label:
+                    await issue_comment_handler.process_cherry_pick_command(
+                        pull_request=mock_pull_request,
+                        command_args="branch1 branch2",
+                        reviewed_user="test-user",
+                    )
+                    mock_get_branch.assert_any_call("branch1")
+                    mock_get_branch.assert_any_call("branch2")
+                    mock_comment.assert_called_once()
+                    assert mock_add_label.call_count == 2
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_non_existing_branches(
@@ -838,8 +839,7 @@ class TestIssueCommentHandler:
         """Test processing cherry pick command for merged PR."""
         mock_pull_request = Mock()
         mock_pull_request.labels = []
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -881,9 +881,8 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []
+        mock_pull_request.merged = True
 
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -941,8 +940,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author = False
         mock_pull_request = Mock()
         mock_pull_request.labels = []
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with patch.object(issue_comment_handler.repository, "get_branch"):
             with patch.object(
                 issue_comment_handler.runner_handler,
@@ -978,9 +976,8 @@ class TestIssueCommentHandler:
         existing_label = Mock()
         existing_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.labels = [existing_label]
+        mock_pull_request.merged = True
 
-        # Set merged_at in hook_data to simulate a merged PR at comment time
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -1034,8 +1031,7 @@ class TestIssueCommentHandler:
         label2 = Mock()
         label2.name = f"{CHERRY_PICK_LABEL_PREFIX}branch2"
         mock_pull_request.labels = [label1, label2]
-
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2026-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -1075,8 +1071,7 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
         mock_pull_request.title = "Test PR"
         mock_pull_request.labels = []  # No existing labels in snapshot
-
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": "2024-01-01T00:00:00Z"}
+        mock_pull_request.merged = True
 
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
@@ -1112,9 +1107,7 @@ class TestIssueCommentHandler:
         existing_label = Mock()
         existing_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.labels = [existing_label]
-
-        # Set merged_at to None to simulate an unmerged PR
-        issue_comment_handler.hook_data["issue"]["pull_request"] = {"merged_at": None}
+        mock_pull_request.merged = False
         with (
             patch.object(issue_comment_handler.repository, "get_branch"),
             patch.object(
@@ -1733,3 +1726,551 @@ class TestIssueCommentHandler:
                             )
                             mock_oracle.assert_not_called()
                             mock_create_task.assert_not_called()
+
+    # --- Permission guard tests for newly guarded commands ---
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /cherry-pick command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler,
+                "process_cherry_pick_command",
+                new=AsyncMock(),
+            ) as mock_cherry_pick,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_CHERRY_PICK_STR} branch1",
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once_with(
+                pull_request=mock_pull_request,
+                reviewed_user="unauthorized-user",
+            )
+            mock_cherry_pick.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_assign_reviewer_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /assign-reviewer command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler,
+                "_add_reviewer_by_user_comment",
+                new=AsyncMock(),
+            ) as mock_add_reviewer,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ASSIGN_REVIEWER_STR} @someuser",
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_add_reviewer.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_assign_reviewers_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /assign-reviewers command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "assign_reviewers",
+                new=AsyncMock(),
+            ) as mock_assign,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_ASSIGN_REVIEWERS_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_assign.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_check_can_merge_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /check-can-merge command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.pull_request_handler,
+                "check_if_can_be_merged",
+                new=AsyncMock(),
+            ) as mock_check,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_CHECK_CAN_MERGE_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_check.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_verified_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /verified command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(),
+            ) as mock_add_label,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=VERIFIED_LABEL_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_add_label.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_wip_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /wip command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(),
+            ) as mock_add_label,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=WIP_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_add_label.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_test_oracle_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /test-oracle command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ) as mock_oracle,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_TEST_ORACLE_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=456,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_oracle.assert_not_called()
+
+    # --- Cherry-pick retry command tests ---
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_retry_command_dispatched(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /cherry-pick-retry command dispatches to process_cherry_pick_retry_command."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(
+                issue_comment_handler,
+                "process_cherry_pick_retry_command",
+                new_callable=AsyncMock,
+            ) as mock_retry,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_CHERRY_PICK_RETRY_STR} release-1.0",
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_retry.assert_awaited_once_with(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_retry_missing_args(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /cherry-pick-retry without args posts error comment."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_CHERRY_PICK_RETRY_STR,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = mock_pull_request.create_issue_comment.call_args
+            assert "requires an argument" in str(call_body)
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_retry_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /cherry-pick-retry command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler,
+                "process_cherry_pick_retry_command",
+                new=AsyncMock(),
+            ) as mock_retry,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_CHERRY_PICK_RETRY_STR} branch1",
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_retry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_multiple_branches_rejected(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick-retry rejects multiple branch names."""
+        mock_pull_request = Mock()
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="branch1 branch2",
+                reviewed_user="test-user",
+            )
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "exactly one" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_not_merged(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test cherry-pick-retry rejects if PR is not merged."""
+        mock_pull_request = Mock()
+        mock_pull_request.merged = False
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            mock_pull_request.create_issue_comment.assert_called_once()
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert "merged" in call_body.lower()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_label_missing(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test cherry-pick-retry rejects if the cherry-pick label is missing."""
+        mock_pull_request = Mock()
+        mock_pull_request.labels = []  # No labels
+        mock_pull_request.merged = True
+
+        with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            assert mock_pull_request.create_issue_comment.call_count == 1
+            call_body = str(mock_pull_request.create_issue_comment.call_args)
+            assert f"{CHERRY_PICK_LABEL_PREFIX}release-1.0" in call_body
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_success(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test cherry-pick-retry closes old PR and re-runs cherry-pick."""
+        mock_pull_request = Mock()
+        mock_pull_request.html_url = "https://github.com/test/repo/pull/123"
+        # Has the cherry-pick label
+        mock_label = Mock()
+        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
+        mock_pull_request.labels = [mock_label]
+        mock_pull_request.merged = True
+
+        # Mock existing cherry-pick PR to close (created by bot)
+        mock_existing_cp_pr = Mock()
+        mock_existing_cp_pr.number = 456
+        mock_existing_cp_pr.title = "CherryPicked: [release-1.0] Some commit"
+        mock_existing_cp_pr.body = "Cherry-pick from main, original PR: https://github.com/test/repo/pull/123"
+        mock_existing_cp_pr.user = Mock()
+        mock_existing_cp_pr.user.login = "manage-repositories-app[bot]"
+
+        issue_comment_handler.github_webhook.app_bot_login = "manage-repositories-app[bot]"
+        mock_existing_cp_pr.edit = Mock()
+        mock_existing_cp_pr.create_issue_comment = Mock()
+
+        issue_comment_handler.repository.get_pulls = Mock(return_value=[mock_existing_cp_pr])
+
+        with (
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick,
+        ):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            # Old PR should be closed
+            mock_existing_cp_pr.edit.assert_called_once_with(state="closed")
+            # Cherry-pick should be re-run
+            mock_cherry_pick.assert_awaited_once_with(
+                pull_request=mock_pull_request,
+                target_branch="release-1.0",
+                assign_to_pr_owner=issue_comment_handler.github_webhook.cherry_pick_assign_to_pr_author,
+            )
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_no_existing_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test cherry-pick-retry succeeds even when there's no existing cherry-pick PR to close."""
+        mock_pull_request = Mock()
+        mock_pull_request.html_url = "https://github.com/test/repo/pull/123"
+        mock_label = Mock()
+        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
+        mock_pull_request.labels = [mock_label]
+        mock_pull_request.merged = True
+
+        # No open PRs matching
+        issue_comment_handler.repository.get_pulls = Mock(return_value=[])
+
+        with (
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick,
+        ):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            # Cherry-pick should still be re-run
+            mock_cherry_pick.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_skips_pr_with_different_body_url(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick-retry does NOT close a PR whose body references a different original PR."""
+        mock_pull_request = Mock()
+        mock_pull_request.html_url = "https://github.com/test/repo/pull/123"
+        mock_label = Mock()
+        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
+        mock_pull_request.labels = [mock_label]
+        mock_pull_request.merged = True
+
+        # PR with matching title but body references a different original PR
+        mock_other_pr = Mock()
+        mock_other_pr.number = 789
+        mock_other_pr.title = "CherryPicked: [release-1.0] Other commit"
+        mock_other_pr.body = "Cherry-pick from main, original PR: https://github.com/test/repo/pull/999"
+        mock_other_pr.edit = Mock()
+
+        issue_comment_handler.repository.get_pulls = Mock(return_value=[mock_other_pr])
+
+        with (
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick,
+        ):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            # PR with different body URL should NOT be closed
+            mock_other_pr.edit.assert_not_called()
+            # Cherry-pick should still be re-run
+            mock_cherry_pick.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_retry_skips_human_created_pr(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test cherry-pick-retry does NOT close a human-created PR matching the title and body."""
+        mock_pull_request = Mock()
+        mock_pull_request.html_url = "https://github.com/test/repo/pull/123"
+        mock_label = Mock()
+        mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}release-1.0"
+        mock_pull_request.labels = [mock_label]
+        mock_pull_request.merged = True
+
+        # Human-created PR with matching title and body URL
+        mock_human_pr = Mock()
+        mock_human_pr.number = 789
+        mock_human_pr.title = "CherryPicked: [release-1.0] Manual cherry-pick"
+        mock_human_pr.body = "original PR: https://github.com/test/repo/pull/123"
+        mock_human_pr.user = Mock()
+        mock_human_pr.user.login = "human-user"  # Not our app bot
+
+        issue_comment_handler.github_webhook.app_bot_login = "manage-repositories-app[bot]"
+        mock_human_pr.edit = Mock()
+
+        issue_comment_handler.repository.get_pulls = Mock(return_value=[mock_human_pr])
+
+        with (
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "cherry_pick",
+                new_callable=AsyncMock,
+            ) as mock_cherry_pick,
+        ):
+            await issue_comment_handler.process_cherry_pick_retry_command(
+                pull_request=mock_pull_request,
+                command_args="release-1.0",
+                reviewed_user="test-user",
+            )
+            # Human PR should NOT be closed
+            mock_human_pr.edit.assert_not_called()
+            # Cherry-pick should still be re-run
+            mock_cherry_pick.assert_awaited_once()
+
+    # --- Rebase command tests ---
+
+    @pytest.mark.asyncio
+    async def test_rebase_command_dispatched(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /rebase command dispatches to runner_handler.rebase_pr."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "rebase_pr",
+                new_callable=AsyncMock,
+            ) as mock_rebase,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REBASE_STR,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_rebase.assert_awaited_once_with(
+                pull_request=mock_pull_request,
+                reviewed_user="test-user",
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /rebase command is blocked for unauthorized users."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.runner_handler,
+                "rebase_pr",
+                new_callable=AsyncMock,
+            ) as mock_rebase,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REBASE_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_awaited_once()
+            mock_rebase.assert_not_awaited()
