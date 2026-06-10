@@ -630,6 +630,14 @@ Adding label/s `{" ".join(cp_labels)}` for automatic cherry-pick once the PR is 
         """
         target_branch = command_args.strip()
 
+        if not target_branch:
+            msg = "cherry-pick-retry requires a branch name"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
         # Validate exactly one branch name
         if " " in target_branch:
             msg = "cherry-pick-retry accepts exactly one branch name"
