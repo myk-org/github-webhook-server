@@ -348,15 +348,7 @@ class IssueCommentHandler:
                 )
             else:
                 # Set security check runs to success (override)
-                override_output_paths: CheckRunOutput = {
-                    "title": f"Overridden by maintainer @{reviewed_user}",
-                    "summary": "Security check overridden by maintainer",
-                    "text": (
-                        f"This security check was overridden by maintainer @{reviewed_user}.\n\n"
-                        "Use `/security-override cancel` to re-run security checks."
-                    ),
-                }
-                override_output_identity: CheckRunOutput = {
+                override_output: CheckRunOutput = {
                     "title": f"Overridden by maintainer @{reviewed_user}",
                     "summary": "Security check overridden by maintainer",
                     "text": (
@@ -366,11 +358,11 @@ class IssueCommentHandler:
                 }
                 if self.github_webhook.security_suspicious_paths:
                     await self.check_run_handler.set_check_success(
-                        name=SECURITY_SUSPICIOUS_PATHS_STR, output=override_output_paths
+                        name=SECURITY_SUSPICIOUS_PATHS_STR, output=override_output
                     )
                 if self.github_webhook.security_committer_identity_check:
                     await self.check_run_handler.set_check_success(
-                        name=SECURITY_COMMITTER_IDENTITY_STR, output=override_output_identity
+                        name=SECURITY_COMMITTER_IDENTITY_STR, output=override_output
                     )
                 self.logger.info(f"{self.log_prefix} Security override applied by {reviewed_user}")
                 await github_api_call(
