@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
@@ -202,16 +203,56 @@ class CheckRunHandler:
                 log_prefix=self.log_prefix,
             )
 
+    def _redact_output(self, text: str) -> str:
+        """Replace sensitive tokens, passwords, and credentials with *****."""
+        _hased_str = "*****"
+
+        pypi_config = self.github_webhook.pypi
+        if isinstance(pypi_config, dict):
+            pypi_token = pypi_config.get("token")
+            if pypi_token:
+                text = text.replace(pypi_token, _hased_str)
+
+        if getattr(self.github_webhook, "container_repository_username", None):
+            text = text.replace(self.github_webhook.container_repository_username, _hased_str)
+
+        if getattr(self.github_webhook, "container_repository_password", None):
+            text = text.replace(self.github_webhook.container_repository_password, _hased_str)
+
+        if self.github_webhook.token:
+            text = text.replace(self.github_webhook.token, _hased_str)
+
+        return text
+
     def get_check_run_text(self, err: str, out: str) -> str:
         # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI
         err_clean = strip_ansi_codes(err)
         out_clean = strip_ansi_codes(out)
+
+        # Redact BEFORE truncation to prevent partial secret leaks at truncation boundaries
+        err_clean = self._redact_output(err_clean)
+        out_clean = self._redact_output(out_clean)
 
         # GitHub limit is 65535 characters, but we use 65534 to be safe
         # We reserve space for the markdown wrapper: ```\n{err}\n\n{out}\n```
         # Wrapper overhead = len("```\n\n\n```") = 10 characters
         MAX_LEN = 65534
         WRAPPER_OVERHEAD = 10
+
+        # Check if truncation will be needed (using ANSI-stripped, redacted lengths)
+        full_clean_len = len(err_clean) + len(out_clean) + WRAPPER_OVERHEAD
+        will_truncate = full_clean_len > MAX_LEN
+
+        # Log the full redacted output BEFORE truncation so server logs preserve
+        # the complete build output for debugging.
+        # err_clean/out_clean are already redacted at this point.
+        if will_truncate and self.logger.isEnabledFor(logging.DEBUG):
+            full_output = f"```\n{err_clean}\n\n{out_clean}\n```"
+            self.logger.debug(
+                f"{self.log_prefix} Full check run output ({full_clean_len} chars, "
+                f"will be truncated to {MAX_LEN} for GitHub). "
+                f"Redacted full output:\n{full_output}"
+            )
 
         # Prepare error part first - we want to preserve it as much as possible
         # If error itself is huge, we might need to truncate it too, but usually it's small
@@ -241,24 +282,9 @@ class CheckRunHandler:
 
         _output = f"```\n{err_clean}\n\n{out_clean}\n```"
 
-        _hased_str = "*****"
-
-        pypi_config = self.github_webhook.pypi
-        if isinstance(pypi_config, dict):
-            pypi_token = pypi_config.get("token")
-            if pypi_token:
-                _output = _output.replace(pypi_token, _hased_str)
-
-        if getattr(self.github_webhook, "container_repository_username", None):
-            _output = _output.replace(self.github_webhook.container_repository_username, _hased_str)
-
-        if getattr(self.github_webhook, "container_repository_password", None):
-            _output = _output.replace(self.github_webhook.container_repository_password, _hased_str)
-
-        if self.github_webhook.token:
-            _output = _output.replace(self.github_webhook.token, _hased_str)
-
-        return _output
+        # Final redaction pass is idempotent but catches any secrets
+        # introduced by the markdown wrapper itself (defensive)
+        return self._redact_output(_output)
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:

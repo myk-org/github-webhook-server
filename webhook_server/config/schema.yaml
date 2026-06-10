@@ -392,6 +392,14 @@ properties:
               items:
                 type: string
               description: Additional arguments for build command
+            context:
+              type: string
+              pattern: "^[a-zA-Z0-9._/-]*$"
+              description: |
+                Subdirectory to use as the Docker build context (relative to repo root).
+                Default is empty string (repo root). Example: "src" builds from <repo>/src/.
+                Only alphanumeric characters, dots, hyphens, underscores, and forward slashes allowed.
+              default: ""
             oci-annotations:
               type: object
               description: OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)

@@ -58,6 +58,7 @@ class TestRunnerHandler:
         mock_webhook.repository_full_name = "test/repo"
         mock_webhook.repository_name = "repo"
         mock_webhook.dockerfile = "Dockerfile"
+        mock_webhook.container_context = ""
         mock_webhook.container_build_args = []
         mock_webhook.container_command_args = []
         mock_webhook.container_oci_annotations_enabled = False
@@ -416,6 +417,100 @@ class TestRunnerHandler:
                                     name=BUILD_CONTAINER_STR,
                                     output={"title": "Build container", "summary": "", "text": "dummy output"},
                                 )
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_with_context(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_build_container uses configured context subdirectory as build context."""
+        runner_handler.github_webhook.container_context = "src/app"
+        with patch.object(
+            runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+        ):
+            with patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ):
+                with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                    with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                            with patch.object(
+                                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+                            ) as mock_podman:
+                                await runner_handler.run_build_container(pull_request=mock_pull_request)
+                                # Verify the podman command uses context path
+                                podman_cmd = mock_podman.call_args[1]["command"]
+                                assert "/tmp/worktree-path/src/app" in podman_cmd
+                                # Dockerfile path should still be relative to worktree root
+                                assert "/tmp/worktree-path/Dockerfile" in podman_cmd
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_context_path_traversal_blocked(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_build_container rejects context that escapes worktree via path traversal."""
+        runner_handler.github_webhook.container_context = "../../etc"
+        with patch.object(
+            runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+        ):
+            with patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ):
+                with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                            with patch.object(
+                                runner_handler,
+                                "run_podman_command",
+                                new=AsyncMock(return_value=(True, "success", "")),
+                            ) as mock_podman:
+                                await runner_handler.run_build_container(pull_request=mock_pull_request)
+                                # Build should NOT have been attempted
+                                mock_podman.assert_not_called()
+                                # Check should be set to failure
+                                mock_set_failure.assert_awaited_once()
+                                output = mock_set_failure.call_args[1]["output"]
+                                assert "escapes repository root" in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_without_context(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_build_container uses repo root when context is empty (default)."""
+        runner_handler.github_webhook.container_context = ""
+        with patch.object(
+            runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+        ):
+            with patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ):
+                with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+                    with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()):
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                            with patch.object(
+                                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+                            ) as mock_podman:
+                                await runner_handler.run_build_container(pull_request=mock_pull_request)
+                                podman_cmd = mock_podman.call_args[1]["command"]
+                                # With empty context, build context should be the worktree root
+                                # The command should contain worktree-path as context (not worktree-path/)
+                                assert "/tmp/worktree-path -t" in podman_cmd
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -2754,6 +2849,7 @@ class TestBuildOciAnnotations:
         runner_handler.github_webhook.build_and_push_container = True
         runner_handler.github_webhook.container_build_args = []
         runner_handler.github_webhook.container_command_args = []
+        runner_handler.github_webhook.container_context = ""
         runner_handler.github_webhook.dockerfile = "Dockerfile"
         runner_handler.github_webhook.container_repository_username = ""
         runner_handler.github_webhook.pypi = {}

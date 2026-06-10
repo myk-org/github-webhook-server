@@ -395,11 +395,42 @@ class RunnerHandler:
             is_merged=is_merged,
             tag_name=tag,
         ) as (success, worktree_path, out, err):
+            output: CheckRunOutput = {
+                "title": "Build container",
+                "summary": "",
+                "text": None,
+            }
+
+            if not success:
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                if pull_request and set_check:
+                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                return
+
             # Build container build command with worktree path
+            # Use configured context subdirectory for build context (default: repo root)
+            _context = self.github_webhook.container_context
+            if _context:
+                resolved_context = os.path.realpath(os.path.join(worktree_path, _context))
+                resolved_worktree = os.path.realpath(worktree_path)
+                is_under_worktree = resolved_context.startswith(resolved_worktree + os.sep)
+                if not is_under_worktree and resolved_context != resolved_worktree:
+                    self.logger.error(
+                        f"{self.log_prefix} Container context '{_context}' resolves outside "
+                        f"worktree ({resolved_context}), rejecting for security"
+                    )
+                    output["text"] = f"Container build context '{_context}' escapes repository root"
+                    if pull_request and set_check:
+                        await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                    return
+                build_context: str = resolved_context
+            else:
+                build_context = worktree_path
+
             build_cmd: str = (
                 f"--network=host {no_cache} -f "
                 f"{worktree_path}/{self.github_webhook.dockerfile} "
-                f"{worktree_path} -t {_container_repository_and_tag}"
+                f"{build_context} -t {_container_repository_and_tag}"
             )
 
             oci_annotation_flags = self._build_oci_annotations(pull_request=pull_request, tag=tag)
@@ -418,17 +449,6 @@ class RunnerHandler:
 
             podman_build_cmd: str = f"podman build {build_cmd}"
             self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
-
-            output: CheckRunOutput = {
-                "title": "Build container",
-                "summary": "",
-                "text": None,
-            }
-            if not success:
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                if pull_request and set_check:
-                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
-                return
 
             build_rc, build_out, build_err = await self.run_podman_command(
                 command=podman_build_cmd,
