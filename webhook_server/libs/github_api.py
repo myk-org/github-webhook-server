@@ -558,9 +558,7 @@ class GithubWebhook:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self.logger.exception(
-                    f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work"
-                )
+                self.logger.exception(f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work")
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
