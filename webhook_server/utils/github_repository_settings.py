@@ -432,23 +432,19 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
         return None
 
 
-def get_github_app_slug(config_: Config) -> str | None:
+def get_github_app_slug(config_: Config) -> str:
     """Get the GitHub App slug using App JWT authentication.
 
-    Returns the app slug (e.g., 'manage-repositories-app') or None if unavailable.
+    Returns the app slug (e.g., 'manage-repositories-app').
+    Raises on failure so github_api_call() can apply retry/backoff.
     """
-    try:
-        with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
-            private_key = fd.read()
+    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
+        private_key = fd.read()
 
-        github_app_id: int = config_.root_data["github-app-id"]
-        auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
-        app_instance: GithubIntegration = GithubIntegration(auth=auth)
-        return app_instance.get_app().slug
-
-    except Exception:
-        LOGGER.exception("Failed to get GitHub App slug")
-        return None
+    github_app_id: int = config_.root_data["github-app-id"]
+    auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
+    app_instance: GithubIntegration = GithubIntegration(auth=auth)
+    return app_instance.get_app().slug
 
 
 def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:

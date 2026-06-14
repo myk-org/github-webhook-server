@@ -554,12 +554,7 @@ class GithubWebhook:
                     logger=self.logger,
                     log_prefix=self.log_prefix,
                 )
-                if _app_slug:
-                    self.app_bot_login = f"{_app_slug}[bot]"
-                else:
-                    self.logger.error(
-                        f"{self.log_prefix} Failed to get app slug — bot-PR detection may not work"
-                    )
+                self.app_bot_login = f"{_app_slug}[bot]"
             except asyncio.CancelledError:
                 raise
             except Exception:
