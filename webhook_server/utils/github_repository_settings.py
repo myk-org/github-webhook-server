@@ -43,6 +43,7 @@ DEFAULT_BRANCH_PROTECTION = {
 }
 
 LOGGER = get_logger_with_params()
+_github_app_slug_cache: str | None = None
 
 
 def _get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository | None:
@@ -436,15 +437,22 @@ def get_github_app_slug(config_: Config) -> str:
     """Get the GitHub App slug using App JWT authentication.
 
     Returns the app slug (e.g., 'manage-repositories-app').
+    Caches the result at module level since the slug is immutable.
     Raises on failure so github_api_call() can apply retry/backoff.
     """
+    global _github_app_slug_cache
+
+    if _github_app_slug_cache is not None:
+        return _github_app_slug_cache
+
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
     github_app_id: int = config_.root_data["github-app-id"]
     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     app_instance: GithubIntegration = GithubIntegration(auth=auth)
-    return app_instance.get_app().slug
+    _github_app_slug_cache = app_instance.get_app().slug
+    return _github_app_slug_cache
 
 
 def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:
