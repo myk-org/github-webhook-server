@@ -47,6 +47,7 @@ from webhook_server.utils.constants import (
 from webhook_server.utils.context import WebhookContext, get_context
 from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,
+    get_github_app_slug,
     get_repository_github_app_api,
 )
 from webhook_server.utils.github_retry import github_api_call
@@ -546,28 +547,25 @@ class GithubWebhook:
 
         # Initialize app bot login for bot-PR identification (async)
         if not self.app_bot_login:
-            _github_app_api = await github_api_call(
-                get_repository_github_app_api,
-                config_=self.config,
-                repository_name=self.repository_full_name,
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
-            if _github_app_api:
-                try:
-                    self.app_bot_login = await github_api_call(
-                        lambda: f"{_github_app_api.get_app().slug}[bot]",
-                        logger=self.logger,
-                        log_prefix=self.log_prefix,
+            try:
+                _app_slug = await github_api_call(
+                    get_github_app_slug,
+                    self.config,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                if _app_slug:
+                    self.app_bot_login = f"{_app_slug}[bot]"
+                else:
+                    self.logger.error(
+                        f"{self.log_prefix} Failed to get app slug — bot-PR detection may not work"
                     )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    self.logger.exception(
-                        f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work"
-                    )
-            else:
-                self.logger.debug(f"{self.log_prefix} No GitHub App API available — app_bot_login not set")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work"
+                )
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 

@@ -432,6 +432,25 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
         return None
 
 
+def get_github_app_slug(config_: Config) -> str | None:
+    """Get the GitHub App slug using App JWT authentication.
+
+    Returns the app slug (e.g., 'manage-repositories-app') or None if unavailable.
+    """
+    try:
+        with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
+            private_key = fd.read()
+
+        github_app_id: int = config_.root_data["github-app-id"]
+        auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
+        app_instance: GithubIntegration = GithubIntegration(auth=auth)
+        return app_instance.get_app().slug
+
+    except Exception:
+        LOGGER.exception("Failed to get GitHub App slug")
+        return None
+
+
 def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:
     """Get a raw GitHub App installation token string for use with CLI tools.
 
