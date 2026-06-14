@@ -555,11 +555,12 @@ class GithubWebhook:
             )
             if _github_app_api:
                 try:
-                    self.app_bot_login = await github_api_call(
-                        lambda: _github_app_api.get_user().login,
+                    _app = await github_api_call(
+                        _github_app_api.get_app,
                         logger=self.logger,
                         log_prefix=self.log_prefix,
                     )
+                    self.app_bot_login = f"{_app.slug}[bot]"
                 except asyncio.CancelledError:
                     raise
                 except Exception:
