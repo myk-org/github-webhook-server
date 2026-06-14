@@ -300,6 +300,63 @@ class TestConfigSchema:
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_per_repo_default_status_checks_falls_back_to_global(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that repo without default-status-checks falls back to global value."""
+        config = valid_minimal_config.copy()
+        config["default-status-checks"] = ["WIP", "global-check"]
+        config["repositories"] = {
+            "repo1": {
+                "name": "org/repo1",
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            repo_config = Config(repository="repo1")
+            assert repo_config.get_value("default-status-checks") == ["WIP", "global-check"]
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_per_repo_default_status_checks_overrides_global(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that per-repo default-status-checks overrides global value."""
+        config = valid_minimal_config.copy()
+        config["default-status-checks"] = ["WIP", "global-check"]
+        config["repositories"] = {
+            "repo1": {
+                "name": "org/repo1",
+                "default-status-checks": ["WIP", "repo-specific-check"],
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            repo_config = Config(repository="repo1")
+            result = repo_config.get_value("default-status-checks")
+            assert result == ["WIP", "repo-specific-check"]
+            assert "global-check" not in result
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_schema_allows_per_repo_default_status_checks(self) -> None:
+        """Test that schema.yaml defines default-status-checks in per-repo properties."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert "default-status-checks" in repo_props
+        assert repo_props["default-status-checks"]["type"] == "array"
+        assert repo_props["default-status-checks"]["items"]["type"] == "string"
+
     def test_tox_configuration_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
         """Test that tox configuration accepts both string and array values."""
         config = valid_minimal_config.copy()

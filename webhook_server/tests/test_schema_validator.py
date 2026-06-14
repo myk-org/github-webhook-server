@@ -188,6 +188,7 @@ class ConfigValidator:
         array_fields = [
             "events",
             "auto-verified-and-merged-users",
+            "default-status-checks",
             "github-tokens",
             "set-auto-merge-prs",
             "can-be-merged-required-labels",
