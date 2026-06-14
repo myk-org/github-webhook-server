@@ -274,6 +274,32 @@ class TestConfigSchema:
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_per_repo_default_status_checks(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that default-status-checks is accepted at per-repo level and resolved at runtime."""
+        config = valid_minimal_config.copy()
+        config["repositories"] = {
+            "repo1": {
+                "name": "org/repo1",
+                "default-status-checks": ["WIP", "can-be-merged", "ci/my-external-check"],
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            repo_config = Config(repository="repo1")
+            assert repo_config.get_value("default-status-checks") == [
+                "WIP",
+                "can-be-merged",
+                "ci/my-external-check",
+            ]
+        finally:
+            shutil.rmtree(temp_dir)
+
     def test_tox_configuration_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
         """Test that tox configuration accepts both string and array values."""
         config = valid_minimal_config.copy()

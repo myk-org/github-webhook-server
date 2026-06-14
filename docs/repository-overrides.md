@@ -26,6 +26,7 @@ For runtime settings that the webhook reads from the repository, precedence is:
 | `github-tokens` | No | Yes | Needed before the repo-local file can be read. |
 | `protected-branches` and branch protection sync | No | Yes | Applied by the server when it configures repositories. |
 | `branch-protection.required_conversation_resolution` | Yes | Yes | Also affects the runtime `can-be-merged` gate. |
+| `default-status-checks` | No | Yes | Override global default-status-checks for this repository. |
 | `events`, `test-oracle`, `allow-commands-on-draft-prs` | No | Yes | Current code reads these from `config.yaml`. |
 
 ## Labels
