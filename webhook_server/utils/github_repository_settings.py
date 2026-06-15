@@ -1,5 +1,6 @@
 import copy
 import os
+import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -44,6 +45,7 @@ DEFAULT_BRANCH_PROTECTION = {
 
 LOGGER = get_logger_with_params()
 _github_app_slug_cache: str | None = None
+_github_app_slug_lock = threading.Lock()
 
 
 def _get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository | None:
@@ -408,15 +410,23 @@ def set_repository_check_runs_to_queued(
     return True, f"[API user {api_user}] - {repository}: Set check run status to {QUEUED_STR} is done", LOGGER.debug
 
 
-def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
-    LOGGER.debug("Getting repositories GitHub app API")
+def _create_github_integration(config_: Config) -> GithubIntegration:
+    """Create a GithubIntegration instance with App JWT authentication.
 
+    Reads the private key and app ID from config to create an authenticated
+    GithubIntegration. This is the shared setup for all GitHub App API operations.
+    """
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
     github_app_id: int = config_.root_data["github-app-id"]
     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
-    app_instance: GithubIntegration = GithubIntegration(auth=auth)
+    return GithubIntegration(auth=auth)
+
+
+def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
+    LOGGER.debug("Getting repositories GitHub app API")
+    app_instance = _create_github_integration(config_)
     owner: str
     repo: str
     owner, repo = repository_name.split("/")
@@ -445,14 +455,18 @@ def get_github_app_slug(config_: Config) -> str:
     if _github_app_slug_cache is not None:
         return _github_app_slug_cache
 
-    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
-        private_key = fd.read()
+    with _github_app_slug_lock:
+        # Double-checked locking
+        if _github_app_slug_cache is not None:
+            return _github_app_slug_cache
 
-    github_app_id: int = config_.root_data["github-app-id"]
-    auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
-    app_instance: GithubIntegration = GithubIntegration(auth=auth)
-    _github_app_slug_cache = app_instance.get_app().slug
-    return _github_app_slug_cache
+        LOGGER.debug("Getting GitHub App slug")
+        app_instance = _create_github_integration(config_)
+        slug = app_instance.get_app().slug
+        if not slug:
+            raise ValueError("GitHub App returned empty slug")
+        _github_app_slug_cache = slug
+        return _github_app_slug_cache
 
 
 def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:
@@ -461,13 +475,7 @@ def get_repository_github_app_token(config_: Config, repository_name: str) -> st
     Returns the token string or None if the app is not configured/installed.
     """
     LOGGER.debug(f"Getting GitHub App installation token for {repository_name}")
-
-    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
-        private_key = fd.read()
-
-    github_app_id: int = config_.root_data["github-app-id"]
-    auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
-    app_instance: GithubIntegration = GithubIntegration(auth=auth)
+    app_instance = _create_github_integration(config_)
     owner, repo = repository_name.split("/", maxsplit=1)
 
     try:
