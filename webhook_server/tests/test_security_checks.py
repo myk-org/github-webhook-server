@@ -56,6 +56,7 @@ class TestSecuritySuspiciousPaths:
         mock_webhook.config.get_value = Mock(return_value=None)
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_trusted_committers = []
         mock_webhook.parent_committer = "test-user"
         mock_webhook.last_committer = "test-user"
         return mock_webhook
@@ -215,6 +216,7 @@ class TestSecurityCommitterIdentity:
         mock_webhook.config.get_value = Mock(return_value=None)
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_trusted_committers = []
         mock_webhook.parent_committer = "test-user"
         mock_webhook.last_committer = "test-user"
         return mock_webhook
@@ -333,6 +335,37 @@ class TestSecurityCommitterIdentity:
             await runner_handler.run_security_committer_identity()
             mock_progress.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_committer_identity_mismatch_trusted(self, runner_handler: RunnerHandler) -> None:
+        """Check passes when last committer is in trusted-committers list."""
+        runner_handler.github_webhook.parent_committer = "legit-user"
+        runner_handler.github_webhook.last_committer = "pre-commit-ci[bot]"
+        runner_handler.github_webhook.security_trusted_committers = ["pre-commit-ci[bot]", "myorg"]
+
+        with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+            with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
+                await runner_handler.run_security_committer_identity()
+
+                mock_success.assert_called_once()
+                call_args = mock_success.call_args
+                assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
+                assert "trusted-committers" in call_args.kwargs["output"]["summary"]
+
+    @pytest.mark.asyncio
+    async def test_committer_identity_mismatch_not_trusted(self, runner_handler: RunnerHandler) -> None:
+        """Check fails when last committer is NOT in trusted-committers list."""
+        runner_handler.github_webhook.parent_committer = "legit-user"
+        runner_handler.github_webhook.last_committer = "suspicious-user"
+        runner_handler.github_webhook.security_trusted_committers = ["pre-commit-ci[bot]"]
+
+        with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+            with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
+                await runner_handler.run_security_committer_identity()
+
+                mock_failure.assert_called_once()
+                call_args = mock_failure.call_args
+                assert "suspicious-user" in call_args.kwargs["output"]["summary"]
+
 
 class TestAutoMergeSecurityOverride:
     """Test auto-merge is blocked when PR modifies suspicious paths."""
@@ -351,6 +384,7 @@ class TestAutoMergeSecurityOverride:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_trusted_committers = []
         mock_webhook.security_mandatory = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
@@ -600,6 +634,7 @@ class TestSecurityRequiredStatusChecks:
         mock_webhook.custom_check_runs = []
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_trusted_committers = []
         mock_webhook.security_mandatory = True
         mock_webhook.last_commit = Mock()
         mock_webhook.last_commit.sha = "abc123"
@@ -670,6 +705,7 @@ class TestSecurityRequiredStatusChecks:
         """Only configured security checks are added to required list."""
         check_run_handler.github_webhook.security_suspicious_paths = []
         check_run_handler.github_webhook.security_committer_identity_check = True
+        check_run_handler.github_webhook.security_trusted_committers = []
 
         with patch.object(
             check_run_handler,
@@ -696,6 +732,7 @@ class TestSecurityOverrideCommand:
         mock_webhook.security_mandatory = True
         mock_webhook.security_suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
         mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_trusted_committers = []
         mock_webhook.ctx = None
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)

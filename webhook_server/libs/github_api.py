@@ -997,6 +997,19 @@ class GithubWebhook:
             _mandatory_raw = True
         self.security_mandatory: bool = _mandatory_raw
 
+        _trusted_committers = _security_config.get("trusted-committers", [])
+        if not isinstance(_trusted_committers, list):
+            self.logger.warning(
+                f"{self.log_prefix} security-checks.trusted-committers must be array, "
+                f"got {type(_trusted_committers).__name__}. Defaulting to empty list."
+            )
+            _trusted_committers = []
+        self.security_trusted_committers: list[str] = [
+            str(entry).strip().lower()
+            for entry in _trusted_committers
+            if isinstance(entry, (str, int, float)) and str(entry).strip()
+        ]
+
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )

@@ -385,6 +385,9 @@ class RunnerHandler:
             parent_committer = self.github_webhook.parent_committer
             last_committer = self.github_webhook.last_committer
 
+            # SECURITY: "unknown" check MUST precede the trusted-committers allowlist check.
+            # An unverifiable committer identity should always fail, even if "unknown" is
+            # accidentally added to the trusted-committers list.
             if last_committer == "unknown":
                 output: CheckRunOutput = {
                     "title": "\u274c Security: Committer Identity Unknown",
@@ -447,26 +450,45 @@ class RunnerHandler:
                     }
                     await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             elif last_committer != parent_committer:
-                output = {
-                    "title": "\u274c Security: Committer Identity Mismatch",
-                    "summary": f"Last committer '{last_committer}' differs from PR author '{parent_committer}'",
-                    "text": (
-                        f"## Committer Identity Check\n\n"
-                        f"**PR author:** `{parent_committer}`\n"
-                        f"**Last commit committer:** `{last_committer}`\n\n"
-                        f"The last commit in this PR was made by a different user than the PR author. "
-                        f"This may indicate:\n"
-                        f"- An unauthorized commit was pushed to the PR branch\n"
-                        f"- A bot or automation tool committed with unexpected credentials\n"
-                        f"- A legitimate co-author contribution (review carefully)\n\n"
-                        f"Please verify this is expected before merging."
-                    ),
-                }
-                self.logger.warning(
-                    f"{self.log_prefix} Committer identity mismatch: "
-                    f"PR author={parent_committer}, last committer={last_committer}"
-                )
-                await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+                # Check if last_committer is in trusted-committers allowlist
+                if last_committer.lower() in self.github_webhook.security_trusted_committers:
+                    output = {
+                        "title": "Security: Committer Identity",
+                        "summary": f"Committer '{last_committer}' is in the trusted-committers allowlist",
+                        "text": (
+                            f"## Committer Identity Check\n\n"
+                            f"**PR author:** `{parent_committer}`\n"
+                            f"**Last commit committer:** `{last_committer}`\n\n"
+                            f"The committer differs from the PR author but is in the `trusted-committers` allowlist.\n"
+                            f"This is expected for automated workflows (bots, CI tools, org identities)."
+                        ),
+                    }
+                    self.logger.info(
+                        f"{self.log_prefix} Committer identity mismatch allowed: "
+                        f"'{last_committer}' is in trusted-committers list"
+                    )
+                    await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+                else:
+                    output = {
+                        "title": "\u274c Security: Committer Identity Mismatch",
+                        "summary": f"Last committer '{last_committer}' differs from PR author '{parent_committer}'",
+                        "text": (
+                            f"## Committer Identity Check\n\n"
+                            f"**PR author:** `{parent_committer}`\n"
+                            f"**Last commit committer:** `{last_committer}`\n\n"
+                            f"The last commit in this PR was made by a different user than the PR author. "
+                            f"This may indicate:\n"
+                            f"- An unauthorized commit was pushed to the PR branch\n"
+                            f"- A bot or automation tool committed with unexpected credentials\n"
+                            f"- A legitimate co-author contribution (review carefully)\n\n"
+                            f"Please verify this is expected before merging."
+                        ),
+                    }
+                    self.logger.warning(
+                        f"{self.log_prefix} Committer identity mismatch: "
+                        f"PR author={parent_committer}, last committer={last_committer}"
+                    )
+                    await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             else:
                 output = {
                     "title": "Security: Committer Identity",
