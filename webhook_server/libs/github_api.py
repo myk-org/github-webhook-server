@@ -1007,7 +1007,7 @@ class GithubWebhook:
         self.security_trusted_committers: list[str] = [
             str(entry).strip().lower()
             for entry in _trusted_committers
-            if isinstance(entry, (str, int, float)) and str(entry).strip()
+            if isinstance(entry, (str, int, float)) and not isinstance(entry, bool) and str(entry).strip()
         ]
 
         _auto_merge_prs = self.config.get_value(
