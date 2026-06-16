@@ -366,6 +366,38 @@ class TestSecurityCommitterIdentity:
                 call_args = mock_failure.call_args
                 assert "suspicious-user" in call_args.kwargs["output"]["summary"]
 
+    @pytest.mark.asyncio
+    async def test_committer_identity_unknown_not_bypassed_by_trusted_list(self, runner_handler: RunnerHandler) -> None:
+        """Check fails for unknown committer even when 'unknown' is in trusted-committers list."""
+        runner_handler.github_webhook.parent_committer = "legit-user"
+        runner_handler.github_webhook.last_committer = "unknown"
+        runner_handler.github_webhook.security_trusted_committers = ["unknown"]
+
+        with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+            with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
+                await runner_handler.run_security_committer_identity()
+
+                mock_failure.assert_called_once()
+                call_args = mock_failure.call_args
+                assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
+                assert "could not be verified" in call_args.kwargs["output"]["summary"].lower()
+
+    @pytest.mark.asyncio
+    async def test_committer_identity_mismatch_trusted_case_insensitive(self, runner_handler: RunnerHandler) -> None:
+        """Check passes when committer login differs in case from trusted-committers entry."""
+        runner_handler.github_webhook.parent_committer = "legit-user"
+        runner_handler.github_webhook.last_committer = "Pre-Commit-CI[bot]"
+        runner_handler.github_webhook.security_trusted_committers = ["pre-commit-ci[bot]"]
+
+        with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()):
+            with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
+                await runner_handler.run_security_committer_identity()
+
+                mock_success.assert_called_once()
+                call_args = mock_success.call_args
+                assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
+                assert "trusted-committers" in call_args.kwargs["output"]["summary"]
+
 
 class TestAutoMergeSecurityOverride:
     """Test auto-merge is blocked when PR modifies suspicious paths."""

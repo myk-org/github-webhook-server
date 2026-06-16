@@ -569,6 +569,9 @@ class GithubWebhook:
             else:
                 self.logger.debug(f"{self.log_prefix} No GitHub App API available — app_bot_login not set")
 
+        # Build final trusted-committers list with dynamic server identities
+        self._build_dynamic_trusted_committers()
+
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         # Start webhook routing context step
@@ -1122,6 +1125,29 @@ class GithubWebhook:
         self.label_colors: dict[str, str] = {str(k): str(v) for k, v in merged_colors.items()}
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
+
+    def _build_dynamic_trusted_committers(self) -> None:
+        """Add server bot and API users to trusted-committers list.
+
+        Called after app_bot_login and auto_verified_and_merged_users are initialized.
+        Combines static config entries with dynamic server identities.
+        """
+        dynamic_entries: list[str] = []
+
+        if self.app_bot_login:
+            dynamic_entries.append(str(self.app_bot_login).strip().lower())
+
+        for user in self.auto_verified_and_merged_users:
+            if user:
+                dynamic_entries.append(str(user).strip().lower())
+
+        # Add dynamic entries that aren't already in the static list
+        for entry in dynamic_entries:
+            if entry not in self.security_trusted_committers:
+                self.security_trusted_committers.append(entry)
+
+        if dynamic_entries:
+            self.logger.debug(f"{self.log_prefix} Added dynamic trusted committers: {dynamic_entries}")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
