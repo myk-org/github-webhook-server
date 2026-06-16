@@ -571,7 +571,7 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} No GitHub App API available — app_bot_login not set")
 
         # Build final trusted-committers list with dynamic server identities
-        self._build_dynamic_trusted_committers()
+        await self._build_trusted_committers()
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
@@ -839,27 +839,18 @@ class GithubWebhook:
             await self._update_context_metrics()
             return None
 
-    async def add_api_users_to_auto_verified_and_merged_users(self) -> None:
+    async def get_api_users(self) -> tuple[Any]:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
 
         async def check_token(api: github.Github, token: str) -> str | None:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                rate_limit_remaining = await github_api_call(
-                    lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix
-                )
+                await github_api_call(lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix)
             except Exception as ex:
                 self.logger.warning(
                     f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
                     f"skipping. {ex}"
-                )
-                return None
-
-            if rate_limit_remaining == 60:
-                self.logger.warning(
-                    f"{self.log_prefix} API has rate limit set to 60 which indicates an invalid token "
-                    f"(token ending in '{token_suffix}'), skipping"
                 )
                 return None
 
@@ -875,7 +866,10 @@ class GithubWebhook:
 
             return _api_user
 
-        results = await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
+        return await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
+
+    async def add_api_users_to_auto_verified_and_merged_users(self) -> None:
+        results = await self.get_api_users()
         self.auto_verified_and_merged_users.extend(user for user in results if user is not None)
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
@@ -1001,18 +995,7 @@ class GithubWebhook:
             _mandatory_raw = True
         self.security_mandatory: bool = _mandatory_raw
 
-        _trusted_committers = _security_config.get("trusted-committers", [])
-        if not isinstance(_trusted_committers, list):
-            self.logger.warning(
-                f"{self.log_prefix} security-checks.trusted-committers must be array, "
-                f"got {type(_trusted_committers).__name__}. Defaulting to empty list."
-            )
-            _trusted_committers = []
-        self.security_trusted_committers: list[str] = [
-            str(entry).strip().lower()
-            for entry in _trusted_committers
-            if isinstance(entry, (str, int, float)) and not isinstance(entry, bool) and str(entry).strip()
-        ]
+        self.security_trusted_committers: list[str] = []
 
         _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
@@ -1127,38 +1110,57 @@ class GithubWebhook:
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
-    def _build_dynamic_trusted_committers(self) -> None:
-        """Build unified trusted-committers list from all sources.
+    async def _build_trusted_committers(self) -> None:
+        """Build the complete trusted-committers list from all sources.
 
-        Combines:
+        Sources:
         - Static config entries (trusted-committers from security-checks)
         - Server's GitHub App bot login (app_bot_login)
         - GitHub's web-flow system account
-        - API user logins from github-tokens (auto_verified_and_merged_users)
+        - API user logins from github-tokens (via get_api_users)
 
-        Called after app_bot_login and auto_verified_and_merged_users are initialized.
+        Called once from process() after app_bot_login is initialized.
         """
-        dynamic_entries: list[str] = []
+        trusted: list[str] = []
 
-        # Server's GitHub App bot
+        # 1. Static config entries
+        _security_checks: dict[str, Any] | None = self.config.get_value(value="security-checks", return_on_none=None)
+        _security_config = _security_checks if isinstance(_security_checks, dict) else {}
+        _trusted_committers = _security_config.get("trusted-committers", [])
+        if not isinstance(_trusted_committers, list):
+            self.logger.warning(
+                f"{self.log_prefix} security-checks.trusted-committers must be array, "
+                f"got {type(_trusted_committers).__name__}. Defaulting to empty list."
+            )
+            _trusted_committers = []
+
+        for entry in _trusted_committers:
+            if isinstance(entry, (str, int, float)) and not isinstance(entry, bool):
+                normalized = str(entry).strip().lower()
+                if normalized and normalized not in trusted:
+                    trusted.append(normalized)
+
+        # 2. Server's GitHub App bot
         if self.app_bot_login:
-            dynamic_entries.append(str(self.app_bot_login).strip().lower())
+            bot = str(self.app_bot_login).strip().lower()
+            if bot and bot not in trusted:
+                trusted.append(bot)
 
-        # GitHub's web-flow system account
-        dynamic_entries.append(GITHUB_WEB_FLOW_LOGIN.lower())
+        # 3. GitHub's web-flow system account
+        web_flow = GITHUB_WEB_FLOW_LOGIN.lower()
+        if web_flow not in trusted:
+            trusted.append(web_flow)
 
-        # API users from github-tokens
-        for user in self.auto_verified_and_merged_users:
+        # 4. API users from github-tokens
+        api_users = await self.get_api_users()
+        for user in api_users:
             if user:
-                dynamic_entries.append(str(user).strip().lower())
+                normalized = str(user).strip().lower()
+                if normalized and normalized not in trusted:
+                    trusted.append(normalized)
 
-        # Add dynamic entries not already in static list
-        for entry in dynamic_entries:
-            if entry and entry not in self.security_trusted_committers:
-                self.security_trusted_committers.append(entry)
-
-        if dynamic_entries:
-            self.logger.debug(f"{self.log_prefix} Unified trusted committers list: {self.security_trusted_committers}")
+        self.security_trusted_committers = trusted
+        self.logger.debug(f"{self.log_prefix} Trusted committers: {self.security_trusted_committers}")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
