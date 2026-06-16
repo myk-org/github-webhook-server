@@ -39,6 +39,8 @@ from webhook_server.utils.constants import (
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     SUCCESS_STR,
     TOX_STR,
 )
@@ -1412,6 +1414,13 @@ class GithubWebhook:
         for custom_check in self.custom_check_runs:
             check_name = custom_check["name"]
             current_pull_request_supported_retest.append(check_name)
+
+        # Add security checks when enabled
+        if self.security_committer_identity_check:
+            current_pull_request_supported_retest.append(SECURITY_COMMITTER_IDENTITY_STR)
+
+        if self.security_suspicious_paths:
+            current_pull_request_supported_retest.append(SECURITY_SUSPICIOUS_PATHS_STR)
 
         return current_pull_request_supported_retest
 
