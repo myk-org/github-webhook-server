@@ -371,7 +371,7 @@ class RunnerHandler:
         """Check if the last committer matches the PR author.
 
         Uses a unified trusted-committers list that includes static config entries,
-        the server's bot login, GitHub's web-flow, and API users from github-tokens.
+        the GitHub App bot login, web-flow, and API users from github-tokens.
         """
         if not self.github_webhook.security_committer_identity_check:
             self.logger.debug(f"{self.log_prefix} Committer identity check disabled, skipping")
@@ -407,7 +407,7 @@ class RunnerHandler:
                 )
                 await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
 
-            elif last_committer != parent_committer:
+            elif last_committer.lower() != parent_committer.lower():
                 if last_committer.lower() in self.github_webhook.security_trusted_committers:
                     # Trusted committer — pass
                     self.logger.info(

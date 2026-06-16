@@ -19,7 +19,6 @@ CONVENTIONAL_TITLE_STR: str = "conventional-title"
 SECURITY_SUSPICIOUS_PATHS_STR: str = "security-suspicious-paths"
 SECURITY_COMMITTER_IDENTITY_STR: str = "security-committer-identity"
 GITHUB_WEB_FLOW_LOGIN: str = "web-flow"
-GITHUB_WEB_FLOW_USER_ID: int = 19864447  # GitHub's permanent system account for web UI operations (immutable ID)
 COMMAND_SECURITY_OVERRIDE_STR: str = "security-override"
 WIP_STR: str = "wip"
 LGTM_STR: str = "lgtm"

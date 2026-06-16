@@ -124,7 +124,8 @@ def github_webhook(mocker, request):
     mock_github_api.get_rate_limit.return_value.rate.remaining = 5000
     mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=(mock_github_api, "TOKEN", "USER"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
-    mocker.patch(f"{base_import_path}.GithubWebhook.add_api_users_to_auto_verified_and_merged_users", return_value=None)
+    mocker.patch(f"{base_import_path}.GithubWebhook.get_api_users", return_value=())
+    mocker.patch(f"{base_import_path}.GithubWebhook._build_trusted_committers", return_value=None)
 
     # Use standard Python logger for caplog compatibility
     test_logger = python_logging.getLogger("GithubWebhook")

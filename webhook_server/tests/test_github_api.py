@@ -241,7 +241,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_pull_request_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -312,7 +312,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_push_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -356,7 +356,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_issue_comment_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -435,7 +435,7 @@ class TestGithubWebhook:
             patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_repo_api,
             patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config") as mock_get_apis,
             patch("webhook_server.libs.config.Config.repository_local_data") as mock_repo_local_data,
-            patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
+            patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=()),
         ):
             mock_api = Mock()
             mock_api.rate_limiting = [100, 5000]
@@ -487,7 +487,7 @@ class TestGithubWebhook:
             patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_repo_api,
             patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config") as mock_get_apis,
             patch("webhook_server.libs.config.Config.repository_local_data") as mock_repo_local_data,
-            patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
+            patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=()),
         ):
             mock_api = Mock()
             mock_api.rate_limiting = [100, 5000]
@@ -532,7 +532,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_unsupported_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -736,7 +736,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
-    async def test_add_api_users_to_auto_verified_and_merged_users(
+    async def test_get_api_users(
         self,
         mock_get_apis,
         mock_color,
@@ -748,7 +748,7 @@ class TestGithubWebhook:
         minimal_headers,
         logger,
     ) -> None:
-        """Test the add_api_users_to_auto_verified_and_merged_users method."""
+        """Test the get_api_users method."""
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
         mock_get_api.return_value = (Mock(), "token", "apiuser")
@@ -798,7 +798,8 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
         mock_get_apis.return_value = [(mock_api, TEST_GITHUB_TOKEN)]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        await gh.add_api_users_to_auto_verified_and_merged_users()
+        api_users = await gh.get_api_users()
+        gh.auto_verified_and_merged_users.extend(user for user in api_users if user is not None)
         assert "test-user" in gh.auto_verified_and_merged_users
 
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
@@ -998,7 +999,7 @@ class TestGithubWebhook:
 
                                             with patch.object(
                                                 webhook,
-                                                "add_api_users_to_auto_verified_and_merged_users",
+                                                "get_api_users",
                                                 new_callable=AsyncMock,
                                             ) as mock_add_api_users:
                                                 with patch.object(
@@ -2036,7 +2037,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_push_event_deletion(
         self,
         mock_auto_verified_prop: Mock,
@@ -2115,7 +2116,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=())
     async def test_process_push_event_branch_push_skips_clone(
         self,
         mock_auto_verified_prop: Mock,
@@ -2490,7 +2491,7 @@ class TestGithubWebhook:
 
                                             with patch.object(
                                                 webhook,
-                                                "add_api_users_to_auto_verified_and_merged_users",
+                                                "get_api_users",
                                                 new_callable=AsyncMock,
                                             ) as mock_add_api_users:
                                                 with patch.object(
@@ -2561,7 +2562,7 @@ class TestGithubWebhook:
 
                                 with patch.object(
                                     webhook,
-                                    "add_api_users_to_auto_verified_and_merged_users",
+                                    "get_api_users",
                                     new_callable=AsyncMock,
                                 ) as mock_add_api_users:
                                     with patch.object(

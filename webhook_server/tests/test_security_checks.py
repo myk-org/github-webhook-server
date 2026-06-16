@@ -22,7 +22,6 @@ from webhook_server.utils.constants import (
     COMMAND_SECURITY_OVERRIDE_STR,
     DEFAULT_SUSPICIOUS_PATHS,
     GITHUB_WEB_FLOW_LOGIN,
-    GITHUB_WEB_FLOW_USER_ID,
     SECURITY_COMMITTER_IDENTITY_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
 )
@@ -296,7 +295,7 @@ class TestSecurityCommitterIdentity:
         """Check passes when last committer is GitHub's verified web-flow account."""
         runner_handler.github_webhook.parent_committer = "legit-user"
         runner_handler.github_webhook.last_committer = GITHUB_WEB_FLOW_LOGIN
-        runner_handler.github_webhook.last_committer_id = GITHUB_WEB_FLOW_USER_ID
+        runner_handler.github_webhook.last_committer_id = 19864447
         runner_handler.github_webhook.security_trusted_committers = ["web-flow"]
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
