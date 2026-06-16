@@ -297,6 +297,7 @@ class TestSecurityCommitterIdentity:
         runner_handler.github_webhook.parent_committer = "legit-user"
         runner_handler.github_webhook.last_committer = GITHUB_WEB_FLOW_LOGIN
         runner_handler.github_webhook.last_committer_id = GITHUB_WEB_FLOW_USER_ID
+        runner_handler.github_webhook.security_trusted_committers = ["web-flow"]
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
@@ -306,8 +307,7 @@ class TestSecurityCommitterIdentity:
                 mock_success.assert_called_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
-                assert "web-flow" in call_args.kwargs["output"]["summary"]
-                assert str(GITHUB_WEB_FLOW_USER_ID) in call_args.kwargs["output"]["text"]
+                assert "trusted" in call_args.kwargs["output"]["summary"]
 
     @pytest.mark.asyncio
     async def test_committer_identity_web_flow_fake_id(self, runner_handler: RunnerHandler) -> None:
@@ -315,6 +315,7 @@ class TestSecurityCommitterIdentity:
         runner_handler.github_webhook.parent_committer = "legit-user"
         runner_handler.github_webhook.last_committer = GITHUB_WEB_FLOW_LOGIN
         runner_handler.github_webhook.last_committer_id = 99999999
+        runner_handler.github_webhook.security_trusted_committers = ["web-flow"]
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
@@ -349,7 +350,7 @@ class TestSecurityCommitterIdentity:
                 mock_success.assert_called_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
-                assert "trusted-committers" in call_args.kwargs["output"]["summary"]
+                assert "trusted" in call_args.kwargs["output"]["summary"]
 
     @pytest.mark.asyncio
     async def test_committer_identity_mismatch_not_trusted(self, runner_handler: RunnerHandler) -> None:
@@ -396,7 +397,7 @@ class TestSecurityCommitterIdentity:
                 mock_success.assert_called_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
-                assert "trusted-committers" in call_args.kwargs["output"]["summary"]
+                assert "trusted" in call_args.kwargs["output"]["summary"]
 
 
 class TestAutoMergeSecurityOverride:

@@ -36,6 +36,7 @@ from webhook_server.utils.constants import (
     CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
     DEFAULT_SUSPICIOUS_PATHS,
+    GITHUB_WEB_FLOW_LOGIN,
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -1127,16 +1128,37 @@ class GithubWebhook:
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
     def _build_dynamic_trusted_committers(self) -> None:
-        """Add server bot to trusted-committers list.
+        """Build unified trusted-committers list from all sources.
 
-        Called after app_bot_login is initialized.
-        Combines static config entries with the server's bot identity.
+        Combines:
+        - Static config entries (trusted-committers from security-checks)
+        - Server's GitHub App bot login (app_bot_login)
+        - GitHub's web-flow system account
+        - API user logins from github-tokens (auto_verified_and_merged_users)
+
+        Called after app_bot_login and auto_verified_and_merged_users are initialized.
         """
+        dynamic_entries: list[str] = []
+
+        # Server's GitHub App bot
         if self.app_bot_login:
-            bot_login = str(self.app_bot_login).strip().lower()
-            if bot_login and bot_login not in self.security_trusted_committers:
-                self.security_trusted_committers.append(bot_login)
-                self.logger.debug(f"{self.log_prefix} Added server bot '{bot_login}' to trusted committers")
+            dynamic_entries.append(str(self.app_bot_login).strip().lower())
+
+        # GitHub's web-flow system account
+        dynamic_entries.append(GITHUB_WEB_FLOW_LOGIN.lower())
+
+        # API users from github-tokens
+        for user in self.auto_verified_and_merged_users:
+            if user:
+                dynamic_entries.append(str(user).strip().lower())
+
+        # Add dynamic entries not already in static list
+        for entry in dynamic_entries:
+            if entry and entry not in self.security_trusted_committers:
+                self.security_trusted_committers.append(entry)
+
+        if dynamic_entries:
+            self.logger.debug(f"{self.log_prefix} Unified trusted committers list: {self.security_trusted_committers}")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
