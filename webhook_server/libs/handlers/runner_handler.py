@@ -25,6 +25,7 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
+    GITHUB_WEB_FLOW_LOGIN,
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -404,6 +405,24 @@ class RunnerHandler:
                     f"PR author={parent_committer}, last committer has no GitHub user"
                 )
                 await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+            elif last_committer == GITHUB_WEB_FLOW_LOGIN:
+                self.logger.info(
+                    f"{self.log_prefix} Last committer is '{GITHUB_WEB_FLOW_LOGIN}' "
+                    f"(GitHub web UI operation) — passing committer identity check"
+                )
+                output = {
+                    "title": "Security: Committer Identity",
+                    "summary": "Committer identity verified (GitHub web-flow)",
+                    "text": (
+                        f"## Committer Identity Check\n\n"
+                        f"**PR author:** `{parent_committer}`\n"
+                        f"**Last commit committer:** `{last_committer}`\n\n"
+                        f"The last commit was made via the GitHub web UI (rebase, merge, or edit). "
+                        f"The `web-flow` committer is GitHub's internal account for web-based operations "
+                        f"and is trusted."
+                    ),
+                }
+                await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             elif last_committer != parent_committer:
                 output = {
                     "title": "\u274c Security: Committer Identity Mismatch",
