@@ -449,6 +449,23 @@ class RunnerHandler:
                         ),
                     }
                     await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+            elif self.github_webhook.app_bot_login and last_committer == self.github_webhook.app_bot_login:
+                self.logger.debug(
+                    f"{self.log_prefix} Last committer is the server's bot "
+                    f"'{last_committer}' — passing committer identity check"
+                )
+                output = {
+                    "title": "Security: Committer Identity",
+                    "summary": f"Committer identity verified (server bot: {last_committer})",
+                    "text": (
+                        f"## Committer Identity Check\n\n"
+                        f"**PR author:** `{parent_committer}`\n"
+                        f"**Last commit committer:** `{last_committer}`\n\n"
+                        f"The last commit was made by the webhook server's own GitHub App bot. "
+                        f"This is expected for automated operations (cherry-picks, rebases, auto-fixes)."
+                    ),
+                }
+                await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             elif last_committer != parent_committer:
                 # Check if last_committer is in trusted-committers allowlist
                 if last_committer.lower() in self.github_webhook.security_trusted_committers:

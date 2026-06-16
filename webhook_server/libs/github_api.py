@@ -1127,27 +1127,16 @@ class GithubWebhook:
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
     def _build_dynamic_trusted_committers(self) -> None:
-        """Add server bot and API users to trusted-committers list.
+        """Add server bot to trusted-committers list.
 
-        Called after app_bot_login and auto_verified_and_merged_users are initialized.
-        Combines static config entries with dynamic server identities.
+        Called after app_bot_login is initialized.
+        Combines static config entries with the server's bot identity.
         """
-        dynamic_entries: list[str] = []
-
         if self.app_bot_login:
-            dynamic_entries.append(str(self.app_bot_login).strip().lower())
-
-        for user in self.auto_verified_and_merged_users:
-            if user:
-                dynamic_entries.append(str(user).strip().lower())
-
-        # Add dynamic entries that aren't already in the static list
-        for entry in dynamic_entries:
-            if entry not in self.security_trusted_committers:
-                self.security_trusted_committers.append(entry)
-
-        if dynamic_entries:
-            self.logger.debug(f"{self.log_prefix} Added dynamic trusted committers: {dynamic_entries}")
+            bot_login = str(self.app_bot_login).strip().lower()
+            if bot_login and bot_login not in self.security_trusted_committers:
+                self.security_trusted_committers.append(bot_login)
+                self.logger.debug(f"{self.log_prefix} Added server bot '{bot_login}' to trusted committers")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
