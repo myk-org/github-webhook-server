@@ -1971,6 +1971,11 @@ Your team can configure additional types in the repository settings.
             check_key = custom_check["name"]
             _retests_to_func_map[check_key] = partial(self.run_custom_check, check_config=custom_check)
 
+        # Add security checks to the retest map
+        # Security methods don't take pull_request param, so wrap with lambda
+        _retests_to_func_map[SECURITY_COMMITTER_IDENTITY_STR] = lambda **_kwargs: self.run_security_committer_identity()
+        _retests_to_func_map[SECURITY_SUSPICIOUS_PATHS_STR] = lambda **_kwargs: self.run_security_suspicious_paths()
+
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
         scheduled_tests: list[str] = []
         for _test in supported_retests:
