@@ -120,6 +120,7 @@ class GithubWebhook:
         self.parent_committer: str = ""
         self.last_committer: str = "unknown"
         self.last_author: str = "unknown"
+        self.last_committer_id: int = 0
         self.pr_base_sha: str = ""
         self.pr_head_sha: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
@@ -670,10 +671,19 @@ class GithubWebhook:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
+            self.last_committer_id = await github_api_call(
+                lambda: getattr(self.last_commit.committer, "id", 0),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
             self.last_author = await github_api_call(
                 lambda: getattr(self.last_commit.author, "login", "unknown"),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
+            )
+            self.logger.debug(
+                f"{self.log_prefix} Last commit: committer='{self.last_committer}' (ID: {self.last_committer_id}), "
+                f"author='{self.last_author}'"
             )
 
             # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
