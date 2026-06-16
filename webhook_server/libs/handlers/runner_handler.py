@@ -1973,10 +1973,8 @@ Your team can configure additional types in the repository settings.
 
         # Add security checks to the retest map
         # Security methods don't take pull_request param, so wrap with lambda
-        _retests_to_func_map[SECURITY_COMMITTER_IDENTITY_STR] = lambda _pull_request: (
-            self.run_security_committer_identity()
-        )
-        _retests_to_func_map[SECURITY_SUSPICIOUS_PATHS_STR] = lambda _pull_request: self.run_security_suspicious_paths()
+        _retests_to_func_map[SECURITY_COMMITTER_IDENTITY_STR] = lambda **_kwargs: self.run_security_committer_identity()
+        _retests_to_func_map[SECURITY_SUSPICIOUS_PATHS_STR] = lambda **_kwargs: self.run_security_suspicious_paths()
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
         scheduled_tests: list[str] = []

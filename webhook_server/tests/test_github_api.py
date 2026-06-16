@@ -15,6 +15,7 @@ from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
+from webhook_server.utils.constants import SECURITY_COMMITTER_IDENTITY_STR, SECURITY_SUSPICIOUS_PATHS_STR
 
 
 class TestGithubWebhook:
@@ -1318,6 +1319,76 @@ class TestGithubWebhook:
                             assert "python-module-install" in result
                             assert "pre-commit" in result
                             assert "conventional-title" in result
+
+    def test_supported_retest_includes_security_checks(
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+    ) -> None:
+        """Test that security checks are included in supported retests when enabled."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            gh.security_committer_identity_check = True
+                            gh.security_suspicious_paths = ["Dockerfile", ".github/"]
+                            gh.tox = False
+                            gh.build_and_push_container = False
+                            gh.pypi = False
+                            gh.pre_commit = False
+                            gh.conventional_title = False
+                            gh.custom_check_runs = []
+
+                            result = gh._current_pull_request_supported_retest
+                            assert SECURITY_COMMITTER_IDENTITY_STR in result
+                            assert SECURITY_SUSPICIOUS_PATHS_STR in result
+
+    def test_supported_retest_excludes_disabled_security_checks(
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+    ) -> None:
+        """Test that disabled security checks are excluded from supported retests."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            gh.security_committer_identity_check = False
+                            gh.security_suspicious_paths = []
+                            gh.tox = False
+                            gh.build_and_push_container = False
+                            gh.pypi = False
+                            gh.pre_commit = False
+                            gh.conventional_title = False
+                            gh.custom_check_runs = []
+
+                            result = gh._current_pull_request_supported_retest
+                            assert SECURITY_COMMITTER_IDENTITY_STR not in result
+                            assert SECURITY_SUSPICIOUS_PATHS_STR not in result
 
     @pytest.mark.asyncio
     async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock) -> None:
