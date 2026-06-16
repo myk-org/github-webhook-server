@@ -118,8 +118,8 @@ class GithubWebhook:
         self.repository_full_name: str = hook_data["repository"]["full_name"]
         self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
-        self.last_committer: str = ""
-        self.last_author: str = ""
+        self.last_committer: str = "unknown"
+        self.last_author: str = "unknown"
         self.pr_base_sha: str = ""
         self.pr_head_sha: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
