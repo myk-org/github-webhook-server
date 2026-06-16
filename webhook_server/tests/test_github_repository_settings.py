@@ -749,6 +749,7 @@ class TestGetRepositoryGithubAppApi:
                 result = get_repository_github_app_api(mock_config, "owner/repo")
 
                 assert result == mock_github
+                mock_config.get_value.assert_called_with("github-app-id")
                 mock_auth.AppAuth.assert_called_once_with(app_id=12345, private_key="test-private-key")
                 mock_app_instance.get_repo_installation.assert_called_once_with(owner="owner", repo="repo")
 
@@ -778,6 +779,7 @@ class TestGetRepositoryGithubAppApi:
                 result = get_repository_github_app_api(mock_config, "owner/repo")
 
                 assert result is None
+                mock_config.get_value.assert_called_with("github-app-id")
                 mock_logger.error.assert_called_once()
                 assert "Repository owner/repo not found by manage-repositories-app" in mock_logger.error.call_args[0][0]
 
@@ -813,6 +815,7 @@ class TestGetRepositoryGithubAppApi:
                 result = get_repository_github_app_token(mock_config, "owner/repo")
 
                 assert result == "fake-installation-token"  # pragma: allowlist secret
+                mock_config.get_value.assert_called_with("github-app-id")
                 mock_auth.AppAuth.assert_called_once_with(app_id=12345, private_key="test-private-key")
                 mock_app_instance.get_repo_installation.assert_called_once_with(owner="owner", repo="repo")
                 mock_app_instance.get_access_token.assert_called_once_with(67890)
@@ -842,6 +845,7 @@ class TestGetRepositoryGithubAppApi:
                 result = get_repository_github_app_token(mock_config, "owner/repo")
 
                 assert result is None
+                mock_config.get_value.assert_called_with("github-app-id")
                 mock_logger.exception.assert_called_once()
                 assert (
                     "Failed to get GitHub App installation token for owner/repo"
