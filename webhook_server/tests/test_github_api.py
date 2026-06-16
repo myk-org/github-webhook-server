@@ -576,8 +576,8 @@ class TestGithubWebhook:
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_api_rate_limit: Mock,
+        mock_repo_github_app_api: Mock,
         mock_repo_api: Mock,
-        mock_repo_github_api: Mock,
         pull_request_payload: dict[str, Any],
     ) -> None:
         """Test app_bot_login is initialized from get_github_app_slug."""
@@ -589,7 +589,7 @@ class TestGithubWebhook:
 
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
         mock_repo_api.return_value = Mock()
-        mock_repo_github_api.return_value = Mock()
+        mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
         mock_repo_local_data.return_value = {}
 
@@ -599,6 +599,7 @@ class TestGithubWebhook:
 
         await webhook.process()
         assert webhook.app_bot_login == "manage-repositories-app[bot]"
+        mock_api.get_user.assert_not_called()
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_github_repo_api")
@@ -615,8 +616,8 @@ class TestGithubWebhook:
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_api_rate_limit: Mock,
+        mock_repo_github_app_api: Mock,
         mock_repo_api: Mock,
-        mock_repo_github_api: Mock,
         pull_request_payload: dict[str, Any],
     ) -> None:
         """Test app_bot_login is not overwritten when already set."""
@@ -628,7 +629,7 @@ class TestGithubWebhook:
 
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
         mock_repo_api.return_value = Mock()
-        mock_repo_github_api.return_value = Mock()
+        mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
         mock_repo_local_data.return_value = {}
 
@@ -639,6 +640,7 @@ class TestGithubWebhook:
         await webhook.process()
         assert webhook.app_bot_login == "existing-app[bot]"
         mock_get_slug.assert_not_called()
+        mock_api.get_user.assert_not_called()
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_github_repo_api")
@@ -655,8 +657,8 @@ class TestGithubWebhook:
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_api_rate_limit: Mock,
+        mock_repo_github_app_api: Mock,
         mock_repo_api: Mock,
-        mock_repo_github_api: Mock,
         pull_request_payload: dict[str, Any],
     ) -> None:
         """Test app_bot_login handles slug retrieval failure gracefully."""
@@ -668,7 +670,7 @@ class TestGithubWebhook:
 
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
         mock_repo_api.return_value = Mock()
-        mock_repo_github_api.return_value = Mock()
+        mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
         mock_repo_local_data.return_value = {}
 
@@ -680,6 +682,7 @@ class TestGithubWebhook:
         await webhook.process()
         assert webhook.app_bot_login == ""
         mock_logger.exception.assert_called_once()
+        mock_api.get_user.assert_not_called()
 
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
