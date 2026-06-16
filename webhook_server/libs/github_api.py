@@ -118,6 +118,8 @@ class GithubWebhook:
         self.repository_full_name: str = hook_data["repository"]["full_name"]
         self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
+        self.last_committer: str = "unknown"
+        self.last_author: str = "unknown"
         self.pr_base_sha: str = ""
         self.pr_head_sha: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
@@ -663,7 +665,16 @@ class GithubWebhook:
 
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
-            self.last_committer = getattr(self.last_commit.committer, "login", "unknown")
+            self.last_committer = await github_api_call(
+                lambda: getattr(self.last_commit.committer, "login", "unknown"),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            self.last_author = await github_api_call(
+                lambda: getattr(self.last_commit.author, "login", "unknown"),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
             # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
             # For pull_request events, base.sha and head.sha are guaranteed by GitHub webhook spec.
