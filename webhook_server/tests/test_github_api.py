@@ -1321,7 +1321,7 @@ class TestGithubWebhook:
                             assert "conventional-title" in result
 
     def test_supported_retest_includes_security_checks(
-        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+        self, minimal_hook_data: dict[str, Any], minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test that security checks are included in supported retests when enabled."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1356,7 +1356,7 @@ class TestGithubWebhook:
                             assert SECURITY_SUSPICIOUS_PATHS_STR in result
 
     def test_supported_retest_excludes_disabled_security_checks(
-        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+        self, minimal_hook_data: dict[str, Any], minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test that disabled security checks are excluded from supported retests."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
