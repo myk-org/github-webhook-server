@@ -26,6 +26,7 @@ from webhook_server.utils.constants import (
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     GITHUB_WEB_FLOW_LOGIN,
+    GITHUB_WEB_FLOW_USER_ID,
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -406,12 +407,11 @@ class RunnerHandler:
                 )
                 await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             elif last_committer == GITHUB_WEB_FLOW_LOGIN:
-                last_author = self.github_webhook.last_author
-                if last_author == parent_committer:
+                last_committer_id = self.github_webhook.last_committer_id
+                if last_committer_id == GITHUB_WEB_FLOW_USER_ID:
                     self.logger.debug(
-                        f"{self.log_prefix} Last committer is '{GITHUB_WEB_FLOW_LOGIN}' "
-                        f"(GitHub web UI operation), author '{last_author}' matches PR author "
-                        f"— passing committer identity check"
+                        f"{self.log_prefix} Last committer is GitHub's web-flow "
+                        f"(user ID {last_committer_id}) — passing committer identity check"
                     )
                     output = {
                         "title": "Security: Committer Identity",
@@ -419,50 +419,30 @@ class RunnerHandler:
                         "text": (
                             f"## Committer Identity Check\n\n"
                             f"**PR author:** `{parent_committer}`\n"
-                            f"**Last commit committer:** `{last_committer}`\n"
-                            f"**Last commit author:** `{last_author}`\n\n"
+                            f"**Last commit committer:** `{last_committer}` (ID: {last_committer_id})\n\n"
                             f"The last commit was made via the GitHub web UI (rebase, merge, or edit). "
-                            f"The `web-flow` committer is GitHub's internal account for web-based operations. "
-                            f"The commit author matches the PR author."
+                            f"The committer is GitHub's verified `web-flow` system account "
+                            f"(user ID {GITHUB_WEB_FLOW_USER_ID}), confirming this is a legitimate "
+                            f"GitHub web operation."
                         ),
                     }
                     await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
-                elif last_author == "unknown":
-                    self.logger.warning(
-                        f"{self.log_prefix} Web-flow commit with unknown author: "
-                        f"PR author={parent_committer}, committer={last_committer}, author=unknown"
-                    )
-                    output = {
-                        "title": "\u274c Security: Committer Identity Unknown (web-flow)",
-                        "summary": "Web-flow commit author could not be verified",
-                        "text": (
-                            f"## Committer Identity Check\n\n"
-                            f"**PR author:** `{parent_committer}`\n"
-                            f"**Last commit committer:** `{last_committer}`\n"
-                            f"**Last commit author:** unknown\n\n"
-                            f"The last commit was made via the GitHub web UI, but the commit author "
-                            f"could not be determined. Please verify the commit authorship before merging."
-                        ),
-                    }
-                    await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
                 else:
                     self.logger.warning(
-                        f"{self.log_prefix} Web-flow commit author mismatch: "
-                        f"PR author={parent_committer}, committer={last_committer}, author={last_author}"
+                        f"{self.log_prefix} Committer login is 'web-flow' but user ID "
+                        f"{last_committer_id} does not match GitHub's web-flow ID "
+                        f"{GITHUB_WEB_FLOW_USER_ID} — possible impersonation"
                     )
                     output = {
-                        "title": "\u274c Security: Committer Identity Mismatch (web-flow)",
-                        "summary": (
-                            f"Web-flow commit author '{last_author}' differs from PR author '{parent_committer}'"
-                        ),
+                        "title": "\u274c Security: Committer Identity Suspicious",
+                        "summary": f"Committer claims to be web-flow but has unexpected user ID {last_committer_id}",
                         "text": (
                             f"## Committer Identity Check\n\n"
                             f"**PR author:** `{parent_committer}`\n"
-                            f"**Last commit committer:** `{last_committer}`\n"
-                            f"**Last commit author:** `{last_author}`\n\n"
-                            f"The last commit was made via the GitHub web UI by a different user than the PR author. "
-                            f"This may indicate an unexpected web-based change to the PR branch.\n\n"
-                            f"Please verify this is expected before merging."
+                            f"**Last commit committer:** `{last_committer}` (ID: {last_committer_id})\n"
+                            f"**Expected web-flow ID:** {GITHUB_WEB_FLOW_USER_ID}\n\n"
+                            f"The committer login is `web-flow` but the user ID does not match "
+                            f"GitHub's official web-flow account. This may indicate an impersonation attempt."
                         ),
                     }
                     await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
