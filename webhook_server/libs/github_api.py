@@ -840,7 +840,7 @@ class GithubWebhook:
             await self._update_context_metrics()
             return None
 
-    async def get_api_users(self) -> tuple[str | None, ...]:
+    async def get_api_users(self) -> list[str | None]:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
 
         async def check_token(api: github.Github, token: str) -> str | None:
@@ -1118,7 +1118,7 @@ class GithubWebhook:
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
-    async def _build_trusted_committers(self, api_users: tuple[str | None, ...] | None = None) -> None:
+    async def _build_trusted_committers(self, api_users: list[str | None] | None = None) -> None:
         """Add dynamic entries to trusted-committers list.
 
         Adds:
