@@ -664,6 +664,7 @@ class GithubWebhook:
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", "unknown")
+            self.last_author = getattr(self.last_commit.author, "login", "unknown")
 
             # Store PR SHAs: prefer webhook payload (avoids race condition with live API)
             # For pull_request events, base.sha and head.sha are guaranteed by GitHub webhook spec.
