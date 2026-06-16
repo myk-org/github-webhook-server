@@ -410,8 +410,8 @@ def set_repository_check_runs_to_queued(
     return True, f"[API user {api_user}] - {repository}: Set check run status to {QUEUED_STR} is done", LOGGER.debug
 
 
-def _create_github_integration(config_: Config) -> GithubIntegration:
-    """Create a GithubIntegration instance with App JWT authentication.
+def _create_github_integration(config_: Config, github_app_id: int | None = None) -> GithubIntegration:
+    """Create an authenticated GithubIntegration instance using App JWT.
 
     Reads the private key and app ID from config to create an authenticated
     GithubIntegration. This is the shared setup for all GitHub App API operations.
@@ -419,9 +419,11 @@ def _create_github_integration(config_: Config) -> GithubIntegration:
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
-    github_app_id: int | None = config_.get_value("github-app-id")
     if not github_app_id:
-        raise ValueError("github-app-id not configured — required for GitHub App authentication")
+        github_app_id = config_.get_value("github-app-id")
+        if not github_app_id:
+            raise ValueError("github-app-id not configured — required for GitHub App authentication")
+
     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     return GithubIntegration(auth=auth)
 
@@ -462,7 +464,7 @@ def get_github_app_slug(config_: Config) -> str:
     # Perform network I/O outside the lock — concurrent calls may
     # duplicate work but won't block each other.
     LOGGER.debug("Getting GitHub App slug")
-    app_instance = _create_github_integration(config_)
+    app_instance = _create_github_integration(config_, github_app_id=github_app_id)
     slug = app_instance.get_app().slug
     if not slug:
         raise ValueError("GitHub App returned empty slug")
