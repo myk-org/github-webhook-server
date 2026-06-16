@@ -726,6 +726,7 @@ class TestGetRepositoryGithubAppApi:
         mock_config = Mock()
         mock_config.data_dir = "/test/dir"
         mock_config.root_data = {"github-app-id": 12345}
+        mock_config.get_value.return_value = 12345
 
         mock_file = Mock()
         mock_file.read.return_value = "test-private-key"
@@ -758,6 +759,7 @@ class TestGetRepositoryGithubAppApi:
         mock_config = Mock()
         mock_config.data_dir = "/test/dir"
         mock_config.root_data = {"github-app-id": 12345}
+        mock_config.get_value.return_value = 12345
 
         mock_file = Mock()
         mock_file.read.return_value = "test-private-key"
@@ -786,6 +788,7 @@ class TestGetRepositoryGithubAppApi:
         mock_config = Mock()
         mock_config.data_dir = "/test/dir"
         mock_config.root_data = {"github-app-id": 12345}
+        mock_config.get_value.return_value = 12345
 
         mock_file = Mock()
         mock_file.read.return_value = "test-private-key"
@@ -821,6 +824,7 @@ class TestGetRepositoryGithubAppApi:
         mock_config = Mock()
         mock_config.data_dir = "/test/dir"
         mock_config.root_data = {"github-app-id": 12345}
+        mock_config.get_value.return_value = 12345
 
         mock_file = Mock()
         mock_file.read.return_value = "test-private-key"

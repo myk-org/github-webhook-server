@@ -419,7 +419,7 @@ def _create_github_integration(config_: Config) -> GithubIntegration:
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
-    github_app_id: int = config_.root_data["github-app-id"]
+    github_app_id: int = config_.get_value("github-app-id")
     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     return GithubIntegration(auth=auth)
 
@@ -450,7 +450,7 @@ def get_github_app_slug(config_: Config) -> str:
     Caches the result keyed by github-app-id since the slug is immutable per app.
     Raises on failure so github_api_call() can apply retry/backoff.
     """
-    github_app_id: int = config_.root_data["github-app-id"]
+    github_app_id: int = config_.get_value("github-app-id")
 
     if github_app_id in _github_app_slug_cache:
         return _github_app_slug_cache[github_app_id]
