@@ -333,6 +333,11 @@ properties:
           type: boolean
           description: Override global mask-sensitive-data setting for this repository
           default: true
+        default-status-checks:
+          type: array
+          items:
+            type: string
+          description: Override global default-status-checks for this repository
         slack-webhook-url:
           type: string
           description: Slack webhook URL

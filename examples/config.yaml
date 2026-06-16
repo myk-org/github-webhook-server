@@ -157,6 +157,10 @@ repositories:
     log-level: DEBUG # Override global log-level for repository
     log-file: my-repository.log # Override global log-file for repository
     mask-sensitive-data: false # Override global setting - disable masking for debugging this specific repo (NOT recommended in production)
+    default-status-checks: # Override global default-status-checks for this repository
+      - "WIP"
+      - "can-be-merged"
+      - "ci/my-external-check"
     slack-webhook-url: <Slack webhook url> # Send notification to slack on several operations
     verified-job: true
     pypi:
