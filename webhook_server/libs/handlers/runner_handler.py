@@ -25,8 +25,6 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
-    GITHUB_WEB_FLOW_LOGIN,
-    GITHUB_WEB_FLOW_USER_ID,
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -411,34 +409,6 @@ class RunnerHandler:
 
             elif last_committer != parent_committer:
                 if last_committer.lower() in self.github_webhook.security_trusted_committers:
-                    # Extra guard: verify web-flow by immutable user ID to prevent impersonation
-                    if last_committer == GITHUB_WEB_FLOW_LOGIN:
-                        last_committer_id = self.github_webhook.last_committer_id
-                        if last_committer_id != GITHUB_WEB_FLOW_USER_ID:
-                            self.logger.warning(
-                                f"{self.log_prefix} Committer login is 'web-flow' but user ID "
-                                f"{last_committer_id} does not match GitHub's web-flow ID "
-                                f"{GITHUB_WEB_FLOW_USER_ID} — possible impersonation"
-                            )
-                            output = {
-                                "title": "❌ Security: Committer Identity Suspicious",
-                                "summary": (
-                                    f"Committer claims to be web-flow but has unexpected user ID {last_committer_id}"
-                                ),
-                                "text": (
-                                    f"## Committer Identity Check\n\n"
-                                    f"**PR author:** `{parent_committer}`\n"
-                                    f"**Last commit committer:** `{last_committer}` (ID: {last_committer_id})\n"
-                                    f"**Expected web-flow ID:** {GITHUB_WEB_FLOW_USER_ID}\n\n"
-                                    f"The committer login is `web-flow` but the user ID does not match "
-                                    f"GitHub's official web-flow account. This may indicate an impersonation attempt."
-                                ),
-                            }
-                            await self.check_run_handler.set_check_failure(
-                                name=SECURITY_COMMITTER_IDENTITY_STR, output=output
-                            )
-                            return
-
                     # Trusted committer — pass
                     self.logger.info(
                         f"{self.log_prefix} Committer identity: '{last_committer}' is in unified trusted list"

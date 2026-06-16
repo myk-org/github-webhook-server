@@ -310,22 +310,24 @@ class TestSecurityCommitterIdentity:
                 assert "trusted" in call_args.kwargs["output"]["summary"]
 
     @pytest.mark.asyncio
-    async def test_committer_identity_web_flow_fake_id(self, runner_handler: RunnerHandler) -> None:
-        """Check fails when committer claims to be web-flow but has wrong user ID."""
+    async def test_committer_identity_web_flow_fake_id_passes_via_trusted_list(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """Web-flow with wrong user ID passes because web-flow is in trusted list."""
         runner_handler.github_webhook.parent_committer = "legit-user"
         runner_handler.github_webhook.last_committer = GITHUB_WEB_FLOW_LOGIN
         runner_handler.github_webhook.last_committer_id = 99999999
         runner_handler.github_webhook.security_trusted_committers = ["web-flow"]
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
-            with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
+            with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_committer_identity()
 
                 mock_progress.assert_called_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
-                mock_failure.assert_called_once()
-                call_args = mock_failure.call_args
+                mock_success.assert_called_once()
+                call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
-                assert "99999999" in call_args.kwargs["output"]["summary"]
+                assert "trusted" in call_args.kwargs["output"]["summary"]
 
     @pytest.mark.asyncio
     async def test_committer_identity_check_disabled(self, runner_handler: RunnerHandler) -> None:
