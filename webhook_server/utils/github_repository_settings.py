@@ -44,7 +44,7 @@ DEFAULT_BRANCH_PROTECTION = {
 }
 
 LOGGER = get_logger_with_params()
-_github_app_slug_cache: str | None = None
+_github_app_slug_cache: dict[int, str] = {}
 _github_app_slug_lock = threading.Lock()
 
 
@@ -447,26 +447,27 @@ def get_github_app_slug(config_: Config) -> str:
     """Get the GitHub App slug using App JWT authentication.
 
     Returns the app slug (e.g., 'manage-repositories-app').
-    Caches the result at module level since the slug is immutable.
+    Caches the result keyed by github-app-id since the slug is immutable per app.
     Raises on failure so github_api_call() can apply retry/backoff.
     """
-    global _github_app_slug_cache
+    github_app_id: int = config_.root_data["github-app-id"]
 
-    if _github_app_slug_cache is not None:
-        return _github_app_slug_cache
+    if github_app_id in _github_app_slug_cache:
+        return _github_app_slug_cache[github_app_id]
+
+    # Perform network I/O outside the lock — concurrent calls may
+    # duplicate work but won't block each other.
+    LOGGER.debug("Getting GitHub App slug")
+    app_instance = _create_github_integration(config_)
+    slug = app_instance.get_app().slug
+    if not slug:
+        raise ValueError("GitHub App returned empty slug")
 
     with _github_app_slug_lock:
-        # Double-checked locking
-        if _github_app_slug_cache is not None:
-            return _github_app_slug_cache
-
-        LOGGER.debug("Getting GitHub App slug")
-        app_instance = _create_github_integration(config_)
-        slug = app_instance.get_app().slug
-        if not slug:
-            raise ValueError("GitHub App returned empty slug")
-        _github_app_slug_cache = slug
-        return _github_app_slug_cache
+        # Another thread may have populated it while we were fetching
+        if github_app_id not in _github_app_slug_cache:
+            _github_app_slug_cache[github_app_id] = slug
+        return _github_app_slug_cache[github_app_id]
 
 
 def get_repository_github_app_token(config_: Config, repository_name: str) -> str | None:
