@@ -1001,6 +1001,7 @@ class TestGithubWebhook:
                                                 webhook,
                                                 "get_api_users",
                                                 new_callable=AsyncMock,
+                                                return_value=(),
                                             ) as mock_add_api_users:
                                                 with patch.object(
                                                     webhook,
@@ -2493,6 +2494,7 @@ class TestGithubWebhook:
                                                 webhook,
                                                 "get_api_users",
                                                 new_callable=AsyncMock,
+                                                return_value=(),
                                             ) as mock_add_api_users:
                                                 with patch.object(
                                                     webhook, "get_pull_request", new_callable=AsyncMock
@@ -2564,6 +2566,7 @@ class TestGithubWebhook:
                                     webhook,
                                     "get_api_users",
                                     new_callable=AsyncMock,
+                                    return_value=(),
                                 ) as mock_add_api_users:
                                     with patch.object(
                                         webhook, "get_pull_request", new_callable=AsyncMock

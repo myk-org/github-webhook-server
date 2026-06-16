@@ -91,8 +91,8 @@ class TestSecuritySuspiciousPaths:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_suspicious_paths()
 
-                mock_progress.assert_called_once_with(name=SECURITY_SUSPICIOUS_PATHS_STR)
-                mock_success.assert_called_once()
+                mock_progress.assert_awaited_once_with(name=SECURITY_SUSPICIOUS_PATHS_STR)
+                mock_success.assert_awaited_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_SUSPICIOUS_PATHS_STR
                 assert "No security-sensitive paths modified" in call_args.kwargs["output"]["summary"]
@@ -108,7 +108,7 @@ class TestSecuritySuspiciousPaths:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_suspicious_paths()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_SUSPICIOUS_PATHS_STR
                 assert "1 file(s)" in call_args.kwargs["output"]["summary"]
@@ -130,7 +130,7 @@ class TestSecuritySuspiciousPaths:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_suspicious_paths()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_SUSPICIOUS_PATHS_STR
                 assert "3 file(s)" in call_args.kwargs["output"]["summary"]
@@ -153,7 +153,7 @@ class TestSecuritySuspiciousPaths:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_suspicious_paths()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert "custom/sensitive/config.yaml" in call_args.kwargs["output"]["text"]
 
@@ -164,7 +164,7 @@ class TestSecuritySuspiciousPaths:
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
             await runner_handler.run_security_suspicious_paths()
-            mock_progress.assert_not_called()
+            mock_progress.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_suspicious_paths_all_default_prefixes(
@@ -185,7 +185,7 @@ class TestSecuritySuspiciousPaths:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_suspicious_paths()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert "7 file(s)" in call_args.kwargs["output"]["summary"]
 
@@ -249,8 +249,8 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_committer_identity()
 
-                mock_progress.assert_called_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
-                mock_success.assert_called_once()
+                mock_progress.assert_awaited_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
+                mock_success.assert_awaited_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "Committer identity verified" in call_args.kwargs["output"]["summary"]
@@ -265,7 +265,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_committer_identity()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 output = call_args.kwargs["output"]
@@ -284,7 +284,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_committer_identity()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 output = call_args.kwargs["output"]
@@ -303,8 +303,8 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_committer_identity()
 
-                mock_progress.assert_called_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
-                mock_success.assert_called_once()
+                mock_progress.assert_awaited_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
+                mock_success.assert_awaited_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "trusted" in call_args.kwargs["output"]["summary"]
@@ -321,8 +321,8 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_committer_identity()
 
-                mock_progress.assert_called_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
-                mock_failure.assert_called_once()
+                mock_progress.assert_awaited_once_with(name=SECURITY_COMMITTER_IDENTITY_STR)
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "web-flow" in call_args.kwargs["output"]["summary"]
@@ -335,7 +335,7 @@ class TestSecurityCommitterIdentity:
 
         with patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress:
             await runner_handler.run_security_committer_identity()
-            mock_progress.assert_not_called()
+            mock_progress.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_committer_identity_mismatch_trusted(self, runner_handler: RunnerHandler) -> None:
@@ -348,7 +348,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_committer_identity()
 
-                mock_success.assert_called_once()
+                mock_success.assert_awaited_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "trusted" in call_args.kwargs["output"]["summary"]
@@ -364,7 +364,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_committer_identity()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert "suspicious-user" in call_args.kwargs["output"]["summary"]
 
@@ -379,7 +379,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure:
                 await runner_handler.run_security_committer_identity()
 
-                mock_failure.assert_called_once()
+                mock_failure.assert_awaited_once()
                 call_args = mock_failure.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "could not be verified" in call_args.kwargs["output"]["summary"].lower()
@@ -395,7 +395,7 @@ class TestSecurityCommitterIdentity:
             with patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success:
                 await runner_handler.run_security_committer_identity()
 
-                mock_success.assert_called_once()
+                mock_success.assert_awaited_once()
                 call_args = mock_success.call_args
                 assert call_args.kwargs["name"] == SECURITY_COMMITTER_IDENTITY_STR
                 assert "trusted" in call_args.kwargs["output"]["summary"]
@@ -842,7 +842,7 @@ class TestSecurityOverrideCommand:
             )
 
             # Check runs should NOT be set to success
-            mock_success.assert_not_called()
+            mock_success.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_security_override_cancel(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
@@ -874,5 +874,5 @@ class TestSecurityOverrideCommand:
                 is_draft=False,
             )
 
-            mock_run_paths.assert_called_once()
-            mock_run_identity.assert_called_once()
+            mock_run_paths.assert_awaited_once()
+            mock_run_identity.assert_awaited_once()

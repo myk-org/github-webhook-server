@@ -673,7 +673,7 @@ class GithubWebhook:
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = await github_api_call(
-                lambda: getattr(self.last_commit.committer, "login", "unknown"),
+                lambda: getattr(self.last_commit.committer, "login", "unknown") or "unknown",
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
@@ -849,10 +849,9 @@ class GithubWebhook:
             try:
                 # Pre-flight probe: verify token is functional before attempting get_user()
                 await github_api_call(lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix)
-            except Exception as ex:
-                self.logger.warning(
-                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', "
-                    f"skipping. {ex}"
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', skipping"
                 )
                 return None
 
