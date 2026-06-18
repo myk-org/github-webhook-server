@@ -150,6 +150,8 @@ security-checks:
     - ".github/workflows/"
     - ".github/actions/"
   committer-identity-check: true
+  trusted-committers: # Additional trusted committers (GitHub App bot, web-flow, and API users are auto-included)
+    - "pre-commit-ci[bot]"
 
 repositories:
   my-repository:
