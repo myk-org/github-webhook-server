@@ -25,6 +25,8 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
+    GITHUB_WEB_FLOW_LOGIN,
+    GITHUB_WEB_FLOW_USER_ID,
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -370,8 +372,8 @@ class RunnerHandler:
     async def run_security_committer_identity(self) -> None:
         """Check if the last committer matches the PR author.
 
-        Fails the check run if the last commit's committer differs from the PR author
-        (parent_committer), which may indicate a commit was authored by someone unexpected.
+        Uses a unified trusted-committers list that includes static config entries,
+        the GitHub App bot login, web-flow, and API users from github-tokens.
         """
         if not self.github_webhook.security_committer_identity_check:
             self.logger.debug(f"{self.log_prefix} Committer identity check disabled, skipping")
@@ -383,15 +385,17 @@ class RunnerHandler:
             parent_committer = self.github_webhook.parent_committer
             last_committer = self.github_webhook.last_committer
 
+            # SECURITY: "unknown" check MUST precede the trusted-committers check.
+            # An unverifiable committer identity should always fail.
             if last_committer == "unknown":
                 output: CheckRunOutput = {
-                    "title": "\u274c Security: Committer Identity Unknown",
+                    "title": "❌ Security: Committer Identity Unknown",
                     "summary": "Committer identity could not be verified",
                     "text": (
                         "## Committer Identity Check\n\n"
                         f"**PR author:** `{parent_committer}`\n"
                         "**Last commit committer:** unknown\n\n"
-                        "Committer identity could not be verified \u2014 "
+                        "Committer identity could not be verified — "
                         "last commit has no associated GitHub user.\n\n"
                         "This may indicate:\n"
                         "- A commit was made with a local Git identity not linked to a GitHub account\n"
@@ -404,28 +408,78 @@ class RunnerHandler:
                     f"PR author={parent_committer}, last committer has no GitHub user"
                 )
                 await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
-            elif last_committer != parent_committer:
-                output = {
-                    "title": "\u274c Security: Committer Identity Mismatch",
-                    "summary": f"Last committer '{last_committer}' differs from PR author '{parent_committer}'",
-                    "text": (
-                        f"## Committer Identity Check\n\n"
-                        f"**PR author:** `{parent_committer}`\n"
-                        f"**Last commit committer:** `{last_committer}`\n\n"
-                        f"The last commit in this PR was made by a different user than the PR author. "
-                        f"This may indicate:\n"
-                        f"- An unauthorized commit was pushed to the PR branch\n"
-                        f"- A bot or automation tool committed with unexpected credentials\n"
-                        f"- A legitimate co-author contribution (review carefully)\n\n"
-                        f"Please verify this is expected before merging."
-                    ),
-                }
-                self.logger.warning(
-                    f"{self.log_prefix} Committer identity mismatch: "
-                    f"PR author={parent_committer}, last committer={last_committer}"
-                )
-                await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+
+            elif last_committer.lower() != parent_committer.lower():
+                if last_committer.lower() in self.github_webhook.security_trusted_committers:
+                    # Extra guard: verify web-flow by immutable user ID to prevent impersonation
+                    if last_committer.lower() == GITHUB_WEB_FLOW_LOGIN:
+                        last_committer_id = self.github_webhook.last_committer_id
+                        if last_committer_id != GITHUB_WEB_FLOW_USER_ID:
+                            self.logger.warning(
+                                f"{self.log_prefix} Committer login is 'web-flow' but user ID "
+                                f"{last_committer_id} does not match GitHub's web-flow ID "
+                                f"{GITHUB_WEB_FLOW_USER_ID} — possible impersonation"
+                            )
+                            output = {
+                                "title": "❌ Security: Committer Identity Suspicious",
+                                "summary": (
+                                    f"Committer claims to be web-flow but has unexpected user ID {last_committer_id}"
+                                ),
+                                "text": (
+                                    f"## Committer Identity Check\n\n"
+                                    f"**PR author:** `{parent_committer}`\n"
+                                    f"**Last commit committer:** `{last_committer}` (ID: {last_committer_id})\n"
+                                    f"**Expected web-flow ID:** {GITHUB_WEB_FLOW_USER_ID}\n\n"
+                                    f"The committer login is `web-flow` but the user ID does not match "
+                                    f"GitHub's official web-flow account. This may indicate an impersonation attempt."
+                                ),
+                            }
+                            await self.check_run_handler.set_check_failure(
+                                name=SECURITY_COMMITTER_IDENTITY_STR, output=output
+                            )
+                            return
+
+                    # Trusted committer — pass
+                    self.logger.info(
+                        f"{self.log_prefix} Committer identity: '{last_committer}' is in unified trusted list"
+                    )
+                    output = {
+                        "title": "Security: Committer Identity",
+                        "summary": f"Committer '{last_committer}' is trusted",
+                        "text": (
+                            f"## Committer Identity Check\n\n"
+                            f"**PR author:** `{parent_committer}`\n"
+                            f"**Last commit committer:** `{last_committer}`\n\n"
+                            f"The committer differs from the PR author but is in the trusted committers list.\n"
+                            f"This is expected for automated workflows (bots, CI tools, org identities, "
+                            f"GitHub web operations)."
+                        ),
+                    }
+                    await self.check_run_handler.set_check_success(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
+                else:
+                    # Untrusted mismatch — fail
+                    output = {
+                        "title": "❌ Security: Committer Identity Mismatch",
+                        "summary": f"Last committer '{last_committer}' differs from PR author '{parent_committer}'",
+                        "text": (
+                            f"## Committer Identity Check\n\n"
+                            f"**PR author:** `{parent_committer}`\n"
+                            f"**Last commit committer:** `{last_committer}`\n\n"
+                            f"The last commit in this PR was made by a different user than the PR author. "
+                            f"This may indicate:\n"
+                            f"- An unauthorized commit was pushed to the PR branch\n"
+                            f"- A bot or automation tool committed with unexpected credentials\n"
+                            f"- A legitimate co-author contribution (review carefully)\n\n"
+                            f"Please verify this is expected before merging."
+                        ),
+                    }
+                    self.logger.warning(
+                        f"{self.log_prefix} Committer identity mismatch: "
+                        f"PR author={parent_committer}, last committer={last_committer}"
+                    )
+                    await self.check_run_handler.set_check_failure(name=SECURITY_COMMITTER_IDENTITY_STR, output=output)
             else:
+                # Match — pass
                 output = {
                     "title": "Security: Committer Identity",
                     "summary": "Committer identity verified",
@@ -1928,6 +1982,11 @@ Your team can configure additional types in the repository settings.
         for custom_check in self.github_webhook.custom_check_runs:
             check_key = custom_check["name"]
             _retests_to_func_map[check_key] = partial(self.run_custom_check, check_config=custom_check)
+
+        # Add security checks to the retest map
+        # Security methods don't take pull_request param, so wrap with lambda
+        _retests_to_func_map[SECURITY_COMMITTER_IDENTITY_STR] = lambda **_kwargs: self.run_security_committer_identity()
+        _retests_to_func_map[SECURITY_SUSPICIOUS_PATHS_STR] = lambda **_kwargs: self.run_security_suspicious_paths()
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
         scheduled_tests: list[str] = []

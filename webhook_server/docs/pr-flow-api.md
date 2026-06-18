@@ -243,11 +243,13 @@ The PR Flow API integrates seamlessly with the log viewer system to provide:
 ```python
 import httpx
 
+
 async def analyze_pr_workflow(hook_id: str, base_url: str = "http://192.168.10.44:5003") -> dict:
     async with httpx.AsyncClient() as client:
         # Example using production webhook server
         response = await client.get(f"{base_url}/logs/api/pr-flow/{hook_id}")
         return response.json()
+
 
 # Usage
 workflow_data = await analyze_pr_workflow("f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f")
