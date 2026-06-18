@@ -46,7 +46,8 @@ async def test_github_webhook_token_metrics_with_counter():
         patch("webhook_server.libs.github_api.get_repository_github_app_api"),
         patch("webhook_server.libs.github_api.prepare_log_prefix"),
         # Patch this method to avoid calls to get_apis_and_tokes_from_config which isn't mocked
-        patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
+        patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=()),
+        patch("webhook_server.libs.github_api.GithubWebhook._build_trusted_committers", return_value=None),
     ):
         # Setup Config
         mock_config = MockConfig.return_value

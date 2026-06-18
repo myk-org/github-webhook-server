@@ -95,6 +95,16 @@ $defs:
           When enabled, compares the PR author (parent committer) against the last commit's
           committer. Fails the security-committer-identity check run if they differ.
         default: true
+      trusted-committers:
+        type: array
+        description: |
+          List of committer logins that are always trusted for the committer-identity check.
+          When the last committer matches an entry in this list, the check passes regardless
+          of the PR author. Useful for bots (e.g., pre-commit-ci[bot]) and org identities.
+          Note: The GitHub App bot, web-flow, and github-tokens API users are
+          automatically included — you only need to list additional external committers here.
+        items:
+          type: string
     additionalProperties: false
 type: object
 properties:

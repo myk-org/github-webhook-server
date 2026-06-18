@@ -198,6 +198,7 @@ Main fixture that manages complete E2E infrastructure lifecycle.
 ```python
 import pytest
 
+
 @pytest.mark.e2e
 def test_webhook_processing(e2e_server):
     """Infrastructure is running, ready to test."""
@@ -223,6 +224,7 @@ def test_webhook_processing(e2e_server):
 import pytest
 import subprocess
 
+
 @pytest.mark.e2e
 def test_webhook_flow(e2e_server):
     """Test description explaining what is being validated."""
@@ -240,6 +242,7 @@ def test_webhook_flow(e2e_server):
 
     # Step 2: Wait for webhook processing (if needed)
     import time
+
     time.sleep(5)  # Give server time to process webhook
 
     # Step 3: Verify results using gh CLI
