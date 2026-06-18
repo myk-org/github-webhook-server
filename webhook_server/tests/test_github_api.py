@@ -567,7 +567,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=[])
     @patch("webhook_server.libs.github_api.get_github_app_slug", return_value="manage-repositories-app")
     async def test_process_initializes_app_bot_login_from_slug(
         self,
@@ -607,7 +607,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=[])
     @patch("webhook_server.libs.github_api.get_github_app_slug", return_value="other-app")
     async def test_process_app_bot_login_skips_when_already_set(
         self,
@@ -648,7 +648,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    @patch("webhook_server.libs.github_api.GithubWebhook.get_api_users", return_value=[])
     @patch("webhook_server.libs.github_api.get_github_app_slug", side_effect=Exception("PEM not found"))
     async def test_process_app_bot_login_handles_slug_failure(
         self,
