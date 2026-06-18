@@ -48,6 +48,7 @@ from webhook_server.utils.constants import (
 from webhook_server.utils.context import WebhookContext, get_context
 from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,
+    get_github_app_slug,
     get_repository_github_app_api,
 )
 from webhook_server.utils.github_retry import github_api_call
@@ -548,28 +549,18 @@ class GithubWebhook:
 
         # Initialize app bot login for bot-PR identification (async)
         if not self.app_bot_login:
-            _github_app_api = await github_api_call(
-                get_repository_github_app_api,
-                config_=self.config,
-                repository_name=self.repository_full_name,
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
-            if _github_app_api:
-                try:
-                    self.app_bot_login = await github_api_call(
-                        lambda: _github_app_api.get_user().login,
-                        logger=self.logger,
-                        log_prefix=self.log_prefix,
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    self.logger.exception(
-                        f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work"
-                    )
-            else:
-                self.logger.debug(f"{self.log_prefix} No GitHub App API available — app_bot_login not set")
+            try:
+                _app_slug = await github_api_call(
+                    get_github_app_slug,
+                    self.config,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                self.app_bot_login = f"{_app_slug}[bot]"
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Failed to get app bot login — bot-PR detection may not work")
 
         # Build final trusted-committers list with dynamic identities
         await self._build_trusted_committers(api_users=api_users)
