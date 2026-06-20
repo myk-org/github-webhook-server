@@ -2153,7 +2153,7 @@ class TestRunnerHandler:
         async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
             mocks.run_cmd.side_effect = run_command_side_effect
             cherry_pick_pr = runner_handler.repository.get_pull.return_value
-            cherry_pick_pr.create_issue_comment = Mock(side_effect=Exception("API error"))
+            cherry_pick_pr.create_issue_comment = Mock(side_effect=GithubException(403, "API error", {}))
             with patch.object(
                 runner_handler,
                 "_resolve_cherry_pick_with_ai",
