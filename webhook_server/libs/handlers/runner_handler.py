@@ -1766,18 +1766,26 @@ Your team can configure additional types in the repository settings.
                 )
 
                 if cherry_pick_pr:
-                    await github_api_call(
-                        cherry_pick_pr.create_issue_comment,
-                        f"**⚠️ This cherry-pick had conflicts resolved by AI ({ai_provider}/{ai_model})**\n\n"
-                        f"@{pr_author} — AI automatically resolved merge conflicts for this cherry-pick. "
-                        f"Please review the changes carefully and verify correctness before merging.",
-                        logger=self.logger,
-                        log_prefix=self.log_prefix,
-                    )
-                    self.logger.info(
-                        f"{self.log_prefix} Posted AI-conflict-resolution comment on cherry-pick"
-                        f" PR #{cherry_pick_pr.number}"
-                    )
+                    try:
+                        await github_api_call(
+                            cherry_pick_pr.create_issue_comment,
+                            f"**⚠️ This cherry-pick had conflicts resolved by AI ({ai_provider}/{ai_model})**\n\n"
+                            f"@{pr_author} — AI automatically resolved merge conflicts for this cherry-pick. "
+                            f"Please review the changes carefully and verify correctness before merging.",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
+                        self.logger.info(
+                            f"{self.log_prefix} Posted AI-conflict-resolution comment on cherry-pick"
+                            f" PR #{cherry_pick_pr.number}"
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        self.logger.exception(
+                            f"{self.log_prefix} Failed to post AI-conflict-resolution comment"
+                            f" on cherry-pick PR #{cherry_pick_pr.number}"
+                        )
             else:
                 await github_api_call(
                     pull_request.create_issue_comment,
