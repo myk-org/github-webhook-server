@@ -2227,6 +2227,9 @@ class TestRunnerHandler:
             assert call_kwargs["target_branch"] == "release-v2", (
                 f"Expected target_branch='release-v2', got '{call_kwargs.get('target_branch')}'"
             )
+            assert call_kwargs["pr_title"] == "feat: Test PR", (
+                f"Expected pr_title='feat: Test PR', got '{call_kwargs.get('pr_title')}'"
+            )
 
     @pytest.mark.asyncio
     async def test_cherry_pick_post_resolution_verification_logs_warning(

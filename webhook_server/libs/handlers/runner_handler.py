@@ -1164,6 +1164,7 @@ Your team can configure additional types in the repository settings.
         github_token: str,
         commit_hash: str,
         target_branch: str,
+        pr_title: str,
     ) -> tuple[bool, str]:
         """Attempt to resolve cherry-pick conflicts using AI.
 
@@ -1222,7 +1223,7 @@ Your team can configure additional types in the repository settings.
 
         system_prompt = (
             "You are an expert software engineer resolving git cherry-pick merge conflicts. "
-            "You have access to bash and file editing tools. "
+            "You have access to file reading and editing tools. "
             "Your goal is to resolve all conflicts while preserving the intent of the original commit."
         )
 
@@ -1232,11 +1233,10 @@ Your team can configure additional types in the repository settings.
             f"## Original Commit Context\n"
             f"**Commit:** `{commit_hash}`\n"
             f"**Message:** {commit_message}\n"
-            f"**Target branch:** `{target_branch}`\n\n"
+            f"**Target branch:** `{target_branch}`\n"
+            f"**PR title:** {pr_title}\n\n"
             f"**Original commit changed files:**\n```\n{commit_diff_stat}\n```\n\n"
             "## Instructions\n\n"
-            f"Run `git log --oneline -1 {commit_hash}` to understand the original intent.\n"
-            f"Run `git diff {commit_hash}^..{commit_hash}` to see the original changes.\n\n"
             "### Conflict Resolution Rules\n"
             "- **Prefer the cherry-picked changes.** Only use HEAD (target branch) when "
             "the cherry-picked code references APIs/functions that don't exist on the target branch.\n"
@@ -1251,7 +1251,9 @@ Your team can configure additional types in the repository settings.
             "- File 'added in both' or 'renamed': Merge the content, keeping both "
             "sides' intent.\n\n"
             "After resolving all conflicts, "
-            "make sure the result is syntactically valid."
+            "make sure the result is syntactically valid.\n\n"
+            "After resolving, verify your resolution preserved the original commit's intent by reading "
+            "the resolved files and comparing them against the original commit context above."
         )
 
         self.logger.info(f"{self.log_prefix} Attempting AI conflict resolution with {ai_provider}/{ai_model}")
@@ -1280,7 +1282,7 @@ Your team can configure additional types in the repository settings.
 
             # Stage resolved files
             rc, _, err = await run_command(
-                command=f"{git_cmd} add -u",
+                command=f"{git_cmd} add -A",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
@@ -1338,12 +1340,17 @@ Your team can configure additional types in the repository settings.
         never fails the cherry-pick.
         """
         try:
-            _, cherry_picked_stat, _ = await run_command(
+            rc, cherry_picked_stat, _ = await run_command(
                 command=f"{git_cmd} diff HEAD^..HEAD --stat",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
+            if not rc:
+                self.logger.warning(
+                    f"{self.log_prefix} Could not retrieve cherry-picked diff stat for scope verification"
+                )
+                return
 
             original_count = _count_files_changed(original_diff_stat)
             cherry_picked_count = _count_files_changed(cherry_picked_stat)
@@ -1358,7 +1365,7 @@ Your team can configure additional types in the repository settings.
                     f"{self.log_prefix} Cherry-pick scope verified: original={original_count} file(s), "
                     f"cherry-picked={cherry_picked_count} file(s)"
                 )
-        except Exception:
+        except (OSError, ValueError):
             self.logger.exception(f"{self.log_prefix} Failed to verify cherry-pick scope (non-fatal)")
 
     async def cherry_pick(
@@ -1497,6 +1504,7 @@ Your team can configure additional types in the repository settings.
                             github_token=github_token,
                             commit_hash=commit_hash,
                             target_branch=target_branch,
+                            pr_title=commit_msg_striped,
                         )
                     else:
                         ai_resolved = False

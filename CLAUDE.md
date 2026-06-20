@@ -711,3 +711,7 @@ AI-powered enhancements controlled by `ai-features` config (global or per-repo).
 **Dual healthcheck:** Dockerfile `HEALTHCHECK` verifies both the webhook server (`:5000/webhook_server/healthcheck`) and the sidecar (`:${SIDECAR_PORT}/health`). Container is unhealthy if either fails.
 
 **Docker build:** Multi-stage — `sidecar-builder` stage (node:22-slim) runs `npm ci`, `npx tsc`, `npm prune --omit=dev`. Final stage copies only `dist/`, `node_modules/` (production), and `package.json`.
+
+**Security note:** The AI conflict resolution prompt includes commit messages from the PR
+(user-controlled text). Prompt injection risk is mitigated by restricting the AI to read-only
+tools plus file edit/write — no bash access. The AI cannot execute arbitrary commands.
