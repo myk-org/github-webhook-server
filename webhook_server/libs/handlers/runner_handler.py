@@ -16,7 +16,7 @@ from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.ai_cli import call_ai_cli, get_ai_config
+from webhook_server.libs.ai_cli import call_ai, get_ai_config
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
@@ -59,6 +59,19 @@ class CheckConfig:
     command: str
     title: str
     use_cwd: bool = False
+
+
+def _count_files_changed(stat_output: str) -> int:
+    """Count files changed from git diff --stat output.
+
+    Parses the summary line (e.g., '2 files changed, 15 insertions(+)').
+    Returns 0 if the output is empty or unparseable.
+    """
+    for line in reversed(stat_output.strip().splitlines()):
+        match = re.match(r"\s*(\d+) files? changed", line)
+        if match:
+            return int(match.group(1))
+    return 0
 
 
 class RunnerHandler:
@@ -899,14 +912,6 @@ Your team can configure additional types in the repository settings.
         else:
             types_info = f"Allowed types: {', '.join(allowed_names)}"
 
-        cli_flags: list[str] = []
-        if ai_provider == "claude":
-            cli_flags = ["--dangerously-skip-permissions"]
-        elif ai_provider == "gemini":
-            cli_flags = ["--yolo"]
-        elif ai_provider == "cursor":
-            cli_flags = ["--force"]
-
         try:
             base_ref = await github_api_call(
                 lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
@@ -930,22 +935,24 @@ Your team can configure additional types in the repository settings.
                     f"Example output: feat: add user authentication"
                 )
 
-                success, result = await call_ai_cli(
+                ai_result = await call_ai(
                     prompt=prompt,
                     ai_provider=ai_provider,
                     ai_model=ai_model,
                     cwd=worktree_path,
-                    cli_flags=cli_flags,
                     timeout_minutes=timeout_minutes,
+                    tools=["read", "grep", "find", "ls"],  # Read-only — AI inspects repo to suggest title
                 )
 
-                if success:
+                if ai_result.success:
                     # Clean up the response - take first line, strip backticks/quotes
-                    suggestion = result.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
+                    suggestion = ai_result.text.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
                     self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
                     return suggestion
 
-                self.logger.warning(f"{self.log_prefix} AI title suggestion failed: {result}")
+                self.logger.warning(
+                    f"{self.log_prefix} AI title suggestion failed: {ai_result.error or ai_result.text}"
+                )
                 return None
 
         except Exception:
@@ -1155,43 +1162,87 @@ Your team can configure additional types in the repository settings.
         worktree_path: str,
         git_cmd: str,
         github_token: str,
-    ) -> bool:
-        """Attempt to resolve cherry-pick conflicts using AI CLI.
+        commit_hash: str,
+        target_branch: str,
+    ) -> tuple[bool, str]:
+        """Attempt to resolve cherry-pick conflicts using AI.
 
-        Returns True if AI successfully resolved the conflicts, False otherwise.
+        Args:
+            worktree_path: Path to the git worktree with conflicts.
+            git_cmd: Git command prefix for this worktree.
+            github_token: Token to redact from logs.
+            commit_hash: The commit being cherry-picked (for context gathering).
+            target_branch: The branch being cherry-picked onto.
+
+        Returns:
+            Tuple of (success, original_diff_stat). The diff stat is passed to
+            _verify_cherry_pick_scope to avoid a redundant subprocess call.
         """
         ai_config = self.github_webhook.ai_features
         if not ai_config:
             self.logger.debug(f"{self.log_prefix} AI cherry-pick conflict resolution not enabled")
-            return False
+            return False, ""
 
         cherry_pick_ai_config = ai_config.get("resolve-cherry-pick-conflicts-with-ai")
         if not isinstance(cherry_pick_ai_config, dict) or not cherry_pick_ai_config.get("enabled"):
             self.logger.debug(f"{self.log_prefix} AI cherry-pick conflict resolution not enabled")
-            return False
+            return False, ""
 
         ai_result = get_ai_config(ai_config)
         if not ai_result:
             self.logger.debug(f"{self.log_prefix} AI features not fully configured (missing provider/model)")
-            return False
+            return False, ""
 
         ai_provider, ai_model = ai_result
 
-        cli_flags: list[str] = []
-        if ai_provider == "claude":
-            cli_flags = ["--dangerously-skip-permissions"]
-        elif ai_provider == "gemini":
-            cli_flags = ["--yolo"]
-        elif ai_provider == "cursor":
-            cli_flags = ["--force"]
+        # Gather commit context for the AI prompt
+        rc, commit_message, _ = await run_command(
+            command=f"{git_cmd} log --oneline -1 {commit_hash}",
+            log_prefix=self.log_prefix,
+            redact_secrets=[github_token],
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if not rc:
+            self.logger.warning(f"{self.log_prefix} Could not retrieve commit message for AI context")
+            commit_message = ""
+        else:
+            commit_message = commit_message.strip()
+
+        rc, commit_diff_stat, _ = await run_command(
+            command=f"{git_cmd} diff {commit_hash}^..{commit_hash} --stat",
+            log_prefix=self.log_prefix,
+            redact_secrets=[github_token],
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if not rc:
+            self.logger.warning(f"{self.log_prefix} Could not retrieve commit diff stat for AI context")
+            commit_diff_stat = ""
+        else:
+            commit_diff_stat = commit_diff_stat.strip()
+
+        system_prompt = (
+            "You are an expert software engineer resolving git cherry-pick merge conflicts. "
+            "You have access to bash and file editing tools. "
+            "Your goal is to resolve all conflicts while preserving the intent of the original commit."
+        )
 
         prompt = (
             "You are in a git repository with cherry-pick merge conflicts. "
             "Resolve ALL conflicts in ALL files.\n\n"
-            "How to handle each conflict type:\n"
+            f"## Original Commit Context\n"
+            f"**Commit:** `{commit_hash}`\n"
+            f"**Message:** {commit_message}\n"
+            f"**Target branch:** `{target_branch}`\n\n"
+            f"**Original commit changed files:**\n```\n{commit_diff_stat}\n```\n\n"
+            "## Instructions\n\n"
+            f"Run `git log --oneline -1 {commit_hash}` to understand the original intent.\n"
+            f"Run `git diff {commit_hash}^..{commit_hash}` to see the original changes.\n\n"
+            "### Conflict Resolution Rules\n"
+            "- **Prefer the cherry-picked changes.** Only use HEAD (target branch) when "
+            "the cherry-picked code references APIs/functions that don't exist on the target branch.\n"
             "- Standard conflict markers (<<<<<<< HEAD, =======, >>>>>>>): "
-            "HEAD is the target branch. Adapt the cherry-picked changes to fit "
-            "the target branch code.\n"
+            "HEAD is the target branch. Resolve in favor of the cherry-picked changes "
+            "unless they reference code not present on the target branch.\n"
             "- File 'deleted in HEAD and modified in <commit>': This means the file "
             "does not exist on the target branch. If the cherry-pick is introducing "
             "this file to the target branch, keep the file and 'git add' it. "
@@ -1199,7 +1250,7 @@ Your team can configure additional types in the repository settings.
             "changes are not relevant, 'git rm' it.\n"
             "- File 'added in both' or 'renamed': Merge the content, keeping both "
             "sides' intent.\n\n"
-            "After resolving all conflicts, stage everything with 'git add' and "
+            "After resolving all conflicts, "
             "make sure the result is syntactically valid."
         )
 
@@ -1208,18 +1259,22 @@ Your team can configure additional types in the repository settings.
         timeout_minutes = cherry_pick_ai_config.get("timeout-minutes", 10)
 
         try:
-            success, result = await call_ai_cli(
+            ai_call_result = await call_ai(
                 prompt=prompt,
                 ai_provider=ai_provider,
                 ai_model=ai_model,
                 cwd=worktree_path,
-                cli_flags=cli_flags,
                 timeout_minutes=timeout_minutes,
+                system_prompt=system_prompt,
+                # Read + edit/write for conflict resolution, NO bash
+                tools=["read", "edit", "write", "grep", "find", "ls"],
             )
 
-            if not success:
-                self.logger.warning(f"{self.log_prefix} AI conflict resolution failed: {result}")
-                return False
+            if not ai_call_result.success:
+                self.logger.warning(
+                    f"{self.log_prefix} AI conflict resolution failed: {ai_call_result.error or ai_call_result.text}"
+                )
+                return False, ""
 
             self.logger.info(f"{self.log_prefix} AI conflict resolution completed, finalizing cherry-pick")
 
@@ -1232,7 +1287,7 @@ Your team can configure additional types in the repository settings.
             )
             if not rc:
                 self.logger.error(f"{self.log_prefix} Failed to stage AI-resolved files: {err}")
-                return False
+                return False, commit_diff_stat
 
             # Check if cherry-pick is still in progress (it may have auto-completed
             # after staging resolved files, e.g. for modify/delete conflicts)
@@ -1252,19 +1307,59 @@ Your team can configure additional types in the repository settings.
                 )
                 if not rc:
                     self.logger.error(f"{self.log_prefix} cherry-pick --continue failed after AI resolution: {err}")
-                    return False
+                    return False, commit_diff_stat
             else:
                 if err_check and "needed a single revision" not in err_check.lower():
                     self.logger.error(f"{self.log_prefix} Unexpected CHERRY_PICK_HEAD check error: {err_check}")
-                    return False
+                    return False, commit_diff_stat
                 self.logger.info(f"{self.log_prefix} Cherry-pick already completed after staging resolved files")
 
             self.logger.info(f"{self.log_prefix} AI successfully resolved cherry-pick conflicts")
-            return True
+            return True, commit_diff_stat
 
         except Exception:
             self.logger.exception(f"{self.log_prefix} AI conflict resolution failed unexpectedly")
-            return False
+            return False, ""
+
+    async def _verify_cherry_pick_scope(
+        self,
+        git_cmd: str,
+        github_token: str,
+        original_diff_stat: str,
+    ) -> None:
+        """Compare original commit scope vs cherry-picked commit scope.
+
+        Uses the pre-fetched original_diff_stat from _resolve_cherry_pick_with_ai
+        to avoid a redundant subprocess call. Only runs git diff for the
+        cherry-picked commit.
+
+        Logs a warning if the cherry-picked commit has significantly fewer
+        file changes than the original. This is informational only and
+        never fails the cherry-pick.
+        """
+        try:
+            _, cherry_picked_stat, _ = await run_command(
+                command=f"{git_cmd} diff HEAD^..HEAD --stat",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+
+            original_count = _count_files_changed(original_diff_stat)
+            cherry_picked_count = _count_files_changed(cherry_picked_stat)
+
+            if original_count > 0 and cherry_picked_count < original_count:
+                self.logger.warning(
+                    f"{self.log_prefix} Cherry-pick scope reduced: original commit changed "
+                    f"{original_count} file(s), cherry-picked commit changed {cherry_picked_count} file(s)"
+                )
+            else:
+                self.logger.info(
+                    f"{self.log_prefix} Cherry-pick scope verified: original={original_count} file(s), "
+                    f"cherry-picked={cherry_picked_count} file(s)"
+                )
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to verify cherry-pick scope (non-fatal)")
 
     async def cherry_pick(
         self,
@@ -1396,13 +1491,16 @@ Your team can configure additional types in the repository settings.
                     # Only attempt AI resolution for actual merge conflicts
                     is_conflict = "CONFLICT" in err or "CONFLICT" in out
                     if is_conflict:
-                        ai_resolved = await self._resolve_cherry_pick_with_ai(
+                        ai_resolved, original_diff_stat = await self._resolve_cherry_pick_with_ai(
                             worktree_path=worktree_path,
                             git_cmd=git_cmd,
                             github_token=github_token,
+                            commit_hash=commit_hash,
+                            target_branch=target_branch,
                         )
                     else:
                         ai_resolved = False
+                        original_diff_stat = ""
                     if not ai_resolved:
                         # AI not configured, disabled, or failed — manual fallback
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -1439,6 +1537,14 @@ Your team can configure additional types in the repository settings.
                         )
                         return
                     cherry_pick_had_conflicts = True
+
+                # Post-resolution verification: compare original vs cherry-picked commit scope
+                if cherry_pick_had_conflicts:
+                    await self._verify_cherry_pick_scope(
+                        git_cmd=git_cmd,
+                        github_token=github_token,
+                        original_diff_stat=original_diff_stat,
+                    )
 
                 # Restore original PR author on cherry-pick for DCO compliance
                 await self._restore_original_author_for_cherry_pick(

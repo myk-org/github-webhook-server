@@ -3,16 +3,6 @@ revision = 3
 requires-python = "==3.13.*"
 
 [[package]]
-name = "ai-cli-runner"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "python-simple-logger" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d0/84/e26cac819bd930f785d66bc61ae40025399bbbd45c78448c8985431d8f09/ai_cli_runner-0.5.0.tar.gz", hash = "sha256:cb41eaa9fdf729fe33751d716b9e7b4571b348e70970f6230f5e38050ccf469c", size = 50626, upload-time = "2026-05-15T11:10:12.934Z" }
-
-[[package]]
 name = "aiofiles"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -378,7 +368,6 @@ name = "github-webhook-server"
 version = "4.0.1"
 source = { editable = "." }
 dependencies = [
-    { name = "ai-cli-runner" },
     { name = "aiofiles" },
     { name = "asyncstdlib" },
     { name = "build" },
@@ -387,6 +376,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastapi-mcp" },
     { name = "httpx" },
+    { name = "pi-sidecar-client" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pygithub" },
@@ -429,7 +419,6 @@ tests = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ai-cli-runner", specifier = ">=0.1.0" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "asyncstdlib", specifier = ">=3.13.1" },
     { name = "build", specifier = ">=1.2.2.post1" },
@@ -438,6 +427,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fastapi-mcp", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pi-sidecar-client", specifier = ">=1.1.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pygithub", specifier = ">=2.4.0" },
@@ -760,6 +750,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/c3/059298687310d527a58bb01f3b1965787ee3b40dce76752eda8b44e9a2c5/pexpect-4.9.0-py2.py3-none-any.whl", hash = "sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523", size = 63772, upload-time = "2023-11-25T06:56:14.81Z" },
 ]
+
+[[package]]
+name = "pi-sidecar-client"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "python-simple-logger" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/c3/c002e8315ad8206c5e2e5ddf3371cf4f53360962a44420d89121a6f4d003/pi_sidecar_client-1.1.0.tar.gz", hash = "sha256:e57dd1bd21f13c340bb81ceebee333fc797105e69d925947e89cd40e0604a83a", size = 12850, upload-time = "2026-05-31T15:30:24.262Z" }
 
 [[package]]
 name = "pluggy"

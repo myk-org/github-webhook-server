@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from github import GithubException
 
+from webhook_server.libs.ai_cli import AIResult
 from webhook_server.libs.handlers.runner_handler import CheckConfig, RunnerHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
@@ -872,10 +873,10 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
-                            return_value=(True, "fix: correct the bad title"),
-                        ) as mock_ai_cli:
+                            return_value=AIResult(success=True, text="fix: correct the bad title"),
+                        ) as mock_ai:
                             with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
                                 await runner_handler.run_conventional_title_check(mock_pull_request)
 
@@ -884,9 +885,9 @@ class TestRunnerHandler:
                                 assert "AI-Suggested Title" in output["text"]
                                 assert "fix: correct the bad title" in output["text"]
 
-                                # Verify cwd was passed to call_ai_cli as worktree path
-                                mock_ai_cli.assert_awaited_once()
-                                call_kwargs = mock_ai_cli.call_args[1]
+                                # Verify cwd was passed to call_ai as worktree path
+                                mock_ai.assert_awaited_once()
+                                call_kwargs = mock_ai.call_args[1]
                                 assert call_kwargs["cwd"] == worktree_path
                                 assert call_kwargs["timeout_minutes"] == 10
 
@@ -942,9 +943,9 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
-                            return_value=(True, "fix: correct the title"),
+                            return_value=AIResult(success=True, text="fix: correct the title"),
                         ):
                             with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
                                 with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
@@ -987,9 +988,9 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
-                            return_value=(True, "fix: correct the title"),
+                            return_value=AIResult(success=True, text="fix: correct the title"),
                         ):
                             with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
                                 # Make edit raise an exception
@@ -1032,7 +1033,7 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
                         ) as mock_ai:
                             await runner_handler.run_conventional_title_check(mock_pull_request)
@@ -1043,9 +1044,7 @@ class TestRunnerHandler:
                             assert "AI-Suggested Title" not in output["text"]
 
     @pytest.mark.asyncio
-    async def test_conventional_title_ai_cli_failure(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
+    async def test_conventional_title_ai_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test that AI CLI failure doesn't break the check flow."""
         runner_handler.github_webhook.conventional_title = "feat,fix"
         mock_pull_request.title = "bad title"
@@ -1069,9 +1068,9 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
-                            return_value=(False, "CLI timeout"),
+                            return_value=AIResult(success=False, text="CLI timeout"),
                         ):
                             with patch.object(runner_handler, "_checkout_worktree", side_effect=mock_checkout_worktree):
                                 await runner_handler.run_conventional_title_check(mock_pull_request)
@@ -1080,7 +1079,7 @@ class TestRunnerHandler:
                                 assert "AI-Suggested Title" not in output["text"]
 
     @pytest.mark.asyncio
-    async def test_conventional_title_ai_cli_exception(
+    async def test_conventional_title_ai_exception(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test that AI CLI exception doesn't break the check flow."""
@@ -1106,7 +1105,7 @@ class TestRunnerHandler:
                         runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         with patch(
-                            "webhook_server.libs.handlers.runner_handler.call_ai_cli",
+                            "webhook_server.libs.handlers.runner_handler.call_ai",
                             new_callable=AsyncMock,
                             side_effect=RuntimeError("boom"),
                         ):
@@ -1748,9 +1747,9 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ) as mock_run_cmd:
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                                new=AsyncMock(return_value=(True, "resolved")),
-                            ) as mock_ai_cli:
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                                new=AsyncMock(return_value=AIResult(success=True, text="resolved")),
+                            ) as mock_ai:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
@@ -1762,12 +1761,23 @@ class TestRunnerHandler:
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
                                         mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
-                                        mock_ai_cli.assert_called_once()
+                                        mock_ai.assert_called_once()
                                         # Verify prompt includes delete/modify conflict guidance
-                                        ai_prompt = str(mock_ai_cli.call_args)
+                                        ai_prompt = str(mock_ai.call_args)
                                         assert "deleted in HEAD and modified in" in ai_prompt, (
                                             "AI prompt should include delete/modify conflict guidance"
                                         )
+                                        # Verify commit context is in the prompt
+                                        assert "abc123" in ai_prompt, "AI prompt should include commit hash"
+                                        assert "target_branch" in str(mock_ai.call_args) or "main" in ai_prompt, (
+                                            "AI prompt should include target branch"
+                                        )
+                                        # Verify system_prompt and tools are passed
+                                        call_kwargs = mock_ai.call_args[1]
+                                        assert call_kwargs.get("system_prompt"), (
+                                            "system_prompt should be passed to call_ai"
+                                        )
+                                        assert call_kwargs.get("tools"), "tools should be passed to call_ai"
                                         # Verify AI comment was posted
                                         comment_calls = mock_pull_request.create_issue_comment.call_args_list
                                         ai_comment = any(
@@ -1827,9 +1837,9 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ) as mock_run_cmd:
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                                new=AsyncMock(return_value=(True, "resolved")),
-                            ) as mock_ai_cli:
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                                new=AsyncMock(return_value=AIResult(success=True, text="resolved")),
+                            ) as mock_ai:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
@@ -1841,7 +1851,7 @@ class TestRunnerHandler:
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
                                         mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
-                                        mock_ai_cli.assert_called_once()
+                                        mock_ai.assert_called_once()
                                         # Verify cherry-pick --continue was NOT called
                                         continue_calls = [
                                             c for c in mock_run_cmd.call_args_list if "cherry-pick --continue" in str(c)
@@ -1914,9 +1924,9 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ) as mock_run_cmd:
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                                new=AsyncMock(return_value=(True, "resolved")),
-                            ) as mock_ai_cli:
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                                new=AsyncMock(return_value=AIResult(success=True, text="resolved")),
+                            ) as mock_ai:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
@@ -1927,7 +1937,7 @@ class TestRunnerHandler:
                                     ):
                                         await runner_handler.cherry_pick(mock_pull_request, "main")
                                         mock_set_failure.assert_called()
-                                        mock_ai_cli.assert_called_once()
+                                        mock_ai.assert_called_once()
                                         # Verify --allow-empty was NOT called
                                         allow_empty_calls = [
                                             c for c in mock_run_cmd.call_args_list if "commit --allow-empty" in str(c)
@@ -1970,8 +1980,8 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ):
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                                new=AsyncMock(return_value=(False, "AI failed")),
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                                new=AsyncMock(return_value=AIResult(success=False, text="AI failed")),
                             ):
                                 with patch(
                                     "asyncio.to_thread",
@@ -1989,7 +1999,7 @@ class TestRunnerHandler:
     async def test_cherry_pick_ai_not_configured_fallback(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Cherry-pick conflicts + AI not configured — manual fallback, call_ai_cli not called."""
+        """Cherry-pick conflicts + AI not configured — manual fallback, call_ai not called."""
         runner_handler.github_webhook.ai_features = None
 
         async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
@@ -2011,15 +2021,15 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ):
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                            ) as mock_ai_cli:
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                            ) as mock_ai:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
                                 ):
                                     await runner_handler.cherry_pick(mock_pull_request, "main")
                                     mock_set_failure.assert_called()
-                                    mock_ai_cli.assert_not_called()
+                                    mock_ai.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cherry_pick_ai_feature_disabled_fallback(
@@ -2051,15 +2061,15 @@ class TestRunnerHandler:
                             new=AsyncMock(side_effect=run_command_side_effect),
                         ):
                             with patch(
-                                "webhook_server.libs.handlers.runner_handler.call_ai_cli",
-                            ) as mock_ai_cli:
+                                "webhook_server.libs.handlers.runner_handler.call_ai",
+                            ) as mock_ai:
                                 with patch(
                                     "asyncio.to_thread",
                                     new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
                                 ):
                                     await runner_handler.cherry_pick(mock_pull_request, "main")
                                     mock_set_failure.assert_called()
-                                    mock_ai_cli.assert_not_called()
+                                    mock_ai.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cherry_pick_ai_resolved_mentions_pr_author(
@@ -2084,7 +2094,7 @@ class TestRunnerHandler:
             with patch.object(
                 runner_handler,
                 "_resolve_cherry_pick_with_ai",
-                new=AsyncMock(return_value=True),
+                new=AsyncMock(return_value=(True, " 2 files changed")),
             ):
                 await runner_handler.cherry_pick(mock_pull_request, "main")
                 mocks.comment.assert_called()
@@ -2120,7 +2130,7 @@ class TestRunnerHandler:
             with patch.object(
                 runner_handler,
                 "_resolve_cherry_pick_with_ai",
-                new=AsyncMock(return_value=True),
+                new=AsyncMock(return_value=(True, " 2 files changed")),
             ):
                 await runner_handler.cherry_pick(mock_pull_request, "main")
                 cherry_pick_pr.create_issue_comment.assert_called()
@@ -2157,11 +2167,129 @@ class TestRunnerHandler:
             with patch.object(
                 runner_handler,
                 "_resolve_cherry_pick_with_ai",
-                new=AsyncMock(return_value=True),
+                new=AsyncMock(return_value=(True, " 2 files changed")),
             ):
                 await runner_handler.cherry_pick(mock_pull_request, "main")
                 mocks.set_success.assert_called_once()
                 mocks.comment.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_ai_passes_commit_hash_and_target_branch(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Verify _resolve_cherry_pick_with_ai receives commit_hash and target_branch."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "cherry-pick" in command and "--continue" not in command and "rev-parse" not in command:
+                return (False, "", "CONFLICT (content): Merge conflict in file.py")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        with (
+            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_success"),
+            patch.object(
+                runner_handler, "_resolve_cherry_pick_with_ai", new=AsyncMock(return_value=(True, " 2 files changed"))
+            ) as mock_resolve_ai,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.cherry_pick(mock_pull_request, "release-v2")
+
+            mock_resolve_ai.assert_awaited_once()
+            call_kwargs = mock_resolve_ai.call_args[1]
+            assert call_kwargs["commit_hash"] == "abc123", (
+                f"Expected commit_hash='abc123', got '{call_kwargs.get('commit_hash')}'"
+            )
+            assert call_kwargs["target_branch"] == "release-v2", (
+                f"Expected target_branch='release-v2', got '{call_kwargs.get('target_branch')}'"
+            )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_post_resolution_verification_logs_warning(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Verify post-resolution verification logs a warning when scope is reduced."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        # _resolve_cherry_pick_with_ai is fully mocked — it returns the original diff stat.
+        # _verify_cherry_pick_scope is NOT mocked — it runs and calls run_command for HEAD diff.
+        original_stat = " file1.py | 10 +\n file2.py | 5 +\n 2 files changed, 15 insertions(+)"
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "cherry-pick" in command and "--continue" not in command and "rev-parse" not in command:
+                return (False, "", "CONFLICT (content): Merge conflict in file.py")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            # Verification: cherry-picked commit has fewer files than original
+            if "diff HEAD^..HEAD --stat" in command:
+                return (True, " file1.py | 8 +\n 1 file changed, 8 insertions(+)", "")
+            return (True, "success", "")
+
+        with (
+            patch.object(runner_handler, "_restore_original_author_for_cherry_pick", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress"),
+            patch.object(runner_handler.check_run_handler, "set_check_success"),
+            patch.object(
+                runner_handler,
+                "_resolve_cherry_pick_with_ai",
+                new=AsyncMock(return_value=(True, original_stat)),
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(side_effect=run_command_side_effect),
+            ),
+            patch(
+                "asyncio.to_thread",
+                new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn()),
+            ),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.get_repository_github_app_token",
+                return_value=None,
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            # Should not raise — verification is informational only
+            with patch.object(runner_handler.logger, "warning") as mock_warn:
+                await runner_handler.cherry_pick(mock_pull_request, "main")
+
+                # Assert the scope-reduction warning was logged
+                warning_calls = [str(c) for c in mock_warn.call_args_list]
+                assert any("Cherry-pick scope reduced" in w for w in warning_calls), (
+                    f"Expected 'Cherry-pick scope reduced' warning, got: {warning_calls}"
+                )
 
 
 class TestRestoreOriginalAuthorForCherryPick:
