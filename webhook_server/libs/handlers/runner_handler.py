@@ -1754,16 +1754,24 @@ Your team can configure additional types in the repository settings.
                 ai_config = self.github_webhook.ai_features
                 ai_result = get_ai_config(ai_config)
                 ai_provider, ai_model = ai_result if ai_result else ("unknown", "unknown")
-                await github_api_call(
-                    pull_request.create_issue_comment,
-                    f"**Cherry-pick conflicts were resolved by AI**\n\n"
-                    f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
-                    f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
-                    f"@{pr_author} **Manual verification is required** — "
-                    f"please review the changes and test before merging.",
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
+                try:
+                    await github_api_call(
+                        pull_request.create_issue_comment,
+                        f"**Cherry-pick conflicts were resolved by AI**\n\n"
+                        f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
+                        f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
+                        f"@{pr_author} **Manual verification is required** — "
+                        f"please review the changes and test before merging.",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except GithubException:
+                    self.logger.exception(
+                        f"{self.log_prefix} Failed to post AI-conflict-resolution comment"
+                        f" on original PR #{pull_request.number}"
+                    )
 
                 if cherry_pick_pr:
                     try:
