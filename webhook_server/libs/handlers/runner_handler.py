@@ -1781,7 +1781,7 @@ Your team can configure additional types in the repository settings.
                         )
                     except asyncio.CancelledError:
                         raise
-                    except Exception:
+                    except GithubException:
                         self.logger.exception(
                             f"{self.log_prefix} Failed to post AI-conflict-resolution comment"
                             f" on cherry-pick PR #{cherry_pick_pr.number}"
