@@ -2061,6 +2061,108 @@ class TestRunnerHandler:
                                     mock_set_failure.assert_called()
                                     mock_ai_cli.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_cherry_pick_ai_resolved_mentions_pr_author(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that when cherry-pick has AI-resolved conflicts, the original PR comment includes @{pr_author}."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "test-model",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "cherry-pick" in command and "--continue" not in command:
+                return (False, "", "CONFLICT (content): Merge conflict")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            mocks.run_cmd.side_effect = run_command_side_effect
+            with patch.object(
+                runner_handler,
+                "_resolve_cherry_pick_with_ai",
+                new=AsyncMock(return_value=True),
+            ):
+                await runner_handler.cherry_pick(mock_pull_request, "main")
+                mocks.comment.assert_called()
+                comment_calls = mocks.comment.call_args_list
+                assert any("@test-pr-author" in str(c) for c in comment_calls), (
+                    f"Expected @test-pr-author in comment, got: {comment_calls}"
+                )
+                assert any("Cherry-pick conflicts were resolved by AI" in str(c) for c in comment_calls), (
+                    f"Expected AI resolution message in comment, got: {comment_calls}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_ai_resolved_posts_comment_on_cherry_pick_pr(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that a new comment is posted on the cherry-pick PR with @mention."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "test-model",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "cherry-pick" in command and "--continue" not in command:
+                return (False, "", "CONFLICT (content): Merge conflict")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            mocks.run_cmd.side_effect = run_command_side_effect
+            cherry_pick_pr = runner_handler.repository.get_pull.return_value
+            with patch.object(
+                runner_handler,
+                "_resolve_cherry_pick_with_ai",
+                new=AsyncMock(return_value=True),
+            ):
+                await runner_handler.cherry_pick(mock_pull_request, "main")
+                cherry_pick_pr.create_issue_comment.assert_called()
+                cp_comment_calls = cherry_pick_pr.create_issue_comment.call_args_list
+                assert any("@test-pr-author" in str(c) for c in cp_comment_calls), (
+                    f"Expected @test-pr-author in cherry-pick PR comment, got: {cp_comment_calls}"
+                )
+                assert any("AI automatically resolved merge conflicts" in str(c) for c in cp_comment_calls), (
+                    f"Expected AI resolution message in cherry-pick PR comment, got: {cp_comment_calls}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_cherry_pick_ai_resolved_comment_failure_does_not_crash(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that if the cherry-pick PR comment fails, the overall cherry_pick() still succeeds."""
+        runner_handler.github_webhook.ai_features = {
+            "ai-provider": "claude",
+            "ai-model": "test-model",
+            "resolve-cherry-pick-conflicts-with-ai": {"enabled": True},
+        }
+
+        async def run_command_side_effect(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if "cherry-pick" in command and "--continue" not in command:
+                return (False, "", "CONFLICT (content): Merge conflict")
+            if "gh pr create" in command:
+                return (True, "https://github.com/test-org/test-repo/pull/99", "")
+            return (True, "success", "")
+
+        async with self.cherry_pick_setup(runner_handler, mock_pull_request) as mocks:
+            mocks.run_cmd.side_effect = run_command_side_effect
+            cherry_pick_pr = runner_handler.repository.get_pull.return_value
+            cherry_pick_pr.create_issue_comment = Mock(side_effect=GithubException(403, "API error", {}))
+            with patch.object(
+                runner_handler,
+                "_resolve_cherry_pick_with_ai",
+                new=AsyncMock(return_value=True),
+            ):
+                await runner_handler.cherry_pick(mock_pull_request, "main")
+                mocks.set_success.assert_called_once()
+                mocks.comment.assert_called()
+
 
 class TestRestoreOriginalAuthorForCherryPick:
     """Test suite for _restore_original_author_for_cherry_pick method."""
