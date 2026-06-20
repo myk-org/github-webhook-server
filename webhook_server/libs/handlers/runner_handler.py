@@ -1252,8 +1252,8 @@ Your team can configure additional types in the repository settings.
             "sides' intent.\n\n"
             "After resolving all conflicts, "
             "make sure the result is syntactically valid.\n\n"
-            "After resolving, verify your resolution preserved the original commit's intent by reading "
-            "the resolved files and comparing them against the original commit context above."
+            "After resolving, read each resolved file to verify your edits are syntactically valid "
+            "and semantically consistent with the original commit's purpose."
         )
 
         self.logger.info(f"{self.log_prefix} Attempting AI conflict resolution with {ai_provider}/{ai_model}")
