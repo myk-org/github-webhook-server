@@ -17,6 +17,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.ai_cli import call_ai, get_ai_config
+from webhook_server.libs.config import Config
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
@@ -61,12 +62,14 @@ class CheckConfig:
     use_cwd: bool = False
 
 
-def _build_git_custom_tools(worktree_path: str, server_port: int = 5000) -> list[dict[str, Any]]:
+def _build_git_custom_tools(worktree_path: str, server_port: int | None = None) -> list[dict[str, Any]]:
     """Build HTTP-backed custom tools for read-only git operations.
 
     These tools are executed by the pi-sidecar via HTTP calls to the
     webhook server's internal git-tools endpoint.
     """
+    if server_port is None:
+        server_port = int(Config().root_data.get("port", 5000))
     base_url = f"http://127.0.0.1:{server_port}/internal/git-tools/run"
     tools: list[dict[str, Any]] = []
 
@@ -986,11 +989,15 @@ Your team can configure additional types in the repository settings.
                     response_text = ai_result.text.strip()
                     # Try to extract conventional title pattern from anywhere in the response
                     # The AI may prepend reasoning text before the actual title
-                    allowed_types_pattern = "|".join(re.escape(name) for name in allowed_names)
-                    title_pattern = rf"(?:^|\n|[.!?]\s*)({allowed_types_pattern})(?:\([^)]*\))?!?:\s*\S.+"
+                    if is_wildcard or not allowed_names:
+                        # Wildcard mode: match any word followed by optional scope and colon
+                        title_pattern = r"(?:^|\n|[.!?]\s*)(\w+(?:\([^)]*\))?!?:\s*\S.+)"
+                    else:
+                        allowed_types_pattern = "|".join(re.escape(name) for name in allowed_names)
+                        title_pattern = rf"(?:^|\n|[.!?]\s*)((?:{allowed_types_pattern})(?:\([^)]*\))?!?:\s*\S.+)"
                     match = re.search(title_pattern, response_text, re.IGNORECASE)
                     if match:
-                        suggestion = match.group(0).strip().strip("`").strip('"').strip("'")
+                        suggestion = match.group(1).strip().strip("`").strip('"').strip("'")
                     else:
                         # Fallback to first line (original behavior)
                         suggestion = response_text.splitlines()[0].strip().strip("`").strip('"').strip("'")

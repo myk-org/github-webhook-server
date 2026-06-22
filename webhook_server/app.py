@@ -299,6 +299,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
+# SECURITY: git-tools endpoints are internal (called by pi-sidecar on 127.0.0.1).
+# Deploy behind a reverse proxy or firewall in production — same as log viewer endpoints.
 FASTAPI_APP.include_router(git_tools_router)
 
 # Mount static files

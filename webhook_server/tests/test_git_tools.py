@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from webhook_server.app import FASTAPI_APP
 from webhook_server.libs.handlers.runner_handler import _build_git_custom_tools
+
+MOCK_TARGET = "webhook_server.web.git_tools.asyncio.create_subprocess_exec"
 
 
 class TestGitToolsEndpoint:
@@ -19,7 +21,7 @@ class TestGitToolsEndpoint:
         return TestClient(FASTAPI_APP)
 
     def test_allowed_command_diff(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"file.py | 2 +-\n", b"")
             process.returncode = 0
@@ -36,7 +38,7 @@ class TestGitToolsEndpoint:
         assert "file.py" in data["output"]
 
     def test_allowed_command_log(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"abc1234 feat: add feature\n", b"")
             process.returncode = 0
@@ -53,7 +55,7 @@ class TestGitToolsEndpoint:
         assert "feat: add feature" in data["output"]
 
     def test_allowed_command_show(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"commit abc1234\nAuthor: test\n", b"")
             process.returncode = 0
@@ -69,7 +71,7 @@ class TestGitToolsEndpoint:
         assert data["success"] is True
 
     def test_allowed_command_status(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"On branch main\nnothing to commit\n", b"")
             process.returncode = 0
@@ -85,7 +87,7 @@ class TestGitToolsEndpoint:
         assert data["success"] is True
 
     def test_allowed_command_rev_parse(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"abc1234def5678\n", b"")
             process.returncode = 0
@@ -139,7 +141,7 @@ class TestGitToolsEndpoint:
         assert "Empty" in resp.json()["detail"]
 
     def test_git_command_failure_returns_stderr(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"", b"fatal: not a git repository\n")
             process.returncode = 128
@@ -155,10 +157,12 @@ class TestGitToolsEndpoint:
         assert data["success"] is False
         assert "not a git repository" in data["output"]
 
-    def test_timeout(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+    def test_timeout_kills_process(self, client: TestClient) -> None:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.side_effect = TimeoutError()
+            process.kill = Mock()
+            process.wait = AsyncMock()
             mock_proc.return_value = process
 
             resp = client.post(
@@ -170,9 +174,10 @@ class TestGitToolsEndpoint:
         data = resp.json()
         assert data["success"] is False
         assert "timed out" in data["output"]
+        process.kill.assert_called_once()
 
     def test_output_capped_at_50k(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             large_output = b"x" * 100_000
             process.communicate.return_value = (large_output, b"")
@@ -189,8 +194,8 @@ class TestGitToolsEndpoint:
         assert data["success"] is True
         assert len(data["output"]) == 50_000
 
-    def test_subprocess_exception(self, client: TestClient) -> None:
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+    def test_oserror_exception(self, client: TestClient) -> None:
+        with patch(MOCK_TARGET) as mock_proc:
             mock_proc.side_effect = OSError("No such file or directory")
 
             resp = client.post(
@@ -203,9 +208,9 @@ class TestGitToolsEndpoint:
         assert data["success"] is False
         assert "No such file" in data["output"]
 
-    def test_cwd_is_shell_quoted(self, client: TestClient) -> None:
-        """Verify cwd with spaces is safely handled."""
-        with patch("webhook_server.web.git_tools.asyncio.create_subprocess_shell") as mock_proc:
+    def test_cwd_passed_as_exec_arg(self, client: TestClient) -> None:
+        """Verify cwd with spaces is passed as a separate exec argument (no shell quoting needed)."""
+        with patch(MOCK_TARGET) as mock_proc:
             process = AsyncMock()
             process.communicate.return_value = (b"ok\n", b"")
             process.returncode = 0
@@ -217,22 +222,26 @@ class TestGitToolsEndpoint:
             )
 
         assert resp.status_code == 200
-        # Verify the command was called with properly quoted cwd
-        call_args = mock_proc.call_args[0][0]
-        assert "'/tmp/path with spaces/repo'" in call_args
+        # Verify cwd is passed as a separate argument (no shell quoting)
+        call_args = mock_proc.call_args[0]
+        assert call_args == ("git", "-C", "/tmp/path with spaces/repo", "status")
 
 
 class TestBuildGitCustomTools:
     """Test suite for _build_git_custom_tools helper."""
 
     def test_builds_four_tools(self) -> None:
-        tools = _build_git_custom_tools("/tmp/wt")
+        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
+            mock_config.return_value.root_data = {"port": 5000}
+            tools = _build_git_custom_tools("/tmp/wt")
         assert len(tools) == 4
         names = [t["name"] for t in tools]
         assert names == ["git_diff", "git_log", "git_show", "git_status"]
 
     def test_tool_structure(self) -> None:
-        tools = _build_git_custom_tools("/tmp/my-worktree")
+        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
+            mock_config.return_value.root_data = {"port": 5000}
+            tools = _build_git_custom_tools("/tmp/my-worktree")
         tool = tools[0]  # git_diff
         assert tool["name"] == "git_diff"
         assert "description" in tool
@@ -248,7 +257,15 @@ class TestBuildGitCustomTools:
         tools = _build_git_custom_tools("/tmp/wt", server_port=8080)
         assert tools[0]["http"]["url"] == "http://127.0.0.1:8080/internal/git-tools/run"
 
+    def test_reads_port_from_config(self) -> None:
+        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
+            mock_config.return_value.root_data = {"port": 9090}
+            tools = _build_git_custom_tools("/tmp/wt")
+        assert tools[0]["http"]["url"] == "http://127.0.0.1:9090/internal/git-tools/run"
+
     def test_worktree_path_in_body(self) -> None:
-        tools = _build_git_custom_tools("/data/worktrees/abc123")
+        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
+            mock_config.return_value.root_data = {"port": 5000}
+            tools = _build_git_custom_tools("/data/worktrees/abc123")
         for tool in tools:
             assert tool["http"]["body_template"]["cwd"] == "/data/worktrees/abc123"
