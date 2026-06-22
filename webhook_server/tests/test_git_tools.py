@@ -231,17 +231,13 @@ class TestBuildGitCustomTools:
     """Test suite for _build_git_custom_tools helper."""
 
     def test_builds_four_tools(self) -> None:
-        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
-            mock_config.return_value.root_data = {"port": 5000}
-            tools = _build_git_custom_tools("/tmp/wt")
+        tools = _build_git_custom_tools("/tmp/wt")
         assert len(tools) == 4
         names = [t["name"] for t in tools]
         assert names == ["git_diff", "git_log", "git_show", "git_status"]
 
     def test_tool_structure(self) -> None:
-        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
-            mock_config.return_value.root_data = {"port": 5000}
-            tools = _build_git_custom_tools("/tmp/my-worktree")
+        tools = _build_git_custom_tools("/tmp/my-worktree")
         tool = tools[0]  # git_diff
         assert tool["name"] == "git_diff"
         assert "description" in tool
@@ -257,15 +253,11 @@ class TestBuildGitCustomTools:
         tools = _build_git_custom_tools("/tmp/wt", server_port=8080)
         assert tools[0]["http"]["url"] == "http://127.0.0.1:8080/internal/git-tools/run"
 
-    def test_reads_port_from_config(self) -> None:
-        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
-            mock_config.return_value.root_data = {"port": 9090}
-            tools = _build_git_custom_tools("/tmp/wt")
-        assert tools[0]["http"]["url"] == "http://127.0.0.1:9090/internal/git-tools/run"
+    def test_default_port(self) -> None:
+        tools = _build_git_custom_tools("/tmp/wt")
+        assert tools[0]["http"]["url"] == "http://127.0.0.1:5000/internal/git-tools/run"
 
     def test_worktree_path_in_body(self) -> None:
-        with patch("webhook_server.libs.handlers.runner_handler.Config") as mock_config:
-            mock_config.return_value.root_data = {"port": 5000}
-            tools = _build_git_custom_tools("/data/worktrees/abc123")
+        tools = _build_git_custom_tools("/data/worktrees/abc123")
         for tool in tools:
             assert tool["http"]["body_template"]["cwd"] == "/data/worktrees/abc123"

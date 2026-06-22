@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pi_sidecar_client import AIResult, call_ai_once
+from pi_sidecar_client import AIResult, call_ai_once, check_sidecar_available
 
 __all__ = ["AIResult", "call_ai", "get_ai_config"]
 
@@ -22,6 +22,10 @@ async def call_ai(
     Returns:
         AIResult with .success, .text, and .error attributes.
     """
+    available, msg = await check_sidecar_available()
+    if not available:
+        return AIResult(success=False, text="", error=f"Pi-sidecar unavailable: {msg}")
+
     return await call_ai_once(
         prompt=prompt,
         ai_provider=ai_provider,

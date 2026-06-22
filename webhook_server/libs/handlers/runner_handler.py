@@ -17,7 +17,6 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.ai_cli import call_ai, get_ai_config
-from webhook_server.libs.config import Config
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
@@ -62,14 +61,12 @@ class CheckConfig:
     use_cwd: bool = False
 
 
-def _build_git_custom_tools(worktree_path: str, server_port: int | None = None) -> list[dict[str, Any]]:
+def _build_git_custom_tools(worktree_path: str, server_port: int = 5000) -> list[dict[str, Any]]:
     """Build HTTP-backed custom tools for read-only git operations.
 
     These tools are executed by the pi-sidecar via HTTP calls to the
     webhook server's internal git-tools endpoint.
     """
-    if server_port is None:
-        server_port = int(Config().root_data.get("port", 5000))
     base_url = f"http://127.0.0.1:{server_port}/internal/git-tools/run"
     tools: list[dict[str, Any]] = []
 
@@ -127,6 +124,18 @@ class RunnerHandler:
         self.check_run_handler = CheckRunHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+
+    @property
+    def _server_port(self) -> int:
+        """Webhook server port for internal git-tools endpoint.
+
+        Reads from config on each access. Falls back to 5000 if the config
+        value is not a valid integer (e.g., in test environments with mocks).
+        """
+        try:
+            return int(self.github_webhook.config.root_data.get("port", 5000))
+        except (TypeError, ValueError):
+            return 5000
 
     @contextlib.asynccontextmanager
     async def _checkout_worktree(
@@ -982,7 +991,7 @@ Your team can configure additional types in the repository settings.
                     cwd=worktree_path,
                     timeout_minutes=timeout_minutes,
                     tools=[],  # No builtin tools
-                    custom_tools=_build_git_custom_tools(worktree_path),
+                    custom_tools=_build_git_custom_tools(worktree_path, server_port=self._server_port),
                 )
 
                 if ai_result.success:
@@ -1290,6 +1299,9 @@ Your team can configure additional types in the repository settings.
             f"**Target branch:** `{target_branch}`\n"
             f"**PR title:** {pr_title}\n\n"
             f"**Original commit changed files:**\n```\n{commit_diff_stat}\n```\n\n"
+            "Use the git_diff and git_log tools to inspect the original changes if needed.\n"
+            f"Run git_diff with args '{commit_hash}^..{commit_hash}' to see the original commit diff.\n"
+            f"Run git_log with args '--oneline -5' to see recent commit history.\n\n"
             "## Instructions\n\n"
             "### Conflict Resolution Rules\n"
             "- **Prefer the cherry-picked changes.** Only use HEAD (target branch) when "
@@ -1323,7 +1335,7 @@ Your team can configure additional types in the repository settings.
                 timeout_minutes=timeout_minutes,
                 system_prompt=system_prompt,
                 tools=["read", "edit", "write", "grep", "find", "ls"],
-                custom_tools=_build_git_custom_tools(worktree_path),
+                custom_tools=_build_git_custom_tools(worktree_path, server_port=self._server_port),
             )
 
             if not ai_call_result.success:
@@ -1407,6 +1419,12 @@ Your team can configure additional types in the repository settings.
                 return
 
             original_count = _count_files_changed(original_diff_stat)
+            if original_count == 0:
+                self.logger.info(
+                    f"{self.log_prefix} Cherry-pick scope verification skipped — no original diff stat available"
+                )
+                return
+
             cherry_picked_count = _count_files_changed(cherry_picked_stat)
 
             if original_count > 0 and cherry_picked_count < original_count:

@@ -24,6 +24,10 @@ if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
         fi
         sleep 0.5
     done
+
+    if ! curl -sf http://127.0.0.1:$SIDECAR_PORT/health > /dev/null 2>&1; then
+        echo "[sidecar] ERROR: sidecar failed to become healthy within 15s — AI features will not work" >&2
+    fi
 else
     echo "[sidecar] WARNING: sidecar-helper/dist/server.js not found, AI features will not be available"
 fi
