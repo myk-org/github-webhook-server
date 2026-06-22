@@ -15,6 +15,7 @@ async def call_ai(
     timeout_minutes: int | None = None,
     system_prompt: str = "",
     tools: list[str] | None = None,
+    custom_tools: list[dict[str, Any]] | None = None,
 ) -> AIResult:
     """Call an AI provider via pi-sidecar. Thin wrapper around pi_sidecar_client.call_ai_once.
 
@@ -29,6 +30,7 @@ async def call_ai(
         ai_call_timeout=timeout_minutes,
         system_prompt=system_prompt,
         tools=tools,
+        custom_tools=custom_tools,
     )
 
 

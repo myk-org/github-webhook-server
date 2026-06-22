@@ -61,6 +61,44 @@ class CheckConfig:
     use_cwd: bool = False
 
 
+def _build_git_custom_tools(worktree_path: str, server_port: int = 5000) -> list[dict[str, Any]]:
+    """Build HTTP-backed custom tools for read-only git operations.
+
+    These tools are executed by the pi-sidecar via HTTP calls to the
+    webhook server's internal git-tools endpoint.
+    """
+    base_url = f"http://127.0.0.1:{server_port}/internal/git-tools/run"
+    tools: list[dict[str, Any]] = []
+
+    for cmd_name, description in [
+        ("diff", "Run git diff to see code changes. Use '--stat' for summary, or file paths for specific files."),
+        ("log", "Run git log to see commit history. Use '--oneline' for compact output."),
+        ("show", "Run git show to inspect a commit or object."),
+        ("status", "Run git status to see working tree state."),
+    ]:
+        tools.append({
+            "name": f"git_{cmd_name}",
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "args": {
+                        "type": "string",
+                        "description": f"Arguments to pass to git {cmd_name}",
+                    }
+                },
+                "required": ["args"],
+            },
+            "http": {
+                "method": "POST",
+                "url": base_url,
+                "body_template": {"cwd": worktree_path, "args": f"{cmd_name} {{args}}"},
+            },
+        })
+
+    return tools
+
+
 def _count_files_changed(stat_output: str) -> int:
     """Count files changed from git diff --stat output.
 
@@ -923,16 +961,15 @@ Your team can configure additional types in the repository settings.
                     return None
 
                 prompt = (
-                    "You are in a git repository checked out to a PR branch.\n"
-                    f"Run `git diff origin/{base_ref}` to see the changes in this PR.\n"
-                    f"Run `git log origin/{base_ref}..HEAD --oneline` to see the commit messages.\n"
-                    f"Based on the diff and commit messages, suggest a conventional commit title.\n\n"
+                    "Suggest a conventional commit title for this pull request.\n\n"
                     f"Current PR title: {title}\n"
-                    f"{types_info}\n"
-                    f"Required format: <type>[optional scope]: <description>\n"
-                    f"Output ONLY the corrected title on a single line.\n"
-                    f"Do NOT include any explanation, reasoning, markdown, or quotes.\n"
-                    f"Example output: feat: add user authentication"
+                    f"{types_info}\n\n"
+                    f"Use git_diff with args 'origin/{base_ref} --stat' to see changed files.\n"
+                    f"Use git_log with args 'origin/{base_ref}..HEAD --oneline' to see commits.\n\n"
+                    "Required format: <type>[optional scope]: <description>\n"
+                    "Output ONLY the corrected title on a single line.\n"
+                    "Do NOT include any explanation, reasoning, markdown, or quotes.\n"
+                    "Example output: feat: add user authentication"
                 )
 
                 ai_result = await call_ai(
@@ -941,12 +978,22 @@ Your team can configure additional types in the repository settings.
                     ai_model=ai_model,
                     cwd=worktree_path,
                     timeout_minutes=timeout_minutes,
-                    tools=["read", "grep", "find", "ls"],  # Read-only — AI inspects repo to suggest title
+                    tools=[],  # No builtin tools
+                    custom_tools=_build_git_custom_tools(worktree_path),
                 )
 
                 if ai_result.success:
-                    # Clean up the response - take first line, strip backticks/quotes
-                    suggestion = ai_result.text.strip().splitlines()[0].strip().strip("`").strip('"').strip("'")
+                    response_text = ai_result.text.strip()
+                    # Try to extract conventional title pattern from anywhere in the response
+                    # The AI may prepend reasoning text before the actual title
+                    allowed_types_pattern = "|".join(re.escape(name) for name in allowed_names)
+                    title_pattern = rf"(?:^|\n|[.!?]\s*)({allowed_types_pattern})(?:\([^)]*\))?!?:\s*\S.+"
+                    match = re.search(title_pattern, response_text, re.IGNORECASE)
+                    if match:
+                        suggestion = match.group(0).strip().strip("`").strip('"').strip("'")
+                    else:
+                        # Fallback to first line (original behavior)
+                        suggestion = response_text.splitlines()[0].strip().strip("`").strip('"').strip("'")
                     self.logger.info(f"{self.log_prefix} AI suggested title: {suggestion}")
                     return suggestion
 
@@ -1268,8 +1315,8 @@ Your team can configure additional types in the repository settings.
                 cwd=worktree_path,
                 timeout_minutes=timeout_minutes,
                 system_prompt=system_prompt,
-                # Read + edit/write for conflict resolution, NO bash
                 tools=["read", "edit", "write", "grep", "find", "ls"],
+                custom_tools=_build_git_custom_tools(worktree_path),
             )
 
             if not ai_call_result.success:
