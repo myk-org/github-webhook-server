@@ -93,6 +93,7 @@ def _build_git_custom_tools(worktree_path: str, server_port: int = 5000) -> list
                 "method": "POST",
                 "url": base_url,
                 "body_template": {"cwd": worktree_path, "args": f"{cmd_name} {{args}}"},
+                "timeoutMs": 120000,  # 120s — allow for event loop contention under heavy CI load
             },
         })
 
