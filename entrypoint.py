@@ -67,6 +67,6 @@ if __name__ == "__main__":
 
     # Start tool server on separate event loop (avoids contention with CI checks)
     start_tool_server()
-    print(f"\u2705 Tool server started on 127.0.0.1:{TOOL_SERVER_PORT}")
+    print(f"\u2705 Tool server starting on 127.0.0.1:{TOOL_SERVER_PORT}")
 
     uvicorn.run("webhook_server.app:FASTAPI_APP", **uvicorn_kwargs)

@@ -67,13 +67,19 @@ async def handle_tool_request(request: web.Request) -> web.Response:
     """Execute a registered tool."""
     try:
         data: dict[str, Any] = await request.json()
-    except Exception:
-        return web.json_response({"detail": "Invalid JSON"}, status=400)
+    except (ValueError, TypeError) as ex:
+        return web.json_response({"detail": f"Invalid JSON: {ex}"}, status=400)
 
     tool_name = data.get("tool", "")
     cwd = data.get("cwd", "")
     args = data.get("args", "")
     timeout = data.get("timeout")  # Caller can override default
+    if timeout is not None:
+        try:
+            timeout = int(timeout)
+            timeout = max(1, min(timeout, 300))  # Clamp to 1-300 seconds
+        except (TypeError, ValueError):
+            timeout = None  # Fall back to tool default
 
     if not tool_name:
         return web.json_response({"detail": "Missing 'tool' field"}, status=400)
