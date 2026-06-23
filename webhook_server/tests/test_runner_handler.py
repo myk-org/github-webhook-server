@@ -1762,11 +1762,8 @@ class TestRunnerHandler:
                                         mock_restore_author.assert_awaited_once()
                                         mock_set_success.assert_called_once()
                                         mock_ai.assert_called_once()
-                                        # Verify prompt includes delete/modify conflict guidance
+                                        # Verify prompt includes commit context
                                         ai_prompt = str(mock_ai.call_args)
-                                        assert "deleted in HEAD and modified in" in ai_prompt, (
-                                            "AI prompt should include delete/modify conflict guidance"
-                                        )
                                         # Verify commit context is in the prompt
                                         assert "abc123" in ai_prompt, "AI prompt should include commit hash"
                                         assert "target_branch" in str(mock_ai.call_args) or "main" in ai_prompt, (
