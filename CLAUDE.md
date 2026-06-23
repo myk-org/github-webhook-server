@@ -708,7 +708,7 @@ AI-powered enhancements controlled by `ai-features` config (global or per-repo).
 
 **`SIDECAR_PORT`** env var controls the sidecar listen port (default: `9100`).
 
-**Git-tools server:** Standalone aiohttp server on port `5001` (`webhook_server/web/git_tools.py`). Runs in a dedicated thread with its own event loop, isolated from the main webhook server. Provides HTTP-backed custom tools (`git_diff`, `git_log`, `git_show`, `git_status`) for the pi-sidecar during AI sessions. Localhost-only (`127.0.0.1`), restricted to read-only git subcommands. Started by `entrypoint.py` before uvicorn.
+**Tool server:** Standalone aiohttp server on port `5001` (`webhook_server/web/tool_server.py`). Runs in a dedicated thread with its own event loop, isolated from the main webhook server. Uses a `TOOL_REGISTRY` pattern — adding a new tool is one `ToolDef` entry. Callers select which tools the AI sees per session via `_build_custom_tools()`. Currently registers `git_diff`, `git_log`, `git_show`, `git_status`. Localhost-only (`127.0.0.1`). Started by `entrypoint.py` before uvicorn.
 
 **Dual healthcheck:** Dockerfile `HEALTHCHECK` verifies both the webhook server (`:5000/webhook_server/healthcheck`) and the sidecar (`:${SIDECAR_PORT}/health`). Container is unhealthy if either fails.
 

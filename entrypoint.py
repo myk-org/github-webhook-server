@@ -9,7 +9,7 @@ import uvicorn
 
 from webhook_server.libs.config import Config
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
-from webhook_server.web.git_tools import GIT_TOOLS_PORT, start_git_tools_server
+from webhook_server.web.tool_server import TOOL_SERVER_PORT, start_tool_server
 
 _config = Config()
 _root_config = _config.root_data
@@ -65,8 +65,8 @@ if __name__ == "__main__":
     if not _dev_mode:
         uvicorn_kwargs["workers"] = int(_max_workers)
 
-    # Start git-tools server on separate event loop (avoids contention with CI checks)
-    start_git_tools_server()
-    print(f"\u2705 Git-tools server started on 127.0.0.1:{GIT_TOOLS_PORT}")
+    # Start tool server on separate event loop (avoids contention with CI checks)
+    start_tool_server()
+    print(f"\u2705 Tool server started on 127.0.0.1:{TOOL_SERVER_PORT}")
 
     uvicorn.run("webhook_server.app:FASTAPI_APP", **uvicorn_kwargs)

@@ -38,7 +38,7 @@ from webhook_server.utils.github_repository_settings import get_repository_githu
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
-from webhook_server.web.git_tools import GIT_TOOLS_PORT
+from webhook_server.web.tool_server import TOOL_REGISTRY, TOOL_SERVER_PORT
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -62,30 +62,35 @@ class CheckConfig:
     use_cwd: bool = False
 
 
-def _build_git_custom_tools(worktree_path: str, server_port: int = GIT_TOOLS_PORT) -> list[dict[str, Any]]:
-    """Build HTTP-backed custom tools for read-only git operations.
+def _build_custom_tools(
+    worktree_path: str,
+    tool_names: list[str],
+    server_port: int = TOOL_SERVER_PORT,
+) -> list[dict[str, Any]]:
+    """Build HTTP-backed custom tool definitions for the pi-sidecar.
 
-    These tools are executed by the pi-sidecar via HTTP calls to the
-    webhook server's internal git-tools endpoint.
+    Selects tools from TOOL_REGISTRY by name. Each tool calls the
+    standalone tool server via HTTP.
+
+    Args:
+        worktree_path: Working directory for the tools.
+        tool_names: Which tools to include (e.g., ["git_diff", "git_log"]).
+        server_port: Tool server port (default: TOOL_SERVER_PORT).
     """
-    base_url = f"http://127.0.0.1:{server_port}/internal/git-tools/run"
+    base_url = f"http://127.0.0.1:{server_port}/tools/run"
     tools: list[dict[str, Any]] = []
 
-    for cmd_name, description in [
-        ("diff", "Run git diff to see code changes. Use '--stat' for summary, or file paths for specific files."),
-        ("log", "Run git log to see commit history. Use '--oneline' for compact output."),
-        ("show", "Run git show to inspect a commit or object."),
-        ("status", "Run git status to see working tree state."),
-    ]:
+    for name in tool_names:
+        tool_def = TOOL_REGISTRY[name]  # KeyError = programming error
         tools.append({
-            "name": f"git_{cmd_name}",
-            "description": description,
+            "name": name,
+            "description": tool_def.description,
             "parameters": {
                 "type": "object",
                 "properties": {
                     "args": {
                         "type": "string",
-                        "description": f"Arguments to pass to git {cmd_name}",
+                        "description": tool_def.args_description,
                     }
                 },
                 "required": ["args"],
@@ -93,8 +98,11 @@ def _build_git_custom_tools(worktree_path: str, server_port: int = GIT_TOOLS_POR
             "http": {
                 "method": "POST",
                 "url": base_url,
-                "body_template": {"cwd": worktree_path, "args": f"{cmd_name} {{args}}"},
-                "timeoutMs": 120000,  # 120s — allow for event loop contention under heavy CI load
+                "body_template": {
+                    "tool": name,
+                    "cwd": worktree_path,
+                    "args": "{args}",
+                },
             },
         })
 
@@ -981,7 +989,7 @@ Your team can configure additional types in the repository settings.
                     cwd=worktree_path,
                     timeout_minutes=timeout_minutes,
                     tools=[],  # No builtin tools
-                    custom_tools=_build_git_custom_tools(worktree_path),
+                    custom_tools=_build_custom_tools(worktree_path, ["git_diff", "git_log"]),
                 )
 
                 if ai_result.success:
@@ -1325,7 +1333,7 @@ Your team can configure additional types in the repository settings.
                 timeout_minutes=timeout_minutes,
                 system_prompt=system_prompt,
                 tools=["read", "edit", "write", "grep", "find", "ls"],
-                custom_tools=_build_git_custom_tools(worktree_path),
+                custom_tools=_build_custom_tools(worktree_path, ["git_diff", "git_log", "git_show", "git_status"]),
             )
 
             if not ai_call_result.success:
