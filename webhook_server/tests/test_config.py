@@ -221,9 +221,8 @@ class TestConfig:
 
         assert result == {"local-setting": "value"}
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_file_not_found(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test repository_local_data method when config file is not found."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
@@ -231,27 +230,25 @@ class TestConfig:
         # Mock repository that raises UnknownObjectException
         mock_repo = Mock()
         mock_repo.get_contents.side_effect = UnknownObjectException(404, "Not found")
-        mock_get_repo_api.return_value = mock_repo
 
         config = Config(repository="test-repo")
         mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_exception_handling(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test repository_local_data method with exception handling."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
-        # Mock repository that raises an exception
-        mock_get_repo_api.side_effect = Exception("API Error")
-
         config = Config(repository="test-repo")
         mock_github_api = Mock()
+        # Make get_repo raise a generic exception
+        mock_github_api.get_repo.side_effect = Exception("API Error")
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
@@ -400,3 +397,148 @@ class TestConfig:
         # Test priority: repository_data should win over root_data
         result = config.get_value("test-key")
         assert result == "repo-value"
+
+    def test_validate_labels_config_global_invalid_labels(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test validate_labels_config raises ValueError for invalid global enabled-labels."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "labels": {"enabled-labels": ["totally-bogus-category"]},
+        }
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        with pytest.raises(ValueError, match="Invalid label categories in enabled-labels"):
+            Config()
+
+    def test_validate_labels_config_repo_level_invalid_labels(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test validate_labels_config raises ValueError for invalid repo-level enabled-labels."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {
+                "test-repo": {
+                    "name": "org/test-repo",
+                    "labels": {"enabled-labels": ["invalid-label-category"]},
+                }
+            },
+        }
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        with pytest.raises(ValueError, match="Invalid label categories in enabled-labels for repository"):
+            Config()
+
+    def test_root_data_file_not_found_race_condition(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test root_data property when file disappears after init (race condition)."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config = Config.__new__(Config)
+        config.config_path = os.path.join(temp_config_dir, "config.yaml")
+        config.logger = Mock()
+
+        # Remove the file to simulate race condition
+        os.remove(config.config_path)
+
+        with pytest.raises(FileNotFoundError):
+            _ = config.root_data
+
+        config.logger.exception.assert_called_once()
+
+    def test_root_data_permission_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test root_data property when file cannot be read due to permissions."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config = Config.__new__(Config)
+        config.config_path = os.path.join(temp_config_dir, "config.yaml")
+        config.logger = Mock()
+
+        with patch("builtins.open", side_effect=PermissionError("denied")):
+            with pytest.raises(PermissionError):
+                _ = config.root_data
+
+        config.logger.exception.assert_called_once()
+        assert "Permission denied" in config.logger.exception.call_args[0][0]
+
+    def test_root_data_generic_exception(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test root_data property when an unexpected exception occurs."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config = Config.__new__(Config)
+        config.config_path = os.path.join(temp_config_dir, "config.yaml")
+        config.logger = Mock()
+
+        with patch("builtins.open", side_effect=OSError("disk failure")):
+            with pytest.raises(OSError):
+                _ = config.root_data
+
+        config.logger.exception.assert_called_once()
+        assert "Failed to load config file" in config.logger.exception.call_args[0][0]
+
+    def test_repository_local_data_yaml_error(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test repository_local_data raises yaml.YAMLError for invalid YAML in repo config."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_repo = Mock()
+        mock_config_file = Mock()
+        # Invalid YAML content that will trigger yaml.YAMLError
+        mock_config_file.decoded_content = b"invalid: yaml: content: ["
+        mock_repo.get_contents.return_value = mock_config_file
+
+        config = Config(repository="test-repo")
+        mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
+
+        with pytest.raises(yaml.YAMLError):
+            config.repository_local_data(mock_github_api, "org/test-repo")
+
+    def test_repository_local_data_no_repository_set(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test repository_local_data logs error when self.repository is not defined."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger)  # repository=None
+        mock_github_api = Mock()
+
+        result = config.repository_local_data(mock_github_api, "org/test-repo")
+
+        assert result == {}
+        mock_logger.error.assert_called_once_with(
+            "self.repository or self.repository_full_name is not defined"
+        )
+
+    def test_repository_local_data_no_repository_full_name_with_repo_set(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test repository_local_data logs error when repository_full_name is empty but self.repository is set."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger, repository="test-repo")
+        mock_github_api = Mock()
+
+        result = config.repository_local_data(mock_github_api, "")
+
+        assert result == {}
+        mock_logger.error.assert_called_once_with(
+            "self.repository or self.repository_full_name is not defined"
+        )

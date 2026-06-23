@@ -412,3 +412,172 @@ class TestPushHandler:
                     assert "published to PYPI" in call_args[1]["message"]
                     assert call_args[1]["logger"] == push_handler.logger
                     assert call_args[1]["log_prefix"] == push_handler.log_prefix
+
+
+class TestPushHandlerTitleTruncation:
+    """Test suite for title sanitization/truncation in upload_to_pypi."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"ref": "refs/tags/v1.0.0"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.pypi = {"token": "test-token"}
+        mock_webhook.build_and_push_container = False
+        mock_webhook.container_release = False
+        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.slack_webhook_url = ""
+        mock_webhook.repository_name = "test-repo"
+        mock_webhook.container_repository_username = "test-user"
+        mock_webhook.container_repository_password = "test-password"  # pragma: allowlist secret
+        mock_webhook.token = "test-token"
+        mock_webhook.ctx = None
+        mock_webhook.custom_check_runs = []
+        return mock_webhook
+
+    @pytest.fixture
+    def push_handler(self, mock_github_webhook: Mock) -> PushHandler:
+        return PushHandler(mock_github_webhook)
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_issue_title_truncated_when_long(
+        self, push_handler: PushHandler
+    ) -> None:
+        """Test that issue title is truncated to 250 chars when error message is very long."""
+        with patch.object(push_handler.runner_handler, "_checkout_worktree") as mock_checkout:
+            with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
+                # Create a very long error message (>250 chars)
+                long_error = "A" * 300
+                _set_checkout_result(
+                    mock_checkout,
+                    (False, "/tmp/worktree-path", long_error, ""),
+                )
+
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                mock_create_issue.assert_called_once()
+                call_args = mock_create_issue.call_args
+                title = call_args[1]["title"]
+                assert len(title) == 250
+                assert title.endswith("...")
+
+
+class TestPushHandlerWithContext:
+    """Test suite for PushHandler with WebhookContext (ctx) set."""
+
+    @pytest.fixture
+    def mock_github_webhook_with_ctx(self) -> Mock:
+        """Create a mock GithubWebhook instance with a ctx."""
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {"ref": "refs/tags/v2.0.0"}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST-CTX]"
+        mock_webhook.repository = Mock()
+        mock_webhook.pypi = {"token": "test-token"}
+        mock_webhook.build_and_push_container = True
+        mock_webhook.container_release = True
+        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.slack_webhook_url = ""
+        mock_webhook.repository_name = "test-repo"
+        mock_webhook.container_repository_username = "test-user"
+        mock_webhook.container_repository_password = "test-password"  # pragma: allowlist secret
+        mock_webhook.token = "test-token"
+        mock_webhook.custom_check_runs = []
+        # Set ctx to a mock with start_step, fail_step, complete_step
+        mock_ctx = Mock()
+        mock_webhook.ctx = mock_ctx
+        return mock_webhook
+
+    @pytest.fixture
+    def push_handler_with_ctx(self, mock_github_webhook_with_ctx: Mock) -> PushHandler:
+        return PushHandler(mock_github_webhook_with_ctx)
+
+    @pytest.mark.asyncio
+    async def test_ctx_start_and_complete_step_no_tag(self, push_handler_with_ctx: PushHandler) -> None:
+        """Test ctx.start_step and ctx.complete_step when ref is not a tag (no-op path)."""
+        push_handler_with_ctx.hook_data["ref"] = "refs/heads/main"
+
+        await push_handler_with_ctx.process_push_webhook_data()
+
+        push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
+        push_handler_with_ctx.ctx.complete_step.assert_called_once_with("push_handler")
+
+    @pytest.mark.asyncio
+    async def test_ctx_start_and_complete_step_tag_success(
+        self, push_handler_with_ctx: PushHandler
+    ) -> None:
+        """Test ctx.start_step and ctx.complete_step on successful tag push."""
+        with patch.object(push_handler_with_ctx, "upload_to_pypi", new_callable=AsyncMock):
+            with patch.object(
+                push_handler_with_ctx.runner_handler, "run_build_container", new_callable=AsyncMock
+            ):
+                await push_handler_with_ctx.process_push_webhook_data()
+
+        push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
+        push_handler_with_ctx.ctx.complete_step.assert_called_once_with("push_handler")
+
+    @pytest.mark.asyncio
+    async def test_ctx_fail_step_on_pypi_exception(self, push_handler_with_ctx: PushHandler) -> None:
+        """Test ctx.fail_step when upload_to_pypi raises an exception."""
+        pypi_error = RuntimeError("PyPI upload boom")
+        with patch.object(
+            push_handler_with_ctx, "upload_to_pypi", new_callable=AsyncMock, side_effect=pypi_error
+        ):
+            await push_handler_with_ctx.process_push_webhook_data()
+
+        push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
+        push_handler_with_ctx.ctx.fail_step.assert_called_once()
+        call_args = push_handler_with_ctx.ctx.fail_step.call_args
+        assert call_args[0][0] == "push_handler"
+        assert call_args[0][1] is pypi_error
+        # complete_step should NOT be called
+        push_handler_with_ctx.ctx.complete_step.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ctx_fail_step_on_container_build_exception(
+        self, push_handler_with_ctx: PushHandler
+    ) -> None:
+        """Test ctx.fail_step when run_build_container raises an exception."""
+        push_handler_with_ctx.github_webhook.pypi = {}  # skip pypi path
+        container_error = RuntimeError("Container build boom")
+        with patch.object(
+            push_handler_with_ctx.runner_handler,
+            "run_build_container",
+            new_callable=AsyncMock,
+            side_effect=container_error,
+        ):
+            await push_handler_with_ctx.process_push_webhook_data()
+
+        push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
+        push_handler_with_ctx.ctx.fail_step.assert_called_once()
+        call_args = push_handler_with_ctx.ctx.fail_step.call_args
+        assert call_args[0][0] == "push_handler"
+        assert call_args[0][1] is container_error
+        push_handler_with_ctx.ctx.complete_step.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pypi_exception_without_ctx(self, mock_github_webhook_with_ctx: Mock) -> None:
+        """Test pypi exception path returns early even when ctx is None."""
+        mock_github_webhook_with_ctx.ctx = None
+        handler = PushHandler(mock_github_webhook_with_ctx)
+        with patch.object(
+            handler, "upload_to_pypi", new_callable=AsyncMock, side_effect=RuntimeError("boom")
+        ):
+            # Should not raise — it catches and returns
+            await handler.process_push_webhook_data()
+
+    @pytest.mark.asyncio
+    async def test_container_exception_without_ctx(self, mock_github_webhook_with_ctx: Mock) -> None:
+        """Test container build exception path returns early when ctx is None."""
+        mock_github_webhook_with_ctx.ctx = None
+        mock_github_webhook_with_ctx.pypi = {}  # skip pypi
+        handler = PushHandler(mock_github_webhook_with_ctx)
+        with patch.object(
+            handler.runner_handler,
+            "run_build_container",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("container boom"),
+        ):
+            await handler.process_push_webhook_data()

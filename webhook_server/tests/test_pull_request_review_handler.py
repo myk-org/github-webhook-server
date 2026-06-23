@@ -366,3 +366,35 @@ class TestPullRequestReviewHandler:
                     await pull_request_review_handler.process_pull_request_review_webhook_data(mock_pull_request)
 
                     mock_oracle.assert_not_called()
+
+
+class TestPullRequestReviewHandlerWithContext:
+    """Test PullRequestReviewHandler with WebhookContext (ctx) set."""
+
+    @pytest.fixture
+    def mock_github_webhook_with_ctx(self) -> Mock:
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {
+            "action": "dismissed",
+            "review": {"user": {"login": "reviewer"}, "state": "dismissed", "body": ""},
+        }
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST-CTX]"
+        mock_webhook.ctx = Mock()
+        return mock_webhook
+
+    @pytest.fixture
+    def handler_with_ctx(
+        self, mock_github_webhook_with_ctx: Mock
+    ) -> PullRequestReviewHandler:
+        mock_owners = Mock()
+        return PullRequestReviewHandler(mock_github_webhook_with_ctx, mock_owners)
+
+    @pytest.mark.asyncio
+    async def test_ctx_start_and_complete_step(self, handler_with_ctx: PullRequestReviewHandler) -> None:
+        """Test ctx.start_step and ctx.complete_step are called."""
+        mock_pr = Mock(spec=PullRequest)
+        await handler_with_ctx.process_pull_request_review_webhook_data(mock_pr)
+
+        handler_with_ctx.ctx.start_step.assert_called_once_with("pr_review_handler")
+        handler_with_ctx.ctx.complete_step.assert_called_once_with("pr_review_handler")
