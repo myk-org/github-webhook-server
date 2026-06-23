@@ -684,6 +684,36 @@ AI-powered enhancements controlled by `ai-features` config (global or per-repo).
 
 **Sub-features:** `conventional-title`, `resolve-cherry-pick-conflicts-with-ai`
 
-**On AI CLI failure:** Error is logged, flow continues without suggestion
+**On AI call failure:** Error is logged, flow continues without suggestion
 
-**Module:** `webhook_server/libs/ai_cli.py` - shared AI CLI wrapper
+**Module:** `webhook_server/libs/ai_cli.py` - shared AI wrapper (pi-sidecar)
+
+**Post-resolution verification:** After AI resolves cherry-pick conflicts, `_verify_cherry_pick_scope()` compares `git diff --stat` of the original commit vs the cherry-picked commit. Logs a warning if the cherry-picked commit has fewer file changes (possible dropped changes). Informational only — never fails the cherry-pick.
+
+**Required environment variables for pi-sidecar:**
+- `ACPX_AGENTS=cursor` — enables cursor model discovery
+- `VERTEX_CLAUDE_1M=true` — enables Claude 1M context window models via Vertex AI
+- `GOOGLE_APPLICATION_CREDENTIALS` — already set for Vertex AI access
+
+### Sidecar Architecture
+
+**`sidecar-helper/`** — Node.js pi-sidecar bridge that provides AI provider integration (cherry-pick conflict resolution, conventional title suggestions). Contains a minimal TypeScript wrapper that imports and starts the `@myk-org/pi-sidecar` server.
+
+**Container startup (`entrypoint.sh`):**
+1. Starts the sidecar as a background process (`node sidecar-helper/dist/server.js &`)
+2. Registers cleanup trap — kills sidecar when main process exits
+3. Spawns monitor subshell — if sidecar dies unexpectedly, kills PID 1 to crash the container
+4. Waits for sidecar readiness — polls `/health` endpoint (up to 15s)
+5. Runs `exec uv run entrypoint.py` as the main process
+
+**`SIDECAR_PORT`** env var controls the sidecar listen port (default: `9100`).
+
+**Tool server:** Standalone aiohttp server on port `5001` (`webhook_server/web/tool_server.py`). Runs in a dedicated thread with its own event loop, isolated from the main webhook server. Uses a `TOOL_REGISTRY` pattern — adding a new tool is one `ToolDef` entry. Callers select which tools the AI sees per session via `_build_custom_tools()`. Currently registers `git_diff`, `git_log`, `git_show`, `git_status`. Localhost-only (`127.0.0.1`). Started by `entrypoint.py` before uvicorn.
+
+**Dual healthcheck:** Dockerfile `HEALTHCHECK` verifies both the webhook server (`:5000/webhook_server/healthcheck`) and the sidecar (`:${SIDECAR_PORT}/health`). Container is unhealthy if either fails.
+
+**Docker build:** Multi-stage — `sidecar-builder` stage (node:22-slim) runs `npm ci`, `npx tsc`, `npm prune --omit=dev`. Final stage copies only `dist/`, `node_modules/` (production), and `package.json`.
+
+**Security note:** The AI conflict resolution prompt includes commit messages from the PR
+(user-controlled text). Prompt injection risk is mitigated by restricting the AI to read-only
+tools plus file edit/write — no bash access. The AI cannot execute arbitrary commands.

@@ -17,7 +17,7 @@ $defs:
         description: AI CLI provider to use
       ai-model:
         type: string
-        description: AI model identifier (e.g., claude-opus-4-6[1m], sonnet, gemini-2.5-pro)
+        description: AI model identifier (e.g., claude-opus-4-6-1m, sonnet, gemini-2.5-pro)
       conventional-title:
         type: object
         description: |

@@ -1,6 +1,17 @@
+# Sidecar build stage
+FROM node:22-slim AS sidecar-builder
+WORKDIR /sidecar
+COPY sidecar-helper/package.json sidecar-helper/package-lock.json* ./
+RUN npm ci
+COPY sidecar-helper/ .
+RUN npx tsc
+RUN npm prune --omit=dev
+
 FROM quay.io/podman/stable:v5
 
 EXPOSE 5000
+EXPOSE 5001
+EXPOSE 9100
 
 ENV USERNAME="podman"
 ENV HOME_DIR="/home/$USERNAME"
@@ -80,11 +91,18 @@ COPY --chown=$USERNAME:$USERNAME pyproject.toml uv.lock README.md $APP_DIR/
 WORKDIR $APP_DIR
 RUN uv sync
 
+# Copy sidecar from build stage
+COPY --chown=$USERNAME:$USERNAME --from=sidecar-builder /sidecar/dist $APP_DIR/sidecar-helper/dist
+COPY --chown=$USERNAME:$USERNAME --from=sidecar-builder /sidecar/node_modules $APP_DIR/sidecar-helper/node_modules
+COPY --chown=$USERNAME:$USERNAME --from=sidecar-builder /sidecar/package.json $APP_DIR/sidecar-helper/package.json
+
 # Copy application code after dependency install
 COPY --chown=$USERNAME:$USERNAME entrypoint.py $APP_DIR/
+COPY --chown=$USERNAME:$USERNAME entrypoint.sh $APP_DIR/
+RUN chmod +x $APP_DIR/entrypoint.sh
 COPY --chown=$USERNAME:$USERNAME webhook_server $APP_DIR/webhook_server/
 COPY --chown=$USERNAME:$USERNAME scripts $APP_DIR/scripts/
 
-HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
+HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck && curl --fail http://127.0.0.1:${SIDECAR_PORT:-9100}/health || exit 1
 
-ENTRYPOINT ["tini", "--", "uv", "run", "entrypoint.py"]
+ENTRYPOINT ["tini", "--", "/bin/bash", "entrypoint.sh"]

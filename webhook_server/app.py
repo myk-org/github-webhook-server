@@ -298,7 +298,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
-
 # Mount static files
 static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
 FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")

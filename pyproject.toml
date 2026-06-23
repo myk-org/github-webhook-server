@@ -76,7 +76,8 @@ dependencies = [
   "pydantic>=2.8.0",
   "psutil>=7.0.0",
   "fastapi-mcp>=0.4.0",
-  "ai-cli-runner>=0.1.0",
+  "pi-sidecar-client>=1.1.0",
+  "aiohttp>=3.9.0",
 ]
 
 [[project.authors]]

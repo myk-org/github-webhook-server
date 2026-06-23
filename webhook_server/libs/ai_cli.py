@@ -1,32 +1,40 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from ai_cli_runner import call_ai_cli as _call_ai_cli
+from pi_sidecar_client import AIResult, call_ai_once, check_sidecar_available
 
-__all__ = ["call_ai_cli", "get_ai_config"]
+__all__ = ["AIResult", "call_ai", "get_ai_config"]
 
 
-async def call_ai_cli(
+async def call_ai(
     prompt: str,
     ai_provider: str,
     ai_model: str,
     cwd: str,
-    cli_flags: list[str] | None = None,
     timeout_minutes: int | None = None,
-) -> tuple[bool, str]:
-    """Call an AI CLI tool. Thin wrapper around ai_cli_runner.call_ai_cli.
+    system_prompt: str = "",
+    tools: list[str] | None = None,
+    custom_tools: list[dict[str, Any]] | None = None,
+) -> AIResult:
+    """Call an AI provider via pi-sidecar. Thin wrapper around pi_sidecar_client.call_ai_once.
 
-    Accepts cwd as str (matching clone_repo_dir type) and converts to Path.
+    Returns:
+        AIResult with .success, .text, and .error attributes.
     """
-    return await _call_ai_cli(
+    available, msg = await check_sidecar_available()
+    if not available:
+        return AIResult(success=False, text="", error=f"Pi-sidecar unavailable: {msg}")
+
+    return await call_ai_once(
         prompt=prompt,
         ai_provider=ai_provider,
         ai_model=ai_model,
-        cwd=Path(cwd),
-        cli_flags=cli_flags,
-        ai_cli_timeout=timeout_minutes,
+        cwd=cwd,
+        ai_call_timeout=timeout_minutes,
+        system_prompt=system_prompt,
+        tools=tools,
+        custom_tools=custom_tools,
     )
 
 
