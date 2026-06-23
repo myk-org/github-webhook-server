@@ -314,3 +314,12 @@ repositories:
     #     - ".github/workflows/"
     #     - ".github/actions/"
     #   committer-identity-check: true
+
+    # Custom commands to display in PR welcome message (documentation-only)
+    # These commands are shown in the welcome comment but not processed by the server.
+    # External bots or tools handle them independently.
+    # custom-commands:
+    #   - name: deploy-staging
+    #     description: Deploy this PR to the staging environment
+    #   - name: run-e2e
+    #     description: Trigger end-to-end test suite against this PR

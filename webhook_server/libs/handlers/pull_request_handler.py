@@ -497,6 +497,7 @@ This pull request will be automatically processed with the following features:{a
 {self._prepare_retest_welcome_comment}
 {self._prepare_container_operations_welcome_section}\
 {self._prepare_cherry_pick_section}\
+{self._prepare_custom_commands_welcome_section}\
 
 #### Label Management
 * `/<label-name>` - Add a label to the PR
@@ -841,6 +842,23 @@ For more information, please refer to the project documentation or contact the m
 * `/rebase` - Rebase this PR branch onto its base branch
 """
         return "\n#### Branch Management\n* `/rebase` - Rebase this PR branch onto its base branch\n"
+
+    @property
+    def _prepare_custom_commands_welcome_section(self) -> str:
+        """Prepare the Custom Commands section for the welcome comment.
+
+        Renders user-defined custom commands from configuration.
+        These are documentation-only - the server does not process them.
+        """
+        custom_commands: list[dict[str, str]] = self.github_webhook.config.get_value("custom-commands", [])
+        if not custom_commands:
+            return ""
+
+        lines: list[str] = ["\n#### Custom Commands"]
+        for cmd in custom_commands:
+            lines.append(f"* `/{cmd['name']}` - {cmd['description']}")
+
+        return "\n".join(lines) + "\n"
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
