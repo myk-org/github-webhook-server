@@ -1,81 +1,64 @@
-"""Internal HTTP endpoints for AI custom git tools.
+"""Standalone async HTTP server for AI custom git tools.
 
-These endpoints are called by the pi-sidecar as HTTP-backed custom tools
-during AI sessions. They execute read-only git commands in a specified directory.
+Runs on a separate port (default: 5001) with its own event loop thread,
+so git command execution never competes with the main webhook server's
+event loop during heavy CI processing.
 
-SECURITY: Bound to 127.0.0.1 only. Restricted to read-only git subcommands.
+SECURITY: Localhost-only. Restricted to read-only git subcommands.
 """
 
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import shlex
+import threading
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from aiohttp import web
 
 ALLOWED_GIT_COMMANDS = frozenset({"diff", "log", "show", "status", "rev-parse"})
 BLOCKED_FLAGS = frozenset({"--no-index", "--output", "--raw"})
 
-router = APIRouter(prefix="/internal/git-tools", tags=["internal"])
+GIT_TOOLS_PORT = 5001
 
 
-class LocalhostOnlyMiddleware(BaseHTTPMiddleware):
-    """Reject non-localhost requests to /internal/ endpoints."""
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path.startswith("/internal/"):
-            if not request.client:
-                return JSONResponse(status_code=403, content={"detail": "Internal endpoints are localhost-only"})
-            client_host = request.client.host
-            try:
-                ip = ipaddress.ip_address(client_host)
-                if not ip.is_loopback:
-                    return JSONResponse(status_code=403, content={"detail": "Internal endpoints are localhost-only"})
-            except ValueError:
-                # Non-IP host — deny unless it's the test client
-                if client_host != "testclient":
-                    return JSONResponse(status_code=403, content={"detail": "Internal endpoints are localhost-only"})
-        return await call_next(request)
-
-
-class GitCommandRequest(BaseModel):
-    cwd: str
-    args: str
-
-
-class GitCommandResponse(BaseModel):
-    success: bool
-    output: str
-
-
-@router.post("/run")
-async def run_git_command(request: GitCommandRequest) -> GitCommandResponse:
+async def run_git_command(request: web.Request) -> web.Response:
     """Execute a read-only git command in the specified directory."""
-    parts = shlex.split(request.args)
+    try:
+        data: dict[str, Any] = await request.json()
+    except Exception:
+        return web.json_response({"detail": "Invalid JSON"}, status=400)
+
+    cwd = data.get("cwd", "")
+    args = data.get("args", "")
+
+    if not cwd or not args:
+        return web.json_response({"detail": "Missing cwd or args"}, status=400)
+
+    try:
+        parts = shlex.split(args)
+    except ValueError as ex:
+        return web.json_response({"success": False, "output": str(ex)})
+
     if not parts:
-        raise HTTPException(status_code=400, detail="Empty git command")
+        return web.json_response({"detail": "Empty git command"}, status=400)
 
     subcommand = parts[0]
     if subcommand not in ALLOWED_GIT_COMMANDS:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Git subcommand '{subcommand}' not allowed. Allowed: {', '.join(sorted(ALLOWED_GIT_COMMANDS))}",
+        allowed = ", ".join(sorted(ALLOWED_GIT_COMMANDS))
+        return web.json_response(
+            {"detail": f"Git subcommand '{subcommand}' not allowed. Allowed: {allowed}"},
+            status=403,
         )
 
     for part in parts[1:]:
         if any(part == flag or part.startswith(f"{flag}=") for flag in BLOCKED_FLAGS):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Git flag '{part}' not allowed for security reasons",
+            return web.json_response(
+                {"detail": f"Git flag '{part}' not allowed for security reasons"},
+                status=403,
             )
 
-    # Build argument list — no shell interpolation
-    cmd_args = ["git", "-C", request.cwd, *parts]
+    cmd_args = ["git", "-C", cwd, *parts]
     proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -90,11 +73,37 @@ async def run_git_command(request: GitCommandRequest) -> GitCommandResponse:
         is_diff_command = parts[0] == "diff"
         success = proc.returncode == 0 or (is_diff_command and proc.returncode == 1 and bool(stdout_text.strip()))
         output = stdout_text if stdout_text.strip() else stderr_text
-        return GitCommandResponse(success=success, output=output[:50000])
+        return web.json_response({"success": success, "output": output[:50000]})
     except TimeoutError:
         if proc:
             proc.kill()
             await proc.wait()
-        return GitCommandResponse(success=False, output="Command timed out after 30s")
+        return web.json_response({"success": False, "output": "Command timed out after 30s"})
     except OSError as ex:
-        return GitCommandResponse(success=False, output=str(ex))
+        return web.json_response({"success": False, "output": str(ex)})
+
+
+def _run_server(port: int) -> None:
+    """Run the git-tools server in a dedicated thread with its own event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    app = web.Application()
+    app.router.add_post("/internal/git-tools/run", run_git_command)
+
+    runner = web.AppRunner(app)
+    loop.run_until_complete(runner.setup())
+    site = web.TCPSite(runner, "127.0.0.1", port)
+    loop.run_until_complete(site.start())
+    loop.run_forever()
+
+
+def start_git_tools_server(port: int = GIT_TOOLS_PORT) -> threading.Thread:
+    """Start the git-tools server in a background thread.
+
+    Returns the thread handle. The server runs on 127.0.0.1:{port}
+    with its own event loop, isolated from the main webhook server.
+    """
+    thread = threading.Thread(target=_run_server, args=(port,), daemon=True, name="git-tools-server")
+    thread.start()
+    return thread

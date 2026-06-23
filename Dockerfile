@@ -10,6 +10,7 @@ RUN npm prune --omit=dev
 FROM quay.io/podman/stable:v5
 
 EXPOSE 5000
+EXPOSE 5001
 EXPOSE 9100
 
 ENV USERNAME="podman"

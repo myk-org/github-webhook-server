@@ -38,6 +38,7 @@ from webhook_server.utils.github_repository_settings import get_repository_githu
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
+from webhook_server.web.git_tools import GIT_TOOLS_PORT
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -61,7 +62,7 @@ class CheckConfig:
     use_cwd: bool = False
 
 
-def _build_git_custom_tools(worktree_path: str, server_port: int = 5000) -> list[dict[str, Any]]:
+def _build_git_custom_tools(worktree_path: str, server_port: int = GIT_TOOLS_PORT) -> list[dict[str, Any]]:
     """Build HTTP-backed custom tools for read-only git operations.
 
     These tools are executed by the pi-sidecar via HTTP calls to the
@@ -125,18 +126,6 @@ class RunnerHandler:
         self.check_run_handler = CheckRunHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
-
-    @property
-    def _server_port(self) -> int:
-        """Webhook server port for internal git-tools endpoint.
-
-        Reads from config on each access. Falls back to 5000 if the config
-        value is not a valid integer (e.g., in test environments with mocks).
-        """
-        try:
-            return int(self.github_webhook.config.root_data.get("port", 5000))
-        except (TypeError, ValueError):
-            return 5000
 
     @contextlib.asynccontextmanager
     async def _checkout_worktree(
@@ -992,7 +981,7 @@ Your team can configure additional types in the repository settings.
                     cwd=worktree_path,
                     timeout_minutes=timeout_minutes,
                     tools=[],  # No builtin tools
-                    custom_tools=_build_git_custom_tools(worktree_path, server_port=self._server_port),
+                    custom_tools=_build_git_custom_tools(worktree_path),
                 )
 
                 if ai_result.success:
@@ -1336,7 +1325,7 @@ Your team can configure additional types in the repository settings.
                 timeout_minutes=timeout_minutes,
                 system_prompt=system_prompt,
                 tools=["read", "edit", "write", "grep", "find", "ls"],
-                custom_tools=_build_git_custom_tools(worktree_path, server_port=self._server_port),
+                custom_tools=_build_git_custom_tools(worktree_path),
             )
 
             if not ai_call_result.success:

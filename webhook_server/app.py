@@ -52,8 +52,6 @@ from webhook_server.utils.helpers import (
     prepare_log_prefix,
 )
 from webhook_server.utils.structured_logger import write_webhook_log
-from webhook_server.web.git_tools import LocalhostOnlyMiddleware
-from webhook_server.web.git_tools import router as git_tools_router
 from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
@@ -300,9 +298,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
-FASTAPI_APP.add_middleware(LocalhostOnlyMiddleware)
-FASTAPI_APP.include_router(git_tools_router)
-
 # Mount static files
 static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
 FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")
