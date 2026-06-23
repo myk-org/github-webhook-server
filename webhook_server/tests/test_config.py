@@ -221,9 +221,7 @@ class TestConfig:
 
         assert result == {"local-setting": "value"}
 
-    def test_repository_local_data_file_not_found(
-        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_repository_local_data_file_not_found(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when config file is not found."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
@@ -490,9 +488,7 @@ class TestConfig:
         config.logger.exception.assert_called_once()
         assert "Failed to load config file" in config.logger.exception.call_args[0][0]
 
-    def test_repository_local_data_yaml_error(
-        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_repository_local_data_yaml_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data raises yaml.YAMLError for invalid YAML in repo config."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
@@ -522,9 +518,7 @@ class TestConfig:
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
-        mock_logger.error.assert_called_once_with(
-            "self.repository or self.repository_full_name is not defined"
-        )
+        mock_logger.error.assert_called_once_with("self.repository or self.repository_full_name is not defined")
 
     def test_repository_local_data_no_repository_full_name_with_repo_set(
         self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
@@ -539,6 +533,4 @@ class TestConfig:
         result = config.repository_local_data(mock_github_api, "")
 
         assert result == {}
-        mock_logger.error.assert_called_once_with(
-            "self.repository or self.repository_full_name is not defined"
-        )
+        mock_logger.error.assert_called_once_with("self.repository or self.repository_full_name is not defined")

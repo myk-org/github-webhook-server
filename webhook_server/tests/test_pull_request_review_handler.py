@@ -384,9 +384,7 @@ class TestPullRequestReviewHandlerWithContext:
         return mock_webhook
 
     @pytest.fixture
-    def handler_with_ctx(
-        self, mock_github_webhook_with_ctx: Mock
-    ) -> PullRequestReviewHandler:
+    def handler_with_ctx(self, mock_github_webhook_with_ctx: Mock) -> PullRequestReviewHandler:
         mock_owners = Mock()
         return PullRequestReviewHandler(mock_github_webhook_with_ctx, mock_owners)
 
