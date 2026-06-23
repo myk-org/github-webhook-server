@@ -442,9 +442,7 @@ class TestPushHandlerTitleTruncation:
         return PushHandler(mock_github_webhook)
 
     @pytest.mark.asyncio
-    async def test_upload_to_pypi_issue_title_truncated_when_long(
-        self, push_handler: PushHandler
-    ) -> None:
+    async def test_upload_to_pypi_issue_title_truncated_when_long(self, push_handler: PushHandler) -> None:
         """Test that issue title is truncated to 250 chars when error message is very long."""
         with patch.object(push_handler.runner_handler, "_checkout_worktree") as mock_checkout:
             with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
@@ -505,14 +503,10 @@ class TestPushHandlerWithContext:
         push_handler_with_ctx.ctx.complete_step.assert_called_once_with("push_handler")
 
     @pytest.mark.asyncio
-    async def test_ctx_start_and_complete_step_tag_success(
-        self, push_handler_with_ctx: PushHandler
-    ) -> None:
+    async def test_ctx_start_and_complete_step_tag_success(self, push_handler_with_ctx: PushHandler) -> None:
         """Test ctx.start_step and ctx.complete_step on successful tag push."""
         with patch.object(push_handler_with_ctx, "upload_to_pypi", new_callable=AsyncMock):
-            with patch.object(
-                push_handler_with_ctx.runner_handler, "run_build_container", new_callable=AsyncMock
-            ):
+            with patch.object(push_handler_with_ctx.runner_handler, "run_build_container", new_callable=AsyncMock):
                 await push_handler_with_ctx.process_push_webhook_data()
 
         push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
@@ -522,9 +516,7 @@ class TestPushHandlerWithContext:
     async def test_ctx_fail_step_on_pypi_exception(self, push_handler_with_ctx: PushHandler) -> None:
         """Test ctx.fail_step when upload_to_pypi raises an exception."""
         pypi_error = RuntimeError("PyPI upload boom")
-        with patch.object(
-            push_handler_with_ctx, "upload_to_pypi", new_callable=AsyncMock, side_effect=pypi_error
-        ):
+        with patch.object(push_handler_with_ctx, "upload_to_pypi", new_callable=AsyncMock, side_effect=pypi_error):
             await push_handler_with_ctx.process_push_webhook_data()
 
         push_handler_with_ctx.ctx.start_step.assert_called_once_with("push_handler")
@@ -536,9 +528,7 @@ class TestPushHandlerWithContext:
         push_handler_with_ctx.ctx.complete_step.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_ctx_fail_step_on_container_build_exception(
-        self, push_handler_with_ctx: PushHandler
-    ) -> None:
+    async def test_ctx_fail_step_on_container_build_exception(self, push_handler_with_ctx: PushHandler) -> None:
         """Test ctx.fail_step when run_build_container raises an exception."""
         push_handler_with_ctx.github_webhook.pypi = {}  # skip pypi path
         container_error = RuntimeError("Container build boom")
@@ -562,9 +552,7 @@ class TestPushHandlerWithContext:
         """Test pypi exception path returns early even when ctx is None."""
         mock_github_webhook_with_ctx.ctx = None
         handler = PushHandler(mock_github_webhook_with_ctx)
-        with patch.object(
-            handler, "upload_to_pypi", new_callable=AsyncMock, side_effect=RuntimeError("boom")
-        ):
+        with patch.object(handler, "upload_to_pypi", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             # Should not raise — it catches and returns
             await handler.process_push_webhook_data()
 
