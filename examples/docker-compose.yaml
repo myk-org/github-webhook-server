@@ -6,6 +6,7 @@ services:
       - "./webhook_server_data_dir:/home/podman/data:Z" # Should include config.yaml and webhook-server.private-key.pem
       # Mount temporary directories to prevent boot ID mismatch issues
       - "/tmp/podman-storage-${USER:-1000}:/tmp/storage-run-1000"
+      # - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro  # Mount Google Cloud credentials for Vertex AI
     environment:
       - PUID=1000
       - PGID=1000
@@ -18,6 +19,10 @@ services:
       - VERIFY_CLOUDFLARE_IPS=1 # Verify hook request is from Cloudflare IPs
       - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
       - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
+      # Pi sidecar (AI features)
+      # - ACPX_AGENTS=cursor              # Enable cursor model discovery for AI features
+      # - VERTEX_CLAUDE_1M=true            # Enable Claude 1M context window models via Vertex AI
+      # - SIDECAR_PORT=9100                # Pi sidecar port (default: 9100)
       # AI CLI API keys for pr-test-oracle integration
       # - ANTHROPIC_API_KEY=sk-ant-xxx       # Claude Code
       # - GEMINI_API_KEY=xxx                  # Gemini CLI
@@ -26,4 +31,10 @@ services:
     ports:
       - "5000:5000"
     privileged: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/webhook_server/healthcheck && curl -f http://localhost:${SIDECAR_PORT:-9100}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
