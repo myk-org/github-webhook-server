@@ -941,6 +941,13 @@ class GithubWebhook:
         )
         self.custom_check_runs: list[dict[str, Any]] = self._validate_custom_check_runs(raw_custom_checks)
 
+        raw_custom_commands = self.config.get_value(
+            value="custom-commands", return_on_none=[], extra_dict=repository_config
+        )
+        self.custom_commands: list[dict[str, str]] = (
+            raw_custom_commands if isinstance(raw_custom_commands, list) else []
+        )
+
         _auto_users = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )

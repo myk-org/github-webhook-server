@@ -852,12 +852,12 @@ For more information, please refer to the project documentation or contact the m
         These are documentation-only - the server does not process them.
         Invalid entries are skipped with a warning log.
         """
-        raw_commands: object = self.github_webhook.config.get_value("custom-commands", [])
-        if not isinstance(raw_commands, list) or not raw_commands:
+        custom_commands: list[dict[str, str]] = self.github_webhook.custom_commands
+        if not custom_commands:
             return ""
 
         lines: list[str] = ["\n#### Custom Commands"]
-        for cmd in raw_commands:
+        for cmd in custom_commands:
             if not isinstance(cmd, dict):
                 self.logger.warning(f"{self.log_prefix} Skipping invalid custom-command entry: not a dict")
                 continue

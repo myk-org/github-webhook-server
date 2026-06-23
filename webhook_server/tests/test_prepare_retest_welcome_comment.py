@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 import pytest
 
@@ -378,15 +378,7 @@ class TestCustomCommandsWelcomeSection:
         owners_file_handler.all_pull_request_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
 
-        # Mock config.get_value for custom-commands
-        original_get_value = process_github_webhook.config.get_value
-
-        def mock_get_value(key: str, default: Any = None, **kwargs: Any) -> Any:
-            if key == "custom-commands":
-                return custom_commands if custom_commands is not None else []
-            return original_get_value(key, default, **kwargs)
-
-        process_github_webhook.config.get_value = mock_get_value  # type: ignore[assignment]
+        process_github_webhook.custom_commands = custom_commands if custom_commands is not None else []
 
         return PullRequestHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
 

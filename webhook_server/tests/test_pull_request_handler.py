@@ -92,6 +92,7 @@ class TestPullRequestHandler:
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None  # Default: all labels enabled
         mock_webhook.custom_check_runs = []
+        mock_webhook.custom_commands = []
         mock_webhook.ai_features = None
         mock_webhook.required_conversation_resolution = False
         mock_webhook.security_suspicious_paths = []
