@@ -1036,7 +1036,7 @@ class TestCustomCommandsSchema:
             schema = yaml.safe_load(f)
 
         config: dict[str, Any] = {
-            "github-tokens": ["ghp_test123"],
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
             "custom-commands": [
                 {"name": "deploy-staging", "description": "Deploy to staging"},
                 {"name": "run-e2e", "description": "Run e2e tests"},
@@ -1051,7 +1051,7 @@ class TestCustomCommandsSchema:
             schema = yaml.safe_load(f)
 
         config: dict[str, Any] = {
-            "github-tokens": ["ghp_test123"],
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
             "custom-commands": [
                 {"description": "Missing name field"},
             ],
@@ -1066,7 +1066,7 @@ class TestCustomCommandsSchema:
             schema = yaml.safe_load(f)
 
         config: dict[str, Any] = {
-            "github-tokens": ["ghp_test123"],
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
             "custom-commands": [
                 {"name": "invalid name with spaces", "description": "Bad name"},
             ],
@@ -1081,7 +1081,7 @@ class TestCustomCommandsSchema:
             schema = yaml.safe_load(f)
 
         config: dict[str, Any] = {
-            "github-tokens": ["ghp_test123"],
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
             "custom-commands": [
                 {"name": "test", "description": "Test", "extra": "not allowed"},
             ],

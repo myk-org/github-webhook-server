@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import shlex
 import traceback
 from collections.abc import Coroutine
@@ -867,7 +868,12 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.warning(f"{self.log_prefix} Skipping custom-command with missing name or description")
                 continue
 
-            lines.append(f"* `/{name}` - {description}")
+            if not re.fullmatch(r"[a-zA-Z0-9_-]+", name):
+                self.logger.warning(f"{self.log_prefix} Skipping custom-command with invalid name: {name!r}")
+                continue
+
+            sanitized_description = description.replace("\n", " ").replace("\r", " ")
+            lines.append(f"* `/{name}` - {sanitized_description}")
 
         if len(lines) == 1:
             return ""

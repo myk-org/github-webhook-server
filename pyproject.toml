@@ -109,4 +109,4 @@ dev = [
   "types-pyyaml>=6.0.12.20250516",
   "types-requests>=2.32.4.20250611",
 ]
-tests = ["psutil>=7.0.0", "pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
+tests = ["jsonschema>=4.0.0", "psutil>=7.0.0", "pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]

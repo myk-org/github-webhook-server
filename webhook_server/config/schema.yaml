@@ -255,6 +255,7 @@ properties:
     $ref: '#/$defs/security-checks'
   custom-commands:
     type: array
+    minItems: 1
     description: |
       Custom commands to display in the PR welcome message (global default).
       These are documentation-only - the server renders them in the welcome
@@ -738,6 +739,7 @@ properties:
             additionalProperties: false
         custom-commands:
           type: array
+          minItems: 1
           description: |
             Custom commands to display in the PR welcome message.
             These are documentation-only - the server renders them in the welcome
