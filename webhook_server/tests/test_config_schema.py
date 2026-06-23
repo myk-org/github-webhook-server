@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 import yaml
+from jsonschema import ValidationError, validate
 
 from webhook_server.libs.config import Config
 
@@ -1006,3 +1007,84 @@ class TestConfigSchema:
             }
         finally:
             shutil.rmtree(temp_dir)
+
+
+class TestCustomCommandsSchema:
+    """Tests for custom-commands schema validation."""
+
+    def test_schema_allows_global_custom_commands(self) -> None:
+        """Test that schema.yaml defines custom-commands at root level."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        assert "custom-commands" in schema["properties"]
+        assert schema["properties"]["custom-commands"]["type"] == "array"
+
+    def test_schema_allows_per_repo_custom_commands(self) -> None:
+        """Test that schema.yaml defines custom-commands in per-repo properties."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert "custom-commands" in repo_props
+        assert repo_props["custom-commands"]["type"] == "array"
+
+    def test_custom_commands_valid_config(self) -> None:
+        """Test that valid custom-commands config passes schema validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],
+            "custom-commands": [
+                {"name": "deploy-staging", "description": "Deploy to staging"},
+                {"name": "run-e2e", "description": "Run e2e tests"},
+            ],
+        }
+        validate(instance=config, schema=schema)
+
+    def test_custom_commands_rejects_missing_name(self) -> None:
+        """Test that custom-commands without name fails validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],
+            "custom-commands": [
+                {"description": "Missing name field"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate(instance=config, schema=schema)
+
+    def test_custom_commands_rejects_invalid_name_pattern(self) -> None:
+        """Test that custom-commands with invalid name pattern fails validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],
+            "custom-commands": [
+                {"name": "invalid name with spaces", "description": "Bad name"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate(instance=config, schema=schema)
+
+    def test_custom_commands_rejects_extra_properties(self) -> None:
+        """Test that custom-commands with extra properties fails validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],
+            "custom-commands": [
+                {"name": "test", "description": "Test", "extra": "not allowed"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate(instance=config, schema=schema)

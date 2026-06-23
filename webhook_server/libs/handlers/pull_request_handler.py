@@ -849,14 +849,28 @@ For more information, please refer to the project documentation or contact the m
 
         Renders user-defined custom commands from configuration.
         These are documentation-only - the server does not process them.
+        Invalid entries are skipped with a warning log.
         """
-        custom_commands: list[dict[str, str]] = self.github_webhook.config.get_value("custom-commands", [])
-        if not custom_commands:
+        raw_commands: object = self.github_webhook.config.get_value("custom-commands", [])
+        if not isinstance(raw_commands, list) or not raw_commands:
             return ""
 
         lines: list[str] = ["\n#### Custom Commands"]
-        for cmd in custom_commands:
-            lines.append(f"* `/{cmd['name']}` - {cmd['description']}")
+        for cmd in raw_commands:
+            if not isinstance(cmd, dict):
+                self.logger.warning(f"{self.log_prefix} Skipping invalid custom-command entry: not a dict")
+                continue
+
+            name = cmd.get("name")
+            description = cmd.get("description")
+            if not isinstance(name, str) or not isinstance(description, str) or not name or not description:
+                self.logger.warning(f"{self.log_prefix} Skipping custom-command with missing name or description")
+                continue
+
+            lines.append(f"* `/{name}` - {description}")
+
+        if len(lines) == 1:
+            return ""
 
         return "\n".join(lines) + "\n"
 
