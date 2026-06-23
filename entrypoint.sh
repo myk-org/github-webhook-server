@@ -4,7 +4,6 @@ set -euo pipefail
 # Start Pi SDK sidecar in background with lifecycle coupling
 if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     export SIDECAR_PORT="${SIDECAR_PORT:-9100}"
-    export SIDECAR_ACPX_EXTENSION_PATH="$APP_DIR/sidecar-helper/node_modules/@myk-org/pi-sidecar/node_modules/pi-orchestrator-config/extensions/acpx-provider/index.ts"
     node "$APP_DIR/sidecar-helper/dist/server.js" &
     SIDECAR_PID=$!
     echo "[sidecar] Started Pi SDK sidecar (PID $SIDECAR_PID) on port $SIDECAR_PORT"
