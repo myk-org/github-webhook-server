@@ -348,3 +348,150 @@ class TestWelcomeMessageNewlineStructure:
 
         # Should contain retest commands
         assert "/retest tox" in section_between, "Retest tox command should be in Testing & Validation section"
+
+
+class TestCustomCommandsWelcomeSection:
+    """Tests for the custom commands welcome section feature.
+
+    Verifies that user-defined custom commands from configuration
+    are rendered correctly in the welcome message.
+    """
+
+    def _create_handler(
+        self,
+        process_github_webhook: GithubWebhook,
+        owners_file_handler: OwnersFileHandler,
+        custom_commands: list[dict[str, str]] | None = None,
+    ) -> PullRequestHandler:
+        process_github_webhook.tox = False
+        process_github_webhook.build_and_push_container = False
+        process_github_webhook.pypi = False
+        process_github_webhook.pre_commit = False
+        process_github_webhook.conventional_title = False
+        process_github_webhook.parent_committer = "test-user"
+        process_github_webhook.auto_verified_and_merged_users = []
+        process_github_webhook.create_issue_for_new_pr = False
+        process_github_webhook.issue_url_for_welcome_msg = "https://github.com/test/repo/issues/1"
+        process_github_webhook.minimum_lgtm = 1
+        process_github_webhook.pull_request = None
+
+        owners_file_handler.all_pull_request_approvers = ["approver1"]
+        owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+
+        process_github_webhook.custom_commands = custom_commands if custom_commands is not None else []
+
+        return PullRequestHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
+
+    def test_custom_commands_not_configured(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """When no custom commands are configured, welcome message should not contain the section."""
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=[])
+        welcome_msg = handler._prepare_welcome_comment()
+        assert "#### Custom Commands" not in welcome_msg
+
+    def test_custom_commands_configured(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """When custom commands are configured, welcome message should contain the section and command text."""
+        commands = [
+            {"name": "deploy-staging", "description": "Deploy this PR to staging"},
+            {"name": "run-e2e", "description": "Run e2e tests"},
+        ]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        welcome_msg = handler._prepare_welcome_comment()
+
+        assert "#### Custom Commands" in welcome_msg
+        assert "/deploy-staging" in welcome_msg
+        assert "Deploy this PR to staging" in welcome_msg
+        assert "/run-e2e" in welcome_msg
+        assert "Run e2e tests" in welcome_msg
+
+    def test_custom_commands_formatting(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """Each custom command should be formatted as: * `/name` - description."""
+        commands = [
+            {"name": "deploy-staging", "description": "Deploy this PR to staging"},
+            {"name": "run-e2e", "description": "Run e2e tests"},
+        ]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        welcome_msg = handler._prepare_welcome_comment()
+
+        assert "* `/deploy-staging` - Deploy this PR to staging" in welcome_msg
+        assert "* `/run-e2e` - Run e2e tests" in welcome_msg
+
+    def test_custom_commands_header_on_own_line(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """The Custom Commands header should be preceded by a newline."""
+        commands = [{"name": "deploy-staging", "description": "Deploy this PR to staging"}]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        welcome_msg = handler._prepare_welcome_comment()
+
+        assert "\n#### Custom Commands\n" in welcome_msg, "#### Custom Commands header should be on its own line"
+
+    def test_custom_commands_appears_before_label_management(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """The Custom Commands section should appear before the Label Management section."""
+        commands = [{"name": "deploy-staging", "description": "Deploy this PR to staging"}]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        welcome_msg = handler._prepare_welcome_comment()
+
+        custom_pos = welcome_msg.find("#### Custom Commands")
+        label_pos = welcome_msg.find("#### Label Management")
+
+        assert custom_pos != -1, "Custom Commands section should be present"
+        assert label_pos != -1, "Label Management section should be present"
+        assert custom_pos < label_pos, "Custom Commands section should appear before Label Management section"
+
+    def test_custom_commands_skips_non_dict_entries(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """Non-dict entries in custom-commands should be skipped."""
+        commands: list = [{"name": "valid-cmd", "description": "A valid command"}, "not-a-dict", 42]  # type: ignore[list-item]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        section = handler._prepare_custom_commands_welcome_section
+        assert "/valid-cmd" in section
+        assert "not-a-dict" not in section
+
+    def test_custom_commands_skips_missing_name_or_description(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """Entries missing name or description should be skipped."""
+        commands = [
+            {"name": "valid-cmd", "description": "A valid command"},
+            {"name": "no-desc"},
+            {"description": "no name"},
+            {"name": "", "description": "empty name"},
+        ]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)  # type: ignore[arg-type]
+        section = handler._prepare_custom_commands_welcome_section
+        assert "/valid-cmd" in section
+        assert "no-desc" not in section
+        assert "no name" not in section
+
+    def test_custom_commands_skips_invalid_name_pattern(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """Entries with names not matching [a-zA-Z0-9_-]+ should be skipped."""
+        commands = [
+            {"name": "valid-cmd", "description": "Valid"},
+            {"name": "invalid cmd", "description": "Has space"},
+            {"name": "bad/name", "description": "Has slash"},
+        ]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        section = handler._prepare_custom_commands_welcome_section
+        assert "/valid-cmd" in section
+        assert "invalid cmd" not in section
+        assert "bad/name" not in section
+
+    def test_custom_commands_returns_empty_when_all_invalid(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """When all entries are invalid, section should be empty."""
+        commands: list = ["not-a-dict", {"name": "bad name"}, {"description": "no name"}]  # type: ignore[list-item]
+        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
+        section = handler._prepare_custom_commands_welcome_section
+        assert section == ""

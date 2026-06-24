@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import shlex
 import traceback
 from collections.abc import Coroutine
@@ -497,6 +498,7 @@ This pull request will be automatically processed with the following features:{a
 {self._prepare_retest_welcome_comment}
 {self._prepare_container_operations_welcome_section}\
 {self._prepare_cherry_pick_section}\
+{self._prepare_custom_commands_welcome_section}\
 
 #### Label Management
 * `/<label-name>` - Add a label to the PR
@@ -841,6 +843,42 @@ For more information, please refer to the project documentation or contact the m
 * `/rebase` - Rebase this PR branch onto its base branch
 """
         return "\n#### Branch Management\n* `/rebase` - Rebase this PR branch onto its base branch\n"
+
+    @property
+    def _prepare_custom_commands_welcome_section(self) -> str:
+        """Prepare the Custom Commands section for the welcome comment.
+
+        Renders user-defined custom commands from configuration.
+        These are documentation-only - the server does not process them.
+        Invalid entries are skipped with a warning log.
+        """
+        custom_commands: list[dict[str, str]] = self.github_webhook.custom_commands
+        if not custom_commands:
+            return ""
+
+        lines: list[str] = ["\n#### Custom Commands"]
+        for cmd in custom_commands:
+            if not isinstance(cmd, dict):
+                self.logger.warning(f"{self.log_prefix} Skipping invalid custom-command entry: not a dict")
+                continue
+
+            name = cmd.get("name")
+            description = cmd.get("description")
+            if not isinstance(name, str) or not isinstance(description, str) or not name or not description:
+                self.logger.warning(f"{self.log_prefix} Skipping custom-command with missing name or description")
+                continue
+
+            if not re.fullmatch(r"[a-zA-Z0-9_-]+", name):
+                self.logger.warning(f"{self.log_prefix} Skipping custom-command with invalid name: {name!r}")
+                continue
+
+            sanitized_description = description.replace("\n", " ").replace("\r", " ")
+            lines.append(f"* `/{name}` - {sanitized_description}")
+
+        if len(lines) == 1:
+            return ""
+
+        return "\n".join(lines) + "\n"
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
