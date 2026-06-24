@@ -1623,34 +1623,35 @@ class GithubWebhook:
                 )
             return []
 
+        prefix = getattr(self, "log_prefix", "")
         safe_name_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
         validated: list[dict[str, str]] = []
 
         for cmd in raw_commands:
             if not isinstance(cmd, dict):
-                self.logger.warning("Custom command entry is not a mapping, skipping")
+                self.logger.warning(f"{prefix} Custom command entry is not a mapping, skipping")
                 continue
 
             name = cmd.get("name")
             description = cmd.get("description")
             if not isinstance(name, str) or not name:
-                self.logger.warning("Custom command missing or invalid 'name', skipping")
+                self.logger.warning(f"{prefix} Custom command missing or invalid 'name', skipping")
                 continue
 
             if not isinstance(description, str) or not description:
-                self.logger.warning(f"Custom command '{name}' missing or invalid 'description', skipping")
+                self.logger.warning(f"{prefix} Custom command '{name}' missing or invalid 'description', skipping")
                 continue
 
             if not safe_name_pattern.match(name):
-                self.logger.warning(f"Custom command name {name!r} does not match safe pattern, skipping")
+                self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
                 continue
 
             validated.append({"name": name, "description": description})
 
         if validated:
-            self.logger.info(f"Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}")
+            self.logger.info(f"{prefix} Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}")
         if validated and len(validated) < len(raw_commands):
-            self.logger.warning(f"Skipped {len(raw_commands) - len(validated)} invalid custom command(s)")
+            self.logger.warning(f"{prefix} Skipped {len(raw_commands) - len(validated)} invalid custom command(s)")
 
         return validated
 
