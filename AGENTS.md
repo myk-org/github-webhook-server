@@ -195,6 +195,20 @@ Post-resolution verification: `_verify_cherry_pick_scope()` compares `git diff -
 
 Required env vars for pi-sidecar: `ACPX_AGENTS=cursor`, `VERTEX_CLAUDE_1M=true`, `GOOGLE_APPLICATION_CREDENTIALS`.
 
+### Custom Commands
+
+User-defined commands rendered in the PR welcome message. Documentation-only — the server displays them but does NOT process them. External bots/tools handle them independently.
+
+**Schema:** `webhook_server/config/schema.yaml` (`custom-commands` at global level, `$defs.custom-command-item` for DRY)
+
+**Config:** Three resolution layers (first match wins, no list merge): (1) repo-local `.github-webhook-server.yaml`, (2) `repositories.<repo>.custom-commands` in `config.yaml`, (3) root-level `custom-commands` in `config.yaml`. Per-repo layers can use an empty list (`custom-commands: []`) to disable global defaults; the root-level schema requires `minItems: 1` and `maxItems: 50`.
+
+**Validation:** `GithubWebhook._validate_custom_commands()` in `webhook_server/libs/github_api.py` — validates at load time (entries must be dicts with non-empty `name` (max 100 chars) matching `^[a-zA-Z0-9_-]+$` and non-empty `description` (max 500 chars); duplicate names are rejected, keeping only the first occurrence). Invalid and duplicate entries are logged and skipped.
+
+**Handler:** `PullRequestHandler._prepare_custom_commands_welcome_section` in `webhook_server/libs/handlers/pull_request_handler.py` — renders a "Custom Commands" section with each command as `` * `/{name}` - description ``. Descriptions are markdown-escaped via `_escape_markdown()`.
+
+**Config loading:** `self.custom_commands` loaded in `GithubWebhook._repo_data_from_config()` via `self.config.get_value("custom-commands", ...)` with `extra_dict=repository_config` for per-repo override support.
+
 ### Sidecar Architecture
 
 `sidecar-helper/` — Node.js pi-sidecar bridge for AI provider integration. Minimal TypeScript wrapper importing `@myk-org/pi-sidecar`.
