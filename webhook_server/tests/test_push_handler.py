@@ -525,6 +525,9 @@ class TestPushHandlerWithContext:
         assert call_args[0][0] == "push_handler"
         assert call_args[0][1] is pypi_error
         assert isinstance(call_args[0][2], str)
+        assert call_args[0][2].strip()
+        assert "Traceback (most recent call last)" in call_args[0][2]
+        assert "PyPI upload boom" in call_args[0][2]
         # complete_step should NOT be called
         push_handler_with_ctx.ctx.complete_step.assert_not_called()
 
@@ -547,6 +550,9 @@ class TestPushHandlerWithContext:
         assert call_args[0][0] == "push_handler"
         assert call_args[0][1] is container_error
         assert isinstance(call_args[0][2], str)
+        assert call_args[0][2].strip()
+        assert "Traceback (most recent call last)" in call_args[0][2]
+        assert "Container build boom" in call_args[0][2]
         push_handler_with_ctx.ctx.complete_step.assert_not_called()
 
     @pytest.mark.asyncio
