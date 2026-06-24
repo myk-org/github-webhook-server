@@ -524,6 +524,7 @@ class TestPushHandlerWithContext:
         call_args = push_handler_with_ctx.ctx.fail_step.call_args
         assert call_args[0][0] == "push_handler"
         assert call_args[0][1] is pypi_error
+        assert isinstance(call_args[0][2], str)
         # complete_step should NOT be called
         push_handler_with_ctx.ctx.complete_step.assert_not_called()
 
@@ -545,6 +546,7 @@ class TestPushHandlerWithContext:
         call_args = push_handler_with_ctx.ctx.fail_step.call_args
         assert call_args[0][0] == "push_handler"
         assert call_args[0][1] is container_error
+        assert isinstance(call_args[0][2], str)
         push_handler_with_ctx.ctx.complete_step.assert_not_called()
 
     @pytest.mark.asyncio

@@ -68,6 +68,20 @@ $defs:
       - ai-provider
       - ai-model
     additionalProperties: false
+  custom-command-item:
+    type: object
+    properties:
+      name:
+        type: string
+        pattern: "^[a-zA-Z0-9_-]+$"
+        description: Command name (without the leading slash)
+      description:
+        type: string
+        description: Human-readable description of what the command does
+    required:
+      - name
+      - description
+    additionalProperties: false
   security-checks:
     type: object
     description: |
@@ -261,19 +275,7 @@ properties:
       These are documentation-only - the server renders them in the welcome
       message but does NOT process them. External bots or tools handle them.
     items:
-      type: object
-      properties:
-        name:
-          type: string
-          pattern: "^[a-zA-Z0-9_-]+$"
-          description: Command name (without the leading slash)
-        description:
-          type: string
-          description: Human-readable description of what the command does
-      required:
-        - name
-        - description
-      additionalProperties: false
+      $ref: '#/$defs/custom-command-item'
   labels:
     type: object
     description: Configure which labels are enabled and their colors
@@ -740,9 +742,11 @@ properties:
         custom-commands:
           type: array
           description: |
-            Custom commands to display in the PR welcome message.
+            Custom commands to display in the PR welcome message (per-repo override).
             These are documentation-only - the server renders them in the welcome
             message but does NOT process them. External bots or tools handle them.
+            An empty list is allowed to explicitly disable global custom-commands
+            for this repository.
 
             Examples:
               - name: deploy-staging
@@ -750,16 +754,4 @@ properties:
               - name: run-e2e
                 description: Trigger end-to-end test suite against this PR
           items:
-            type: object
-            properties:
-              name:
-                type: string
-                pattern: "^[a-zA-Z0-9_-]+$"
-                description: Command name (without the leading slash)
-              description:
-                type: string
-                description: Human-readable description of what the command does
-            required:
-              - name
-              - description
-            additionalProperties: false
+            $ref: '#/$defs/custom-command-item'
