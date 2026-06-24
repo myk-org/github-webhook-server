@@ -1088,3 +1088,33 @@ class TestCustomCommandsSchema:
         }
         with pytest.raises(ValidationError):
             validate(instance=config, schema=schema)
+
+    def test_custom_commands_rejects_empty_name(self) -> None:
+        """Test that custom-commands with empty name fails validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
+            "custom-commands": [
+                {"name": "", "description": "Test"},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate(instance=config, schema=schema)
+
+    def test_custom_commands_rejects_empty_description(self) -> None:
+        """Test that custom-commands with empty description fails validation."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        config: dict[str, Any] = {
+            "github-tokens": ["ghp_test123"],  # pragma: allowlist secret
+            "custom-commands": [
+                {"name": "deploy", "description": ""},
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate(instance=config, schema=schema)
