@@ -944,16 +944,7 @@ class GithubWebhook:
         raw_custom_commands = self.config.get_value(
             value="custom-commands", return_on_none=[], extra_dict=repository_config
         )
-        if not isinstance(raw_custom_commands, list):
-            if raw_custom_commands is not None:
-                prefix = getattr(self, "log_prefix", "")
-                self.logger.warning(
-                    f"{prefix} custom-commands config is not a list "
-                    f"(got {type(raw_custom_commands).__name__}), skipping"
-                )
-            self.custom_commands: list[dict[str, str]] = []
-        else:
-            self.custom_commands = raw_custom_commands
+        self.custom_commands: list[dict[str, str]] = self._validate_custom_commands(raw_custom_commands)
 
         _auto_users = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
@@ -1609,6 +1600,59 @@ class GithubWebhook:
             self.logger.warning(f"Skipped {len(raw_checks) - len(validated_checks)} invalid custom check(s)")
 
         return validated_checks
+
+    def _validate_custom_commands(self, raw_commands: object) -> list[dict[str, str]]:
+        """Validate custom commands configuration at load time.
+
+        Validates each custom command entry and returns only valid ones:
+        - Checks that entry is a dict with 'name' and 'description' string fields
+        - Verifies name matches the safe pattern [a-zA-Z0-9_-]+
+        - Logs warnings for invalid entries and skips them
+
+        Args:
+            raw_commands: Custom command configurations from config (should be a list)
+
+        Returns:
+            List of validated custom command configurations
+        """
+        if not isinstance(raw_commands, list):
+            if raw_commands is not None:
+                prefix = getattr(self, "log_prefix", "")
+                self.logger.warning(
+                    f"{prefix} custom-commands config is not a list (got {type(raw_commands).__name__}), skipping"
+                )
+            return []
+
+        safe_name_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+        validated: list[dict[str, str]] = []
+
+        for cmd in raw_commands:
+            if not isinstance(cmd, dict):
+                self.logger.warning("Custom command entry is not a mapping, skipping")
+                continue
+
+            name = cmd.get("name")
+            description = cmd.get("description")
+            if not isinstance(name, str) or not name:
+                self.logger.warning("Custom command missing or invalid 'name', skipping")
+                continue
+
+            if not isinstance(description, str) or not description:
+                self.logger.warning(f"Custom command '{name}' missing or invalid 'description', skipping")
+                continue
+
+            if not safe_name_pattern.match(name):
+                self.logger.warning(f"Custom command name {name!r} does not match safe pattern, skipping")
+                continue
+
+            validated.append({"name": name, "description": description})
+
+        if validated:
+            self.logger.info(f"Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}")
+        if validated and len(validated) < len(raw_commands):
+            self.logger.warning(f"Skipped {len(raw_commands) - len(validated)} invalid custom command(s)")
+
+        return validated
 
     def __del__(self) -> None:
         """Remove the shared clone directory when the webhook object is destroyed.

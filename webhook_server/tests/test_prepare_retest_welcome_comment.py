@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, TypedDict, Unpack
+from unittest.mock import Mock
 
 import pytest
 
+from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
-    from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 
 
@@ -446,52 +447,100 @@ class TestCustomCommandsWelcomeSection:
         assert label_pos != -1, "Label Management section should be present"
         assert custom_pos < label_pos, "Custom Commands section should appear before Label Management section"
 
-    def test_custom_commands_skips_non_dict_entries(
+    def test_custom_commands_escapes_markdown_in_description(
         self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
     ) -> None:
-        """Non-dict entries in custom-commands should be skipped."""
-        commands: list = [{"name": "valid-cmd", "description": "A valid command"}, "not-a-dict", 42]  # type: ignore[list-item]
+        """Markdown special characters in description should be escaped."""
+        commands = [
+            {"name": "deploy", "description": "Deploy [this](link) and `code` with !image"},
+        ]
         handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
         section = handler._prepare_custom_commands_welcome_section
-        assert "/valid-cmd" in section
-        assert "not-a-dict" not in section
+        assert r"\[this\]\(link\)" in section
+        assert r"\`code\`" in section
+        assert r"\!image" in section
 
-    def test_custom_commands_skips_missing_name_or_description(
-        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
-    ) -> None:
-        """Entries missing name or description should be skipped."""
-        commands = [
-            {"name": "valid-cmd", "description": "A valid command"},
-            {"name": "no-desc"},
-            {"description": "no name"},
-            {"name": "", "description": "empty name"},
+
+class TestValidateCustomCommands:
+    """Test suite for GithubWebhook._validate_custom_commands() load-time validation."""
+
+    @pytest.fixture
+    def mock_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance for validation testing."""
+        mock = Mock()
+        mock.logger = Mock()
+        mock.log_prefix = "[TEST]"
+        return mock
+
+    def test_valid_commands(self, mock_webhook: Mock) -> None:
+        """Valid commands should pass validation."""
+        raw = [
+            {"name": "deploy-staging", "description": "Deploy to staging"},
+            {"name": "run_e2e", "description": "Run end-to-end tests"},
         ]
-        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)  # type: ignore[arg-type]
-        section = handler._prepare_custom_commands_welcome_section
-        assert "/valid-cmd" in section
-        assert "no-desc" not in section
-        assert "no name" not in section
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 2
+        assert result[0]["name"] == "deploy-staging"
+        assert result[1]["name"] == "run_e2e"
 
-    def test_custom_commands_skips_invalid_name_pattern(
-        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
-    ) -> None:
-        """Entries with names not matching [a-zA-Z0-9_-]+ should be skipped."""
-        commands = [
+    def test_not_a_list(self, mock_webhook: Mock) -> None:
+        """Non-list input should return empty list and log warning."""
+        result = GithubWebhook._validate_custom_commands(mock_webhook, "not-a-list")
+        assert result == []
+        mock_webhook.logger.warning.assert_called_once()
+
+    def test_none_input(self, mock_webhook: Mock) -> None:
+        """None input should return empty list without logging."""
+        result = GithubWebhook._validate_custom_commands(mock_webhook, None)
+        assert result == []
+        mock_webhook.logger.warning.assert_not_called()
+
+    def test_empty_list(self, mock_webhook: Mock) -> None:
+        """Empty list should return empty list."""
+        result = GithubWebhook._validate_custom_commands(mock_webhook, [])
+        assert result == []
+
+    def test_skips_non_dict_entries(self, mock_webhook: Mock) -> None:
+        """Non-dict entries should be skipped with warning."""
+        raw = [{"name": "valid", "description": "Valid"}, "not-a-dict", 42]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 1
+        assert result[0]["name"] == "valid"
+
+    def test_skips_missing_name(self, mock_webhook: Mock) -> None:
+        """Entries without name should be skipped."""
+        raw = [{"description": "no name"}, {"name": "valid", "description": "Valid"}]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 1
+        assert result[0]["name"] == "valid"
+
+    def test_skips_missing_description(self, mock_webhook: Mock) -> None:
+        """Entries without description should be skipped."""
+        raw = [{"name": "no-desc"}, {"name": "valid", "description": "Valid"}]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 1
+        assert result[0]["name"] == "valid"
+
+    def test_skips_empty_name(self, mock_webhook: Mock) -> None:
+        """Entries with empty name should be skipped."""
+        raw = [{"name": "", "description": "empty name"}]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert result == []
+
+    def test_skips_invalid_name_pattern(self, mock_webhook: Mock) -> None:
+        """Names not matching [a-zA-Z0-9_-]+ should be skipped."""
+        raw = [
             {"name": "valid-cmd", "description": "Valid"},
             {"name": "invalid cmd", "description": "Has space"},
             {"name": "bad/name", "description": "Has slash"},
+            {"name": "bad<name>", "description": "Has angle brackets"},
         ]
-        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
-        section = handler._prepare_custom_commands_welcome_section
-        assert "/valid-cmd" in section
-        assert "invalid cmd" not in section
-        assert "bad/name" not in section
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 1
+        assert result[0]["name"] == "valid-cmd"
 
-    def test_custom_commands_returns_empty_when_all_invalid(
-        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
-    ) -> None:
-        """When all entries are invalid, section should be empty."""
-        commands: list = ["not-a-dict", {"name": "bad name"}, {"description": "no name"}]  # type: ignore[list-item]
-        handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
-        section = handler._prepare_custom_commands_welcome_section
-        assert section == ""
+    def test_all_invalid_returns_empty(self, mock_webhook: Mock) -> None:
+        """When all entries are invalid, should return empty list."""
+        raw = ["not-a-dict", {"name": "bad name"}, {"description": "no name"}]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert result == []

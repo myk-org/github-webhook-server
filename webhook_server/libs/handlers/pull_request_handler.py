@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import re
 import shlex
 import traceback
 from collections.abc import Coroutine
@@ -844,13 +843,25 @@ For more information, please refer to the project documentation or contact the m
 """
         return "\n#### Branch Management\n* `/rebase` - Rebase this PR branch onto its base branch\n"
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Escape markdown special characters in text.
+
+        Prevents markdown injection when inserting user-provided text
+        into PR comments. Escapes characters that could create links,
+        images, or inline code.
+        """
+        for char in ("[", "]", "(", ")", "!", "`"):
+            text = text.replace(char, f"\\{char}")
+        return text
+
     @property
     def _prepare_custom_commands_welcome_section(self) -> str:
         """Prepare the Custom Commands section for the welcome comment.
 
         Renders user-defined custom commands from configuration.
         These are documentation-only - the server does not process them.
-        Invalid entries are skipped with a warning log.
+        Commands are validated at load time by GithubWebhook._validate_custom_commands().
         """
         custom_commands: list[dict[str, str]] = self.github_webhook.custom_commands
         if not custom_commands:
@@ -858,25 +869,10 @@ For more information, please refer to the project documentation or contact the m
 
         lines: list[str] = ["\n#### Custom Commands"]
         for cmd in custom_commands:
-            if not isinstance(cmd, dict):
-                self.logger.warning(f"{self.log_prefix} Skipping invalid custom-command entry: not a dict")
-                continue
-
-            name = cmd.get("name")
-            description = cmd.get("description")
-            if not isinstance(name, str) or not isinstance(description, str) or not name or not description:
-                self.logger.warning(f"{self.log_prefix} Skipping custom-command with missing name or description")
-                continue
-
-            if not re.fullmatch(r"[a-zA-Z0-9_-]+", name):
-                self.logger.warning(f"{self.log_prefix} Skipping custom-command with invalid name: {name!r}")
-                continue
-
-            sanitized_description = description.replace("\n", " ").replace("\r", " ")
-            lines.append(f"* `/{name}` - {sanitized_description}")
-
-        if len(lines) == 1:
-            return ""
+            name = cmd["name"]
+            description = cmd["description"]
+            sanitized = self._escape_markdown(description.replace("\n", " ").replace("\r", " "))
+            lines.append(f"* `/{name}` - {sanitized}")
 
         return "\n".join(lines) + "\n"
 
