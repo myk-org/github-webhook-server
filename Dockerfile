@@ -1,5 +1,5 @@
 # Sidecar build stage
-FROM node:22-slim AS sidecar-builder
+FROM node:26-slim AS sidecar-builder
 WORKDIR /sidecar
 COPY sidecar-helper/package.json sidecar-helper/package-lock.json* ./
 RUN npm ci
