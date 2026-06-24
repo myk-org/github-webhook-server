@@ -74,7 +74,7 @@ class TestCallAi:
                 )
                 assert result.success is True
                 assert result.text == "hello"
-                mock_call.assert_called_once_with(
+                mock_call.assert_awaited_once_with(
                     prompt="test",
                     ai_provider="claude",
                     ai_model="sonnet",
