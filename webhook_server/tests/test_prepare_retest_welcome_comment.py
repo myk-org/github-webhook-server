@@ -551,9 +551,7 @@ class TestValidateCustomCommands:
         assert result[0]["name"] == "deploy"
         assert result[0]["description"] == "First"
         assert result[1]["name"] == "unique"
-        mock_webhook.logger.warning.assert_any_call(
-            "[TEST] Custom command name 'deploy' is duplicated, skipping"
-        )
+        mock_webhook.logger.warning.assert_any_call("[TEST] Custom command name 'deploy' is duplicated, skipping")
 
     def test_all_invalid_returns_empty(self, mock_webhook: Mock) -> None:
         """When all entries are invalid, should return empty list."""
