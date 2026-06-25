@@ -1625,6 +1625,7 @@ class GithubWebhook:
 
         prefix = getattr(self, "log_prefix", "")
         safe_name_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+        seen_names: set[str] = set()
         validated: list[dict[str, str]] = []
 
         for cmd in raw_commands:
@@ -1646,11 +1647,16 @@ class GithubWebhook:
                 self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
                 continue
 
+            if name in seen_names:
+                self.logger.warning(f"{prefix} Custom command name {name!r} is duplicated, skipping")
+                continue
+            seen_names.add(name)
+
             validated.append({"name": name, "description": description})
 
         if validated:
             self.logger.info(f"{prefix} Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}")
-        if validated and len(validated) < len(raw_commands):
+        if len(validated) < len(raw_commands):
             self.logger.warning(f"{prefix} Skipped {len(raw_commands) - len(validated)} invalid custom command(s)")
 
         return validated
