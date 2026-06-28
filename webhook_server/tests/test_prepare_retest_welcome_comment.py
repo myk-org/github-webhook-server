@@ -455,6 +455,7 @@ class TestCustomCommandsWelcomeSection:
             {"name": "deploy", "description": "Deploy [this](link) and `code` with !image"},
             {"name": "format", "description": "Make *bold* and _underline_ and ~~strike~~"},
             {"name": "inject", "description": "Try <details> and <a href=x>"},
+            {"name": "mention", "description": "Contact @org/team for help"},
         ]
         handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
         section = handler._prepare_custom_commands_welcome_section
@@ -466,6 +467,7 @@ class TestCustomCommandsWelcomeSection:
         assert r"\~\~strike\~\~" in section
         assert r"\<details\>" in section
         assert r"\<a href=x\>" in section
+        assert "@\u200borg/team" in section
 
 
 class TestValidateCustomCommands:

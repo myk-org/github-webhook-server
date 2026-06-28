@@ -300,7 +300,7 @@ The following keys are written under `repositories.<short-repo-name>` in `config
 - `custom-check-runs[].command`: Command run in the repository worktree. Environment-variable prefixes and multiline commands are supported, but the executable must exist on the server.
 - `custom-check-runs[].mandatory`: Whether the custom check must pass for mergeability. Default is `true`. `false` checks still run; they just stop gating merges.
 - `custom-commands[].name`: Name for a documentation-only command rendered in the PR welcome message. Must match `^[a-zA-Z0-9_-]+$`. Rendered as `/<name>` in the welcome comment.
-- `custom-commands[].description`: Human-readable description shown next to the command in the welcome comment. Markdown and HTML special characters are automatically escaped.
+- `custom-commands[].description`: Human-readable description shown next to the command in the welcome comment. Markdown formatting characters (`*`, `_`, `~`, `` ` ``), link/image syntax (`[`, `]`, `(`, `)`, `!`), HTML angle brackets (`<`, `>`), and `@` mentions are automatically neutralized.
 - `test-oracle.server-url`, `test-oracle.ai-provider`, `test-oracle.ai-model`, `test-oracle.test-patterns`, `test-oracle.triggers`: Same meanings as the global `test-oracle` keys. A repository-level object replaces the global object for that repository.
 - `ai-features.ai-provider`, `ai-features.ai-model`, `ai-features.conventional-title.enabled`, `ai-features.conventional-title.mode`, `ai-features.conventional-title.timeout-minutes`, `ai-features.resolve-cherry-pick-conflicts-with-ai.enabled`, `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes`: Same meanings as the global `ai-features` keys. A repository-level object replaces the global object for that repository.
 

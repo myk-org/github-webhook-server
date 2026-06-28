@@ -849,10 +849,13 @@ For more information, please refer to the project documentation or contact the m
 
         Prevents markdown injection when inserting user-provided text
         into PR comments. Escapes characters that could create links,
-        images, inline code, bold, underline, strikethrough, or HTML tags.
+        images, inline code, bold, underline, strikethrough, or HTML tags,
+        and neutralizes @mentions.
         """
         for char in ("[", "]", "(", ")", "!", "`", "*", "_", "~", "<", ">"):
             text = text.replace(char, f"\\{char}")
+        # Neutralize @mentions to prevent unintended user/team pings
+        text = text.replace("@", "@\u200b")
         return text
 
     @property
