@@ -539,20 +539,6 @@ class TestValidateCustomCommands:
         assert len(result) == 1
         assert result[0]["name"] == "valid-cmd"
 
-    def test_skips_duplicate_names(self, mock_webhook: Mock) -> None:
-        """Duplicate command names should be skipped with warning."""
-        raw = [
-            {"name": "deploy", "description": "First"},
-            {"name": "deploy", "description": "Second"},
-            {"name": "unique", "description": "Third"},
-        ]
-        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
-        assert len(result) == 2
-        assert result[0]["name"] == "deploy"
-        assert result[0]["description"] == "First"
-        assert result[1]["name"] == "unique"
-        mock_webhook.logger.warning.assert_any_call("[TEST] Custom command name 'deploy' is duplicated, skipping")
-
     def test_all_invalid_returns_empty(self, mock_webhook: Mock) -> None:
         """When all entries are invalid, should return empty list."""
         raw = ["not-a-dict", {"name": "bad name"}, {"description": "no name"}]

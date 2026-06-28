@@ -515,7 +515,6 @@ dev = [
     { name = "types-requests" },
 ]
 tests = [
-    { name = "jsonschema" },
     { name = "psutil" },
     { name = "pytest-asyncio" },
     { name = "pytest-xdist" },
@@ -565,7 +564,6 @@ dev = [
     { name = "types-requests", specifier = ">=2.32.4.20250611" },
 ]
 tests = [
-    { name = "jsonschema", specifier = ">=4.0.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-xdist", specifier = ">=3.7.0" },
