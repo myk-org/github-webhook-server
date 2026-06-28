@@ -17,6 +17,7 @@ A [FastAPI](https://fastapi.tiangolo.com)-based webhook server for automating Gi
 - **OWNERS-Based Permissions** — reviewer and approver assignment from OWNERS files with per-directory granularity
 - **Container and PyPI Publishing** — automated container builds, tag-based releases, and PyPI publishing
 - **Issue Comment Commands** — `/retest`, `/approve`, `/cherry-pick`, `/build-and-push-container`, and more
+- **Custom Commands** — user-defined documentation-only commands rendered in the PR welcome message
 - **AI Features** — conventional commit title validation and suggestions via Claude, Gemini, or Cursor
 - **Repository Bootstrap** — automatic label creation, branch protection, and webhook configuration on startup
 - **Log Viewer** — real-time log streaming, webhook flow visualization, and structured log analysis

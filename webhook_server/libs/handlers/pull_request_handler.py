@@ -849,9 +849,9 @@ For more information, please refer to the project documentation or contact the m
 
         Prevents markdown injection when inserting user-provided text
         into PR comments. Escapes characters that could create links,
-        images, or inline code.
+        images, inline code, bold, underline, strikethrough, or HTML tags.
         """
-        for char in ("[", "]", "(", ")", "!", "`"):
+        for char in ("[", "]", "(", ")", "!", "`", "*", "_", "~", "<", ">"):
             text = text.replace(char, f"\\{char}")
         return text
 

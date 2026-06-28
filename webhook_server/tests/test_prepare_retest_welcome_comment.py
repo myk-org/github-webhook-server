@@ -453,12 +453,19 @@ class TestCustomCommandsWelcomeSection:
         """Markdown special characters in description should be escaped."""
         commands = [
             {"name": "deploy", "description": "Deploy [this](link) and `code` with !image"},
+            {"name": "format", "description": "Make *bold* and _underline_ and ~~strike~~"},
+            {"name": "inject", "description": "Try <details> and <a href=x>"},
         ]
         handler = self._create_handler(process_github_webhook, owners_file_handler, custom_commands=commands)
         section = handler._prepare_custom_commands_welcome_section
         assert r"\[this\]\(link\)" in section
         assert r"\`code\`" in section
         assert r"\!image" in section
+        assert r"\*bold\*" in section
+        assert r"\_underline\_" in section
+        assert r"\~\~strike\~\~" in section
+        assert r"\<details\>" in section
+        assert r"\<a href=x\>" in section
 
 
 class TestValidateCustomCommands:
@@ -539,8 +546,25 @@ class TestValidateCustomCommands:
         assert len(result) == 1
         assert result[0]["name"] == "valid-cmd"
 
+    def test_skips_duplicate_names(self, mock_webhook: Mock) -> None:
+        """Duplicate command names should be skipped with warning."""
+        raw = [
+            {"name": "deploy", "description": "First"},
+            {"name": "deploy", "description": "Second"},
+            {"name": "unique", "description": "Third"},
+        ]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 2
+        assert result[0]["name"] == "deploy"
+        assert result[0]["description"] == "First"
+        assert result[1]["name"] == "unique"
+        mock_webhook.logger.warning.assert_any_call("[TEST] Custom command name 'deploy' is duplicated, skipping")
+
     def test_all_invalid_returns_empty(self, mock_webhook: Mock) -> None:
-        """When all entries are invalid, should return empty list."""
+        """When all entries are invalid, should return empty list and log all-invalid warning."""
         raw = ["not-a-dict", {"name": "bad name"}, {"description": "no name"}]
         result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
         assert result == []
+        mock_webhook.logger.warning.assert_any_call(
+            f"[TEST] No valid custom commands loaded \u2014 all {len(raw)} entries were invalid"
+        )
