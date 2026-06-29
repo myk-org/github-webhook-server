@@ -69,11 +69,11 @@ reviews:
 
 # Knowledge base configuration
 knowledge_base:
-  # Enable code guidelines enforcement from CLAUDE.md
+  # Enable code guidelines enforcement from AGENTS.md
   code_guidelines:
     enabled: true
     filePatterns:
-      - "CLAUDE.md"
+      - "AGENTS.md"
 
   # Enable learning from repository patterns
   learnings:

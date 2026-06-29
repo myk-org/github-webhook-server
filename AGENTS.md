@@ -130,6 +130,7 @@ try:
     ctx.complete_step("clone_repository", commit_sha="abc123")
 except Exception as ex:
     ctx.fail_step("clone_repository", exception=ex, traceback_str=traceback.format_exc())
+    raise
 ```
 
 Log files: `{config.data_dir}/logs/webhooks_YYYY-MM-DD.json` (daily rotation, pretty-printed JSON).
