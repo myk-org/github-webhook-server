@@ -12,8 +12,14 @@
   },
   "packageRules": [
     {
+      "matchManagers": ["pip_requirements", "pip-compile", "pep621"],
       "matchPackagePatterns": ["*"],
       "groupName": "python-deps"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchPackagePatterns": ["*"],
+      "groupName": "npm-deps"
     }
   ]
 }
