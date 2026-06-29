@@ -1644,7 +1644,7 @@ class GithubWebhook:
                 self.logger.warning(f"{prefix} Custom command name {name[:20]!r}... exceeds 100 characters, skipping")
                 continue
 
-            if not safe_name_pattern.match(name):
+            if not safe_name_pattern.fullmatch(name):
                 self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
                 continue
 
