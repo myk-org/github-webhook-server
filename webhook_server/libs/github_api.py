@@ -1643,6 +1643,14 @@ class GithubWebhook:
                 self.logger.warning(f"{prefix} Custom command '{name}' missing or invalid 'description', skipping")
                 continue
 
+            if len(name) > 100:
+                self.logger.warning(f"{prefix} Custom command name {name!r} exceeds 100 characters, skipping")
+                continue
+
+            if len(description) > 500:
+                self.logger.warning(f"{prefix} Custom command '{name}' description exceeds 500 characters, skipping")
+                continue
+
             if not safe_name_pattern.match(name):
                 self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
                 continue
