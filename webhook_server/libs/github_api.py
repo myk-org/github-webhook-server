@@ -1623,6 +1623,7 @@ class GithubWebhook:
                 )
             return []
 
+        # Use getattr since log_prefix may not be set during early __init__ calls
         prefix = getattr(self, "log_prefix", "")
         safe_name_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
         seen_names: set[str] = set()
@@ -1639,12 +1640,12 @@ class GithubWebhook:
                 self.logger.warning(f"{prefix} Custom command missing or invalid 'name', skipping")
                 continue
 
-            if not safe_name_pattern.match(name):
-                self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
+            if len(name) > 100:
+                self.logger.warning(f"{prefix} Custom command name {name[:20]!r}... exceeds 100 characters, skipping")
                 continue
 
-            if len(name) > 100:
-                self.logger.warning(f"{prefix} Custom command name {name!r} exceeds 100 characters, skipping")
+            if not safe_name_pattern.match(name):
+                self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
                 continue
 
             if not isinstance(description, str) or not description:
