@@ -848,10 +848,12 @@ For more information, please refer to the project documentation or contact the m
         """Escape markdown special characters in text.
 
         Prevents markdown injection when inserting user-provided text
-        into PR comments. Escapes characters that could create links,
-        images, inline code, bold, underline, strikethrough, or HTML tags,
-        and neutralizes @mentions.
+        into PR comments. Escapes backslashes first to avoid interaction
+        with subsequently escaped characters, then escapes characters that
+        could create links, images, inline code, bold, underline,
+        strikethrough, or HTML tags, and neutralizes @mentions.
         """
+        text = text.replace("\\", "\\\\")
         for char in ("[", "]", "(", ")", "!", "`", "*", "_", "~", "<", ">"):
             text = text.replace(char, f"\\{char}")
         # Neutralize @mentions to prevent unintended user/team pings

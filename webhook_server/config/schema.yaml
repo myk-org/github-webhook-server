@@ -75,10 +75,12 @@ $defs:
         type: string
         pattern: "^[a-zA-Z0-9_-]+$"
         minLength: 1
+        maxLength: 100
         description: Command name (without the leading slash)
       description:
         type: string
         minLength: 1
+        maxLength: 500
         description: Human-readable description of what the command does
     required:
       - name
@@ -272,6 +274,7 @@ properties:
   custom-commands:
     type: array
     minItems: 1
+    maxItems: 50
     description: |
       Custom commands to display in the PR welcome message (global default).
       These are documentation-only - the server renders them in the welcome
@@ -743,6 +746,7 @@ properties:
             additionalProperties: false
         custom-commands:
           type: array
+          maxItems: 50
           description: |
             Custom commands to display in the PR welcome message (per-repo override).
             These are documentation-only - the server renders them in the welcome
