@@ -313,7 +313,7 @@ The Renovate configuration is intentionally simple and low-noise:
     },
     {
       "matchManagers": ["npm"],
-      "matchPackagePatterns": ["*"],
+      "matchPackageNames": ["@myk-org/pi-sidecar"],
       "groupName": "npm-deps"
     }
   ]
@@ -325,7 +325,7 @@ That setup means:
 - Renovate keeps a dependency dashboard.
 - Lock file maintenance is enabled weekly.
 - Dependency PRs are not throttled by hourly or concurrent limits.
-- Python updates are grouped into a `python-deps` stream and npm updates (sidecar helper) into a separate `npm-deps` stream, avoiding a flood of unrelated PRs.
+- Python updates are grouped into a `python-deps` stream and npm updates for the pi-sidecar package into a separate `npm-deps` stream, avoiding a flood of unrelated PRs.
 
 The rest of the repository bot setup looks like this:
 
