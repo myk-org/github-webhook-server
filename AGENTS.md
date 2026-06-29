@@ -225,7 +225,7 @@ User-defined commands rendered in the PR welcome message. Documentation-only —
 
 **Healthcheck:** Dockerfile verifies both webhook server (`:5000`) and sidecar (`:${SIDECAR_PORT}`).
 
-**Docker build:** Multi-stage — `sidecar-builder` (node:26-slim) runs `npm ci`, `npx tsc`, `npm prune --omit=dev`. Final stage copies `dist/`, `node_modules/` (production), `package.json`.
+**Docker build:** Multi-stage — `sidecar-builder` (node:22-slim) runs `npm ci`, `npx tsc`, `npm prune --omit=dev`. Final stage copies `dist/`, `node_modules/` (production), `package.json`.
 
 **Security:** AI conflict resolution prompt includes user-controlled commit messages. Mitigated by restricting AI to read-only tools + file edit/write — no bash access.
 
