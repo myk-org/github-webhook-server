@@ -160,10 +160,15 @@ BUILTIN_COMMAND_NAMES: frozenset[str] = frozenset({
     "cherry-pick",
     "cherry-pick-retry",
     "rebase",
+    "reprocess",
     "wip",
     "verified",
     "retest",
     "test-oracle",
+    "security-override",
+    "add-allowed-user",
+    "regenerate-welcome",
+    "hold",
 })
 
 DEFAULT_SUSPICIOUS_PATHS: list[str] = [
