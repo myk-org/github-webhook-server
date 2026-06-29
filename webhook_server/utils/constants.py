@@ -149,6 +149,23 @@ BUILTIN_CHECK_NAMES: frozenset[str] = frozenset({
     SECURITY_COMMITTER_IDENTITY_STR,
 })
 
+# Built-in command names that cannot be overridden by custom commands
+BUILTIN_COMMAND_NAMES: frozenset[str] = frozenset({
+    "lgtm",
+    "approve",
+    "assign-reviewers",
+    "assign-reviewer",
+    "check-can-merge",
+    "build-and-push-container",
+    "cherry-pick",
+    "cherry-pick-retry",
+    "rebase",
+    "wip",
+    "verified",
+    "retest",
+    "test-oracle",
+})
+
 DEFAULT_SUSPICIOUS_PATHS: list[str] = [
     ".claude/",
     ".vscode/",

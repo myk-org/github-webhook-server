@@ -320,33 +320,6 @@ else:
 
 > **Tip:** If you rely on cherry-pick automation, keep the `cherry-pick` label category enabled and set `cherry-pick-assign-to-pr-author: true` if you want the follow-up PR to land on the original author by default.
 
-## Custom Commands
-
-Custom commands let you document repository-specific workflows directly in the PR welcome comment. Unlike `custom-check-runs`, these are **documentation-only** — the server renders them in the welcome message but does not execute anything when they are invoked.
-
-Each command has a `name` and a `description`. Names must match the pattern `^[a-zA-Z0-9_-]+$` and are rendered as `/<name>` in the welcome comment. Descriptions are escaped to prevent markdown injection.
-
-```yaml
-# In config.yaml (global) or .github-webhook-server.yaml (per-repo)
-custom-commands:
-  - name: run-tests
-    description: Run the full test suite locally before merging
-  - name: deploy-staging
-    description: Deploy this PR to the staging environment for review
-```
-
-The welcome comment renders a **Custom Commands** section:
-
-```
-#### Custom Commands
-- `/run-tests` — Run the full test suite locally before merging
-- `/deploy-staging` — Deploy this PR to the staging environment for review
-```
-
-**Validation:** Commands are validated at load time. Invalid entries (missing name/description, unsafe name characters, duplicates) are skipped with a warning. If all entries are invalid, a summary warning is logged.
-
-> **Tip:** Custom commands are reloaded on every webhook event — no server restart needed. Update the config file and use `/regenerate-welcome` to refresh the PR comment.
-
 ## Key Configuration
 
 Most PR automation settings can be defined globally in `config.yaml`. Many of the same keys can also be overridden per repository in `.github-webhook-server.yaml`.

@@ -32,6 +32,7 @@ from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     BUILTIN_CHECK_NAMES,
+    BUILTIN_COMMAND_NAMES,
     CAN_BE_MERGED_STR,
     CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
@@ -1616,61 +1617,79 @@ class GithubWebhook:
             List of validated custom command configurations
         """
         if not isinstance(raw_commands, list):
-            if raw_commands is not None:
-                prefix = getattr(self, "log_prefix", "")
-                self.logger.warning(
-                    f"{prefix} custom-commands config is not a list (got {type(raw_commands).__name__}), skipping"
-                )
+            prefix = getattr(self, "log_prefix", "")
+            self.logger.warning(
+                f"{prefix} custom-commands config is not a list (got {type(raw_commands).__name__}), skipping"
+            )
             return []
 
         # Use getattr since log_prefix may not be set during early __init__ calls
         prefix = getattr(self, "log_prefix", "")
+        log_msg_prefix = f"{prefix} " if prefix else ""
         safe_name_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
         seen_names: set[str] = set()
         validated: list[dict[str, str]] = []
 
         for cmd in raw_commands:
             if not isinstance(cmd, dict):
-                self.logger.warning(f"{prefix} Custom command entry is not a mapping, skipping")
+                self.logger.warning(f"{log_msg_prefix}Custom command entry is not a mapping, skipping")
                 continue
 
             name = cmd.get("name")
             description = cmd.get("description")
             if not isinstance(name, str) or not name:
-                self.logger.warning(f"{prefix} Custom command missing or invalid 'name', skipping")
+                self.logger.warning(f"{log_msg_prefix}Custom command missing or invalid 'name', skipping")
                 continue
 
             if len(name) > 100:
-                self.logger.warning(f"{prefix} Custom command name {name[:20]!r}... exceeds 100 characters, skipping")
+                self.logger.warning(
+                    f"{log_msg_prefix}Custom command name {name[:20]!r}... exceeds 100 characters, skipping"
+                )
                 continue
 
             if not safe_name_pattern.fullmatch(name):
-                self.logger.warning(f"{prefix} Custom command name {name!r} does not match safe pattern, skipping")
+                self.logger.warning(
+                    f"{log_msg_prefix}Custom command name {name!r} does not match safe pattern, skipping"
+                )
+                continue
+
+            if name.lower() in BUILTIN_COMMAND_NAMES:
+                self.logger.warning(
+                    f"{log_msg_prefix}Custom command name {name!r} collides with built-in command, skipping"
+                )
                 continue
 
             if not isinstance(description, str) or not description:
-                self.logger.warning(f"{prefix} Custom command '{name}' missing or invalid 'description', skipping")
+                self.logger.warning(
+                    f"{log_msg_prefix}Custom command '{name}' missing or invalid 'description', skipping"
+                )
                 continue
 
             if len(description) > 500:
-                self.logger.warning(f"{prefix} Custom command '{name}' description exceeds 500 characters, skipping")
+                self.logger.warning(
+                    f"{log_msg_prefix}Custom command '{name}' description exceeds 500 characters, skipping"
+                )
                 continue
 
             if name in seen_names:
-                self.logger.warning(f"{prefix} Custom command name {name!r} is duplicated, skipping")
+                self.logger.warning(f"{log_msg_prefix}Custom command name {name!r} is duplicated, skipping")
                 continue
             seen_names.add(name)
 
             validated.append({"name": name, "description": description})
 
         if validated:
-            self.logger.info(f"{prefix} Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}")
+            self.logger.info(
+                f"{log_msg_prefix}Loaded {len(validated)} custom command(s): {[c['name'] for c in validated]}"
+            )
         if raw_commands and not validated:
             self.logger.warning(
-                f"{prefix} No valid custom commands loaded — all {len(raw_commands)} entries were invalid"
+                f"{log_msg_prefix}No valid custom commands loaded — all {len(raw_commands)} entries were invalid"
             )
         elif len(validated) < len(raw_commands):
-            self.logger.warning(f"{prefix} Skipped {len(raw_commands) - len(validated)} invalid custom command(s)")
+            self.logger.warning(
+                f"{log_msg_prefix}Skipped {len(raw_commands) - len(validated)} invalid custom command(s)"
+            )
 
         return validated
 

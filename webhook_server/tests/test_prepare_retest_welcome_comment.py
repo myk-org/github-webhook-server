@@ -501,10 +501,13 @@ class TestValidateCustomCommands:
         mock_webhook.logger.warning.assert_called_once()
 
     def test_none_input(self, mock_webhook: Mock) -> None:
-        """None input should return empty list without logging."""
+        """None input should return empty list with warning."""
         result = GithubWebhook._validate_custom_commands(mock_webhook, None)
         assert result == []
-        mock_webhook.logger.warning.assert_not_called()
+        mock_webhook.logger.warning.assert_called_once()
+        warning_msg = mock_webhook.logger.warning.call_args[0][0]
+        assert "not a list" in warning_msg
+        assert "NoneType" in warning_msg
 
     def test_empty_list(self, mock_webhook: Mock) -> None:
         """Empty list should return empty list."""
@@ -588,3 +591,15 @@ class TestValidateCustomCommands:
         mock_webhook.logger.warning.assert_any_call(
             f"[TEST] No valid custom commands loaded \u2014 all {len(raw)} entries were invalid"
         )
+
+    def test_skips_builtin_command_names(self, mock_webhook: Mock) -> None:
+        """Built-in command names should be skipped with warning."""
+        raw = [
+            {"name": "retest", "description": "Collides with built-in"},
+            {"name": "approve", "description": "Collides with built-in"},
+            {"name": "my-custom", "description": "Valid custom command"},
+        ]
+        result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
+        assert len(result) == 1
+        assert result[0]["name"] == "my-custom"
+        assert any("collides with built-in" in str(call) for call in mock_webhook.logger.warning.call_args_list)
