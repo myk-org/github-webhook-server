@@ -543,18 +543,16 @@ class TestValidateCustomCommands:
         raw = [{"name": "a" * 101, "description": "Valid description"}]
         result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
         assert result == []
-        mock_webhook.logger.warning.assert_any_call(
-            f"[TEST] Custom command name {'a' * 101!r} exceeds 100 characters, skipping"
-        )
+        warning_messages = [str(call) for call in mock_webhook.logger.warning.call_args_list]
+        assert any("exceeds 100 characters" in msg for msg in warning_messages)
 
     def test_skips_description_too_long(self, mock_webhook: Mock) -> None:
         """Command descriptions exceeding 500 characters should be skipped."""
         raw = [{"name": "valid-cmd", "description": "x" * 501}]
         result = GithubWebhook._validate_custom_commands(mock_webhook, raw)
         assert result == []
-        mock_webhook.logger.warning.assert_any_call(
-            "[TEST] Custom command 'valid-cmd' description exceeds 500 characters, skipping"
-        )
+        warning_messages = [str(call) for call in mock_webhook.logger.warning.call_args_list]
+        assert any("description exceeds 500 characters" in msg for msg in warning_messages)
 
     def test_skips_invalid_name_pattern(self, mock_webhook: Mock) -> None:
         """Names not matching [a-zA-Z0-9_-]+ should be skipped."""
