@@ -1618,8 +1618,9 @@ class GithubWebhook:
         """
         if not isinstance(raw_commands, list):
             prefix = getattr(self, "log_prefix", "")
+            log_msg_prefix = f"{prefix} " if prefix else ""
             self.logger.warning(
-                f"{prefix} custom-commands config is not a list (got {type(raw_commands).__name__}), skipping"
+                f"{log_msg_prefix}custom-commands config is not a list (got {type(raw_commands).__name__}), skipping"
             )
             return []
 
@@ -1671,10 +1672,12 @@ class GithubWebhook:
                 )
                 continue
 
-            if name in seen_names:
-                self.logger.warning(f"{log_msg_prefix}Custom command name {name!r} is duplicated, skipping")
+            if name.lower() in seen_names:
+                self.logger.warning(
+                    f"{log_msg_prefix}Duplicate custom command name {name!r} (case-insensitive), skipping"
+                )
                 continue
-            seen_names.add(name)
+            seen_names.add(name.lower())
 
             validated.append({"name": name, "description": description})
 
