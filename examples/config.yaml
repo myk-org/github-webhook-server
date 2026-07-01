@@ -35,6 +35,12 @@ create-issue-for-new-pr: true # Global default: create tracking issues for new P
 
 cherry-pick-assign-to-pr-author: true # Default: true - assign cherry-pick PRs to the original PR author
 
+# Additional information to display at the end of PR welcome messages (markdown)
+# welcome-extra-info: |
+#   **Note:** Please review the contribution guide before merging.
+#   - Ensure tests pass
+#   - Update documentation if needed
+
 # Commands allowed on draft PRs (optional)
 # If not set: commands are blocked on draft PRs (default behavior)
 # If empty list []: all commands allowed on draft PRs
