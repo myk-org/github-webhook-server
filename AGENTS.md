@@ -1,221 +1,105 @@
 # AGENTS.md
 
-## Internal API Philosophy
+## Commands
+- Setup: `uv sync && source .venv/bin/activate`
+- Dev server: `uv run entrypoint.py`
+- Prod server: `WEBHOOK_SERVER_DATA_DIR=/path/to/data uv run entrypoint.py`
+- Test: `uv run --group tests pytest -n auto`
+- Test + coverage: `uv run --group tests pytest -n auto --cov=webhook_server`
+- Schema tests: `uv run pytest webhook_server/tests/test_config_schema.py -v`
+- Lint fix + format: `uv run ruff check && uv run ruff format` (mutates files — use for development)
+- Type check: `uv run mypy webhook_server/`
+- Full verify (read-only): `uv run ruff check --no-fix && uv run ruff format --check && uv run mypy webhook_server/ && uv run --group tests pytest -n auto`
 
-This is a self-contained server application, NOT a public Python module.
-No backward compatibility required for internal APIs — methods, return types, and signatures can change freely.
-Backward compatibility only for: user-facing config files (`config.yaml`, `.github-webhook-server.yaml`) and webhook payload handling (GitHub spec).
+## Definition of Done
+A task is complete when ALL pass:
+1. `uv run ruff check --no-fix` exits 0
+2. `uv run ruff format --check` exits 0
+3. `uv run mypy webhook_server/` exits 0
+4. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
+5. All imports at top of file, complete type hints on all functions
 
-## Anti-Defensive Programming
+## When Blocked
+- Tests fail after 3 attempts → stop, report failing test with full output
+- PyGithub rate limit → switch token (multi-token failover is built in)
+- Missing config key → check `webhook_server/config/schema.yaml` before asking
+- Merge conflicts → stop, show conflicting files
+- 🚫 Never delete files to fix errors, force push, skip tests, or commit secrets
 
-Fail-fast on missing data. Required parameters are always provided — checking for None is overhead.
-Defensive checks are acceptable ONLY for: destructors (`__del__`), optional parameters (`Type | None`),
-lazy initialization (starts as None), platform constants, and external libraries we don't control the version of.
+## Project
+FastAPI-based GitHub webhook server automating repository management and PR workflows.
+Handlers in `webhook_server/libs/handlers/` process events; config via YAML with schema validation.
+See `docs/` for generated architecture docs (regenerate with docsfy — **NEVER edit `docs/` manually**).
 
-```python
-# ❌ WRONG - config is required, ALWAYS provided
-if self.config: value = self.config.get_value("key")
+- Stack: Python 3.13, FastAPI, PyGithub, gql, aiohttp
+- Internal APIs — no backward compat; only `config.yaml`, `.github-webhook-server.yaml`, and webhook payloads are stable
+- Config: `webhook_server/libs/config.py` (schema: `webhook_server/config/schema.yaml`)
+- GitHub API: `webhook_server/libs/github_api.py` — PyGithub REST v3, multi-token failover
+- Log viewer: `webhook_server/web/log_viewer.py` — WebSocket streaming
+- Sidecar: `sidecar-helper/` — Node.js pi-sidecar bridge for AI features (see `entrypoint.sh`)
 
-# ✅ CORRECT - fail-fast; KeyError = legitimate bug
-value = self.config.get_value("key")
-```
+## When Writing Code
 
-**NEVER return fake defaults** (`""`, `0`, `None`, `[]`, `{}`) to hide missing data — raise instead.
-
-Architecture guarantees (no defensive checks needed):
-- `repository_data` — always set before handlers instantiate
-- Webhook user objects — `user.node_id`, `user.type`, `sender` always exist
-- Known library versions — PyGithub >=2.4.0, gql >=3.5.0 (we control via `pyproject.toml`)
-
-## Architecture Overview
-
-FastAPI-based GitHub webhook server that automates repository management and PR workflows.
-
-**Handler architecture:** `webhook_server/libs/handlers/` — each handler takes `__init__(github_webhook, ...)` and implements `process_event(event_data)`. Instantiated by `app.py`.
-
-**Configuration:** `webhook_server/libs/config.py` — YAML-based with schema validation (`webhook_server/config/schema.yaml`). Global config at `/home/podman/data/config.yaml`, per-repo overrides via `.github-webhook-server.yaml`. Reloaded per webhook event.
-
-**GitHub API:** `webhook_server/libs/github_api.py` — core `GithubWebhook` class using PyGithub (REST v3). Supports multiple tokens with automatic failover.
-
-**Log viewer:** `webhook_server/web/log_viewer.py` — memory-optimized streaming with WebSocket support.
-
-## Development Commands
-
-```bash
-# Setup
-uv sync && source .venv/bin/activate
-
-# Run server
-uv run entrypoint.py                                          # dev
-WEBHOOK_SERVER_DATA_DIR=/path/to/data uv run entrypoint.py    # prod
-
-# Tests (90% coverage required)
-uv run --group tests pytest -n auto
-uv run --group tests pytest -n auto --cov=webhook_server
-
-# Code quality
-uv run ruff check && uv run ruff format && uv run mypy webhook_server/
-
-# Schema validation
-uv run pytest webhook_server/tests/test_config_schema.py -v
-```
-
-## PyGithub: Non-Blocking Operations
-
-PyGithub is synchronous — every call blocks the async event loop and freezes the server.
-ALL PyGithub operations MUST use `github_api_call()` from `webhook_server.utils.github_retry`,
-which wraps `asyncio.to_thread()` with retry for transient failures (HTTP 500/502/503/504).
-
+### PyGithub: Always Use `github_api_call()` (blocks event loop otherwise)
 ```python
 from webhook_server.utils.github_retry import github_api_call
 
-# ✅ CORRECT — method calls, property access, iteration
+# ✅ CORRECT — async, with retry for HTTP 500/502/503/504
 await github_api_call(pr.create_issue_comment, "Comment", logger=self.logger, log_prefix=self.log_prefix)
 is_draft = await github_api_call(lambda: pr.draft, logger=self.logger, log_prefix=self.log_prefix)
 commits = await github_api_call(lambda: list(pr.get_commits()), logger=self.logger, log_prefix=self.log_prefix)
 
 # ❌ WRONG — blocks event loop, no retry
 pr.create_issue_comment("Comment")
-await asyncio.to_thread(pr.create_issue_comment, "Comment")  # no retry!
 ```
+1. Method call → `github_api_call(obj.method, args)`
+2. Property (not from webhook payload) → `github_api_call(lambda: obj.prop)`
+3. PaginatedList → `github_api_call(lambda: list(...))`
+4. Webhook payload attribute (`.number`, `.title`, `.body`) → safe, no wrapping
+5. Unsure → wrap it
 
-**Decision checklist:**
-1. Calling a method? → wrap in `github_api_call()`
-2. Accessing a property not from webhook payload? → wrap in `github_api_call(lambda: ...)`
-3. Iterating PaginatedList? → wrap in `github_api_call(lambda: list(...))`
-4. Webhook payload attribute (`.number`, `.title`, `.body`)? → safe, no wrapping needed
-5. Unsure? → wrap it
-
-## Implementation Patterns
-
-### Repository Data Pre-Fetch
-
-Fetch once per webhook in `GithubWebhook.process()`, before handlers. Type is `dict[str, Any]`, never `| None`.
-
+### Anti-Defensive Programming: Fail-Fast
 ```python
-# In handlers — use pre-fetched data directly
-collaborators = self.github_webhook.repository_data['collaborators']['edges']
+# ❌ WRONG — config is required, ALWAYS provided
+if self.config: value = self.config.get_value("key")
+
+# ✅ CORRECT — fail-fast; KeyError = legitimate bug
+value = self.config.get_value("key")
 ```
+- Do not return fake defaults (`""`, `0`, `None`, `[]`, `{}`) to hide missing data — raise instead
+- Defensive checks OK only for: `__del__`, `Type | None` params, lazy init, external libs
+- Guarantees: `repository_data` always set before handlers; webhook `user.node_id`/`sender` always exist
 
-### Repository Cloning Optimization (check_run)
+### Patterns
+- Logging: `get_logger_with_params(name=, repository=, hook_id=)` — use `logger.exception()` for tracebacks
+- Config: `Config(repository="org/repo").get_value("key", default)`
+- Pre-fetched data: `self.github_webhook.repository_data['collaborators']['edges']` — `dict[str, Any]`, never None
+- Context tracking: `get_context()` → `start_step()` / `complete_step()` / `fail_step()` (see `app.py`)
+- Always re-raise `asyncio.CancelledError`
+- All imports at top — no in-function imports (`TYPE_CHECKING` conditional imports are OK)
 
-Location: `webhook_server/libs/github_api.py` lines 534-570. Skips cloning for `action != "completed"` and `can-be-merged` with non-success conclusion (90-95% reduction in unnecessary clones).
+## When Adding a Handler
+1. Create `webhook_server/libs/handlers/<name>.py` — implement `__init__(self, github_webhook, ...)` + `process_event(event_data)`
+2. Add tests in `webhook_server/tests/test_<name>_handler.py`
+3. Register in `app.py`
+4. Run: `uv run --group tests pytest -n auto --cov=webhook_server`
 
-### Configuration Access
-
-```python
-config = Config(repository="org/repo-name")
-value = config.get_value("setting-name", default_value)
-```
-
-### Logging
-
-```python
-from webhook_server.utils.helpers import get_logger_with_params
-
-logger = get_logger_with_params(name="component", repository="org/repo", hook_id="delivery-id")
-logger.info("General information")
-logger.exception("Error with traceback")  # Preferred over logger.error(..., exc_info=True)
-```
-
-### Structured Webhook Logging
-
-JSON-based execution tracking via `ContextVar`. Created in `app.py` with `create_context()`.
-
-```python
-ctx = get_context()
-ctx.start_step("clone_repository", branch="main")
-try:
-    await clone_repo()
-    ctx.complete_step("clone_repository", commit_sha="abc123")
-except Exception as ex:
-    ctx.fail_step("clone_repository", exception=ex, traceback_str=traceback.format_exc())
-    raise
-```
-
-Log files: `{config.data_dir}/logs/webhooks_YYYY-MM-DD.json` (daily rotation, pretty-printed JSON).
-
-### Exception Handling
-
-Use `logger.exception()` for automatic traceback. Catch specific exceptions when possible.
-Always re-raise `asyncio.CancelledError`.
-
-## Code Rules
-
-- **Imports:** All at top of file. No in-function imports. `TYPE_CHECKING` imports can be conditional.
-- **Type hints:** Complete type hints required (mypy strict mode).
-- **Test coverage:** 90% required. New code without tests fails CI. Tests in `webhook_server/tests/`.
-
-## Testing Patterns
-
-```python
-# Mock testing — patch asyncio.to_thread since github_api_call delegates to it
-with patch("asyncio.to_thread", side_effect=mock_to_thread):
-    result = await unified_api.get_pr_for_check_runs(owner, repo, number)
-
-# Test tokens
-TEST_GITHUB_TOKEN = "ghp_test1234..."  # pragma: allowlist secret
-```
-
-## Security
-
-**Log viewer endpoints (`/logs/*`) are unauthenticated.** Deploy only on trusted networks.
-Never expose to public internet. Logs contain tokens, webhook payloads, user information.
-
-**Tokens:** Store in env vars or secret management. Use multiple tokens for rate limit distribution.
-Never commit to repository. Mask sensitive data in logs (see `mask-sensitive-data` in schema).
-
-## Common Development Tasks
-
-### Adding a New Handler
-
-1. Create file in `webhook_server/libs/handlers/`
-2. Implement `__init__(self, github_webhook, ...)` and `process_event(event_data)`
-3. Add tests in `webhook_server/tests/test_*_handler.py`
-4. Update `app.py` to instantiate handler
-
-### Updating Configuration Schema
-
+## When Updating Config
 1. Edit `webhook_server/config/schema.yaml`
-2. Run `uv run pytest webhook_server/tests/test_config_schema.py -v`
+2. Run: `uv run pytest webhook_server/tests/test_config_schema.py -v`
 3. Update `examples/config.yaml`
 
-### PR Test Oracle
+## When Testing
+- Mock PyGithub: patch `asyncio.to_thread` since `github_api_call` delegates to it
+- Test tokens: `TEST_GITHUB_TOKEN = "ghp_test1234..."  # pragma: allowlist secret`
+- Tests location: `webhook_server/tests/`
 
-External AI test recommendation service via [pr-test-oracle](https://github.com/myk-org/pr-test-oracle).
-Config: `test-oracle` in schema. Command: `/test-oracle`. Module: `webhook_server/libs/test_oracle.py`.
-On error: health check failure posts PR comment, analyze errors log only. Never breaks webhook processing.
+## Security
+- **NEVER expose log viewer (`/logs/*`) to public internet** — endpoints are unauthenticated; deploy on trusted networks only
+- Tokens: env vars or secret management, never committed — use `mask-sensitive-data` schema option
+- AI conflict resolution prompts include user-controlled commit messages — mitigated by restricting AI to read-only tools + file edit/write (no bash)
 
-### AI Features
-
-Config: `ai-features` (global or per-repo). Sub-features: `conventional-title`, `resolve-cherry-pick-conflicts-with-ai`.
-Module: `webhook_server/libs/ai_cli.py` (pi-sidecar wrapper). On failure: error logged, flow continues.
-
-Post-resolution verification: `_verify_cherry_pick_scope()` compares `git diff --stat` of original vs cherry-pick. Logs warning if cherry-pick has fewer file changes. Informational only.
-
-Required env vars for pi-sidecar: `ACPX_AGENTS=cursor`, `VERTEX_CLAUDE_1M=true`, `GOOGLE_APPLICATION_CREDENTIALS`.
-
-### Sidecar Architecture
-
-`sidecar-helper/` — Node.js pi-sidecar bridge for AI provider integration. Minimal TypeScript wrapper importing `@myk-org/pi-sidecar`.
-
-**Container startup (`entrypoint.sh`):**
-1. Start sidecar background process
-2. Register cleanup trap + monitor subshell (kills PID 1 if sidecar dies)
-3. Wait for sidecar readiness (polls `/health`, up to 15s)
-4. `exec uv run entrypoint.py`
-
-`SIDECAR_PORT` env var controls listen port (default: `9100`).
-
-**Tool server:** aiohttp on port `5001` (`webhook_server/web/tool_server.py`). Dedicated thread, own event loop. `TOOL_REGISTRY` pattern — registers `git_diff`, `git_log`, `git_show`, `git_status`. Localhost-only.
-
-**Healthcheck:** Dockerfile verifies both webhook server (`:5000`) and sidecar (`:${SIDECAR_PORT}`).
-
-**Docker build:** Multi-stage — `sidecar-builder` (node:22-slim) runs `npm ci`, `npx tsc`, `npm prune --omit=dev`. Final stage copies `dist/`, `node_modules/` (production), `package.json`.
-
-**Security:** AI conflict resolution prompt includes user-controlled commit messages. Mitigated by restricting AI to read-only tools + file edit/write — no bash access.
-
-## Generated Documentation
-
-The `docs/` directory contains AI-generated documentation from docsfy.
-**NEVER edit these files manually.** To update documentation, regenerate using docsfy.
+## Boundaries
+- ✅ Always: run full verify before committing, type hints on all functions, wrap PyGithub in `github_api_call()`
+- ⚠️ Ask first: adding dependencies, modifying `entrypoint.sh`, changing schema structure
+- 🚫 Never: edit `docs/` manually (regenerate with docsfy), commit tokens/secrets, use `python`/`pip` directly (use `uv`)
