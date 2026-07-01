@@ -7,13 +7,13 @@
 - Test: `uv run --group tests pytest -n auto`
 - Test + coverage: `uv run --group tests pytest -n auto --cov=webhook_server`
 - Schema tests: `uv run pytest webhook_server/tests/test_config_schema.py -v`
-- Lint + format: `uv run ruff check && uv run ruff format`
+- Lint fix + format: `uv run ruff check && uv run ruff format` (mutates files — use for development)
 - Type check: `uv run mypy webhook_server/`
-- Full verify: `uv run ruff check && uv run ruff format && uv run mypy webhook_server/ && uv run --group tests pytest -n auto`
+- Full verify (read-only): `uv run ruff check --no-fix && uv run ruff format --check && uv run mypy webhook_server/ && uv run --group tests pytest -n auto`
 
 ## Definition of Done
 A task is complete when ALL pass:
-1. `uv run ruff check` exits 0
+1. `uv run ruff check --no-fix` exits 0
 2. `uv run ruff format --check` exits 0
 3. `uv run mypy webhook_server/` exits 0
 4. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
