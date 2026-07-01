@@ -1006,3 +1006,72 @@ class TestConfigSchema:
             }
         finally:
             shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_global_valid(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test valid welcome-extra-info at global level."""
+        config = valid_minimal_config.copy()
+        config["welcome-extra-info"] = "Please review guidelines."
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert config_obj.root_data["welcome-extra-info"] == "Please review guidelines."
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_global_type_violation(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that welcome-extra-info with integer type still loads (runtime guard handles it)."""
+        config = valid_minimal_config.copy()
+        config["welcome-extra-info"] = 12345
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert config_obj.root_data["welcome-extra-info"] == 12345
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_repository_level(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test valid welcome-extra-info at per-repo level."""
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["welcome-extra-info"] = "Repo-specific welcome info."
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            repo_data = config_obj.root_data["repositories"]["test-repo"]
+            assert repo_data["welcome-extra-info"] == "Repo-specific welcome info."
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_max_length(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that welcome-extra-info exceeding 10240 chars loads (runtime guard handles it)."""
+        config = valid_minimal_config.copy()
+        config["welcome-extra-info"] = "x" * 10241
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert len(config_obj.root_data["welcome-extra-info"]) == 10241
+        finally:
+            shutil.rmtree(temp_dir)

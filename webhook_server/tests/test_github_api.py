@@ -2818,7 +2818,7 @@ class TestLoadWelcomeExtraInfoFromFile:
     """Tests for _load_welcome_extra_info_from_file."""
 
     @pytest.fixture()
-    def github_webhook(self, process_github_webhook):
+    def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
         """Create a GithubWebhook instance for welcome extra info tests."""
         gw = process_github_webhook
         gw.welcome_extra_info = "config value"
@@ -2826,7 +2826,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         return gw
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_success(self, github_webhook):
+    async def test_load_from_file_success(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 100
         content_file.decoded_content = b"# Custom welcome\nSome info"
@@ -2841,7 +2841,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "# Custom welcome\nSome info"
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_too_large(self, github_webhook):
+    async def test_load_from_file_too_large(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 20000
 
@@ -2855,7 +2855,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "config value"
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_not_found(self, github_webhook):
+    async def test_load_from_file_not_found(self, github_webhook: GithubWebhook) -> None:
         async def mock_to_thread(func, *args, **kwargs):
             return func(*args, **kwargs) if callable(func) else func
 
@@ -2866,7 +2866,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "config value"
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_exception(self, github_webhook):
+    async def test_load_from_file_exception(self, github_webhook: GithubWebhook) -> None:
         async def mock_to_thread(func, *args, **kwargs):
             return func(*args, **kwargs) if callable(func) else func
 
@@ -2877,7 +2877,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "config value"
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_empty(self, github_webhook):
+    async def test_load_from_file_empty(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 0
         content_file.decoded_content = b""
@@ -2892,7 +2892,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == ""
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_list_response(self, github_webhook):
+    async def test_load_from_file_list_response(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 50
         content_file.decoded_content = b"List content"
@@ -2907,7 +2907,7 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "List content"
 
     @pytest.mark.asyncio()
-    async def test_load_from_file_unicode_error(self, github_webhook):
+    async def test_load_from_file_unicode_error(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 10
         content_file.decoded_content = b"\xff\xfe invalid"
@@ -2920,3 +2920,43 @@ class TestLoadWelcomeExtraInfoFromFile:
             await github_webhook._load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "config value"
+
+
+class TestWelcomeExtraInfoConfigGuard:
+    """Tests for welcome-extra-info runtime guard in _repo_data_from_config."""
+
+    @pytest.fixture()
+    def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
+        """Create a GithubWebhook instance for config guard tests."""
+        return process_github_webhook
+
+    def test_config_welcome_extra_info_oversized(self, github_webhook: GithubWebhook) -> None:
+        """Test that oversized config value is cleared by the guard."""
+        oversized_value = "x" * 10241
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                oversized_value if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == ""
+
+    def test_config_welcome_extra_info_not_string(self, github_webhook: GithubWebhook) -> None:
+        """Test that non-string config value is cleared by the guard."""
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                12345 if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == ""
+
+    def test_config_welcome_extra_info_valid(self, github_webhook: GithubWebhook) -> None:
+        """Test that valid config value is kept."""
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                "Valid info" if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == "Valid info"

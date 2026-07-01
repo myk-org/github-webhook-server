@@ -1934,6 +1934,7 @@ For more information, please refer to the project documentation or contact the m
         If a welcome message exists, it will be updated.
         If no welcome message exists, a new one will be created.
         """
+        await self.github_webhook._load_welcome_extra_info_from_file()
         welcome_msg = self._prepare_welcome_comment()
 
         def find_and_update_welcome_comment() -> bool:

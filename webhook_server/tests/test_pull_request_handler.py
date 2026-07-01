@@ -3372,23 +3372,23 @@ class TestPrepareExtraInfoWelcomeSection:
         handler.labels_handler.is_label_enabled = Mock(return_value=True)
         return handler
 
-    def test_extra_info_present(self, pull_request_handler):
+    def test_extra_info_present(self, pull_request_handler: PullRequestHandler) -> None:
         pull_request_handler.github_webhook.welcome_extra_info = "Custom info text"
         result = pull_request_handler._prepare_extra_info_welcome_section
         assert "### \U0001f4cc Additional Information\n\n" in result
         assert "Custom info text" in result
 
-    def test_extra_info_empty(self, pull_request_handler):
+    def test_extra_info_empty(self, pull_request_handler: PullRequestHandler) -> None:
         pull_request_handler.github_webhook.welcome_extra_info = ""
         result = pull_request_handler._prepare_extra_info_welcome_section
         assert result == ""
 
-    def test_extra_info_none(self, pull_request_handler):
+    def test_extra_info_none(self, pull_request_handler: PullRequestHandler) -> None:
         pull_request_handler.github_webhook.welcome_extra_info = None
         result = pull_request_handler._prepare_extra_info_welcome_section
         assert result == ""
 
-    def test_extra_info_multiline_markdown(self, pull_request_handler):
+    def test_extra_info_multiline_markdown(self, pull_request_handler: PullRequestHandler) -> None:
         pull_request_handler.github_webhook.welcome_extra_info = "**Bold** and *italic*\n- Item 1\n- Item 2"
         result = pull_request_handler._prepare_extra_info_welcome_section
         assert "### \U0001f4cc Additional Information\n\n" in result
