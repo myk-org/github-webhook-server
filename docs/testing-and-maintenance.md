@@ -75,6 +75,7 @@ A representative example from `webhook_server/tests/test_app.py` posts a webhook
 def client(self) -> TestClient:
     return TestClient(FASTAPI_APP)
 
+
 @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
 @patch("webhook_server.app.GithubWebhook")
 def test_process_webhook_success(

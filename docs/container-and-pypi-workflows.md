@@ -82,11 +82,7 @@ The tag-selection logic in the code is:
 ```python
 if is_merged:
     pull_request_branch = pull_request.base.ref
-    tag = (
-        pull_request_branch
-        if pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
-        else self.container_tag
-    )
+    tag = pull_request_branch if pull_request_branch not in (OTHER_MAIN_BRANCH, "main") else self.container_tag
 else:
     tag = f"pr-{pull_request.number}"
 ```

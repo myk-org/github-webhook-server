@@ -1024,22 +1024,21 @@ class TestConfigSchema:
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_welcome_extra_info_global_type_violation(
-        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that welcome-extra-info with integer type still loads (runtime guard handles it)."""
-        config = valid_minimal_config.copy()
-        config["welcome-extra-info"] = 12345
+    def test_welcome_extra_info_schema_defines_string_type(self) -> None:
+        """Test that schema defines welcome-extra-info as type string."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
 
-        temp_dir = self.create_temp_config_dir_and_data(config)
+        # Global level
+        global_props = schema["properties"]
+        assert "welcome-extra-info" in global_props
+        assert global_props["welcome-extra-info"]["type"] == "string"
 
-        try:
-            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
-
-            config_obj = Config()
-            assert config_obj.root_data["welcome-extra-info"] == 12345
-        finally:
-            shutil.rmtree(temp_dir)
+        # Per-repo level
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert "welcome-extra-info" in repo_props
+        assert repo_props["welcome-extra-info"]["type"] == "string"
 
     def test_welcome_extra_info_repository_level(
         self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
@@ -1059,19 +1058,16 @@ class TestConfigSchema:
         finally:
             shutil.rmtree(temp_dir)
 
-    def test_welcome_extra_info_max_length(
-        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that welcome-extra-info exceeding 10240 chars loads (runtime guard handles it)."""
-        config = valid_minimal_config.copy()
-        config["welcome-extra-info"] = "x" * 10241
+    def test_welcome_extra_info_schema_defines_max_length(self) -> None:
+        """Test that schema defines welcome-extra-info with maxLength 10240."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
 
-        temp_dir = self.create_temp_config_dir_and_data(config)
+        # Global level
+        global_props = schema["properties"]
+        assert global_props["welcome-extra-info"]["maxLength"] == 10240
 
-        try:
-            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
-
-            config_obj = Config()
-            assert len(config_obj.root_data["welcome-extra-info"]) == 10241
-        finally:
-            shutil.rmtree(temp_dir)
+        # Per-repo level
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert repo_props["welcome-extra-info"]["maxLength"] == 10240

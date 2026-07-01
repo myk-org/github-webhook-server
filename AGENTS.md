@@ -61,7 +61,8 @@ pr.create_issue_comment("Comment")
 ### Anti-Defensive Programming: Fail-Fast
 ```python
 # ❌ WRONG — config is required, ALWAYS provided
-if self.config: value = self.config.get_value("key")
+if self.config:
+    value = self.config.get_value("key")
 
 # ✅ CORRECT — fail-fast; KeyError = legitimate bug
 value = self.config.get_value("key")

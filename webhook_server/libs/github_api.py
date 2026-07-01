@@ -1127,10 +1127,9 @@ class GithubWebhook:
                 f"welcome-extra-info must be a string, got {type(self.welcome_extra_info).__name__}. Ignoring."
             )
             self.welcome_extra_info = ""
-        elif len(self.welcome_extra_info) > 10240:
-            self.logger.warning(
-                f"welcome-extra-info exceeds 10KB limit ({len(self.welcome_extra_info)} bytes). Ignoring."
-            )
+        elif len(self.welcome_extra_info.encode("utf-8")) > 10240:
+            _byte_len = len(self.welcome_extra_info.encode("utf-8"))
+            self.logger.warning(f"welcome-extra-info exceeds 10KB limit ({_byte_len} bytes). Ignoring.")
             self.welcome_extra_info = ""
 
     async def _build_trusted_committers(self, api_users: list[str | None] | None = None) -> None:
