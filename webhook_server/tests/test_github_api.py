@@ -2931,8 +2931,9 @@ class TestWelcomeExtraInfoConfigGuard:
         return process_github_webhook
 
     def test_config_welcome_extra_info_oversized(self, github_webhook: GithubWebhook) -> None:
-        """Test that oversized config value is cleared by the guard."""
-        oversized_value = "x" * 10241
+        """Test that oversized config value is cleared by the guard using byte length."""
+        # Use 2-byte UTF-8 characters (é) so 5121 chars = 10242 bytes > 10240 limit
+        oversized_value = "é" * 5121
         github_webhook.config.get_value = MagicMock(
             side_effect=lambda value="", return_on_none=None, extra_dict=None: (
                 oversized_value if value == "welcome-extra-info" else MagicMock()
