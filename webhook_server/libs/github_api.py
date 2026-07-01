@@ -691,9 +691,10 @@ class GithubWebhook:
                     github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
                 )
 
-            if self.github_event == "issue_comment" or (
-                self.github_event == "pull_request"
-                and self.hook_data.get("action") in ("opened", "reopened", "ready_for_review")
+            if self.github_event == "pull_request" and self.hook_data.get("action") in (
+                "opened",
+                "reopened",
+                "ready_for_review",
             ):
                 await self._load_welcome_extra_info_from_file()
 
@@ -1120,6 +1121,17 @@ class GithubWebhook:
         self.welcome_extra_info = self.config.get_value(
             "welcome-extra-info", return_on_none="", extra_dict=repository_config
         )
+
+        if not isinstance(self.welcome_extra_info, str):
+            self.logger.warning(
+                f"welcome-extra-info must be a string, got {type(self.welcome_extra_info).__name__}. Ignoring."
+            )
+            self.welcome_extra_info = ""
+        elif len(self.welcome_extra_info) > 10240:
+            self.logger.warning(
+                f"welcome-extra-info exceeds 10KB limit ({len(self.welcome_extra_info)} bytes). Ignoring."
+            )
+            self.welcome_extra_info = ""
 
     async def _build_trusted_committers(self, api_users: list[str | None] | None = None) -> None:
         """Add dynamic entries to trusted-committers list.
