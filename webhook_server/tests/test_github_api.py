@@ -1,7 +1,7 @@
 import asyncio
 import os
 import tempfile
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -2815,7 +2815,7 @@ class TestGithubWebhook:
 
 
 class TestLoadWelcomeExtraInfoFromFile:
-    """Tests for _load_welcome_extra_info_from_file."""
+    """Tests for load_welcome_extra_info_from_file."""
 
     @pytest.fixture()
     def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
@@ -2825,18 +2825,22 @@ class TestLoadWelcomeExtraInfoFromFile:
         gw.repository = MagicMock()
         return gw
 
+    @pytest.fixture(autouse=True)
+    def patch_to_thread(self) -> Generator[None]:
+        async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            yield
+
     @pytest.mark.asyncio()
     async def test_load_from_file_success(self, github_webhook: GithubWebhook) -> None:
         content_file = MagicMock()
         content_file.size = 100
         content_file.decoded_content = b"# Custom welcome\nSome info"
 
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.return_value = content_file
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.return_value = content_file
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "# Custom welcome\nSome info"
 
@@ -2845,34 +2849,22 @@ class TestLoadWelcomeExtraInfoFromFile:
         content_file = MagicMock()
         content_file.size = 20000
 
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.return_value = content_file
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.return_value = content_file
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "config value"
 
     @pytest.mark.asyncio()
     async def test_load_from_file_not_found(self, github_webhook: GithubWebhook) -> None:
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.side_effect = UnknownObjectException(404, "Not found", None)
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.side_effect = UnknownObjectException(404, "Not found", None)
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "config value"
 
     @pytest.mark.asyncio()
     async def test_load_from_file_exception(self, github_webhook: GithubWebhook) -> None:
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.side_effect = Exception("API error")
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.side_effect = Exception("API error")
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "config value"
 
@@ -2882,12 +2874,8 @@ class TestLoadWelcomeExtraInfoFromFile:
         content_file.size = 0
         content_file.decoded_content = b""
 
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.return_value = content_file
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.return_value = content_file
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == ""
 
@@ -2897,12 +2885,8 @@ class TestLoadWelcomeExtraInfoFromFile:
         content_file.size = 50
         content_file.decoded_content = b"List content"
 
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.return_value = [content_file]
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.return_value = [content_file]
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "List content"
 
@@ -2912,12 +2896,8 @@ class TestLoadWelcomeExtraInfoFromFile:
         content_file.size = 10
         content_file.decoded_content = b"\xff\xfe invalid"
 
-        async def mock_to_thread(func, *args, **kwargs):
-            return func(*args, **kwargs) if callable(func) else func
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            github_webhook.repository.get_contents.return_value = content_file
-            await github_webhook._load_welcome_extra_info_from_file()
+        github_webhook.repository.get_contents.return_value = content_file
+        await github_webhook.load_welcome_extra_info_from_file()
 
         assert github_webhook.welcome_extra_info == "config value"
 

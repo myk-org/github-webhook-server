@@ -63,6 +63,8 @@ from webhook_server.utils.helpers import (
 )
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_WELCOME_EXTRA_INFO_MAX_BYTES: int = 10240
+_WELCOME_EXTRA_INFO_FILENAME: str = ".github-webhook-server-welcome-message.md"
 
 
 class CountingRequester:
@@ -696,7 +698,7 @@ class GithubWebhook:
                 "reopened",
                 "ready_for_review",
             ):
-                await self._load_welcome_extra_info_from_file()
+                await self.load_welcome_extra_info_from_file()
 
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
@@ -1129,8 +1131,9 @@ class GithubWebhook:
             self.welcome_extra_info = ""
         else:
             _byte_len = len(self.welcome_extra_info.encode("utf-8"))
-            if _byte_len > 10240:
-                _msg = f"welcome-extra-info exceeds 10KB limit ({_byte_len} bytes). Ignoring."
+            if _byte_len > _WELCOME_EXTRA_INFO_MAX_BYTES:
+                _max = _WELCOME_EXTRA_INFO_MAX_BYTES
+                _msg = f"welcome-extra-info exceeds {_max}-byte limit ({_byte_len} bytes). Ignoring."
                 self.logger.warning(f"{_prefix} {_msg}")
                 self.welcome_extra_info = ""
 
@@ -1167,25 +1170,25 @@ class GithubWebhook:
 
         self.logger.debug(f"{self.log_prefix} Trusted committers: {self.security_trusted_committers}")
 
-    async def _load_welcome_extra_info_from_file(self) -> None:
-        """Load welcome extra info from .github-webhook-server-welcome-message.md in the repo.
+    async def load_welcome_extra_info_from_file(self) -> None:
+        """Load welcome extra info from the repo-level welcome message file.
 
         This file takes priority over all config-based welcome-extra-info settings.
-        File must be UTF-8 and at most 10KB.
+        File must be UTF-8 and at most _WELCOME_EXTRA_INFO_MAX_BYTES bytes (10 KB).
         """
         try:
             _path = await github_api_call(
-                lambda: self.repository.get_contents(".github-webhook-server-welcome-message.md"),
+                lambda: self.repository.get_contents(_WELCOME_EXTRA_INFO_FILENAME),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
             content_file = _path[0] if isinstance(_path, list) else _path
 
             file_size = await github_api_call(lambda: content_file.size, logger=self.logger, log_prefix=self.log_prefix)
-            if file_size > 10240:
+            if file_size > _WELCOME_EXTRA_INFO_MAX_BYTES:
                 self.logger.warning(
-                    f"{self.log_prefix} .github-webhook-server-welcome-message.md is too large "
-                    f"({file_size} bytes, max 10240). Skipping file, using config value."
+                    f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} is too large "
+                    f"({file_size} bytes, max {_WELCOME_EXTRA_INFO_MAX_BYTES}). Skipping file, using config value."
                 )
                 return
 
@@ -1196,26 +1199,20 @@ class GithubWebhook:
             self.welcome_extra_info = decoded
             if decoded:
                 self.logger.info(
-                    f"{self.log_prefix} Loaded welcome extra info from .github-webhook-server-welcome-message.md "
+                    f"{self.log_prefix} Loaded welcome extra info from {_WELCOME_EXTRA_INFO_FILENAME} "
                     f"({len(decoded)} chars)"
                 )
             else:
                 self.logger.info(
-                    f"{self.log_prefix} Empty .github-webhook-server-welcome-message.md found, "
+                    f"{self.log_prefix} Empty {_WELCOME_EXTRA_INFO_FILENAME} found, "
                     "suppressing config-based welcome extra info"
                 )
         except UnknownObjectException:
-            self.logger.debug(
-                f"{self.log_prefix} .github-webhook-server-welcome-message.md not found, using config value"
-            )
+            self.logger.debug(f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} not found, using config value")
         except UnicodeDecodeError:
-            self.logger.warning(
-                f"{self.log_prefix} .github-webhook-server-welcome-message.md is not valid UTF-8, skipping file"
-            )
+            self.logger.warning(f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} is not valid UTF-8, skipping file")
         except Exception:
-            self.logger.exception(
-                f"{self.log_prefix} Error loading .github-webhook-server-welcome-message.md, using config value"
-            )
+            self.logger.exception(f"{self.log_prefix} Error loading {_WELCOME_EXTRA_INFO_FILENAME}, using config value")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
