@@ -695,7 +695,6 @@ class GithubWebhook:
 
             if self.github_event == "pull_request" and self.hook_data.get("action") in (
                 "opened",
-                "reopened",
                 "ready_for_review",
             ):
                 await self.load_welcome_extra_info_from_file()
