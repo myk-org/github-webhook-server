@@ -527,6 +527,7 @@ This PR will be automatically approved when the following conditions are met:
 ### 💡 Tips
 
 {self._prepare_tips_section}
+{self._prepare_extra_info_welcome_section}\
 
 For more information, please refer to the project documentation or contact the maintainers.
     """
@@ -690,6 +691,19 @@ For more information, please refer to the project documentation or contact the m
         tips.append("* **Auto-verified Users**: Certain users have automatic verification and merge privileges")
 
         return "\n".join(tips)
+
+    @property
+    def _prepare_extra_info_welcome_section(self) -> str:
+        """Prepare the Additional Information section for the welcome comment.
+
+        Renders user-provided extra information from configuration or
+        .github-webhook-server-welcome-message.md file.
+        Content is injected as-is (markdown).
+        """
+        if not self.github_webhook.welcome_extra_info:
+            return ""
+
+        return f"\n### 📌 Additional Information\n\n{self.github_webhook.welcome_extra_info}\n"
 
     @property
     def _prepare_ai_features_welcome_section(self) -> str:
@@ -1920,6 +1934,7 @@ For more information, please refer to the project documentation or contact the m
         If a welcome message exists, it will be updated.
         If no welcome message exists, a new one will be created.
         """
+        await self.github_webhook._load_welcome_extra_info_from_file()
         welcome_msg = self._prepare_welcome_comment()
 
         def find_and_update_welcome_comment() -> bool:

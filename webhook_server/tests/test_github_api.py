@@ -4,10 +4,10 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 from simple_logger.logger import get_logger
 from starlette.datastructures import Headers
 
@@ -2812,3 +2812,152 @@ class TestGithubWebhook:
             "version": True,
             "title": True,
         }
+
+
+class TestLoadWelcomeExtraInfoFromFile:
+    """Tests for _load_welcome_extra_info_from_file."""
+
+    @pytest.fixture()
+    def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
+        """Create a GithubWebhook instance for welcome extra info tests."""
+        gw = process_github_webhook
+        gw.welcome_extra_info = "config value"
+        gw.repository = MagicMock()
+        return gw
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_success(self, github_webhook: GithubWebhook) -> None:
+        content_file = MagicMock()
+        content_file.size = 100
+        content_file.decoded_content = b"# Custom welcome\nSome info"
+
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.return_value = content_file
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "# Custom welcome\nSome info"
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_too_large(self, github_webhook: GithubWebhook) -> None:
+        content_file = MagicMock()
+        content_file.size = 20000
+
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.return_value = content_file
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "config value"
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_not_found(self, github_webhook: GithubWebhook) -> None:
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.side_effect = UnknownObjectException(404, "Not found", None)
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "config value"
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_exception(self, github_webhook: GithubWebhook) -> None:
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.side_effect = Exception("API error")
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "config value"
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_empty(self, github_webhook: GithubWebhook) -> None:
+        content_file = MagicMock()
+        content_file.size = 0
+        content_file.decoded_content = b""
+
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.return_value = content_file
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == ""
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_list_response(self, github_webhook: GithubWebhook) -> None:
+        content_file = MagicMock()
+        content_file.size = 50
+        content_file.decoded_content = b"List content"
+
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.return_value = [content_file]
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "List content"
+
+    @pytest.mark.asyncio()
+    async def test_load_from_file_unicode_error(self, github_webhook: GithubWebhook) -> None:
+        content_file = MagicMock()
+        content_file.size = 10
+        content_file.decoded_content = b"\xff\xfe invalid"
+
+        async def mock_to_thread(func, *args, **kwargs):
+            return func(*args, **kwargs) if callable(func) else func
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread):
+            github_webhook.repository.get_contents.return_value = content_file
+            await github_webhook._load_welcome_extra_info_from_file()
+
+        assert github_webhook.welcome_extra_info == "config value"
+
+
+class TestWelcomeExtraInfoConfigGuard:
+    """Tests for welcome-extra-info runtime guard in _repo_data_from_config."""
+
+    @pytest.fixture()
+    def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
+        """Create a GithubWebhook instance for config guard tests."""
+        return process_github_webhook
+
+    def test_config_welcome_extra_info_oversized(self, github_webhook: GithubWebhook) -> None:
+        """Test that oversized config value is cleared by the guard using byte length."""
+        # Use 2-byte UTF-8 characters (é) so 5121 chars = 10242 bytes > 10240 limit
+        oversized_value = "é" * 5121
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                oversized_value if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == ""
+
+    def test_config_welcome_extra_info_not_string(self, github_webhook: GithubWebhook) -> None:
+        """Test that non-string config value is cleared by the guard."""
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                12345 if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == ""
+
+    def test_config_welcome_extra_info_valid(self, github_webhook: GithubWebhook) -> None:
+        """Test that valid config value is kept."""
+        github_webhook.config.get_value = MagicMock(
+            side_effect=lambda value="", return_on_none=None, extra_dict=None: (
+                "Valid info" if value == "welcome-extra-info" else MagicMock()
+            )
+        )
+        github_webhook._repo_data_from_config(repository_config={})
+        assert github_webhook.welcome_extra_info == "Valid info"

@@ -98,6 +98,7 @@ class TestPullRequestHandler:
         mock_webhook.security_committer_identity_check = True
         mock_webhook.security_mandatory = True
         mock_webhook.last_committer = "test-user"
+        mock_webhook.welcome_extra_info = ""
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
         return mock_webhook
@@ -3295,3 +3296,101 @@ class TestPullRequestHandler:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_test_oracle.assert_not_called()
             mock_create_task.assert_not_called()
+
+
+class TestPrepareExtraInfoWelcomeSection:
+    """Tests for _prepare_extra_info_welcome_section."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance."""
+        mock_webhook = Mock(spec=GithubWebhook)
+        mock_webhook.hook_data = {
+            "action": "opened",
+            "pull_request": {"number": 123, "merged": False, "title": "Test PR"},
+            "sender": {"login": "test-user"},
+            "label": {"name": "bug"},
+        }
+        mock_webhook.logger = MagicMock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository_full_name = "test-org/test-repo"
+        mock_webhook.repository = Mock()
+        mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
+        mock_webhook.parent_committer = "test-user"
+        mock_webhook.auto_verified_and_merged_users = ["test-user"]
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.verified_job = True
+        mock_webhook.build_and_push_container = True
+        mock_webhook.container_repository_and_tag = Mock(return_value="test-repo:pr-123")
+        mock_webhook.can_be_merged_required_labels = []
+        mock_webhook.set_auto_merge_prs = []
+        mock_webhook.auto_merge_enabled = True
+        mock_webhook.container_repository = "docker.io/org/repo"
+        mock_webhook.conventional_title = False
+        mock_webhook.minimum_lgtm = 1
+        mock_webhook.container_repository_username = "test-user"
+        mock_webhook.container_repository_password = "test-password"  # pragma: allowlist secret
+        mock_webhook.github_api = Mock()
+        mock_webhook.tox = True
+        mock_webhook.pre_commit = True
+        mock_webhook.python_module_install = False
+        mock_webhook.pypi = False
+        mock_webhook.token = TEST_GITHUB_TOKEN
+        mock_webhook.auto_verify_cherry_picked_prs = True
+        mock_webhook.cherry_pick_assign_to_pr_author = True
+        mock_webhook.last_commit = Mock()
+        mock_webhook.ctx = None
+        mock_webhook.enabled_labels = None
+        mock_webhook.custom_check_runs = []
+        mock_webhook.ai_features = None
+        mock_webhook.required_conversation_resolution = False
+        mock_webhook.security_suspicious_paths = []
+        mock_webhook.security_committer_identity_check = True
+        mock_webhook.security_mandatory = True
+        mock_webhook.last_committer = "test-user"
+        mock_webhook.welcome_extra_info = ""
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=None)
+        return mock_webhook
+
+    @pytest.fixture
+    def mock_owners_file_handler(self) -> Mock:
+        """Create a mock OwnersFileHandler instance."""
+        mock_handler = Mock(spec=OwnersFileHandler)
+        mock_handler.all_pull_request_approvers = ["approver1", "approver2"]
+        mock_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
+        mock_handler.root_approvers = ["root-approver"]
+        mock_handler.root_reviewers = ["root-reviewer"]
+        mock_handler.assign_reviewers = AsyncMock()
+        return mock_handler
+
+    @pytest.fixture
+    def pull_request_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> PullRequestHandler:
+        """Create a PullRequestHandler instance with mocked dependencies."""
+        handler = PullRequestHandler(mock_github_webhook, mock_owners_file_handler)
+        handler.labels_handler = Mock()
+        handler.labels_handler.is_label_enabled = Mock(return_value=True)
+        return handler
+
+    def test_extra_info_present(self, pull_request_handler: PullRequestHandler) -> None:
+        pull_request_handler.github_webhook.welcome_extra_info = "Custom info text"
+        result = pull_request_handler._prepare_extra_info_welcome_section
+        assert "### \U0001f4cc Additional Information\n\n" in result
+        assert "Custom info text" in result
+
+    def test_extra_info_empty(self, pull_request_handler: PullRequestHandler) -> None:
+        pull_request_handler.github_webhook.welcome_extra_info = ""
+        result = pull_request_handler._prepare_extra_info_welcome_section
+        assert result == ""
+
+    def test_extra_info_none(self, pull_request_handler: PullRequestHandler) -> None:
+        pull_request_handler.github_webhook.welcome_extra_info = None
+        result = pull_request_handler._prepare_extra_info_welcome_section
+        assert result == ""
+
+    def test_extra_info_multiline_markdown(self, pull_request_handler: PullRequestHandler) -> None:
+        pull_request_handler.github_webhook.welcome_extra_info = "**Bold** and *italic*\n- Item 1\n- Item 2"
+        result = pull_request_handler._prepare_extra_info_welcome_section
+        assert "### \U0001f4cc Additional Information\n\n" in result
+        assert "**Bold** and *italic*" in result
+        assert "- Item 1" in result
