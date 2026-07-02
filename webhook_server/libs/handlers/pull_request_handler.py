@@ -1972,11 +1972,10 @@ For more information, please refer to the project documentation or contact the m
         """
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        # Load file-based welcome extra info before building the welcome message
-        await self.github_webhook.load_welcome_extra_info_from_file()
-
         # Add welcome message if it doesn't exist yet
         if not await self._welcome_comment_exists(pull_request=pull_request):
+            # Load file-based welcome extra info only when building the welcome message
+            await self.github_webhook.load_welcome_extra_info_from_file()
             self.logger.info(f"{self.log_prefix} Adding welcome message to PR")
             welcome_msg = self._prepare_welcome_comment()
             tasks.append(
