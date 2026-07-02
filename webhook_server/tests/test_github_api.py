@@ -2835,6 +2835,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_success(self, github_webhook: GithubWebhook) -> None:
+        """Test successful loading of welcome extra info from repository file."""
         content_file = MagicMock()
         content_file.size = 100
         content_file.decoded_content = b"# Custom welcome\nSome info"
@@ -2846,6 +2847,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_too_large(self, github_webhook: GithubWebhook) -> None:
+        """Test that oversized files are rejected with a warning."""
         content_file = MagicMock()
         content_file.size = 20000
 
@@ -2856,6 +2858,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_not_found(self, github_webhook: GithubWebhook) -> None:
+        """Test graceful handling when welcome message file does not exist."""
         github_webhook.repository.get_contents.side_effect = UnknownObjectException(404, "Not found", None)
         await github_webhook.load_welcome_extra_info_from_file()
 
@@ -2863,6 +2866,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_exception(self, github_webhook: GithubWebhook) -> None:
+        """Test graceful handling of unexpected exceptions during file loading."""
         github_webhook.repository.get_contents.side_effect = Exception("API error")
         await github_webhook.load_welcome_extra_info_from_file()
 
@@ -2870,6 +2874,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_empty(self, github_webhook: GithubWebhook) -> None:
+        """Test that empty file content is handled correctly."""
         content_file = MagicMock()
         content_file.size = 0
         content_file.decoded_content = b""
@@ -2881,6 +2886,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_list_response(self, github_webhook: GithubWebhook) -> None:
+        """Test handling of unexpected list response from GitHub API."""
         content_file = MagicMock()
         content_file.size = 50
         content_file.decoded_content = b"List content"
@@ -2892,6 +2898,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
     @pytest.mark.asyncio()
     async def test_load_from_file_unicode_error(self, github_webhook: GithubWebhook) -> None:
+        """Test handling of unicode decode errors in file content."""
         content_file = MagicMock()
         content_file.size = 10
         content_file.decoded_content = b"\xff\xfe invalid"
