@@ -1122,15 +1122,16 @@ class GithubWebhook:
             "welcome-extra-info", return_on_none="", extra_dict=repository_config
         )
 
+        _prefix = getattr(self, "log_prefix", "")
         if not isinstance(self.welcome_extra_info, str):
-            self.logger.warning(
-                f"welcome-extra-info must be a string, got {type(self.welcome_extra_info).__name__}. Ignoring."
-            )
+            _type = type(self.welcome_extra_info).__name__
+            self.logger.warning(f"{_prefix} welcome-extra-info must be a string, got {_type}. Ignoring.")
             self.welcome_extra_info = ""
         else:
             _byte_len = len(self.welcome_extra_info.encode("utf-8"))
             if _byte_len > 10240:
-                self.logger.warning(f"welcome-extra-info exceeds 10KB limit ({_byte_len} bytes). Ignoring.")
+                _msg = f"welcome-extra-info exceeds 10KB limit ({_byte_len} bytes). Ignoring."
+                self.logger.warning(f"{_prefix} {_msg}")
                 self.welcome_extra_info = ""
 
     async def _build_trusted_committers(self, api_users: list[str | None] | None = None) -> None:
