@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cherry-Picking and Branch Protection - github-webhook-server</title>
+    <meta name="description" content="Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server">
+    <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="quickstart.html"
+                           class="nav-link">
+                            Getting Started
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="deploying-with-docker.html"
+                           class="nav-link">
+                            Deploying with Docker
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">User Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuring-repositories.html"
+                           class="nav-link">
+                            Configuring Repositories
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="managing-pull-requests.html"
+                           class="nav-link">
+                            Managing Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-ci-checks.html"
+                           class="nav-link">
+                            Setting Up CI Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuring-labels-and-size.html"
+                           class="nav-link">
+                            Configuring Labels and PR Size Thresholds
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="cherry-picking-and-branching.html"
+                           class="nav-link active" aria-current="page">
+                            Cherry-Picking and Branch Protection
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-security-checks.html"
+                           class="nav-link">
+                            Enabling Security Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-ai-features.html"
+                           class="nav-link">
+                            Enabling AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="using-the-log-viewer.html"
+                           class="nav-link">
+                            Using the Log Viewer
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-notifications.html"
+                           class="nav-link">
+                            Setting Up Slack Notifications
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="pr-command-recipes.html"
+                           class="nav-link">
+                            PR Comment Command Recipes
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="config-recipes.html"
+                           class="nav-link">
+                            Configuration Recipes
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="webhook-events-reference.html"
+                           class="nav-link">
+                            Webhook Events and Handlers
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="environment-variables.html"
+                           class="nav-link">
+                            Environment Variables
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API Reference
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="publishing-to-pypi.html"
+                           class="nav-link">
+                            Publishing Packages to PyPI
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-server-integration.html"
+                           class="nav-link">
+                            MCP Server for AI Agents
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <p>Let me start by reading the knowledge graph and the pages manifest, then explore the relevant source files.</p>
+<p>Now let me look at the config schema for branch protection, cherry-pick, and OWNERS-related settings:</p>
+<p>Now let me look at the issue_comment handler for cherry-pick commands and the PR handler's cherry-pick sections:</p>
+<p>Now let me look at the cherry_pick method and the auto-verify cherry-pick logic:</p>
+<p>Now let me look at the cherry-pick retry command and the welcome message cherry-pick section:</p>
+<p>Now let me look at the protected-branches configuration and how it connects to status checks:</p>
+<p>Let me also check the <code>_prepare_merge_requirements</code> for OWNERS file info:</p>
+<p>Now let me look at the ROOT_APPROVERS_KEY constant and the merge requirements with OWNERS file checking:</p>
+<p>Let me check the approve flow to understand how OWNERS file approvers control merge:</p>
+<p>Now I have all the information I need. Let me write the documentation page.</p>
+<h1 id="cherry-picking-and-branch-protection">Cherry-Picking and Branch Protection</h1>
+<p>Automate the process of backporting merged PRs to release branches and enforce consistent branch protection rules across your repositories, using OWNERS files to control who can approve changes.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running webhook server instance (see <a href="quickstart.html">Getting Started</a>)</li>
+<li>At least one repository configured in <code>config.yaml</code> (see <a href="configuring-repositories.html">Configuring Repositories</a>)</li>
+<li>A GitHub App installed on your repositories with branch protection permissions</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
+<p>Add cherry-pick targets and branch protection to your repository configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">release-1.0</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+</code></pre></div>
+
+<p>Then create an <code>OWNERS</code> file in your repository root:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">charlie</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dana</span>
+</code></pre></div>
+
+<p>When a PR is merged, comment <code>/cherry-pick release-1.0</code> to backport it — or add the label before merging so it happens automatically.</p>
+<h2 id="cherry-picking-prs-to-target-branches">Cherry-Picking PRs to Target Branches</h2>
+<h3 id="scheduling-a-cherry-pick-before-merge">Scheduling a Cherry-Pick Before Merge</h3>
+<p>Comment on an open PR to queue cherry-picks for when it merges:</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick release-1.0
+</code></pre></div>
+
+<p>This adds a <code>cherry-pick-release-1.0</code> label to the PR. When the PR merges, the server automatically cherry-picks the merge commit to the <code>release-1.0</code> branch and opens a new PR.</p>
+<p>You can specify multiple branches at once:</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick release-1.0 release-2.0 hotfix
+</code></pre></div>
+
+<p>Each branch gets its own <code>cherry-pick-&lt;branch&gt;</code> label, and each is processed independently on merge.</p>
+<h3 id="cherry-picking-an-already-merged-pr">Cherry-Picking an Already-Merged PR</h3>
+<p>Comment on a merged PR to cherry-pick immediately:</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick release-1.0
+</code></pre></div>
+
+<p>For merged PRs, the cherry-pick executes right away instead of waiting. A <code>cherry-pick-release-1.0</code> label is added to track that the operation was performed.</p>
+<h3 id="what-happens-during-a-cherry-pick">What Happens During a Cherry-Pick</h3>
+<p>When a cherry-pick is triggered, the server:</p>
+<ol>
+<li>Validates the target branch exists</li>
+<li>Creates a worktree and checks out the target branch</li>
+<li>Runs <code>git cherry-pick &lt;merge-commit-sha&gt;</code> (automatically retries with <code>-m 1</code> for merge commits)</li>
+<li>Restores the original PR author on the cherry-pick commit (for DCO/sign-off compliance)</li>
+<li>Runs pre-commit hooks if enabled for the repository</li>
+<li>Pushes the new branch and opens a PR against the target branch</li>
+<li>Labels the new PR with <code>CherryPicked-from-&lt;source-branch&gt;</code></li>
+<li>Assigns the original PR author and requests their review</li>
+</ol>
+<p>If the cherry-pick fails due to conflicts and AI conflict resolution is not enabled (or fails), the server posts a comment with manual cherry-pick instructions:</p>
+<div class="highlight"><pre><span></span><code>**Manual cherry-pick is needed**
+Cherry pick failed for abc1234 to release-1.0:
+To cherry-pick run:
+  git remote update
+  git checkout release-1.0
+  git pull origin release-1.0
+  git checkout -b my-feature-release-1.0
+  git cherry-pick abc1234
+  # If the above fails with &#39;is a merge but no -m option&#39;, run:
+  # git cherry-pick -m 1 abc1234
+  git push origin my-feature-release-1.0
+</code></pre></div>
+
+<h3 id="retrying-a-failed-cherry-pick">Retrying a Failed Cherry-Pick</h3>
+<p>If a cherry-pick fails or the resulting PR has issues, use the retry command on the original merged PR:</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick-retry release-1.0
+</code></pre></div>
+
+<p>This command:</p>
+<ul>
+<li>Validates the PR is merged and has the <code>cherry-pick-release-1.0</code> label</li>
+<li>Closes any existing failed cherry-pick PR created by the bot for that branch</li>
+<li>Re-runs the cherry-pick operation</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> <code>/cherry-pick-retry</code> accepts exactly one branch name. If the cherry-pick label doesn't exist on the PR, use <code>/cherry-pick &lt;branch&gt;</code> instead.</p>
+</blockquote>
+<h3 id="duplicate-prevention">Duplicate Prevention</h3>
+<p>If a <code>cherry-pick-&lt;branch&gt;</code> label already exists on the PR, that branch is skipped. To re-trigger a cherry-pick for a branch that was already processed, remove the label and run the command again.</p>
+<h3 id="auto-verification-of-cherry-picked-prs">Auto-Verification of Cherry-Picked PRs</h3>
+<p>By default, cherry-picked PRs from auto-verified users are automatically marked as verified. Control this behavior globally or per-repository:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Global setting (default: true)</span>
+<span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="c1"># Override per repository</span>
+<span class="w">    </span><span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<p>When set to <code>false</code>, cherry-picked PRs require manual verification even if the original author is in the <code>auto-verified-and-merged-users</code> list.</p>
+<blockquote>
+<p><strong>Warning:</strong> Cherry-picked PRs with AI-resolved conflicts are <strong>never</strong> auto-verified, regardless of this setting. The <code>ai-resolved-conflicts</code> label forces manual review.</p>
+</blockquote>
+<h3 id="cherry-pick-pr-assignment">Cherry-Pick PR Assignment</h3>
+<p>By default, cherry-pick PRs are assigned to the original PR author. Disable this globally or per-repository:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Global setting (default: true)</span>
+<span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<p>When the original author cannot be assigned (e.g., they don't have repository access), the server falls back to assigning the first root approver from the <code>OWNERS</code> file.</p>
+<h2 id="configuring-branch-protection">Configuring Branch Protection</h2>
+<p>Branch protection rules are applied to every branch listed under <code>protected-branches</code> for a repository. Configure the rules at the global level, the repository level, or both (repository overrides global).</p>
+<h3 id="branch-protection-settings">Branch Protection Settings</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">  </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>strict</code></td>
+<td><code>true</code></td>
+<td>Require branches to be up-to-date before merging</td>
+</tr>
+<tr>
+<td><code>require_code_owner_reviews</code></td>
+<td><code>false</code></td>
+<td>Require review from code owners</td>
+</tr>
+<tr>
+<td><code>dismiss_stale_reviews</code></td>
+<td><code>true</code></td>
+<td>Dismiss approvals when new commits are pushed</td>
+</tr>
+<tr>
+<td><code>required_approving_review_count</code></td>
+<td><code>0</code></td>
+<td>Minimum number of GitHub review approvals</td>
+</tr>
+<tr>
+<td><code>required_linear_history</code></td>
+<td><code>true</code></td>
+<td>Require linear commit history (no merge commits)</td>
+</tr>
+<tr>
+<td><code>required_conversation_resolution</code></td>
+<td><code>true</code></td>
+<td>Require all review conversations to be resolved</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Tip:</strong> The <code>required_conversation_resolution</code> setting also controls whether the server checks for unresolved review threads when evaluating the <code>can-be-merged</code> check run.</p>
+</blockquote>
+<h3 id="defining-protected-branches">Defining Protected Branches</h3>
+<p>List the branches to protect under <code>protected-branches</code> in your repository config. Each branch can specify which status checks are required:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr&quot;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis&quot;</span>
+<span class="w">      </span><span class="nt">dev</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">release-1.0</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+</code></pre></div>
+
+<p><strong>Three formats are supported:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Example</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Empty list</td>
+<td><code>dev: []</code></td>
+<td>Auto-detects status checks from repo config (tox, pre-commit, container builds, etc.)</td>
+</tr>
+<tr>
+<td>Include/exclude object</td>
+<td><code>main: { include-runs: [...], exclude-runs: [...] }</code></td>
+<td>Explicitly controls which checks are required</td>
+</tr>
+<tr>
+<td>Simple array</td>
+<td><code>feature: ["check1", "check2"]</code></td>
+<td>Uses only the listed checks</td>
+</tr>
+</tbody>
+</table>
+<p>When you use the empty list <code>[]</code>, the server automatically builds the required status checks from your repository configuration — if <code>tox</code> is enabled it adds <code>tox</code>, if <code>container</code> is configured it adds <code>build-container</code>, and so on. The <code>can-be-merged</code> and <code>verified</code> checks are always included by default.</p>
+<h3 id="per-repository-branch-protection-overrides">Per-Repository Branch Protection Overrides</h3>
+<p>Override global branch protection at the repository level:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">strict-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/strict-repo</span>
+<span class="w">    </span><span class="nt">branch-protection</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">      </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+</code></pre></div>
+
+<p>Repository-level settings override global settings for the same key. Any keys not specified at the repository level fall back to the global value, then to the built-in defaults.</p>
+<h2 id="using-owners-files-for-approval-workflows">Using OWNERS Files for Approval Workflows</h2>
+<p>OWNERS files define who can approve and review PRs for specific parts of your codebase. The server reads these files from the repository's base branch and uses them to enforce approval requirements.</p>
+<h3 id="owners-file-format">OWNERS File Format</h3>
+<p>Create an <code>OWNERS</code> file (YAML format) in any directory:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">charlie</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dana</span>
+</code></pre></div>
+
+<ul>
+<li><strong>Approvers</strong> can use the <code>/approve</code> command to approve PRs touching files in that directory</li>
+<li><strong>Reviewers</strong> are automatically assigned to PRs and can use <code>/lgtm</code></li>
+</ul>
+<h3 id="directory-scoped-ownership">Directory-Scoped Ownership</h3>
+<p>Place <code>OWNERS</code> files in subdirectories to define granular ownership:</p>
+<div class="highlight"><pre><span></span><code>repo-root/
+├── OWNERS              # Root approvers/reviewers (apply to all PRs)
+├── api/
+│   └── OWNERS          # Approvers for API changes
+├── frontend/
+│   └── OWNERS          # Approvers for frontend changes
+└── docs/
+    └── OWNERS          # Approvers for documentation
+</code></pre></div>
+
+<p>When a PR changes files in <code>api/</code>, the server requires approval from an approver listed in <code>api/OWNERS</code>. Root approvers (from the repository root <code>OWNERS</code>) can always approve any PR.</p>
+<h3 id="controlling-root-approver-requirements">Controlling Root Approver Requirements</h3>
+<p>By default, root approvers are always required in addition to directory-specific approvers. Override this by adding <code>root-approvers: false</code> to a subdirectory's <code>OWNERS</code> file:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># api/OWNERS</span>
+<span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-lead</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-dev</span>
+<span class="nt">root-approvers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<p>With <code>root-approvers: false</code>, only the approvers listed in <code>api/OWNERS</code> need to approve changes under <code>api/</code> — root approvers are not required for those files.</p>
+<blockquote>
+<p><strong>Note:</strong> If a PR changes files in both <code>api/</code> (with <code>root-approvers: false</code>) and an unmatched directory, root approvers are still required for the unmatched files.</p>
+</blockquote>
+<h3 id="how-approval-checking-works">How Approval Checking Works</h3>
+<p>The server evaluates approvals when determining if a PR can be merged:</p>
+<ol>
+<li>For each changed file, the server finds the most specific <code>OWNERS</code> file</li>
+<li>At least one approver from each relevant <code>OWNERS</code> file must use <code>/approve</code></li>
+<li>A root approver's <code>/approve</code> satisfies all directory requirements</li>
+<li>If a reviewer uses <code>/lgtm</code>, it counts toward the <code>minimum-lgtm</code> threshold but does not count as an approval</li>
+<li>Change requests from approvers block the <code>can-be-merged</code> check</li>
+</ol>
+<h3 id="automatic-reviewer-assignment">Automatic Reviewer Assignment</h3>
+<p>When a PR is opened, reviewers from all relevant <code>OWNERS</code> files are automatically assigned. You can also trigger this manually:</p>
+<div class="highlight"><pre><span></span><code>/assign-reviewers
+</code></pre></div>
+
+<p>Or assign a specific reviewer:</p>
+<div class="highlight"><pre><span></span><code>/assign-reviewer @username
+</code></pre></div>
+
+<h3 id="allowed-users">Allowed Users</h3>
+<p>The <code>OWNERS</code> file in the repository root can include an <code>allowed-users</code> list to grant command execution permissions:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Root OWNERS file</span>
+<span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="nt">allowed-users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external-contributor</span>
+</code></pre></div>
+
+<p>Users not in the approvers, reviewers, collaborators, or contributors lists need explicit permission via <code>allowed-users</code> or a maintainer commenting <code>/add-allowed-user @username</code> on the PR.</p>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="ai-powered-cherry-pick-conflict-resolution">AI-Powered Cherry-Pick Conflict Resolution</h3>
+<p>When a cherry-pick encounters merge conflicts, the server can use AI to attempt automatic resolution. See <a href="enabling-ai-features.html">Enabling AI Features</a> for setup details.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">ai-features</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude</span>
+<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
+<span class="w">  </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</code></pre></div>
+
+<p>When AI resolves conflicts:</p>
+<ul>
+<li>The cherry-pick PR is labeled with <code>ai-resolved-conflicts</code></li>
+<li>The PR is <strong>never</strong> auto-verified — manual review is always required</li>
+<li>The server logs a scope verification comparing original vs. cherry-picked file counts</li>
+<li>If AI resolution fails, the server falls back to posting manual cherry-pick instructions</li>
+</ul>
+<h3 id="combining-cherry-pick-labels-with-enabled-labels">Combining Cherry-Pick Labels with Enabled Labels</h3>
+<p>Cherry-pick labels (<code>cherry-pick-&lt;branch&gt;</code> and <code>CherryPicked</code>) belong to the <code>cherry-pick</code> label category. If you use <code>enabled-labels</code> to restrict which labels are active, include <code>cherry-pick</code> to keep cherry-pick functionality working:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">labels</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cherry-pick</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
+</code></pre></div>
+
+<p>See <a href="configuring-labels-and-size.html">Configuring Labels and PR Size Thresholds</a> for full label configuration options.</p>
+<h3 id="default-status-checks">Default Status Checks</h3>
+<p>Override which status checks are added by default to all protected branches:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Global defaults</span>
+<span class="nt">default-status-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;dpulls&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;can-be-merged&quot;</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="c1"># Override for this repo only</span>
+<span class="w">    </span><span class="nt">default-status-checks</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;can-be-merged&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;ci/my-external-check&quot;</span>
+</code></pre></div>
+
+<p>These checks are combined with auto-detected checks (tox, pre-commit, etc.) when a protected branch uses the empty list <code>[]</code> format.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>Cherry-pick label exists but cherry-pick didn't run</strong>
+Cherry-picks only execute when a PR is merged (for pre-merge labels) or immediately (for post-merge <code>/cherry-pick</code> commands). If the PR was closed without merging, cherry-pick labels are ignored. Re-open and merge the PR, or use <code>/cherry-pick &lt;branch&gt;</code> on the merged PR.</p>
+<p><strong>"Target branch does not exist" error</strong>
+The server validates that each target branch exists before adding cherry-pick labels. Check that the branch name matches exactly (branch names are case-sensitive).</p>
+<p><strong>Cherry-pick PR is not auto-verified</strong>
+Check whether <code>auto-verify-cherry-picked-prs</code> is set to <code>false</code> for the repository. Also check if the cherry-pick had AI-resolved conflicts — PRs with the <code>ai-resolved-conflicts</code> label are never auto-verified.</p>
+<p><strong>Branch protection not applied to a branch</strong>
+Only branches listed under <code>protected-branches</code> in the repository config receive protection rules. The repository must also be public — private repositories skip branch protection settings.</p>
+<p><strong>"/approve not accepted" from a user</strong>
+The user must be listed as an <code>approver</code> in a relevant <code>OWNERS</code> file. Reviewers can use <code>/lgtm</code> but cannot <code>/approve</code>. Check which <code>OWNERS</code> file covers the changed files and verify the username spelling.</p>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="managing-pull-requests.html">Managing Pull Requests</a></li>
+<li><a href="enabling-ai-features.html">Enabling AI Features</a></li>
+<li><a href="configuring-repositories.html">Configuring Repositories</a></li>
+<li><a href="configuring-labels-and-size.html">Configuring Labels and PR Size Thresholds</a></li>
+<li><a href="configuration-reference.html">Configuration Reference</a></li>
+</ul>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="configuring-labels-and-size.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Configuring Labels and PR Size Thresholds</span>
+                </a>
+
+
+                <a href="enabling-security-checks.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Enabling Security Checks</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
+<li><a href="#cherry-picking-prs-to-target-branches">Cherry-Picking PRs to Target Branches</a><ul>
+<li><a href="#scheduling-a-cherry-pick-before-merge">Scheduling a Cherry-Pick Before Merge</a></li>
+<li><a href="#cherry-picking-an-already-merged-pr">Cherry-Picking an Already-Merged PR</a></li>
+<li><a href="#what-happens-during-a-cherry-pick">What Happens During a Cherry-Pick</a></li>
+<li><a href="#retrying-a-failed-cherry-pick">Retrying a Failed Cherry-Pick</a></li>
+<li><a href="#duplicate-prevention">Duplicate Prevention</a></li>
+<li><a href="#auto-verification-of-cherry-picked-prs">Auto-Verification of Cherry-Picked PRs</a></li>
+<li><a href="#cherry-pick-pr-assignment">Cherry-Pick PR Assignment</a></li>
+</ul>
+</li>
+<li><a href="#configuring-branch-protection">Configuring Branch Protection</a><ul>
+<li><a href="#branch-protection-settings">Branch Protection Settings</a></li>
+<li><a href="#defining-protected-branches">Defining Protected Branches</a></li>
+<li><a href="#per-repository-branch-protection-overrides">Per-Repository Branch Protection Overrides</a></li>
+</ul>
+</li>
+<li><a href="#using-owners-files-for-approval-workflows">Using OWNERS Files for Approval Workflows</a><ul>
+<li><a href="#owners-file-format">OWNERS File Format</a></li>
+<li><a href="#directory-scoped-ownership">Directory-Scoped Ownership</a></li>
+<li><a href="#controlling-root-approver-requirements">Controlling Root Approver Requirements</a></li>
+<li><a href="#how-approval-checking-works">How Approval Checking Works</a></li>
+<li><a href="#automatic-reviewer-assignment">Automatic Reviewer Assignment</a></li>
+<li><a href="#allowed-users">Allowed Users</a></li>
+</ul>
+</li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#ai-powered-cherry-pick-conflict-resolution">AI-Powered Cherry-Pick Conflict Resolution</a></li>
+<li><a href="#combining-cherry-pick-labels-with-enabled-labels">Combining Cherry-Pick Labels with Enabled Labels</a></li>
+<li><a href="#default-status-checks">Default Status Checks</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

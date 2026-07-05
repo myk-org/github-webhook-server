@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>github-webhook-server</title>
-    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <meta name="description" content="Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server">
     <link rel="stylesheet" href="assets/style.css">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="index.html" class="sidebar-logo">github-webhook-server</a>
-            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+            <p class="sidebar-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
         </div>
 
         <div class="sidebar-search">
@@ -25,48 +25,20 @@
         <nav class="sidebar-nav">
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Overview</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="introduction.html"
-                           class="nav-link">
-                            Introduction
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="architecture-and-event-flow.html"
-                           class="nav-link">
-                            Architecture and Event Flow
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
                 <h3 class="nav-group-title">Getting Started</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="installation.html"
+                        <a href="quickstart.html"
                            class="nav-link">
-                            Installation
+                            Getting Started
                         </a>
                     </li>
 
                     <li>
-                        <a href="quick-start.html"
+                        <a href="deploying-with-docker.html"
                            class="nav-link">
-                            Quick Start
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="docker-deployment.html"
-                           class="nav-link">
-                            Docker and Container Deployment
+                            Deploying with Docker
                         </a>
                     </li>
 
@@ -74,15 +46,99 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Configuration</h3>
+                <h3 class="nav-group-title">User Guides</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="configuration-model.html"
+                        <a href="configuring-repositories.html"
                            class="nav-link">
-                            Configuration Model
+                            Configuring Repositories
                         </a>
                     </li>
+
+                    <li>
+                        <a href="managing-pull-requests.html"
+                           class="nav-link">
+                            Managing Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-ci-checks.html"
+                           class="nav-link">
+                            Setting Up CI Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuring-labels-and-size.html"
+                           class="nav-link">
+                            Configuring Labels and PR Size Thresholds
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="cherry-picking-and-branching.html"
+                           class="nav-link">
+                            Cherry-Picking and Branch Protection
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-security-checks.html"
+                           class="nav-link">
+                            Enabling Security Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-ai-features.html"
+                           class="nav-link">
+                            Enabling AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="using-the-log-viewer.html"
+                           class="nav-link">
+                            Using the Log Viewer
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-notifications.html"
+                           class="nav-link">
+                            Setting Up Slack Notifications
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="pr-command-recipes.html"
+                           class="nav-link">
+                            PR Comment Command Recipes
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="config-recipes.html"
+                           class="nav-link">
+                            Configuration Recipes
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
 
                     <li>
                         <a href="configuration-reference.html"
@@ -92,16 +148,23 @@
                     </li>
 
                     <li>
-                        <a href="repository-overrides.html"
+                        <a href="webhook-events-reference.html"
                            class="nav-link">
-                            Repository Overrides
+                            Webhook Events and Handlers
                         </a>
                     </li>
 
                     <li>
-                        <a href="security-configuration.html"
+                        <a href="environment-variables.html"
                            class="nav-link">
-                            Security Configuration
+                            Environment Variables
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API Reference
                         </a>
                     </li>
 
@@ -113,121 +176,16 @@
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="supported-github-events.html"
+                        <a href="publishing-to-pypi.html"
                            class="nav-link">
-                            Supported GitHub Events
+                            Publishing Packages to PyPI
                         </a>
                     </li>
 
                     <li>
-                        <a href="owners-and-reviewer-assignment.html"
+                        <a href="mcp-server-integration.html"
                            class="nav-link">
-                            OWNERS and Reviewer Assignment
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="pull-request-automation.html"
-                           class="nav-link">
-                            Pull Request Automation
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="issue-comment-commands.html"
-                           class="nav-link">
-                            Issue Comment Commands
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="labels-check-runs-and-mergeability.html"
-                           class="nav-link">
-                            Labels, Check Runs, and Mergeability
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="container-and-pypi-workflows.html"
-                           class="nav-link">
-                            Container and PyPI Workflows
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="ai-features-and-test-oracle.html"
-                           class="nav-link">
-                            AI Features and Test Oracle
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="log-viewer-guide.html"
-                           class="nav-link">
-                            Log Viewer Guide
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">API Reference</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="webhook-and-health-api.html"
-                           class="nav-link">
-                            Webhook and Health API
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="log-viewer-api.html"
-                           class="nav-link">
-                            Log Viewer API
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="mcp-api.html"
-                           class="nav-link">
-                            MCP API
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Operations</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="repository-bootstrap-and-github-app.html"
-                           class="nav-link">
-                            Repository Bootstrap and GitHub App
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="logging-and-data-files.html"
-                           class="nav-link">
-                            Logging and Data Files
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="testing-and-maintenance.html"
-                           class="nav-link">
-                            Testing and Maintenance
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="troubleshooting.html"
-                           class="nav-link">
-                            Troubleshooting
+                            MCP Server for AI Agents
                         </a>
                     </li>
 
@@ -276,7 +234,7 @@
 
             <section class="index-header">
                 <h1 class="index-title">github-webhook-server</h1>
-                <p class="index-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+                <p class="index-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
 
 
 
@@ -292,104 +250,168 @@
 
 
 
-
-
-                <a href="introduction.html" class="index-cta">Get Started →</a>
+                <a href="quickstart.html" class="index-cta">Get Started →</a>
 
             </section>
 
             <section class="card-grid">
 
                 <div class="card">
-                    <h3 class="card-title">Overview</h3>
-                    <ul class="card-pages">
-
-                        <li>
-                            <a href="introduction.html">Introduction</a>
-
-                            <p class="card-page-desc">Explain what the server is, who it is for, and the main automation it performs across repositories and pull requests.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="architecture-and-event-flow.html">Architecture and Event Flow</a>
-
-                            <p class="card-page-desc">Describe the webhook intake pipeline, background processing model, handler architecture, repository cloning and worktree usage, and structured logging flow.</p>
-
-                        </li>
-
-                    </ul>
-
-                    <a href="introduction.html" class="card-link">Explore →</a>
-
-                </div>
-
-                <div class="card">
                     <h3 class="card-title">Getting Started</h3>
                     <ul class="card-pages">
 
                         <li>
-                            <a href="installation.html">Installation</a>
+                            <a href="quickstart.html">Getting Started</a>
 
-                            <p class="card-page-desc">Cover runtime requirements, Python and uv setup, required system tools, GitHub credentials, and the expected data directory contents.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="quick-start.html">Quick Start</a>
-
-                            <p class="card-page-desc">Walk through creating a minimal config, adding a repository entry, providing the GitHub App private key, starting the server, and verifying the health endpoint.</p>
+                            <p class="card-page-desc">Install and run the webhook server, configure your first repository, and receive your first GitHub webhook in under 10 minutes</p>
 
                         </li>
 
                         <li>
-                            <a href="docker-deployment.html">Docker and Container Deployment</a>
+                            <a href="deploying-with-docker.html">Deploying with Docker</a>
 
-                            <p class="card-page-desc">Document the Podman-based container image, the example docker-compose deployment, volume mounts, health checks, and operational caveats.</p>
+                            <p class="card-page-desc">Deploy the webhook server as a container using Docker Compose with persistent storage, health checks, and environment configuration</p>
 
                         </li>
 
                     </ul>
 
-                    <a href="installation.html" class="card-link">Explore →</a>
+                    <a href="quickstart.html" class="card-link">Explore →</a>
 
                 </div>
 
                 <div class="card">
-                    <h3 class="card-title">Configuration</h3>
+                    <h3 class="card-title">User Guides</h3>
                     <ul class="card-pages">
 
                         <li>
-                            <a href="configuration-model.html">Configuration Model</a>
+                            <a href="configuring-repositories.html">Configuring Repositories</a>
 
-                            <p class="card-page-desc">Explain configuration sources and precedence between global config.yaml, per-repository entries, and repository-local .github-webhook-server.yaml files.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="configuration-reference.html">Configuration Reference</a>
-
-                            <p class="card-page-desc">Provide a key-by-key reference for global and repository settings such as events, tokens, labels, checks, branch protection, notifications, and release options.</p>
+                            <p class="card-page-desc">Set up config.yaml and per-repository .github-webhook-server.yaml files to control webhook behavior, tokens, and event subscriptions for each repository</p>
 
                         </li>
 
                         <li>
-                            <a href="repository-overrides.html">Repository Overrides</a>
+                            <a href="managing-pull-requests.html">Managing Pull Requests</a>
 
-                            <p class="card-page-desc">Show how repository-local configuration customizes behavior per repo, including labels, checks, tokens, protected branches, and release settings.</p>
+                            <p class="card-page-desc">Use PR comment commands like /retest, /cherry-pick, /approve, /rebase, /automerge, and /assign-reviewers to control your PR workflow</p>
 
                         </li>
 
                         <li>
-                            <a href="security-configuration.html">Security Configuration</a>
+                            <a href="setting-up-ci-checks.html">Setting Up CI Checks</a>
 
-                            <p class="card-page-desc">Document webhook secret validation, GitHub and Cloudflare IP allowlists, sensitive-data masking, and network restrictions for optional admin endpoints.</p>
+                            <p class="card-page-desc">Configure tox, pre-commit, container builds, Python module installs, conventional commit validation, and custom check runs that execute on every PR</p>
+
+                        </li>
+
+                        <li>
+                            <a href="configuring-labels-and-size.html">Configuring Labels and PR Size Thresholds</a>
+
+                            <p class="card-page-desc">Customize which labels are enabled, set label colors, and define PR size thresholds with custom categories like Tiny, Small, Medium, and Large</p>
+
+                        </li>
+
+                        <li>
+                            <a href="cherry-picking-and-branching.html">Cherry-Picking and Branch Protection</a>
+
+                            <p class="card-page-desc">Automate cherry-picks to target branches on PR merge, configure branch protection rules, and use OWNERS files for approval workflows</p>
+
+                        </li>
+
+                        <li>
+                            <a href="enabling-security-checks.html">Enabling Security Checks</a>
+
+                            <p class="card-page-desc">Detect suspicious file path modifications and committer identity mismatches on pull requests, configure trusted committers, and set mandatory vs advisory security gates</p>
+
+                        </li>
+
+                        <li>
+                            <a href="enabling-ai-features.html">Enabling AI Features</a>
+
+                            <p class="card-page-desc">Configure AI-powered conventional title suggestions, automatic cherry-pick conflict resolution, and PR test oracle integration using Claude, Gemini, or Cursor</p>
+
+                        </li>
+
+                        <li>
+                            <a href="using-the-log-viewer.html">Using the Log Viewer</a>
+
+                            <p class="card-page-desc">Enable the built-in log viewer to browse, search, filter, and export webhook processing logs through a web UI and REST API</p>
+
+                        </li>
+
+                        <li>
+                            <a href="setting-up-notifications.html">Setting Up Slack Notifications</a>
+
+                            <p class="card-page-desc">Configure Slack webhook URLs to receive notifications about PR merges, container builds, PyPI uploads, and other webhook processing events</p>
 
                         </li>
 
                     </ul>
 
-                    <a href="configuration-model.html" class="card-link">Explore →</a>
+                    <a href="configuring-repositories.html" class="card-link">Explore →</a>
+
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Recipes</h3>
+                    <ul class="card-pages">
+
+                        <li>
+                            <a href="pr-command-recipes.html">PR Comment Command Recipes</a>
+
+                            <p class="card-page-desc">Copy-paste examples for common PR workflows: retesting failed checks, cherry-picking to release branches, rebasing PRs, overriding security checks, and triggering container builds</p>
+
+                        </li>
+
+                        <li>
+                            <a href="config-recipes.html">Configuration Recipes</a>
+
+                            <p class="card-page-desc">Ready-to-use config.yaml snippets for common setups: bot auto-merge, conventional commits enforcement, multi-token failover, custom check runs, and repository-specific overrides</p>
+
+                        </li>
+
+                    </ul>
+
+                    <a href="pr-command-recipes.html" class="card-link">Explore →</a>
+
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Reference</h3>
+                    <ul class="card-pages">
+
+                        <li>
+                            <a href="configuration-reference.html">Configuration Reference</a>
+
+                            <p class="card-page-desc">Complete reference for all config.yaml and .github-webhook-server.yaml options including server settings, repository settings, labels, security checks, AI features, and container builds</p>
+
+                        </li>
+
+                        <li>
+                            <a href="webhook-events-reference.html">Webhook Events and Handlers</a>
+
+                            <p class="card-page-desc">Reference of all supported GitHub webhook events (push, pull_request, issue_comment, check_run, status, pull_request_review) and what each handler does</p>
+
+                        </li>
+
+                        <li>
+                            <a href="environment-variables.html">Environment Variables</a>
+
+                            <p class="card-page-desc">Reference of all environment variables: WEBHOOK_SERVER_DATA_DIR, ENABLE_LOG_SERVER, ENABLE_MCP_SERVER, SIDECAR_PORT, and Docker Compose configuration options</p>
+
+                        </li>
+
+                        <li>
+                            <a href="log-viewer-api.html">Log Viewer API Reference</a>
+
+                            <p class="card-page-desc">REST API reference for log entries, log export, PR flow visualization, workflow steps, and WebSocket streaming endpoints</p>
+
+                        </li>
+
+                    </ul>
+
+                    <a href="configuration-reference.html" class="card-link">Explore →</a>
 
                 </div>
 
@@ -398,133 +420,22 @@
                     <ul class="card-pages">
 
                         <li>
-                            <a href="supported-github-events.html">Supported GitHub Events</a>
+                            <a href="publishing-to-pypi.html">Publishing Packages to PyPI</a>
 
-                            <p class="card-page-desc">List the webhook events the server handles, what each event triggers, and which events or cases are intentionally skipped.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="owners-and-reviewer-assignment.html">OWNERS and Reviewer Assignment</a>
-
-                            <p class="card-page-desc">Explain how OWNERS files are discovered, how approvers and reviewers are derived from changed files, and how that affects review requests and command permissions.</p>
+                            <p class="card-page-desc">How to configure automatic PyPI package publishing when a Git tag is pushed. Covers the pypi config section (token setup), the tag-push trigger mechanism, automatic issue creation on publish failure, Slack notifications on success, and the relationship with the python-module-install PR check that validates builds before release.</p>
 
                         </li>
 
                         <li>
-                            <a href="pull-request-automation.html">Pull Request Automation</a>
+                            <a href="mcp-server-integration.html">MCP Server for AI Agents</a>
 
-                            <p class="card-page-desc">Describe welcome comments, tracking issues, WIP and hold behavior, auto-verification, assignee updates, auto-merge setup, and cherry-pick workflows.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="issue-comment-commands.html">Issue Comment Commands</a>
-
-                            <p class="card-page-desc">Provide a command reference for /retest, /reprocess, /assign-reviewers, /assign-reviewer, /check-can-merge, /build-and-push-container, /test-oracle, label toggles, and related permissions.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="labels-check-runs-and-mergeability.html">Labels, Check Runs, and Mergeability</a>
-
-                            <p class="card-page-desc">Explain built-in labels, reviewed-by labels, size and branch labels, verified and can-be-merged checks, minimum LGTM rules, unresolved conversation checks, and custom check runs.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="container-and-pypi-workflows.html">Container and PyPI Workflows</a>
-
-                            <p class="card-page-desc">Document container build and push behavior, tag-based release publishing, registry configuration, PyPI publishing, and Slack notifications.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="ai-features-and-test-oracle.html">AI Features and Test Oracle</a>
-
-                            <p class="card-page-desc">Cover conventional-title validation, AI suggestion and auto-fix modes, supported AI providers, and the external PR test oracle integration and triggers.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="log-viewer-guide.html">Log Viewer Guide</a>
-
-                            <p class="card-page-desc">Explain how to enable the log viewer, use filters and live streaming, inspect PR flows and workflow steps, and export logs safely.</p>
+                            <p class="card-page-desc">How to enable and use the Model Context Protocol (MCP) server that exposes webhook server API endpoints (log entries, export, PR flow, workflow steps) as tools for AI agents. Covers enabling via ENABLE_MCP_SERVER, the /mcp endpoint, connecting AI clients (Claude Desktop, Cursor, etc.), available tools, MCP logging configuration (mcp-log-file), security considerations (no authentication, trusted networks only), and stateless session mode.</p>
 
                         </li>
 
                     </ul>
 
-                    <a href="supported-github-events.html" class="card-link">Explore →</a>
-
-                </div>
-
-                <div class="card">
-                    <h3 class="card-title">API Reference</h3>
-                    <ul class="card-pages">
-
-                        <li>
-                            <a href="webhook-and-health-api.html">Webhook and Health API</a>
-
-                            <p class="card-page-desc">Reference the main POST /webhook_server endpoint and GET /webhook_server/healthcheck endpoint, including validation rules and immediate-response semantics.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="log-viewer-api.html">Log Viewer API</a>
-
-                            <p class="card-page-desc">Reference the /logs API endpoints and WebSocket stream for historical queries, exports, PR flow inspection, workflow steps, and step-scoped logs.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="mcp-api.html">MCP API</a>
-
-                            <p class="card-page-desc">Document the optional /mcp endpoint, how it exposes the FastAPI surface to AI agents, and the deployment and security expectations around it.</p>
-
-                        </li>
-
-                    </ul>
-
-                    <a href="webhook-and-health-api.html" class="card-link">Explore →</a>
-
-                </div>
-
-                <div class="card">
-                    <h3 class="card-title">Operations</h3>
-                    <ul class="card-pages">
-
-                        <li>
-                            <a href="repository-bootstrap-and-github-app.html">Repository Bootstrap and GitHub App</a>
-
-                            <p class="card-page-desc">Describe the startup-time repository bootstrap process that configures labels, branch protection, check states, and webhooks using the configured GitHub App.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="logging-and-data-files.html">Logging and Data Files</a>
-
-                            <p class="card-page-desc">Document the data directory layout, rotating text logs, structured JSONL webhook logs, log viewer files, and how masking and log separation work.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="testing-and-maintenance.html">Testing and Maintenance</a>
-
-                            <p class="card-page-desc">Explain the unit, integration, and end-to-end test strategy, coverage expectations, pre-commit tooling, release automation, dependency update automation, and repository maintenance bots.</p>
-
-                        </li>
-
-                        <li>
-                            <a href="troubleshooting.html">Troubleshooting</a>
-
-                            <p class="card-page-desc">Collect common setup and runtime problems such as missing config, repository lookup failures, Podman runtime issues, skipped draft PR commands, and observability tips.</p>
-
-                        </li>
-
-                    </ul>
-
-                    <a href="repository-bootstrap-and-github-app.html" class="card-link">Explore →</a>
+                    <a href="publishing-to-pypi.html" class="card-link">Explore →</a>
 
                 </div>
 
