@@ -13,13 +13,25 @@ if __name__ == "__main__":
 
     result = asyncio.run(repository_and_webhook_settings(webhook_secret=_webhook_secret))
 
-    uvicorn.run(
-        "webhook_server.app:FASTAPI_APP",
-        host=_ip_bind,
-        port=int(_port),
-        workers=int(_max_workers),
-        reload=False,
-    )
+    # Logging Configuration:
+    # - Uvicorn uses default logging which automatically respects FORCE_COLOR environment variable
+    #   for colored terminal output (useful for Docker logs with color support)
+    # - Application logs use simple-logger with console=True for colored output in Docker logs
+    # - Both logging systems work together: uvicorn handles HTTP request logs,
+    #   while simple-logger handles application-level logs with structured formatting
+    uvicorn_kwargs: dict[str, Any] = {
+        "host": _ip_bind,
+        "port": int(_port),
+        "reload": _dev_mode,
+    }
+    if not _dev_mode:
+        uvicorn_kwargs["workers"] = int(_max_workers)
+
+    # Start tool server on separate event loop (avoids contention with CI checks)
+    start_tool_server()
+    print(f"\u2705 Tool server starting on 127.0.0.1:{TOOL_SERVER_PORT}")
+
+    uvicorn.run("webhook_server.app:FASTAPI_APP", **uvicorn_kwargs)
 ```
 
 From `webhook_server/utils/github_repository_and_webhook_settings.py`:
@@ -265,6 +277,7 @@ So, on public repositories, startup also:
 
 > **Note:** Private repositories still get label reconciliation and repository-level merge defaults, but the startup path skips the public-repo security setup and does not apply branch protection for them.
 
+
 > **Tip:** Startup only pre-creates the static labels. Dynamic labels such as `approved-*`, `lgtm-*`, `commented-*`, `changes-requested-*`, `cherry-pick-*`, and `branch-*` show up later when real webhook events need them.
 
 ### Branch Protection and Required Checks
@@ -346,7 +359,11 @@ def get_required_status_checks(
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
     except UnknownObjectException:
+        # 404 is expected if file doesn't exist
         pass
+    except GithubException as ex:
+        # Handle other GitHub API errors (rate limits, permissions, etc.)
+        LOGGER.warning(f"Failed to check .pre-commit-config.yaml for {repo.name}: {ex}")
 
     # Deduplicate status checks while preserving order
     seen: set[str] = set()
@@ -379,6 +396,7 @@ Here is how that plays out:
 - Remove anything listed in `exclude-runs`
 
 > **Warning:** `include-runs` is not additive. If you set `include-runs` for a branch, that list replaces the automatically generated check list for that branch. Use `exclude-runs` when you want "the generated list, minus a few checks."
+
 
 > **Tip:** The server always adds `can-be-merged` before deduplicating. You do not need to add it twice.
 
@@ -438,6 +456,7 @@ What this means for you:
 This is especially useful after restarts or crashes, because it prevents built-in checks like `tox` or `can-be-merged` from being left permanently stuck in the GitHub UI.
 
 > **Note:** Custom checks are not part of this startup repair pass. The App-backed reset only targets the built-in check names listed above.
+
 
 > **Warning:** If the GitHub App is not installed on a repository, the startup repair step cannot create replacement check runs for that repository.
 
@@ -540,3 +559,10 @@ If one of those things does not happen, the first things to verify are:
 - the GitHub App is installed on that repo
 - `webhook-server.private-key.pem` and `github-app-id` match the installed App
 - `webhook-ip` is the full callback URL, including `/webhook_server`
+
+
+## Related Pages
+
+- [Security Configuration](security-configuration.html)
+- [Installation](installation.html)
+- [Configuration Model](configuration-model.html)

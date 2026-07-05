@@ -1,242 +1,153 @@
 # Repository Overrides
 
-Repository overrides let you change behavior for one repository without changing the default behavior for every repo the server manages.
+Repository overrides let you customize pull request workflows, required labels, automated checks, and release behaviors for a specific repository by placing a configuration file directly within its codebase. This allows development teams to manage their own runtime policies in version control without needing administrative access to the central webhook server.
 
-This project has two per-repository configuration layers:
+## Prerequisites
 
-1. `config.yaml` on the server, under `repositories.<repo>`
-2. `.github-webhook-server.yaml` in the root of the repository itself
+* Access to push changes or open a pull request to the target repository.
+* A running github-webhook-server instance configured to listen to events for your repository.
 
-For runtime settings that the webhook reads from the repository, precedence is:
+## Quick Example
 
-1. `.github-webhook-server.yaml`
-2. The matching repository entry in `config.yaml`
-3. Top-level defaults in `config.yaml`
+To apply repository-specific behavior, create a file named `.github-webhook-server.yaml` at the root of your repository.
 
-> **Note:** The server looks for `.github-webhook-server.yaml` in the repository root. If that file is missing, the repository falls back to its `config.yaml` entry, then to global defaults.
+Here is the simplest configuration to enforce a minimum of two approvals and require specific PR labels before merging:
 
-> **Tip:** Keep repo-owned workflow behavior in `.github-webhook-server.yaml`, and keep server-owned settings such as credentials, webhook events, and protected branch setup in `config.yaml`.
-
-| Area | `.github-webhook-server.yaml` | `config.yaml` `repositories.<repo>` | Notes |
-| --- | --- | --- | --- |
-| `labels.enabled-labels`, `labels.colors` | Yes | Yes | Repo-local values win. |
-| `pr-size-thresholds` | No | Yes | Current runtime reads PR size buckets from `config.yaml`. |
-| `tox`, `tox-python-version`, `pre-commit`, `verified-job`, `conventional-title`, `custom-check-runs`, `set-auto-merge-prs`, `can-be-merged-required-labels`, `minimum-lgtm` | Yes | Yes | Repo-local values win. |
-| `pypi`, `container` | Yes | Yes | Repo-local values win. |
-| `github-tokens` | No | Yes | Needed before the repo-local file can be read. |
-| `protected-branches` and branch protection sync | No | Yes | Applied by the server when it configures repositories. |
-| `branch-protection.required_conversation_resolution` | Yes | Yes | Also affects the runtime `can-be-merged` gate. |
-| `default-status-checks` | No | Yes | Override global default-status-checks for this repository. |
-| `events`, `test-oracle`, `allow-commands-on-draft-prs` | No | Yes | Current code reads these from `config.yaml`. |
-
-## Labels
-
-Per-repo label overrides are useful when one repository wants fewer automation labels, different colors, or different PR size buckets than the global defaults.
-
-The repo-specific label shape in `config.yaml` looks like this:
-
-```236:255:examples/config.yaml
-labels:
-  enabled-labels:
-    - verified
-    - hold
-    - size
-  colors:
-    hold: purple
-
-pr-size-thresholds:
-  Express:
-    threshold: 25 # PRs with 0-24 lines changed
-    color: lightblue
-  Standard:
-    threshold: 100 # PRs with 25-99 lines changed
-    color: green
-  Premium:
-    threshold: 500 # PRs with 100-499 lines changed
-    color: orange # PRs with 500+ lines changed get this category
-```
-
-`labels.enabled-labels` is a whitelist.
-
-- Leave it unset to keep all configurable label categories enabled.
-- Set it to `[]` to disable configurable label categories for that repo.
-- Review labels such as `approved-*`, `lgtm-*`, `changes-requested-*`, and `commented-*` still stay enabled.
-- The exact `lgtm` and `approve` labels also stay enabled.
-
-`labels.colors` overrides only the keys you provide, so you can inherit global colors and replace just a few. The code also supports dynamic prefixes such as `approved-` and `branch-`, not just exact label names.
-
-> **Note:** `pr-size-thresholds` is per-repository, but in the current code it belongs in `config.yaml`, not `.github-webhook-server.yaml`.
-
-## Checks And Merge Rules
-
-This is the area where repo-local overrides are most useful. You can change what checks run, how strict the merge gate is, and whether auto-merge is enabled for selected branches.
-
-The repo-local example shows branch-specific `tox`, an optional Python version for `tox`, and `pre-commit`:
-
-```13:41:examples/.github-webhook-server.yaml
-verified-job: true # Enable/disable verified job functionality
-
-# ... other repo-local settings ...
-
-tox:
-  main: "tests,linting" # Commands for main branch
-  develop: "tests" # Commands for develop branch
-  feature/*: ["tests", "quick-lint"] # Array format also supported
-
-tox-python-version: "3.11"
-
-pre-commit: true
-```
-
-The same repo-local file also shows merge-gate controls:
-
-```87:124:examples/.github-webhook-server.yaml
-set-auto-merge-prs:
-  - main
-  - develop
+```yaml
+minimum-lgtm: 2
 
 can-be-merged-required-labels:
   - "approved"
   - "tests-passed"
-  - "security-reviewed"
 
-conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
-
-minimum-lgtm: 2
-
-create-issue-for-new-pr: true # Create tracking issues for new PRs
+conventional-title: "feat,fix,chore,docs,style,refactor,test"
 ```
 
-These keys change behavior in practical ways:
+Once committed to your default branch, the webhook server immediately applies these rules to subsequent pull requests in this repository.
 
-- `verified-job` enables the `verified` check flow for that repository.
-- `tox` maps base branches to the `tox` envs that should run.
-- `tox-python-version` chooses the Python version passed to `tox`.
-- `pre-commit` enables the `pre-commit` check.
-- `conventional-title` validates PR titles against the configured Conventional Commit types.
-- `can-be-merged-required-labels` adds extra labels that must be present before `can-be-merged` passes.
-- `minimum-lgtm` raises the LGTM threshold before a PR is considered approved.
-- `set-auto-merge-prs` enables GitHub auto-merge automatically when the PR targets one of those base branches.
-- `create-issue-for-new-pr` controls automatic tracking issue creation per repository.
+## Step-by-step: Customizing Your Repository
 
-Custom checks are configured as `custom-check-runs`:
+Repository overrides are ideal for runtime workflows like container builds, test commands, and pull request label rules.
 
-```580:613:webhook_server/config/schema.yaml
-custom-check-runs:
-  # Examples from the schema:
-  - name: lint
-    command: uv tool run --from ruff ruff check
-    mandatory: true
-  - name: security-scan
-    command: TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .
-    mandatory: false
-  - name: complex-check
-    command: |
-      uv run python -c "
-      import sys
-      print('Running complex check')
-      sys.exit(0)
-      "
-```
+### Step 1. Create the override file
+Create a new file called `.github-webhook-server.yaml` in the top level of your project directory.
 
-`custom-check-runs` behave like built-in checks, with two especially useful details:
+### Step 2. Define Pull Request rules
+Add settings to dictate how PRs are handled. For example, if you want to require users to resolve conversations and have a specific check pass:
 
-- The check name is used exactly as configured.
-- `mandatory: false` means the check still runs, but it does not block `can-be-merged`.
-
-> **Note:** Custom checks run in the repository worktree and support shell syntax, including environment variable prefixes.
-
-> **Warning:** Custom checks are validated when they are loaded. The check name cannot collide with built-in checks such as `tox`, `pre-commit`, `build-container`, `python-module-install`, `conventional-title`, or `can-be-merged`, and the executable in `command` must already exist on the server. Invalid checks are skipped.
-
-One more merge-related setting is worth calling out: `branch-protection.required_conversation_resolution`. The runtime merge gate reads that flag and, when enabled, unresolved review threads will cause `can-be-merged` to fail.
-
-Other supported repo-local workflow overrides include `auto-verified-and-merged-users`, `auto-verify-cherry-picked-prs`, `cherry-pick-assign-to-pr-author`, `slack-webhook-url`, and `ai-features`.
-
-## Tokens And Protected Branches
-
-Some settings are still per-repository, but they remain server-side because the server needs them before it can read `.github-webhook-server.yaml`.
-
-The repo-specific server config supports branch protection setup, per-repo tokens, and branch protection policy:
-
-```164:227:examples/config.yaml
-protected-branches:
-  dev: []
-  main: # set [] in order to set all defaults run included
-    include-runs:
-      - "pre-commit.ci - pr"
-      - "WIP"
-    exclude-runs:
-      - "SonarCloud Code Analysis"
-
-# ... other repo-specific settings ...
-
-github-tokens: # override GitHub tokens per repository
-  - <GITHUB TOKEN1>
-  - <GITHUB TOKEN2>
-
-# ... other repo-specific settings ...
-
+```yaml
+# Require all comment threads to be resolved
 branch-protection:
-  strict: True
-  require_code_owner_reviews: True
-  dismiss_stale_reviews: False
-  required_approving_review_count: 1
-  required_linear_history: True
-  required_conversation_resolution: True
+  required_conversation_resolution: true
+
+# Specify branches that should auto-merge when checks pass
+set-auto-merge-prs:
+  - main
 ```
 
-Use `github-tokens` when one repository needs its own API budget or a different permission set than the global default. The server will build GitHub clients from that repo's token list and select the token with the highest remaining rate limit.
+### Step 3. Configure automated testing (Tox)
+If your repository uses `tox` for testing, you can instruct the webhook server how to run it based on the target branch.
 
-> **Warning:** Put `github-tokens` in `config.yaml`, not in `.github-webhook-server.yaml`. Token selection happens before the server reads the repo-local file.
+```yaml
+tox:
+  main: "tests,linting"
+  develop: "tests"
+  feature/*: ["tests", "quick-lint"]
+  python-version: "3.11"
+```
 
-`protected-branches` controls which branches get protection and what required checks are applied.
+### Step 4. Commit and test
+Commit the file to your repository.
 
-- `[]` means "protect this branch with the computed default required checks".
-- `include-runs` gives an explicit required-check list for that branch.
-- `exclude-runs` removes checks from the computed default list.
+```bash
+git add .github-webhook-server.yaml
+git commit -m "chore: configure webhook server overrides"
+git push
+```
 
-> **Note:** If `include-runs` is present, the server uses that explicit list. If it is not present, the server builds the list from `default-status-checks`, enabled repo features such as `tox` and `pre-commit`, and `can-be-merged`, then removes anything listed in `exclude-runs`.
+> **Note:** The server fetches `.github-webhook-server.yaml` dynamically when processing webhooks. You do not need to restart the server to apply these changes.
 
-`branch-protection` controls the actual GitHub branch protection settings for that repository. Per-repo values override global values field by field, so you can change only `strict`, only `required_approving_review_count`, or only `required_conversation_resolution` without redefining everything.
+## Global vs Local Configuration
 
-## Release Settings
+Not all settings belong in `.github-webhook-server.yaml`. Administrative settings should stay in the global `config.yaml` on the server, while workflow logic belongs in the repository.
 
-Release behavior is also override-friendly. A repository can decide whether tag pushes should publish packages, push container images, or both.
+| Configuration Area | Best Location | Reason |
+| :--- | :--- | :--- |
+| **PR Labels & Approvals** | `.github-webhook-server.yaml` | Developers control workflow requirements via PRs. |
+| **Release Artifacts (PyPI/Docker)** | `.github-webhook-server.yaml` | Image tags and build args naturally evolve with the code. |
+| **Tox / Pre-commit Rules** | `.github-webhook-server.yaml` | Test commands frequently change between project updates. |
+| **Webhook Events List** | Server `config.yaml` | Performance and administrative control over payload traffic. |
+| **GitHub Access Tokens** | Server `config.yaml` | Secrets should remain on the server, not in repo config. |
 
-The repo-local example shows both `pypi` and `container`:
+For a full explanation of how settings merge, see the [Configuration Model](configuration-model.html).
 
-```16:63:examples/.github-webhook-server.yaml
-pypi:
-  token: pypi-your-token-here
+## Advanced Usage
 
-# ... other repo-local settings ...
+### Container Image Publishing
 
+You can automate building and pushing Docker/Podman images directly from the local repository configuration. This is useful for repositories that act as microservices or publish their own distinct images.
+
+```yaml
 container:
-  username: your-registry-username
-  password: your-registry-password # pragma: allowlist secret
   repository: quay.io/your-org/your-repo
   tag: latest
-  release: true # Push on new releases
+  release: true
   build-args:
-    - "BUILD_ARG=value"
+    - "ENABLE_DEBUG=false"
   args:
     - "--platform=linux/amd64"
 ```
 
-These keys affect release flow like this:
+> **Tip:** Provide registry credentials (`username` and `password`) in the central server configuration for security, while keeping the repository name and tags here. See [Container and PyPI Workflows](container-and-pypi-workflows.html).
 
-- If `pypi` is configured, a tag push triggers a build and upload to PyPI.
-- If `container` is configured, the repo gets container build behavior.
-- If `container.release` is `true`, tag pushes also push the built image to the configured registry.
-- `container.build-args` and `container.args` are passed through to the container build command.
+### AI Enhancements and Conventional Commits
 
-> **Tip:** On tag pushes, the published container image uses the Git tag name. For PR builds, the image tag is `pr-<number>`. For merged builds to `main` or `master`, the server uses `container.tag`.
+You can enable AI features to automatically validate or suggest standard title prefixes on your repository.
 
-## Recommended Split
+```yaml
+ai-features:
+  ai-provider: "claude"
+  ai-model: "claude-opus-4-6[1m]"
+  conventional-title:
+    enabled: true
+    mode: suggest  # Options: suggest (in check run) or fix (auto-update PR)
+    timeout-minutes: 10
+```
 
-A good working pattern is:
+### Custom Sizing Labels
 
-- Keep `github-tokens`, `protected-branches`, `branch-protection`, `events`, `pr-size-thresholds`, `test-oracle`, and `allow-commands-on-draft-prs` in `config.yaml`.
-- Keep `labels`, `tox`, `pre-commit`, `custom-check-runs`, `conventional-title`, `set-auto-merge-prs`, `can-be-merged-required-labels`, `minimum-lgtm`, `pypi`, `container`, and other PR workflow behavior in `.github-webhook-server.yaml`.
+By default, the server calculates PR size based on total lines changed (additions + deletions). You can override these thresholds entirely for specific repositories, mapping custom sizes to UI colors.
 
-That gives you the best of both worlds: the server keeps control over secrets and GitHub setup, while each repository can own its day-to-day workflow behavior in version control.
+```yaml
+pr-size-thresholds:
+  Tiny:
+    threshold: 20
+    color: lightgreen
+  Average:
+    threshold: 150
+    color: green
+  Massive:
+    threshold: inf # 'inf' serves as the unbounded catch-all for large PRs
+    color: black
+```
+
+For more configuration keys, check the [Configuration Reference](configuration-reference.html) and [Labels, Check Runs, and Mergeability](labels-check-runs-and-mergeability.html).
+
+## Troubleshooting
+
+### Settings not applying
+
+If your pull request is not adhering to the rules you configured:
+1. **Check the filename:** Ensure it is exactly `.github-webhook-server.yaml` and is placed in the repository root directory.
+2. **Verify YAML syntax:** A syntax error will cause the server to skip the local file and fall back to global defaults.
+3. **Check reserved keys:** If you attempted to override `github-tokens` or administrative settings, the server will ignore them when placed in `.github-webhook-server.yaml`.
+
+### Testing behavior on feature branches
+
+Changes to `.github-webhook-server.yaml` on a feature branch will apply only to the webhook events processed for *that specific pull request branch*. When merged, the settings become the baseline for all subsequent pull requests targeting the main branch.
+
+## Related Pages
+
+- [Configuration Model](configuration-model.html)
+- [Configuration Reference](configuration-reference.html)
+- [OWNERS and Reviewer Assignment](owners-and-reviewer-assignment.html)

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supported GitHub Events - github-webhook-server</title>
     <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
     <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
 </head>
@@ -257,7 +258,7 @@
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    <span class="github-stars" id="github-stars"></span>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
                 </a>
 
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -280,453 +281,89 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="supported-github-events">Supported GitHub Events</h1>
-<p><code>github-webhook-server</code> automates a focused set of GitHub webhook events for pull requests, merge gating, and release workflows. You can subscribe the webhook to more events than this, but only the events on this page have built-in behavior.</p>
-<blockquote>
-<p><strong>Note:</strong> The webhook endpoint returns <code>200 OK</code> after the payload is validated and queued. That means GitHub reached the server successfully. It does <strong>not</strong> mean every downstream action finished successfully.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code>    <span class="c1"># Start background task immediately using asyncio.create_task</span>
-    <span class="c1"># This ensures the HTTP response is sent immediately without waiting</span>
-    <span class="c1"># Store task reference for observability and graceful shutdown</span>
-    <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
-        <span class="n">process_with_error_handling</span><span class="p">(</span>
-            <span class="n">_hook_data</span><span class="o">=</span><span class="n">hook_data</span><span class="p">,</span>
-            <span class="n">_headers</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">,</span>
-            <span class="n">_delivery_id</span><span class="o">=</span><span class="n">delivery_id</span><span class="p">,</span>
-            <span class="n">_event_type</span><span class="o">=</span><span class="n">event_type</span><span class="p">,</span>
-        <span class="p">)</span>
-    <span class="p">)</span>
-    <span class="n">_background_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
-    <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_background_tasks</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
-
-    <span class="c1"># Return 200 immediately with JSONResponse for fastest serialization</span>
-    <span class="k">return</span> <span class="n">JSONResponse</span><span class="p">(</span>
-        <span class="n">status_code</span><span class="o">=</span><span class="n">status</span><span class="o">.</span><span class="n">HTTP_200_OK</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="o">.</span><span class="n">HTTP_200_OK</span><span class="p">,</span>
-            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Webhook queued for processing&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;delivery_id&quot;</span><span class="p">:</span> <span class="n">delivery_id</span><span class="p">,</span>
-            <span class="s2">&quot;event_type&quot;</span><span class="p">:</span> <span class="n">event_type</span><span class="p">,</span>
-        <span class="p">},</span>
-    <span class="p">)</span>
-</code></pre></div>
-
-<h2 id="configure-events">Configure Events</h2>
-<p>Use the <code>events</code> list in <code>config.yaml</code> or <code>.github-webhook-server.yaml</code> to control which GitHub deliveries this server should receive for a repository.</p>
-<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="nt">events</span><span class="p">:</span><span class="w"> </span><span class="c1"># To listen to all events do not send events</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
+<p>To automate repository and pull request workflows, the webhook server listens to specific GitHub events. By configuring your GitHub App to send these events, the server can trigger CI/CD builds, label PRs, and enforce mergeability rules.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A GitHub App installed and configured to deliver webhook payloads.</li>
+<li>Your repository configured in the global configuration file.</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
+<p>When configuring your GitHub App, subscribe to the necessary events. You can optionally filter which events a specific repository processes in your configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-org/my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Optional: explicitly filter which events this repository processes</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_thread</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
 </code></pre></div>
 
-<p>If you want GitHub to send every event type, omit the <code>events</code> key entirely.</p>
-<h2 id="event-summary">Event Summary</h2>
-<table>
-<thead>
-<tr>
-<th>Event</th>
-<th>What it is used for</th>
-<th>Intentionally skipped cases</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ping</code></td>
-<td>Webhook connectivity check</td>
-<td>Always stops after logging</td>
-</tr>
-<tr>
-<td><code>push</code></td>
-<td>Tag-based release automation</td>
-<td>Branch pushes, branch/tag deletions</td>
-</tr>
-<tr>
-<td><code>pull_request</code></td>
-<td>PR lifecycle automation</td>
-<td>Draft PRs, unhandled PR actions</td>
-</tr>
-<tr>
-<td><code>issue_comment</code></td>
-<td>Slash commands on PR comments</td>
-<td>Plain issue comments, edited/deleted comments, non-command comments, draft restrictions</td>
-</tr>
-<tr>
-<td><code>pull_request_review</code></td>
-<td>Review labels and <code>/approve</code> handling</td>
-<td>Review actions other than <code>submitted</code></td>
-</tr>
-<tr>
-<td><code>check_run</code></td>
-<td>Mergeability re-checks and auto-merge</td>
-<td><code>action != completed</code>, failing <code>can-be-merged</code> runs</td>
-</tr>
-<tr>
-<td><code>status</code></td>
-<td>Mergeability re-checks for commit statuses</td>
-<td><code>pending</code>, no matching PR</td>
-</tr>
-<tr>
-<td><code>pull_request_review_thread</code></td>
-<td>Conversation-resolution merge gating</td>
-<td>Actions other than <code>resolved</code>/<code>unresolved</code>, conversation resolution disabled</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> Several GitHub events are broader than pull requests. When the server cannot map an <code>issue_comment</code>, <code>status</code>, or <code>check_run</code> delivery back to a pull request, it logs the delivery and skips it.</p>
-</blockquote>
-<h2 id="ping"><code>ping</code></h2>
-<p><code>ping</code> is just GitHub's connectivity test. The server logs it and stops. No pull request lookup, labels, checks, or builds happen for this event.</p>
-<h2 id="push"><code>push</code></h2>
-<p><code>push</code> is used for releases, not normal branch CI. The server only does real work for tag pushes such as <code>refs/tags/v1.2.3</code>.</p>
-<p>When a matching tag push arrives, the server can:</p>
+<h2 id="step-by-step-event-triggers-and-actions">Step-by-Step: Event Triggers and Actions</h2>
+<p>The server handles specific GitHub events and intentionally skips others to save API rate limits and avoid unnecessary processing.</p>
+<h3 id="1-pull_request">1. <code>pull_request</code></h3>
+<p>Triggers pull request automation workflows.</p>
 <ul>
-<li>publish a package to PyPI if <code>pypi</code> is configured</li>
-<li>build and push a release container image if container release settings are enabled</li>
+<li><strong>Triggers:</strong> Welcome comments, labeling (size, WIP, hold), owner and reviewer assignment, and mergeability checks.</li>
+<li><strong>Skipped:</strong> PRs in a Draft state are ignored immediately (unless explicitly allowed to receive commands, which primarily applies to issue comments).</li>
 </ul>
-<p>Branch pushes are intentionally ignored. Delete events are also ignored.</p>
-<div class="highlight"><pre><span></span><code>            <span class="c1"># Skip branch/tag deletions - no processing needed</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;deleted&quot;</span><span class="p">):</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Branch/tag deletion detected, skipping processing&quot;</span><span class="p">)</span>
-                <span class="n">token_metrics</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_token_metrics</span><span class="p">()</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Webhook processing completed: deletion event (skipped) - </span><span class="si">{</span><span class="n">token_metrics</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="p">)</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_update_context_metrics</span><span class="p">()</span>
-                <span class="k">return</span> <span class="kc">None</span>
-
-            <span class="n">ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;ref&quot;</span><span class="p">]</span>
-
-            <span class="c1"># Only clone for tag pushes - branch pushes don&#39;t require cloning</span>
-            <span class="c1"># because PushHandler only processes tags (PyPI upload, container build)</span>
-            <span class="k">if</span> <span class="n">ref</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;refs/tags/&quot;</span><span class="p">):</span>
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clone_repository</span><span class="p">(</span><span class="n">checkout_ref</span><span class="o">=</span><span class="n">ref</span><span class="p">)</span>
-                <span class="k">await</span> <span class="n">PushHandler</span><span class="p">(</span><span class="n">github_webhook</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">process_push_webhook_data</span><span class="p">()</span>
-                <span class="n">token_metrics</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_token_metrics</span><span class="p">()</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Webhook processing completed successfully: push - </span><span class="si">{</span><span class="n">token_metrics</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Skipping clone for branch push: </span><span class="si">{</span><span class="n">ref</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                <span class="n">token_metrics</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_token_metrics</span><span class="p">()</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Webhook processing completed: branch push (skipped) - </span><span class="si">{</span><span class="n">token_metrics</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="p">)</span>
-</code></pre></div>
-
-<p>If neither PyPI publishing nor container release is configured, even a tag push is effectively a no-op.</p>
-<h2 id="pull_request"><code>pull_request</code></h2>
-<p>This is the main automation event. The server has first-class behavior for these <code>action</code> values:</p>
+<h3 id="2-issue_comment">2. <code>issue_comment</code></h3>
+<p>Triggers ChatOps commands via PR comments.</p>
 <ul>
-<li><code>opened</code></li>
-<li><code>reopened</code></li>
-<li><code>ready_for_review</code></li>
-<li><code>synchronize</code></li>
-<li><code>closed</code></li>
-<li><code>edited</code></li>
-<li><code>labeled</code></li>
-<li><code>unlabeled</code></li>
+<li><strong>Triggers:</strong> User-issued commands such as <code>/retest</code>, <code>/cherry-pick</code>, or <code>/assign-reviewer</code>.</li>
+<li><strong>Skipped:</strong> Commands on Draft PRs are skipped by default.</li>
 </ul>
-<p>In practice, that means:</p>
+<h3 id="3-push">3. <code>push</code></h3>
+<p>Triggers CI/CD actions for repository pushes.</p>
 <ul>
-<li><code>opened</code> initializes the PR: welcome comment, optional tracking issue, reviewer assignment, labels, queued checks, CI tasks, possible auto-merge setup, and an optional Test Oracle run when <code>pr-opened</code> is enabled.</li>
-<li><code>reopened</code> reruns the main PR setup flow.</li>
-<li><code>ready_for_review</code> reruns the main PR setup flow and posts the welcome comment.</li>
-<li><code>synchronize</code> reruns setup and CI, removes old review-state labels, and can trigger Test Oracle when <code>pr-synchronized</code> is enabled.</li>
-<li><code>closed</code> closes PR tracking artifacts. If the PR was merged, it can also run queued cherry-picks, push the merged container build, and refresh merge-state labels on other open PRs.</li>
-<li><code>edited</code> recalculates <code>wip</code> and reruns <code>conventional-title</code> when the PR title changed.</li>
-<li><code>labeled</code> and <code>unlabeled</code> refresh <code>verified</code> and re-check mergeability when merge-control labels change.</li>
+<li><strong>Triggers:</strong> Tag pushes initiate PyPI package uploads and container build/push workflows.</li>
+<li><strong>Skipped:</strong> Branch pushes and branch/tag deletion events are skipped (no repository clone is performed).</li>
 </ul>
-<p>The main setup and CI work is visible in the handler itself:</p>
-<div class="highlight"><pre><span></span><code>        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">assign_reviewers</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">_add_label</span><span class="p">(</span>
-                <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
-                <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BRANCH_LABEL_PREFIX</span><span class="si">}{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">base</span><span class="o">.</span><span class="n">ref</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="p">)</span>
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_pull_request_by_merge_state</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">CAN_BE_MERGED_STR</span><span class="p">))</span>
-
-        <span class="c1"># Only queue built-in checks when their corresponding feature is enabled</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">tox</span><span class="p">:</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">TOX_STR</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">pre_commit</span><span class="p">:</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">PRE_COMMIT_STR</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">pypi</span><span class="p">:</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">PYTHON_MODULE_INSTALL_STR</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">build_and_push_container</span><span class="p">:</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">BUILD_CONTAINER_STR</span><span class="p">))</span>
-
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_process_verified_for_update_or_new_pull_request</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">add_size_label</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">add_pull_request_owner_as_assingee</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">conventional_title</span><span class="p">:</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">CONVENTIONAL_TITLE_STR</span><span class="p">))</span>
-
-        <span class="c1"># Queue custom check runs (same as built-in checks)</span>
-        <span class="c1"># Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()</span>
-        <span class="c1"># so name is guaranteed to exist</span>
-        <span class="k">for</span> <span class="n">custom_check</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">custom_check_runs</span><span class="p">:</span>
-            <span class="n">check_name</span> <span class="o">=</span> <span class="n">custom_check</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span>
-            <span class="n">setup_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_run_handler</span><span class="o">.</span><span class="n">set_check_queued</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">check_name</span><span class="p">))</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Executing setup tasks&quot;</span><span class="p">)</span>
-        <span class="n">setup_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">setup_tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-        <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">setup_results</span><span class="p">:</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Setup task failed: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;pr_workflow_setup&quot;</span><span class="p">)</span>
-
-        <span class="c1"># Stage 2: CI/CD execution tasks</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">start_step</span><span class="p">(</span><span class="s2">&quot;pr_cicd_execution&quot;</span><span class="p">)</span>
-
-        <span class="n">ci_tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Coroutine</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-
-        <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_tox</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_pre_commit</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_install_python_module</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-        <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_build_container</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">conventional_title</span><span class="p">:</span>
-            <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_conventional_title_check</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">))</span>
-
-        <span class="c1"># Launch custom check runs (same as built-in checks)</span>
-        <span class="k">for</span> <span class="n">custom_check</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">custom_check_runs</span><span class="p">:</span>
-            <span class="n">ci_tasks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">run_custom_check</span><span class="p">(</span>
-                    <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
-                    <span class="n">check_config</span><span class="o">=</span><span class="n">custom_check</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="p">)</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Note:</strong> Draft PRs are intentionally quiet. Normal <code>pull_request</code> automation stops early for drafts. Draft-specific comment behavior is handled separately through <code>issue_comment</code>.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="c1"># Commands allowed on draft PRs (optional)</span>
-<span class="c1"># If not set: commands are blocked on draft PRs (default behavior)</span>
-<span class="c1"># If empty list []: all commands allowed on draft PRs</span>
-<span class="c1"># If list with values: only those commands allowed on draft PRs</span>
-<span class="c1"># allow-commands-on-draft-prs: []  # Uncomment to allow all commands on draft PRs</span>
-<span class="c1"># allow-commands-on-draft-prs:     # Or allow only specific commands:</span>
-<span class="c1">#   - build-and-push-container</span>
-<span class="c1">#   - retest</span>
-</code></pre></div>
-
-<p>Other <code>pull_request</code> actions are currently ignored.</p>
-<h2 id="issue_comment"><code>issue_comment</code></h2>
-<p>GitHub sends <code>issue_comment</code> for both issues and pull requests. This server only acts when the comment belongs to a pull request.</p>
-<p>It intentionally ignores:</p>
+<h3 id="4-pull_request_review">4. <code>pull_request_review</code></h3>
+<p>Evaluates pull request approval status.</p>
 <ul>
-<li>edited comments</li>
-<li>deleted comments</li>
-<li>its own welcome-message comment</li>
-<li>comments that do not contain slash commands on lines starting with <code>/</code></li>
+<li><strong>Triggers:</strong> Re-evaluates whether a PR can be merged by verifying if minimum LGTM/approvals are met from valid <code>OWNERS</code> file approvers.</li>
 </ul>
-<p>Supported commands include <code>retest</code>, <code>reprocess</code>, <code>check-can-merge</code>, <code>assign-reviewers</code>, <code>assign-reviewer</code>, <code>cherry-pick</code>, <code>build-and-push-container</code>, <code>regenerate-welcome</code>, <code>test-oracle</code>, and label-style commands such as <code>wip</code>, <code>hold</code>, <code>verified</code>, <code>lgtm</code>, <code>approve</code>, and <code>automerge</code>.</p>
-<p>A few especially important behaviors:</p>
+<h3 id="5-pull_request_review_thread">5. <code>pull_request_review_thread</code></h3>
+<p>Monitors conversational threads.</p>
 <ul>
-<li><code>/retest &lt;check&gt;</code> reruns supported configured checks. <code>/retest all</code> reruns every supported check for that PR.</li>
-<li><code>/cherry-pick &lt;branch...&gt;</code> adds cherry-pick labels on unmerged PRs, or immediately creates cherry-pick PRs for merged PRs. If AI cherry-pick conflict resolution is enabled, the immediate flow can use it.</li>
-<li><code>/approve</code> is the project's label-driven approval command and can trigger Test Oracle's <code>approved</code> trigger.</li>
-<li><code>/test-oracle</code> can always be run manually when Test Oracle is configured.</li>
+<li><strong>Triggers:</strong> Re-evaluates mergeability based on conversation resolution.</li>
+<li><strong>Skipped:</strong> If the action is not <code>resolved</code> or <code>unresolved</code>, or if the <code>required_conversation_resolution</code> configuration is disabled.</li>
 </ul>
-<blockquote>
-<p><strong>Note:</strong> Slash commands are permission-checked. Commands such as <code>/retest</code>, <code>/reprocess</code>, <code>/hold</code>, and <code>/automerge</code> may be ignored or rejected if the commenter is not allowed to run them.</p>
-</blockquote>
-<p>For draft PRs, the server uses <code>allow-commands-on-draft-prs</code>. An empty list means "allow all commands." A non-empty list means "allow only these commands." <code>/test-oracle</code> is the one built-in exception that bypasses this draft filter.</p>
-<div class="highlight"><pre><span></span><code>        <span class="c1"># Check if command is allowed on draft PRs</span>
-        <span class="k">if</span> <span class="n">is_draft</span> <span class="ow">and</span> <span class="n">_command</span> <span class="o">!=</span> <span class="n">COMMAND_TEST_ORACLE_STR</span><span class="p">:</span>
-            <span class="n">allow_commands_on_draft</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get_value</span><span class="p">(</span><span class="s2">&quot;allow-commands-on-draft-prs&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">allow_commands_on_draft</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Command </span><span class="si">{</span><span class="n">_command</span><span class="si">}</span><span class="s2"> blocked: &quot;</span>
-                    <span class="s2">&quot;draft PR and allow-commands-on-draft-prs not configured&quot;</span>
-                <span class="p">)</span>
-                <span class="k">return</span>
-            <span class="c1"># Empty list means all commands allowed; non-empty list means only those commands</span>
-            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">allow_commands_on_draft</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="c1"># Sanitize: ensure all entries are strings for safe join and comparison</span>
-                <span class="n">allow_commands_on_draft</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="k">for</span> <span class="n">cmd</span> <span class="ow">in</span> <span class="n">allow_commands_on_draft</span><span class="p">]</span>
-                <span class="k">if</span> <span class="n">_command</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">allow_commands_on_draft</span><span class="p">:</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Command </span><span class="si">{</span><span class="n">_command</span><span class="si">}</span><span class="s2"> is not allowed on draft PRs. &quot;</span>
-                        <span class="sa">f</span><span class="s2">&quot;Allowed commands: </span><span class="si">{</span><span class="n">allow_commands_on_draft</span><span class="si">}</span><span class="s2">&quot;</span>
-                    <span class="p">)</span>
-                    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
-                        <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
-                        <span class="sa">f</span><span class="s2">&quot;Command `/</span><span class="si">{</span><span class="n">_command</span><span class="si">}</span><span class="s2">` is not allowed on draft PRs.</span><span class="se">\n</span><span class="s2">&quot;</span>
-                        <span class="sa">f</span><span class="s2">&quot;Allowed commands on draft PRs: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">allow_commands_on_draft</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-                    <span class="p">)</span>
-                    <span class="k">return</span>
-</code></pre></div>
-
-<h2 id="pull_request_review"><code>pull_request_review</code></h2>
-<p>This event matters only when the review <code>action</code> is <code>submitted</code>. The server updates its review labels based on the review state, such as comment, approval, or requested changes.</p>
-<p>If the review body contains a literal <code>/approve</code>, the server also applies the project's approval label and can trigger Test Oracle's <code>approved</code> trigger.</p>
-<div class="highlight"><pre><span></span><code>            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;action&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;submitted&quot;</span><span class="p">:</span>
-<span class="w">                </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">                Available actions:</span>
-<span class="sd">                    commented</span>
-<span class="sd">                    approved</span>
-<span class="sd">                    changes_requested</span>
-<span class="sd">                &quot;&quot;&quot;</span>
-                <span class="n">reviewed_user</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;review&quot;</span><span class="p">][</span><span class="s2">&quot;user&quot;</span><span class="p">][</span><span class="s2">&quot;login&quot;</span><span class="p">]</span>
-                <span class="n">review_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;review&quot;</span><span class="p">][</span><span class="s2">&quot;state&quot;</span><span class="p">]</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;Processing pull request review for user </span><span class="si">{</span><span class="n">reviewed_user</span><span class="si">}</span><span class="s2"> with state </span><span class="si">{</span><span class="n">review_state</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="p">)</span>
-
-                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">manage_reviewed_by_label</span><span class="p">(</span>
-                    <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
-                    <span class="n">review_state</span><span class="o">=</span><span class="n">review_state</span><span class="p">,</span>
-                    <span class="n">action</span><span class="o">=</span><span class="n">ADD_STR</span><span class="p">,</span>
-                    <span class="n">reviewed_user</span><span class="o">=</span><span class="n">reviewed_user</span><span class="p">,</span>
-                <span class="p">)</span>
-
-                <span class="k">if</span> <span class="n">body</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="p">[</span><span class="s2">&quot;review&quot;</span><span class="p">][</span><span class="s2">&quot;body&quot;</span><span class="p">]:</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Found review body: </span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                    <span class="c1"># In this project, &quot;approved&quot; means a maintainer uses the /approve command</span>
-                    <span class="c1"># (which adds an approved-&lt;user&gt; label), NOT GitHub&#39;s review approval state.</span>
-                    <span class="c1"># The oracle trigger fires only when /approve is found in the review body.</span>
-                    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="sa">f</span><span class="s2">&quot;/</span><span class="si">{</span><span class="n">APPROVE_STR</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">body</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()):</span>
-                        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">label_by_user_comment</span><span class="p">(</span>
-                            <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
-                            <span class="n">user_requested_label</span><span class="o">=</span><span class="n">APPROVE_STR</span><span class="p">,</span>
-                            <span class="n">remove</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                            <span class="n">reviewed_user</span><span class="o">=</span><span class="n">reviewed_user</span><span class="p">,</span>
-                        <span class="p">)</span>
-                        <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span>
-                            <span class="n">call_test_oracle</span><span class="p">(</span>
-                                <span class="n">github_webhook</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="p">,</span>
-                                <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span>
-                                <span class="n">trigger</span><span class="o">=</span><span class="s2">&quot;approved&quot;</span><span class="p">,</span>
-                            <span class="p">)</span>
-                        <span class="p">)</span>
-                        <span class="n">_background_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
-                        <span class="n">task</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_background_tasks</span><span class="o">.</span><span class="n">discard</span><span class="p">)</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Note:</strong> In this project, GitHub's green "Approved" review state is not the same as the <code>/approve</code> command. The special <code>approved</code> Test Oracle trigger follows the command, not the raw GitHub review state.</p>
-</blockquote>
-<p>Review actions other than <code>submitted</code>, such as <code>edited</code> or <code>dismissed</code>, are intentionally ignored.</p>
-<h2 id="check_run"><code>check_run</code></h2>
-<p><code>check_run</code> is where the server reacts to finished GitHub checks.</p>
-<p>When a completed <code>can-be-merged</code> check succeeds and the PR has the <code>automerge</code> label, the server attempts a squash merge. Other completed check runs cause the server to re-evaluate whether the PR can be merged.</p>
-<div class="highlight"><pre><span></span><code>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;action&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;completed&quot;</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> check run </span><span class="si">{</span><span class="n">check_run_name</span><span class="si">}</span><span class="s2"> action is &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hook_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;action&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2"> and not completed, skipping&quot;</span>
-            <span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;check_run_handler&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="kc">False</span>
-
-        <span class="n">check_run_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">_check_run</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span>
-        <span class="n">check_run_conclusion</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">_check_run</span><span class="p">[</span><span class="s2">&quot;conclusion&quot;</span><span class="p">]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> processing check_run - Name: </span><span class="si">{</span><span class="n">check_run_name</span><span class="si">}</span><span class="s2"> &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;Status: </span><span class="si">{</span><span class="n">check_run_status</span><span class="si">}</span><span class="s2"> Conclusion: </span><span class="si">{</span><span class="n">check_run_conclusion</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="p">)</span>
-
-        <span class="k">if</span> <span class="n">check_run_name</span> <span class="o">==</span> <span class="n">CAN_BE_MERGED_STR</span><span class="p">:</span>
-            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;labels_handler&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="n">pull_request</span> <span class="ow">and</span> <span class="n">check_run_conclusion</span> <span class="o">==</span> <span class="n">SUCCESS_STR</span><span class="p">:</span>
-                <span class="k">if</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">label_exists_in_pull_request</span><span class="p">(</span>
-                    <span class="n">label</span><span class="o">=</span><span class="n">AUTOMERGE_LABEL_STR</span><span class="p">,</span> <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span>
-                <span class="p">):</span>
-                    <span class="k">try</span><span class="p">:</span>
-                        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">merge</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">)</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Successfully auto-merged pull request #</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">&quot;</span>
-                        <span class="p">)</span>
-                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-                            <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;check_run_handler&quot;</span><span class="p">)</span>
-                        <span class="k">return</span> <span class="kc">False</span>
-                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span>
-                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Failed to auto-merge pull request #</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">ex</span><span class="si">}</span><span class="s2">&quot;</span>
-                        <span class="p">)</span>
-                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-                            <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;check_run_handler&quot;</span><span class="p">)</span>
-                        <span class="k">return</span> <span class="kc">True</span>
-
-            <span class="k">else</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> check run is </span><span class="si">{</span><span class="n">CAN_BE_MERGED_STR</span><span class="si">}</span><span class="s2">, skipping&quot;</span><span class="p">)</span>
-                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;check_run_handler&quot;</span><span class="p">)</span>
-                <span class="k">return</span> <span class="kc">False</span>
-
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="o">.</span><span class="n">complete_step</span><span class="p">(</span><span class="s2">&quot;check_run_handler&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="kc">True</span>
-</code></pre></div>
-
-<p>The server intentionally skips:</p>
+<h3 id="6-check_run">6. <code>check_run</code></h3>
+<p>Integrates with modern GitHub Check Runs and Test Oracle.</p>
 <ul>
-<li><code>check_run</code> deliveries whose <code>action</code> is not <code>completed</code></li>
-<li>extra work when the finished check is <code>can-be-merged</code> but the conclusion is not <code>success</code></li>
+<li><strong>Triggers:</strong> Updates PR mergeability state when a check run completes.</li>
+<li><strong>Skipped:</strong> Actions other than <code>completed</code> (such as <code>created</code> or <code>requested</code>) are ignored.</li>
 </ul>
-<p>That skip behavior keeps the server from re-processing every queued or in-progress check update.</p>
-<h2 id="status"><code>status</code></h2>
-<p><code>status</code> is the older commit-status event. It is useful for tools that report commit statuses instead of GitHub check runs.</p>
-<p>When the status reaches a terminal state such as <code>success</code>, <code>failure</code>, or <code>error</code>, the server re-checks mergeability for the matching PR.</p>
-<p>It intentionally ignores:</p>
+<h3 id="7-status">7. <code>status</code></h3>
+<p>Handles legacy GitHub commit status updates.</p>
 <ul>
-<li><code>pending</code> statuses</li>
-<li>any status delivery that cannot be mapped back to a PR</li>
+<li><strong>Triggers:</strong> Re-evaluates mergeability upon terminal status states (<code>success</code>, <code>failure</code>, or <code>error</code>).</li>
+<li><strong>Skipped:</strong> Updates with a <code>pending</code> state are intentionally skipped to avoid redundant processing.</li>
 </ul>
-<h2 id="pull_request_review_thread"><code>pull_request_review_thread</code></h2>
-<p><code>pull_request_review_thread</code> is used only for conversation-resolution gating.</p>
-<p>When a review thread becomes <code>resolved</code> or <code>unresolved</code>, the server re-evaluates <code>can-be-merged</code> so unresolved conversations can block merging when that rule is enabled.</p>
-<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="nt">branch-protection</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<span class="w">      </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<span class="w">      </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
-<span class="w">      </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">      </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<span class="w">      </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-</code></pre></div>
-
-<p>It intentionally skips:</p>
+<h3 id="8-ping">8. <code>ping</code></h3>
+<p>Verifies webhook connectivity.</p>
 <ul>
-<li>thread actions other than <code>resolved</code> and <code>unresolved</code></li>
-<li>all review-thread deliveries when <code>branch-protection.required_conversation_resolution</code> is <code>false</code></li>
+<li><strong>Triggers:</strong> Logs successful connection and validates webhook delivery. Performs no repository actions.</li>
 </ul>
-<blockquote>
-<p><strong>Tip:</strong> Turn <code>required_conversation_resolution</code> off if you do not want unresolved review threads to participate in merge gating.</p>
-</blockquote>
-<h2 id="events-that-are-not-automated">Events That Are Not Automated</h2>
-<p>The webhook subscription and the application logic are not the same thing. GitHub can send an event that the server accepts but does not automate.</p>
-<blockquote>
-<p><strong>Warning:</strong> The repo-local example file still lists <code>pull_request_review_comment</code>, but the server does not have first-class handling for that event. If GitHub sends it, the delivery is accepted and then effectively ignored.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="c1"># GitHub events to listen to</span>
-<span class="nt">events</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_comment</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_thread</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
-</code></pre></div>
-
-<p>The same rule applies to any other GitHub event that is not listed on this page. If it is not one of the supported events above, the server does not have a dedicated automation path for it.</p>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="optimizing-rate-limits">Optimizing Rate Limits</h3>
+<p>Because the server receives a high volume of events, it uses a "fail-fast" optimization strategy. It reads the <code>X-GitHub-Event</code> header and inspects the payload state BEFORE cloning the repository or fetching users via the GitHub API. This prevents burning through rate limits on events that ultimately require no action.</p>
+<h3 id="processing-draft-prs">Processing Draft PRs</h3>
+<p>By default, the server strictly avoids acting on Draft PRs to minimize noise. If your workflow requires ChatOps commands on Draft PRs, configure the <code>allow-commands-on-draft-prs</code> property in your configuration to enable <code>issue_comment</code> event processing for draft states. See <a href="configuration-reference.html">Configuration Reference</a> for details.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>Missing Actions on PRs:</strong> If commands or actions are not triggering, ensure your GitHub App is actively subscribed to the <code>issue_comment</code> and <code>pull_request</code> events.</li>
+<li><strong>Draft PR Commands Ignored:</strong> If you expect commands on Draft PRs to work, verify that <code>allow-commands-on-draft-prs</code> is defined as a valid list in your configuration.</li>
+<li><strong>Webhooks Timing Out:</strong> The server is designed to immediately respond with an HTTP 200 OK after basic validation, processing events in the background. If you see GitHub delivery failures, check the <a href="log-viewer-guide.html">Log Viewer Guide</a> using the webhook Delivery ID.</li>
+</ul>
+<p>See <a href="architecture-and-event-flow.html">Architecture and Event Flow</a> for more details on the background processing model.</p>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="pull-request-automation.html">Pull Request Automation</a></li>
+<li><a href="issue-comment-commands.html">Issue Comment Commands</a></li>
+<li><a href="architecture-and-event-flow.html">Architecture and Event Flow</a></li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -749,17 +386,26 @@
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
-<li><a href="#configure-events">Configure Events</a></li>
-<li><a href="#event-summary">Event Summary</a></li>
-<li><a href="#ping">ping</a></li>
-<li><a href="#push">push</a></li>
-<li><a href="#pull_request">pull_request</a></li>
-<li><a href="#issue_comment">issue_comment</a></li>
-<li><a href="#pull_request_review">pull_request_review</a></li>
-<li><a href="#check_run">check_run</a></li>
-<li><a href="#status">status</a></li>
-<li><a href="#pull_request_review_thread">pull_request_review_thread</a></li>
-<li><a href="#events-that-are-not-automated">Events That Are Not Automated</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
+<li><a href="#step-by-step-event-triggers-and-actions">Step-by-Step: Event Triggers and Actions</a><ul>
+<li><a href="#1-pull_request">1. pull_request</a></li>
+<li><a href="#2-issue_comment">2. issue_comment</a></li>
+<li><a href="#3-push">3. push</a></li>
+<li><a href="#4-pull_request_review">4. pull_request_review</a></li>
+<li><a href="#5-pull_request_review_thread">5. pull_request_review_thread</a></li>
+<li><a href="#6-check_run">6. check_run</a></li>
+<li><a href="#7-status">7. status</a></li>
+<li><a href="#8-ping">8. ping</a></li>
+</ul>
+</li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#optimizing-rate-limits">Optimizing Rate Limits</a></li>
+<li><a href="#processing-draft-prs">Processing Draft PRs</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
 
@@ -770,9 +416,13 @@
         </main>
 
         <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
-            <span class="footer-sep">·</span>
-            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
     </div>
 

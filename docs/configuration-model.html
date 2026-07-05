@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration Model - github-webhook-server</title>
     <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
     <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
 </head>
@@ -257,7 +258,7 @@
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    <span class="github-stars" id="github-stars"></span>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
                 </a>
 
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -280,150 +281,113 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="configuration-model">Configuration Model</h1>
-<p><code>github-webhook-server</code> has three potential configuration layers:</p>
-<ol>
-<li>The root of the server's <code>config.yaml</code></li>
-<li>The matching <code>repositories.&lt;repo&gt;</code> entry inside <code>config.yaml</code></li>
-<li>An optional <code>.github-webhook-server.yaml</code> in the repository itself</li>
-</ol>
-<p>Not every setting participates in all three layers, but when a repository-scoped setting does, the server resolves it from most specific to least specific: repository-local file first, then the repo entry in <code>config.yaml</code>, then the root of <code>config.yaml</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">return_on_none</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extra_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Get value from config</span>
-
-<span class="sd">    Supports dot notation for nested values (e.g., &quot;docker.username&quot;, &quot;pypi.token&quot;)</span>
-
-<span class="sd">    Order of getting value:</span>
-<span class="sd">        1. Local repository file (.github-webhook-server.yaml)</span>
-<span class="sd">        2. Repository level global config file (config.yaml)</span>
-<span class="sd">        3. Root level global config file (config.yaml)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">extra_dict</span><span class="p">:</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_nested_value</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">extra_dict</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">result</span>
-
-    <span class="k">for</span> <span class="n">scope</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository_data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">root_data</span><span class="p">):</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_nested_value</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">scope</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">result</span>
-
-    <span class="k">return</span> <span class="n">return_on_none</span>
-</code></pre></div>
-
-<p>Think of the model like this: root <code>config.yaml</code> provides shared defaults, <code>repositories.&lt;repo&gt;</code> provides server-side exceptions for one repository, and <code>.github-webhook-server.yaml</code> lets a repository carry some of its own runtime behavior in version control.</p>
-<h2 id="where-configyaml-lives">Where <code>config.yaml</code> Lives</h2>
-<p>By default, the server reads <code>config.yaml</code> from <code>/home/podman/data/config.yaml</code>. Set <code>WEBHOOK_SERVER_DATA_DIR</code> if you want a different base directory. The Docker example mounts <code>./webhook_server_data_dir</code> into <code>/home/podman/data</code>, which is why that path is the default.</p>
-<blockquote>
-<p><strong>Warning:</strong> <code>config.yaml</code> is required, and <code>repositories:</code> must exist and be non-empty. Missing file or missing <code>repositories:</code> is a hard error.</p>
-</blockquote>
-<h2 id="server-managed-configyaml">Server-Managed <code>config.yaml</code></h2>
-<p>Both the global defaults and the per-repository overrides live in the same file. Root keys apply to every repository unless a repo-specific entry overrides them.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span><span class="w"> </span><span class="c1"># Set global log level, change take effect immediately without server restart</span>
-<span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook-server.log</span><span class="w"> </span><span class="c1"># Set global log file, change take effect immediately without server restart</span>
-
-<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># GitHub app id</span>
-<span class="nt">github-tokens</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN1&gt;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHIB TOKEN2&gt;</span>
-
-<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;HTTP://IP OR URL:PORT/webhook_server&gt;</span>
-
-<span class="c1"># ...</span>
+<p>This guide explains how to configure the GitHub Webhook Server using the global configuration file and repository-specific overrides. By understanding the configuration precedence, you can set smart defaults for all your projects while customizing workflows for individual repositories.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running instance of the GitHub Webhook Server.</li>
+<li>Access to edit the global <code>config.yaml</code> on the server.</li>
+<li>Write permissions to the repositories you want to configure locally.</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
+<p>The server reads configuration values in a specific order of precedence. This allows you to define global defaults, override them for a specific repository on the server side, and further customize them within the repository itself.</p>
+<p>Here is how you might configure PyPI token access across different levels:</p>
+<p><strong>1. Global Default (<code>config.yaml</code>)</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;global-fallback-token&quot;</span>
 
 <span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span><span class="w"> </span><span class="c1"># Override global log-level for repository</span>
-<span class="w">    </span><span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-repository.log</span><span class="w"> </span><span class="c1"># Override global log-file for repository</span>
-<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request_review_thread</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
-
-<span class="w">    </span><span class="c1"># ...</span>
-
-<span class="w">    </span><span class="nt">github-tokens</span><span class="p">:</span><span class="w"> </span><span class="c1"># override GitHub tokens per repository</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHUB TOKEN1&gt;</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHUB TOKEN2&gt;</span>
+<span class="w">  </span><span class="s">&quot;my-org/core-lib&quot;</span><span class="p p-Indicator">:</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;core-lib-specific-token&quot;</span>
 </code></pre></div>
 
-<p>Use the root of <code>config.yaml</code> for shared or server-level values such as <code>github-app-id</code>, global <code>github-tokens</code>, <code>webhook-ip</code>, global <code>labels</code>, and other defaults you want every repository to inherit.</p>
-<p>Use <code>repositories.&lt;repo&gt;</code> for repo-specific settings that the server must know before it starts processing that repository. Common examples are <code>name</code>, <code>events</code>, and repo-specific <code>github-tokens</code>.</p>
-<blockquote>
-<p><strong>Note:</strong> The key under <code>repositories:</code> is the short repository name, while <code>name:</code> stores the full <code>owner/repo</code>. In the example above, <code>my-repository</code> is the lookup key and <code>my-org/my-repository</code> is the actual GitHub repository. Because lookup is by short name, avoid configuring two different repos that share the same short name.</p>
-</blockquote>
-<h2 id="repository-managed-github-webhook-serveryaml">Repository-Managed <code>.github-webhook-server.yaml</code></h2>
-<p>Use <code>.github-webhook-server.yaml</code> when you want repository-owned behavior to live with the code and be reviewed in pull requests. This is a good fit for runtime settings such as <code>tox</code>, <code>pypi</code>, <code>container</code>, <code>pre-commit</code>, <code>conventional-title</code>, <code>ai-features</code>, <code>minimum-lgtm</code>, <code>create-issue-for-new-pr</code>, and label-related behavior.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert&quot;</span>
-
-<span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-
-<span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Create tracking issues for new PRs</span>
-<span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Assign cherry-pick PRs to the original PR author</span>
-
-<span class="c1"># ...</span>
-
-<span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude&quot;</span><span class="w"> </span><span class="c1"># claude | gemini | cursor</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;claude-opus-4-6[1m]&quot;</span>
-<span class="w">  </span><span class="nt">conventional-title</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<span class="w">  </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<p><strong>2. Repository Override (<code>.github-webhook-server.yaml</code> inside <code>my-org/core-lib</code>)</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;developer-override-token&quot;</span>
 </code></pre></div>
 
-<p>If the file is missing, the server simply falls back to <code>config.yaml</code>. If the file exists but contains invalid YAML, loading it fails instead of being silently ignored.</p>
-<p>The local file is not applied first thing at startup. The webhook runtime loads base config, selects the API token, and only then fetches <code>.github-webhook-server.yaml</code> and reapplies the supported repository settings.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Get config without .github-webhook-server.yaml data</span>
-<span class="bp">self</span><span class="o">.</span><span class="n">_repo_data_from_config</span><span class="p">(</span><span class="n">repository_config</span><span class="o">=</span><span class="p">{})</span>
-<span class="n">github_api</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">token</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">api_user</span> <span class="o">=</span> <span class="n">get_api_with_highest_rate_limit</span><span class="p">(</span>
-    <span class="n">config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">,</span> <span class="n">repository_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">repository_name</span>
-<span class="p">)</span>
+<p>When a webhook triggers for <code>my-org/core-lib</code>, the server evaluates the config and uses <code>"developer-override-token"</code> because the in-repository configuration wins.</p>
+<h2 id="precedence-order">Precedence Order</h2>
+<p>When the server processes a webhook, it resolves configuration keys using the following priority (highest to lowest):</p>
+<ol>
+<li>
+<p><strong>Repository Local File (<code>.github-webhook-server.yaml</code>)</strong>
+   Configuration committed directly into the root of the target repository. This allows developers to self-serve configuration changes without needing access to the webhook server.</p>
+</li>
+<li>
+<p><strong>Repository Server Config (<code>config.yaml</code> &gt; <code>repositories</code>)</strong>
+   Configuration defined on the webhook server for a specific repository. Useful for injecting secrets or enforcing server-enforced overrides that repository developers shouldn't modify.</p>
+</li>
+<li>
+<p><strong>Global Server Config (<code>config.yaml</code> root level)</strong>
+   The fallback configuration for all repositories managed by this server instance. Ideal for setting default labels, AI providers, and organization-wide rules.</p>
+</li>
+</ol>
+<h2 id="step-by-step-configuration">Step-by-Step Configuration</h2>
+<h3 id="step-1-set-global-defaults">Step 1: Set Global Defaults</h3>
+<p>Edit the <code>config.yaml</code> file located in your <code>WEBHOOK_SERVER_DATA_DIR</code> to set baseline behaviors for all repositories.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">labels</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">size</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
 
-<span class="c1"># ...</span>
+<span class="nt">pull_requests</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</code></pre></div>
 
-<span class="c1"># Once we have a repository, we can get the config from .github-webhook-server.yaml</span>
-<span class="n">local_repository_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">repository_local_data</span><span class="p">(</span>
-    <span class="n">github_api</span><span class="o">=</span><span class="n">github_api</span><span class="p">,</span> <span class="n">repository_full_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">repository_full_name</span>
-<span class="p">)</span>
-<span class="c1"># Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml</span>
-<span class="bp">self</span><span class="o">.</span><span class="n">_repo_data_from_config</span><span class="p">(</span><span class="n">repository_config</span><span class="o">=</span><span class="n">local_repository_config</span><span class="p">)</span>
+<h3 id="step-2-configure-server-side-overrides">Step 2: Configure Server-Side Overrides</h3>
+<p>To customize rules for a specific repository without committing a file to that repository, add a block under the <code>repositories</code> key in your <code>config.yaml</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="s">&quot;my-org/frontend-app&quot;</span><span class="p p-Indicator">:</span>
+<span class="w">    </span><span class="nt">pull_requests</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">  </span><span class="c1"># Override the global default of 2</span>
+</code></pre></div>
+
+<h3 id="step-3-enable-developer-self-service">Step 3: Enable Developer Self-Service</h3>
+<p>For settings that developers should control (like Docker registries or specific CI behaviors), create a <code>.github-webhook-server.yaml</code> file in the root of the target repository.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">docker</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;frontend-deployer&quot;</span>
+<span class="w">  </span><span class="nt">registry</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ghcr.io&quot;</span>
 </code></pre></div>
 
 <blockquote>
-<p><strong>Warning:</strong> <code>.github-webhook-server.yaml</code> is best thought of as a runtime-behavior layer, not a full replacement for <code>config.yaml</code>. Keep administrative settings such as <code>events</code>, repo tokens, logging, branch protection, draft-command rules, <code>pr-size-thresholds</code>, and <code>test-oracle</code> in <code>config.yaml</code>.</p>
-<p><strong>Note:</strong> The repository-local file is fetched through GitHub's contents API without an explicit <code>ref</code>, so the default-branch version is the one the server sees. A config change in a pull request does not become active until that file reaches the default branch.</p>
+<p><strong>Tip:</strong> You do not need to duplicate settings. If you only specify <code>docker.username</code> in the local repository file, the server will fall back to the global <code>config.yaml</code> for any missing keys.</p>
 </blockquote>
-<h2 id="merge-rules">Merge Rules</h2>
-<p>The precedence chain is key-by-key, not file-by-file. In practice, that means:</p>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="injecting-secrets">Injecting Secrets</h3>
+<p>You should never commit secrets to <code>.github-webhook-server.yaml</code>. Instead, define sensitive data in the server's global <code>config.yaml</code> using repository-specific blocks. </p>
+<p>Since the server evaluates <code>repositories</code> block settings after local files (but before global defaults), you can securely manage tokens on the server:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml (Server-side)</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="s">&quot;my-org/secure-service&quot;</span><span class="p p-Indicator">:</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pypi-secret-token&quot;</span>
+<span class="w">    </span><span class="nt">github_tokens</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;ghp_secret_token_1&quot;</span>
+</code></pre></div>
+
+<p>Because the server handles the webhook, the local repository can still dictate <em>how</em> things are built via <code>.github-webhook-server.yaml</code>, but the authentication tokens remain securely isolated on the server.</p>
+<h3 id="dot-notation-evaluation">Dot Notation Evaluation</h3>
+<p>When the server fetches configuration values, it uses dot notation to merge and evaluate nested dictionaries. For example, if a handler requests <code>docker.username</code>, the server will check:</p>
+<ol>
+<li>Local <code>.github-webhook-server.yaml</code> for <code>docker: { username: ... }</code></li>
+<li>Server <code>config.yaml</code> under <code>repositories: "org/repo": { docker: { username: ... } }</code></li>
+<li>Server <code>config.yaml</code> root for <code>docker: { username: ... }</code></li>
+</ol>
+<p>The first match found in this chain is returned immediately.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
 <ul>
-<li>If a key is missing at the repository-local level, lookup continues to the repo entry in <code>config.yaml</code>, then to the root.</li>
-<li>If a higher-precedence key is present but set to YAML <code>null</code>, the server treats it as not set and keeps falling back.</li>
-<li>For most nested objects, the higher-precedence object replaces the lower-precedence object instead of being recursively merged.</li>
-<li><code>labels</code> is the main special case: the server merges the top-level <code>labels</code> object, and then merges <code>labels.colors</code> again so you can override a few colors without redefining every color.</li>
+<li><strong>Configuration ignored:</strong> Ensure your in-repository file is named exactly <code>.github-webhook-server.yaml</code> and is placed in the root directory.</li>
+<li><strong>Typographical errors:</strong> The server silently falls back to lower-priority configurations if a key is misspelled. Double-check your YAML indentation and key names.</li>
+<li><strong>Invalid YAML syntax:</strong> If the repository's <code>.github-webhook-server.yaml</code> contains invalid YAML syntax, the webhook processing will log an error and fall back to the server-side configuration defaults. See the <a href="log-viewer-guide.html">Log Viewer Guide</a> to inspect processing errors.</li>
 </ul>
-<p>A concrete example is in <code>examples/config.yaml</code>: the root <code>labels.colors.hold</code> is <code>red</code>, while the repo-specific <code>labels.colors.hold</code> is <code>purple</code>. For that repository, the effective <code>hold</code> color becomes <code>purple</code>, but the other global label colors still apply. The same merge behavior is used when <code>labels</code> comes from <code>.github-webhook-server.yaml</code>.</p>
-<blockquote>
-<p><strong>Tip:</strong> To inherit a lower-precedence value, omit the key entirely or set it to <code>null</code>.</p>
-<p><strong>Tip:</strong> When you override structured settings such as <code>container</code>, <code>branch-protection</code>, or <code>test-oracle</code>, restate every field you still need. Do not assume a deep merge unless that setting is explicitly documented as merged.</p>
-</blockquote>
-<h2 id="recommended-placement">Recommended Placement</h2>
+<h2 id="related-pages">Related Pages</h2>
 <ul>
-<li>Put server-wide defaults and startup-time settings in the root of <code>config.yaml</code>.</li>
-<li>Put repo-specific server settings in <code>repositories.&lt;repo&gt;</code> inside <code>config.yaml</code>.</li>
-<li>Put repository-owned runtime behavior in <code>.github-webhook-server.yaml</code> when you want config changes reviewed and versioned alongside the repository.</li>
+<li><a href="configuration-reference.html">Configuration Reference</a></li>
+<li><a href="repository-overrides.html">Repository Overrides</a></li>
+<li><a href="architecture-and-event-flow.html">Architecture and Event Flow</a></li>
 </ul>
-<blockquote>
-<p><strong>Tip:</strong> For webhook-time repository behavior, changes are picked up on later webhook deliveries because the server re-reads <code>config.yaml</code> and re-fetches <code>.github-webhook-server.yaml</code> instead of keeping one permanently merged config in memory.</p>
-</blockquote>
                 </div>
             </article>
             <nav class="page-nav">
@@ -446,11 +410,22 @@
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
-<li><a href="#where-configyaml-lives">Where config.yaml Lives</a></li>
-<li><a href="#server-managed-configyaml">Server-Managed config.yaml</a></li>
-<li><a href="#repository-managed-github-webhook-serveryaml">Repository-Managed .github-webhook-server.yaml</a></li>
-<li><a href="#merge-rules">Merge Rules</a></li>
-<li><a href="#recommended-placement">Recommended Placement</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
+<li><a href="#precedence-order">Precedence Order</a></li>
+<li><a href="#step-by-step-configuration">Step-by-Step Configuration</a><ul>
+<li><a href="#step-1-set-global-defaults">Step 1: Set Global Defaults</a></li>
+<li><a href="#step-2-configure-server-side-overrides">Step 2: Configure Server-Side Overrides</a></li>
+<li><a href="#step-3-enable-developer-self-service">Step 3: Enable Developer Self-Service</a></li>
+</ul>
+</li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#injecting-secrets">Injecting Secrets</a></li>
+<li><a href="#dot-notation-evaluation">Dot Notation Evaluation</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
 
@@ -461,9 +436,13 @@
         </main>
 
         <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
-            <span class="footer-sep">·</span>
-            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
     </div>
 

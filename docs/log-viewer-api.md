@@ -410,3 +410,10 @@ A good workflow is:
 4. Keep `/logs/ws` open if you want to watch new entries after the initial history load.
 
 > **Tip:** If you start from a PR number, a practical first query is `/logs/api/entries?pr_number=456`. That matches how the built-in UI discovers the hook IDs attached to a PR before opening the detailed flow view.
+
+
+## Related Pages
+
+- [Log Viewer Guide](log-viewer-guide.html)
+- [Logging and Data Files](logging-and-data-files.html)
+- [MCP API](mcp-api.html)

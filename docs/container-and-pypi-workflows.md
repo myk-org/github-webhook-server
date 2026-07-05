@@ -69,6 +69,7 @@ What these keys do:
 
 > **Note:** Configuration values are resolved in this order: repository `.github-webhook-server.yaml`, then the repository entry in central `config.yaml`, then top-level defaults in central `config.yaml`.
 
+
 > **Note:** If you use the server’s repository settings sync, enabling `container` adds the `build-container` check to required status checks, and enabling `pypi` adds `python-module-install`.
 
 ## Container Workflow
@@ -206,6 +207,7 @@ In plain English, the server does this:
 
 > **Note:** The release upload is an sdist only. The PR-time `python-module-install` check builds a wheel for validation, but the tag publish path uploads the source tarball.
 
+
 > **Note:** The uploaded package version comes from your package metadata in `pyproject.toml`, not from the git tag name. The server checks out the tag and builds whatever version is defined in the project at that commit.
 
 If any part of the PyPI publish flow fails, the server creates a GitHub issue with a sanitized error summary instead of failing silently.
@@ -291,3 +293,10 @@ Slack is best treated as a notification layer, not the source of truth. Your rea
 5. Use registry-safe git tags such as `v1.2.3`.
 6. Add `slack-webhook-url` if you want release notifications.
 7. If you want manual container pushes on draft PRs, allow `build-and-push-container` in `allow-commands-on-draft-prs`.
+
+
+## Related Pages
+
+- [Pull Request Automation](pull-request-automation.html)
+- [Supported GitHub Events](supported-github-events.html)
+- [Architecture and Event Flow](architecture-and-event-flow.html)

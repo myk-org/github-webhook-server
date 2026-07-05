@@ -77,9 +77,12 @@ repositories:
 
 > **Note:** In `repositories`, the map key is the short GitHub repository name, while `name` inside the block is the full `owner/repo`.
 
+
 > **Note:** This page lists keys in `config.yaml` form. The sample `.github-webhook-server.yaml` uses the same repository-level shape without the surrounding `repositories.<repo>` wrapper.
 
+
 > **Note:** Most repository settings replace the global value entirely. Two important exceptions are `branch-protection`, which is merged with global defaults, and `labels.colors`, where repository colors override only the keys you redefine.
+
 
 > **Warning:** Use exact branch names for `tox` and `protected-branches`, and use string values such as `all` or `testenv1,testenv2` for `tox`. The current runner/setup code looks up branches by exact key and builds the tox command from a string value.
 
@@ -105,6 +108,10 @@ repositories:
 - `verify-github-ips`: If `true`, only accept webhook requests from GitHub’s published webhook IP ranges.
 - `verify-cloudflare-ips`: If `true`, also trust Cloudflare’s published IP ranges. This is useful when traffic reaches the server through Cloudflare.
 - `disable-ssl-warnings`: If `true`, suppress `urllib3` SSL warnings during runtime.
+- `security-checks.mandatory`: When `true` (default), failing security checks blocks `can-be-merged`. When `false`, they run as advisory only.
+- `security-checks.suspicious-paths`: List of path prefixes considered security-sensitive. PRs modifying these paths fail the `security-suspicious-paths` check. Default includes `.github/workflows/`, `.vscode/`, etc.
+- `security-checks.committer-identity-check`: When enabled (default `true`), fails the `security-committer-identity` check if the PR author differs from the last commit's committer.
+- `security-checks.trusted-committers`: List of GitHub logins that are always trusted for the committer-identity check (useful for bots and org identities).
 
 > **Warning:** IP allowlist verification is fail-closed. If `verify-github-ips` and/or `verify-cloudflare-ips` are enabled but the allowlists cannot be loaded, the server aborts startup instead of accepting requests insecurely.
 
@@ -120,6 +127,7 @@ repositories:
 - `create-issue-for-new-pr`: Global default for creating a tracking issue when a new PR opens. Default is `true`.
 - `cherry-pick-assign-to-pr-author`: Global default for assigning cherry-pick PRs to the original PR author. Default is `true`.
 - `allow-commands-on-draft-prs`: Global default for user commands on draft PRs. Omit it to block commands on draft PRs. Set it to `[]` to allow all commands. Set it to a list such as `["build-and-push-container", "retest"]` to allow only those command names.
+- `welcome-extra-info`: Additional markdown information to display at the end of the PR welcome message. An empty string explicitly clears any inherited value.
 
 > **Tip:** Repository-level `github-tokens` replace the global token list for that repository. During webhook processing, the server also adds the GitHub users behind the active API tokens to the auto-verified user list.
 
@@ -267,7 +275,9 @@ ai-features:
 
 > **Note:** `/test-oracle` always works when `test-oracle` is configured, even if the current event is not listed in `triggers`.
 
+
 > **Note:** If the Test Oracle health check fails, the server posts a PR comment and skips analysis. If the AI CLI fails for `ai-features`, the server logs the problem and continues without blocking the rest of the webhook flow.
+
 
 > **Warning:** AI-resolved cherry-picks are never auto-verified. They always require manual review after the conflict resolution step.
 
@@ -301,6 +311,7 @@ The following keys are written under `repositories.<short-repo-name>` in `config
 - `custom-check-runs[].mandatory`: Whether the custom check must pass for mergeability. Default is `true`. `false` checks still run; they just stop gating merges.
 - `test-oracle.server-url`, `test-oracle.ai-provider`, `test-oracle.ai-model`, `test-oracle.test-patterns`, `test-oracle.triggers`: Same meanings as the global `test-oracle` keys. A repository-level object replaces the global object for that repository.
 - `ai-features.ai-provider`, `ai-features.ai-model`, `ai-features.conventional-title.enabled`, `ai-features.conventional-title.mode`, `ai-features.conventional-title.timeout-minutes`, `ai-features.resolve-cherry-pick-conflicts-with-ai.enabled`, `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes`: Same meanings as the global `ai-features` keys. A repository-level object replaces the global object for that repository.
+- `security-checks.mandatory`, `security-checks.suspicious-paths`, `security-checks.committer-identity-check`, `security-checks.trusted-committers`: Same meanings as the global `security-checks` keys. A repository-level object replaces the global object for that repository.
 
 > **Tip:** Custom check names become valid `/retest <name>` targets, and `/retest all` includes them.
 
@@ -322,8 +333,10 @@ When the server auto-generates required checks for a protected branch, it starts
 - `create-issue-for-new-pr`: Repository override for tracking-issue creation on new PRs.
 - `cherry-pick-assign-to-pr-author`: Repository override for assigning cherry-pick PRs to the original PR author.
 - `allow-commands-on-draft-prs`: Repository override for draft-PR comment commands. Omit it to block commands on draft PRs. Set it to `[]` to allow all commands. Set it to a list to allow only those raw command names, for example `build-and-push-container` or `retest`.
+- `welcome-extra-info`: Repository override for additional markdown information at the end of the PR welcome message. An empty string explicitly clears any inherited value.
 
 > **Warning:** For `protected-branches`, stick to `[]` or the object form with `include-runs` / `exclude-runs`. Those are the forms the branch-protection setup code actually uses.
+
 
 > **Note:** `/test-oracle` is exempt from the normal draft-PR command restriction and can still be triggered when configured.
 
@@ -370,3 +383,10 @@ if tag:
 ```
 
 > **Note:** `slack-webhook-url` is used for successful PyPI publish messages and for container push success/failure notifications. It is not a general-purpose notification switch for every webhook event.
+
+
+## Related Pages
+
+- [Configuration Model](configuration-model.html)
+- [Security Configuration](security-configuration.html)
+- [Repository Overrides](repository-overrides.html)

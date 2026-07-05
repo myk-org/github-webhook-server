@@ -1,9 +1,10 @@
 # AI Features and Test Oracle
 
-This project has two separate AI-related capabilities:
+This project has multiple separate AI-related capabilities:
 
 - `conventional-title` validates pull request titles against the Conventional Commits format.
 - `ai-features.conventional-title` adds AI help when that validation fails.
+- `ai-features.resolve-cherry-pick-conflicts-with-ai` attempts to automatically resolve cherry-pick merge conflicts.
 - `test-oracle` sends PR data to an external [pr-test-oracle](https://github.com/myk-org/pr-test-oracle) service that recommends which tests to run.
 
 > **Note:** `conventional-title` and `ai-features.conventional-title` are different settings. `conventional-title` enables the rule and defines the allowed types. `ai-features.conventional-title` controls whether AI suggests or auto-fixes a title when that rule fails.
@@ -12,7 +13,7 @@ This project has two separate AI-related capabilities:
 
 The shipped example configuration shows `test-oracle` and `ai-features` at the root level:
 
-```112:134:examples/config.yaml
+```118:143:examples/config.yaml
 # PR Test Oracle integration
 # Analyzes PR diffs with AI and recommends which tests to run
 # See: https://github.com/myk-org/pr-test-oracle
@@ -36,6 +37,9 @@ ai-features:
     enabled: true
     mode: suggest  # suggest: show in checkrun | fix: auto-update PR title
     timeout-minutes: 10
+  resolve-cherry-pick-conflicts-with-ai:
+    enabled: true
+    timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
 ```
 
 The schema also allows `test-oracle` and `ai-features` under a repository entry in `config.yaml` if you want per-repository behavior.
@@ -160,7 +164,18 @@ This is worth understanding before you enable `fix` mode:
 
 > **Note:** AI assistance is best-effort. If the AI CLI fails, times out, or returns an unusable title, the conventional-title check still completes and the normal validation result is shown.
 
+
 > **Tip:** `mode: suggest` is the safer starting point. Switch to `mode: fix` only after you are comfortable letting the server edit PR titles automatically.
+
+## AI cherry-pick conflict resolution
+
+The `ai-features.resolve-cherry-pick-conflicts-with-ai` section allows the server to attempt an automated fix when a `/cherry-pick` command encounters merge conflicts.
+
+1. It uses the AI CLI to resolve conflicts with an upstream-first priority.
+2. If successful, it pushes the resolved files to the target branch.
+3. **AI-resolved cherry-picks are never auto-verified.** Manual review is strictly required to ensure the AI did not introduce logic errors or regressions.
+
+If the AI cannot resolve the conflict or times out (default 10 minutes), the cherry-pick remains in a conflicted state.
 
 ## Supported AI providers
 
@@ -338,3 +353,10 @@ The oracle integration is deliberately forgiving:
 - A broken oracle does not stop the rest of the PR automation pipeline.
 
 > **Tip:** A conservative rollout is to enable `conventional-title`, set `ai-features.conventional-title.mode: suggest`, and keep `test-oracle.triggers` at its default `approved`. Once that works well for your team, you can switch title handling to `fix` or add `pr-opened` and `pr-synchronized` for broader test analysis.
+
+
+## Related Pages
+
+- [Issue Comment Commands](issue-comment-commands.html)
+- [Pull Request Automation](pull-request-automation.html)
+- [MCP API](mcp-api.html)

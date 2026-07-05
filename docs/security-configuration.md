@@ -4,6 +4,7 @@ A secure production deployment usually needs four things: a webhook secret, the 
 
 > **Note:** The server reads `config.yaml` from `WEBHOOK_SERVER_DATA_DIR` (default `/home/podman/data`). `webhook-secret`, `verify-github-ips`, and `verify-cloudflare-ips` are global settings. `mask-sensitive-data` can be global or per repository. `ENABLE_LOG_SERVER` and `ENABLE_MCP_SERVER` are environment variables.
 
+
 > **Tip:** Use secret validation and IP allowlisting together. The secret proves the payload was signed by GitHub. The allowlist limits who can reach the endpoint at all.
 
 ## Webhook Secret Validation
@@ -83,7 +84,9 @@ The upstream sources are:
 
 > **Warning:** The allowlist check uses the client IP the app actually sees in `request.client.host`. If another reverse proxy or load balancer sits in front of the app, you may end up validating the proxy IP instead of GitHub or Cloudflare.
 
+
 > **Note:** The CIDR lists are fetched during startup, not continuously. Restart the service if you need to pick up upstream IP-range changes.
+
 
 > **Note:** These allowlists protect only the `POST /webhook_server` webhook endpoint. They do not secure `/logs/*` or `/mcp`.
 
@@ -151,7 +154,9 @@ That trusted-network check allows only private, loopback, or link-local client a
 
 > **Warning:** Treat the entire log viewer as unauthenticated internal tooling. Most `/logs/*` routes are not protected by anything beyond the feature flag.
 
+
 > **Warning:** The `/mcp` endpoint is unauthenticated as well. If you enable it, keep it on a VPN or internal network, or put it behind a reverse proxy with authentication and TLS.
+
 
 > **Tip:** The safest production default is to leave `ENABLE_LOG_SERVER` and `ENABLE_MCP_SERVER` disabled unless you actively need them.
 
@@ -162,3 +167,10 @@ That trusted-network check allows only private, loopback, or link-local client a
 - Leave `mask-sensitive-data: true`.
 - Keep `/logs/*` and `/mcp` off the public internet.
 - If remote access is unavoidable, add authentication at the reverse proxy and keep origin access limited to trusted networks.
+
+
+## Related Pages
+
+- [Configuration Reference](configuration-reference.html)
+- [Docker and Container Deployment](docker-deployment.html)
+- [Repository Bootstrap and GitHub App](repository-bootstrap-and-github-app.html)
