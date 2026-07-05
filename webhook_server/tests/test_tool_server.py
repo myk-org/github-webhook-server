@@ -173,6 +173,26 @@ class TestToolServerEndpoint:
         assert "not allowed" in data["detail"]
 
     @pytest.mark.asyncio
+    async def test_git_rm_blocked_combined_rf_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "-rf ."},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_combined_fr_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "-fr file.py"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
     async def test_unknown_tool_returns_404(self, client: TestClient) -> None:
         resp = await client.post(
             "/tools/run",
