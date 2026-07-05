@@ -1006,3 +1006,68 @@ class TestConfigSchema:
             }
         finally:
             shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_global_valid(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test valid welcome-extra-info at global level."""
+        config = valid_minimal_config.copy()
+        config["welcome-extra-info"] = "Please review guidelines."
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            assert config_obj.root_data["welcome-extra-info"] == "Please review guidelines."
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_schema_defines_string_type(self) -> None:
+        """Test that schema defines welcome-extra-info as type string via $ref."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        # Verify $defs definition
+        defs = schema["$defs"]
+        assert "welcome-extra-info" in defs
+        assert defs["welcome-extra-info"]["type"] == "string"
+
+        # Global level uses $ref
+        global_props = schema["properties"]
+        assert "welcome-extra-info" in global_props
+        assert global_props["welcome-extra-info"]["$ref"] == "#/$defs/welcome-extra-info"
+
+        # Per-repo level uses $ref
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        assert "welcome-extra-info" in repo_props
+        assert repo_props["welcome-extra-info"]["$ref"] == "#/$defs/welcome-extra-info"
+
+    def test_welcome_extra_info_repository_level(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test valid welcome-extra-info at per-repo level."""
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["welcome-extra-info"] = "Repo-specific welcome info."
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config_obj = Config()
+            repo_data = config_obj.root_data["repositories"]["test-repo"]
+            assert repo_data["welcome-extra-info"] == "Repo-specific welcome info."
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_welcome_extra_info_schema_defines_max_length(self) -> None:
+        """Test that schema defines welcome-extra-info with maxLength 10240 in $defs."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+
+        # maxLength is in the $defs definition (both levels reference it via $ref)
+        assert schema["$defs"]["welcome-extra-info"]["maxLength"] == 10240

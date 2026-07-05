@@ -17,6 +17,7 @@ import github
 import httpx
 from github import GithubException
 from github.Commit import Commit
+from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 from starlette.datastructures import Headers
@@ -62,6 +63,8 @@ from webhook_server.utils.helpers import (
 )
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_WELCOME_EXTRA_INFO_MAX_BYTES: int = 10240
+_WELCOME_EXTRA_INFO_FILENAME: str = ".github-webhook-server-welcome-message.md"
 
 
 class CountingRequester:
@@ -142,6 +145,7 @@ class GithubWebhook:
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
         self.requester_wrapper: CountingRequester | None = None
+        self.welcome_extra_info: str = ""
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -689,6 +693,12 @@ class GithubWebhook:
                     github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix),
                 )
 
+            if self.github_event == "pull_request" and self.hook_data.get("action") in (
+                "opened",
+                "ready_for_review",
+            ):
+                await self.load_welcome_extra_info_from_file()
+
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
             # cloning happens later only when needed (inside their respective handlers)
@@ -1109,6 +1119,23 @@ class GithubWebhook:
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
+        self.welcome_extra_info = self.config.get_value(
+            "welcome-extra-info", return_on_none="", extra_dict=repository_config
+        )
+
+        _prefix = getattr(self, "log_prefix", "")
+        if not isinstance(self.welcome_extra_info, str):
+            _type = type(self.welcome_extra_info).__name__
+            self.logger.warning(f"{_prefix} welcome-extra-info must be a string, got {_type}. Ignoring.")
+            self.welcome_extra_info = ""
+        else:
+            _byte_len = len(self.welcome_extra_info.encode("utf-8"))
+            if _byte_len > _WELCOME_EXTRA_INFO_MAX_BYTES:
+                _max = _WELCOME_EXTRA_INFO_MAX_BYTES
+                _msg = f"welcome-extra-info exceeds {_max}-byte limit ({_byte_len} bytes). Ignoring."
+                self.logger.warning(f"{_prefix} {_msg}")
+                self.welcome_extra_info = ""
+
     async def _build_trusted_committers(self, api_users: list[str | None] | None = None) -> None:
         """Add dynamic entries to trusted-committers list.
 
@@ -1141,6 +1168,50 @@ class GithubWebhook:
                     self.security_trusted_committers.append(normalized)
 
         self.logger.debug(f"{self.log_prefix} Trusted committers: {self.security_trusted_committers}")
+
+    async def load_welcome_extra_info_from_file(self) -> None:
+        """Load welcome extra info from the repo-level welcome message file.
+
+        This file takes priority over all config-based welcome-extra-info settings.
+        File must be UTF-8 and at most _WELCOME_EXTRA_INFO_MAX_BYTES bytes (10 KB).
+        """
+        try:
+            _path = await github_api_call(
+                lambda: self.repository.get_contents(_WELCOME_EXTRA_INFO_FILENAME),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            content_file = _path[0] if isinstance(_path, list) else _path
+
+            file_size = await github_api_call(lambda: content_file.size, logger=self.logger, log_prefix=self.log_prefix)
+            if file_size > _WELCOME_EXTRA_INFO_MAX_BYTES:
+                self.logger.warning(
+                    f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} is too large "
+                    f"({file_size} bytes, max {_WELCOME_EXTRA_INFO_MAX_BYTES}). Skipping file, using config value."
+                )
+                return
+
+            raw_content = await github_api_call(
+                lambda: content_file.decoded_content, logger=self.logger, log_prefix=self.log_prefix
+            )
+            decoded = raw_content.decode("utf-8").strip()
+            self.welcome_extra_info = decoded
+            if decoded:
+                self.logger.info(
+                    f"{self.log_prefix} Loaded welcome extra info from {_WELCOME_EXTRA_INFO_FILENAME} "
+                    f"({len(decoded)} chars)"
+                )
+            else:
+                self.logger.info(
+                    f"{self.log_prefix} Empty {_WELCOME_EXTRA_INFO_FILENAME} found, "
+                    "suppressing config-based welcome extra info"
+                )
+        except UnknownObjectException:
+            self.logger.debug(f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} not found, using config value")
+        except UnicodeDecodeError:
+            self.logger.warning(f"{self.log_prefix} {_WELCOME_EXTRA_INFO_FILENAME} is not valid UTF-8, skipping file")
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Error loading {_WELCOME_EXTRA_INFO_FILENAME}, using config value")
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:

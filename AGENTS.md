@@ -32,7 +32,7 @@ Handlers in `webhook_server/libs/handlers/` process events; config via YAML with
 See `docs/` for generated architecture docs (regenerate with docsfy — **NEVER edit `docs/` manually**).
 
 - Stack: Python 3.13, FastAPI, PyGithub, gql, aiohttp
-- Internal APIs — no backward compat; only `config.yaml`, `.github-webhook-server.yaml`, and webhook payloads are stable
+- Internal APIs — no backward compat; only `config.yaml`, `.github-webhook-server.yaml`, `.github-webhook-server-welcome-message.md`, and webhook payloads are stable
 - Config: `webhook_server/libs/config.py` (schema: `webhook_server/config/schema.yaml`)
 - GitHub API: `webhook_server/libs/github_api.py` — PyGithub REST v3, multi-token failover
 - Log viewer: `webhook_server/web/log_viewer.py` — WebSocket streaming
@@ -61,7 +61,8 @@ pr.create_issue_comment("Comment")
 ### Anti-Defensive Programming: Fail-Fast
 ```python
 # ❌ WRONG — config is required, ALWAYS provided
-if self.config: value = self.config.get_value("key")
+if self.config:
+    value = self.config.get_value("key")
 
 # ✅ CORRECT — fail-fast; KeyError = legitimate bug
 value = self.config.get_value("key")

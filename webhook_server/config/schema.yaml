@@ -106,6 +106,13 @@ $defs:
         items:
           type: string
     additionalProperties: false
+  welcome-extra-info:
+    type: string
+    maxLength: 10240
+    description: |
+      Additional information to display at the end of the PR welcome message.
+      Content is injected as-is (markdown).
+      An empty string explicitly clears any inherited value.
 type: object
 properties:
   log-level:
@@ -251,6 +258,8 @@ properties:
     additionalProperties: false
   ai-features:
     $ref: '#/$defs/ai-features'
+  welcome-extra-info:
+    $ref: '#/$defs/welcome-extra-info'
   security-checks:
     $ref: '#/$defs/security-checks'
   labels:
@@ -523,6 +532,8 @@ properties:
           items:
             type: string
           description: Required labels for PR to be marked as can-be-merged
+        welcome-extra-info:
+          $ref: '#/$defs/welcome-extra-info'
         conventional-title:
           type: string
           description: |
