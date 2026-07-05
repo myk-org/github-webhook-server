@@ -60,6 +60,15 @@ TOOL_REGISTRY: dict[str, ToolDef] = {
         description="Run git status to see working tree state.",
         args_description="Arguments for git status (optional)",
     ),
+    "git_rm": ToolDef(
+        command_prefix=["git", "-C", "{cwd}", "rm"],
+        description=(
+            "Run git rm to remove files from the working tree and staging area."
+            " Use for deleting files during conflict resolution."
+        ),
+        args_description="File path(s) to remove (e.g., 'path/to/file.py')",
+        blocked_flags=frozenset({"--cached", "-r", "-f", "--force", "--pathspec-from-file"}),
+    ),
 }
 
 

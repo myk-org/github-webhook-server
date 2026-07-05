@@ -104,6 +104,75 @@ class TestToolServerEndpoint:
         assert data["success"] is True
 
     @pytest.mark.asyncio
+    async def test_git_rm(self, client: TestClient) -> None:
+        with patch(MOCK_TARGET) as mock_proc:
+            process = AsyncMock()
+            process.communicate.return_value = (b"rm 'path/to/file.py'\n", b"")
+            process.returncode = 0
+            mock_proc.return_value = process
+
+            resp = await client.post(
+                "/tools/run",
+                json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "path/to/file.py"},
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["success"] is True
+        call_args = mock_proc.call_args[0]
+        assert call_args == ("git", "-C", "/tmp/test-repo", "rm", "path/to/file.py")
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_cached_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "--cached file.py"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_recursive_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "-r ."},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_force_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "-f file.py"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_long_force_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "--force file.py"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_git_rm_blocked_pathspec_from_file_flag(self, client: TestClient) -> None:
+        resp = await client.post(
+            "/tools/run",
+            json={"tool": "git_rm", "cwd": "/tmp/test-repo", "args": "--pathspec-from-file=/tmp/files.txt"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "not allowed" in data["detail"]
+
+    @pytest.mark.asyncio
     async def test_unknown_tool_returns_404(self, client: TestClient) -> None:
         resp = await client.post(
             "/tools/run",
@@ -324,9 +393,9 @@ class TestBuildCustomTools:
         names = [t["name"] for t in tools]
         assert names == ["git_diff", "git_log"]
 
-    def test_builds_all_four_tools(self) -> None:
-        tools = _build_custom_tools("/tmp/wt", ["git_diff", "git_log", "git_show", "git_status"])
-        assert len(tools) == 4
+    def test_builds_all_five_tools(self) -> None:
+        tools = _build_custom_tools("/tmp/wt", ["git_diff", "git_log", "git_show", "git_status", "git_rm"])
+        assert len(tools) == 5
 
     def test_tool_structure(self) -> None:
         tools = _build_custom_tools("/tmp/my-worktree", ["git_diff"])
