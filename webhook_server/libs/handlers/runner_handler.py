@@ -1296,7 +1296,8 @@ Your team can configure additional types in the repository settings.
             f"**Files changed in original commit:**\n```\n{commit_diff_stat}\n```\n\n"
             "Resolve all conflicts. The goal is to apply the original commit's changes "
             "onto the target branch. Use the available tools to inspect the original commit "
-            "diff, read the conflicted files, and edit them to resolve conflicts."
+            "diff, read the conflicted files, and edit them to resolve conflicts.\n\n"
+            "If the original commit DELETED a file, use git_rm to remove it — do NOT empty the file content."
         )
 
         self.logger.info(f"{self.log_prefix} Attempting AI conflict resolution with {ai_provider}/{ai_model}")
@@ -1312,7 +1313,9 @@ Your team can configure additional types in the repository settings.
                 timeout_minutes=timeout_minutes,
                 system_prompt=system_prompt,
                 tools=["read", "edit", "write", "grep", "find", "ls"],
-                custom_tools=_build_custom_tools(worktree_path, ["git_diff", "git_log", "git_show", "git_status"]),
+                custom_tools=_build_custom_tools(
+                    worktree_path, ["git_diff", "git_log", "git_show", "git_status", "git_rm"]
+                ),
             )
 
             if not ai_call_result.success:

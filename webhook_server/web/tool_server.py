@@ -60,6 +60,15 @@ TOOL_REGISTRY: dict[str, ToolDef] = {
         description="Run git status to see working tree state.",
         args_description="Arguments for git status (optional)",
     ),
+    "git_rm": ToolDef(
+        command_prefix=["git", "-C", "{cwd}", "rm"],
+        description=(
+            "Run git rm to remove files from the working tree and staging area."
+            " Use for deleting files during conflict resolution."
+        ),
+        args_description="File path(s) to remove (e.g., 'path/to/file.py')",
+        blocked_flags=frozenset({"--cached", "-r", "-f", "--force", "--pathspec-from-file"}),
+    ),
 }
 
 
@@ -114,12 +123,21 @@ async def handle_tool_request(request: web.Request) -> web.Response:
             )
 
     # Check blocked flags
+    blocked_short_chars = {flag[1] for flag in tool_def.blocked_flags if len(flag) == 2 and flag.startswith("-")}
     for part in parts:
         if any(part == flag or part.startswith(f"{flag}=") for flag in tool_def.blocked_flags):
             return web.json_response(
                 {"detail": f"Flag '{part}' not allowed for security reasons"},
                 status=403,
             )
+        # Detect combined short options (e.g., -rf = -r -f)
+        if part.startswith("-") and not part.startswith("--") and len(part) > 2 and blocked_short_chars:
+            for char in part[1:]:
+                if char in blocked_short_chars:
+                    return web.json_response(
+                        {"detail": f"Flag '-{char}' (in '{part}') not allowed for security reasons"},
+                        status=403,
+                    )
 
     # Build command — substitute {cwd} in prefix
     cmd_args = [arg.replace("{cwd}", cwd) for arg in tool_def.command_prefix] + parts

@@ -98,7 +98,7 @@ value = self.config.get_value("key")
 ## Security
 - **NEVER expose log viewer (`/logs/*`) to public internet** — endpoints are unauthenticated; deploy on trusted networks only
 - Tokens: env vars or secret management, never committed — use `mask-sensitive-data` schema option
-- AI conflict resolution prompts include user-controlled commit messages — mitigated by restricting AI to read-only tools + file edit/write (no bash)
+- AI conflict resolution prompts include user-controlled commit messages — mitigated by restricting AI to read-only git tools + file edit/write + scoped git rm (no bash, no recursive delete)
 
 ## Boundaries
 - ✅ Always: run full verify before committing, type hints on all functions, wrap PyGithub in `github_api_call()`
