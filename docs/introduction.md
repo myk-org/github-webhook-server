@@ -44,8 +44,10 @@ For pull requests, the server acts like a shared workflow layer. It can:
 
 The core PR setup is explicit in the handler:
 
-```779:857:webhook_server/libs/handlers/pull_request_handler.py
-async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
+```1121:1199:webhook_server/libs/handlers/pull_request_handler.py
+async def process_opened_or_synchronize_pull_request(
+    self, pull_request: PullRequest, is_clean_rebase: bool = False, label_names: list[str] | None = None
+) -> None:
     # Stage 1: Initial setup and check queue tasks
     setup_tasks: list[Coroutine[Any, Any, Any]] = []
 
@@ -72,25 +74,28 @@ In this repository's end-to-end tests, a normal PR is expected to end up with su
 
 Contributors and maintainers can control automation directly from PR comments. In addition to label-driven commands such as `/wip`, `/hold`, `/verified`, `/lgtm`, `/approve`, and `/automerge`, the comment handler supports a set of built-in workflow commands:
 
-```154:202:webhook_server/libs/handlers/issue_comment_handler.py
-available_commands: list[str] = [
-    COMMAND_RETEST_STR,
-    COMMAND_REPROCESS_STR,
-    COMMAND_CHERRY_PICK_STR,
-    COMMAND_ASSIGN_REVIEWERS_STR,
-    COMMAND_CHECK_CAN_MERGE_STR,
-    BUILD_AND_PUSH_CONTAINER_STR,
-    COMMAND_ASSIGN_REVIEWER_STR,
-    COMMAND_ADD_ALLOWED_USER_STR,
-    COMMAND_REGENERATE_WELCOME_STR,
-    COMMAND_TEST_ORACLE_STR,
-]
+```164:216:webhook_server/libs/handlers/issue_comment_handler.py
+        available_commands: list[str] = [
+            COMMAND_RETEST_STR,
+            COMMAND_REPROCESS_STR,
+            COMMAND_CHERRY_PICK_STR,
+            COMMAND_CHERRY_PICK_RETRY_STR,
+            COMMAND_REBASE_STR,
+            COMMAND_ASSIGN_REVIEWERS_STR,
+            COMMAND_CHECK_CAN_MERGE_STR,
+            BUILD_AND_PUSH_CONTAINER_STR,
+            COMMAND_ASSIGN_REVIEWER_STR,
+            COMMAND_ADD_ALLOWED_USER_STR,
+            COMMAND_REGENERATE_WELCOME_STR,
+            COMMAND_TEST_ORACLE_STR,
+            COMMAND_SECURITY_OVERRIDE_STR,
+        ]
 
 # ...
 
-if _command not in available_commands + list(USER_LABELS_DICT.keys()):
-    self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
-    return
+        if _command not in available_commands + list(USER_LABELS_DICT.keys()):
+            self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
+            return
 ```
 
 In practice, that means users can do things like:
@@ -101,6 +106,9 @@ In practice, that means users can do things like:
 - `/check-can-merge` to force a mergeability recalculation
 - `/build-and-push-container` to publish a PR image on demand
 - `/cherry-pick <branch>` to queue or perform backports
+- `/cherry-pick-retry <branch>` to retry a failed cherry-pick
+- `/rebase` to attempt a clean rebase of the PR
+- `/security-override` to bypass or approve security check failures
 - `/test-oracle` to request AI-generated test recommendations when configured
 - `/regenerate-welcome` to refresh the onboarding comment
 
@@ -249,3 +257,10 @@ The server also writes structured webhook logs and can expose an optional intern
 > **Warning:** If you enable the optional log viewer, keep it on a trusted network. The project treats those endpoints as internal operational tooling, not a public-facing dashboard.
 
 Taken together, `github-webhook-server` is best understood as a shared automation layer for GitHub: contributors interact with simple PR comments and labels, while maintainers get consistent policy, repeatable release automation, and one place to operate everything.
+
+
+## Related Pages
+
+- [Architecture and Event Flow](architecture-and-event-flow.html)
+- [Quick Start](quick-start.html)
+- [Supported GitHub Events](supported-github-events.html)

@@ -62,11 +62,16 @@ async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> 
         )
         return
 
-    await asyncio.to_thread(
+    assignee_login = await github_api_call(
+        lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+    )
+    await github_api_call(
         self.repository.create_issue,
         title=self._generate_issue_title(pull_request=pull_request),
         body=self._generate_issue_body(pull_request=pull_request),
-        assignee=pull_request.user.login,
+        assignee=assignee_login,
+        logger=self.logger,
+        log_prefix=self.log_prefix,
     )
 
 async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
@@ -77,7 +82,12 @@ async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
     auto_merge = set_auto_merge_base_branch or parent_committer_in_auto_merge_users
 
     if auto_merge and not pull_request.raw_data.get("auto_merge"):
-        await asyncio.to_thread(pull_request.enable_automerge, merge_method="SQUASH")
+        await github_api_call(
+            pull_request.enable_automerge,
+            merge_method="SQUASH",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
 ```
 
 > **Note:** Users listed in `auto-verified-and-merged-users` skip tracking issue creation. In practice, this is useful for trusted bots or highly automated contributor flows where you do not want an extra issue per PR.
@@ -97,7 +107,9 @@ if _command == AUTOMERGE_LABEL_STR:
         + self.owners_file_handler.all_repository_approvers
     ):
         msg = "Only maintainers or approvers can set pull request to auto-merge"
-        await asyncio.to_thread(pull_request.create_issue_comment, body=msg)
+        await github_api_call(
+            pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+        )
         return
 
     await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
@@ -109,21 +121,34 @@ elif _command == WIP_STR:
     if remove:
         label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
         if label_changed:
-            pr_title = await asyncio.to_thread(lambda: pull_request.title)
+            pr_title = await github_api_call(
+                lambda: pull_request.title, logger=self.logger, log_prefix=self.log_prefix
+            )
             if pr_title.upper().startswith("WIP: "):
-                await asyncio.to_thread(pull_request.edit, title=pr_title[5:])
+                await github_api_call(
+                    pull_request.edit, title=pr_title[5:], logger=self.logger, log_prefix=self.log_prefix
+                )
             elif pr_title.upper().startswith("WIP:"):
-                await asyncio.to_thread(pull_request.edit, title=pr_title[4:])
+                await github_api_call(
+                    pull_request.edit, title=pr_title[4:], logger=self.logger, log_prefix=self.log_prefix
+                )
     else:
         label_changed = await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
         if label_changed and not pr_title.upper().startswith("WIP:"):
-            await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
+            await github_api_call(
+                pull_request.edit,
+                title=f"{wip_for_title} {pr_title}",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 
 elif _command == HOLD_LABEL_STR:
     if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
-        await asyncio.to_thread(
+        await github_api_call(
             pull_request.create_issue_comment,
             f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
         )
     else:
         if remove:
@@ -158,7 +183,9 @@ async def _process_verified_for_update_or_new_pull_request(self, pull_request: P
     if not self.github_webhook.verified_job:
         return
 
-    labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+    labels = await github_api_call(
+        lambda: list(pull_request.labels), logger=self.logger, log_prefix=self.log_prefix
+    )
 
     is_ai_resolved = any(label.name == AI_RESOLVED_CONFLICTS_LABEL for label in labels)
     if is_ai_resolved:
@@ -181,10 +208,20 @@ async def _process_verified_for_update_or_new_pull_request(self, pull_request: P
 
 async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
     try:
-        await asyncio.to_thread(pull_request.add_to_assignees, pull_request.user.login)
+        assignee_login = await github_api_call(
+            lambda: pull_request.user.login, logger=self.logger, log_prefix=self.log_prefix
+        )
+        await github_api_call(
+            pull_request.add_to_assignees, assignee_login, logger=self.logger, log_prefix=self.log_prefix
+        )
     except Exception:
         if self.owners_file_handler.root_approvers:
-            await asyncio.to_thread(pull_request.add_to_assignees, self.owners_file_handler.root_approvers[0])
+            await github_api_call(
+                pull_request.add_to_assignees,
+                self.owners_file_handler.root_approvers[0],
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
 ```
 
 In practice, this means:
@@ -210,7 +247,9 @@ if check_run_name == CAN_BE_MERGED_STR:
             label=AUTOMERGE_LABEL_STR, pull_request=pull_request
         ):
             try:
-                await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                await github_api_call(
+                    pull_request.merge, merge_method="SQUASH", logger=self.logger, log_prefix=self.log_prefix
+                )
                 self.logger.info(
                     f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                 )
@@ -267,7 +306,9 @@ async def process_cherry_pick_command(
 
     for _target_branch in _target_branches:
         try:
-            await asyncio.to_thread(self.repository.get_branch, _target_branch)
+            await github_api_call(
+                self.repository.get_branch, _target_branch, logger=self.logger, log_prefix=self.log_prefix
+            )
             _exits_target_branches.add(_target_branch)
         except Exception:
             _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
@@ -282,7 +323,9 @@ async def process_cherry_pick_command(
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
-            await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
+            await github_api_call(
+                pull_request.create_issue_comment, info_msg, logger=self.logger, log_prefix=self.log_prefix
+            )
         else:
             for _exits_target_branch in _exits_target_branches:
                 await self.runner_handler.cherry_pick(
@@ -304,18 +347,28 @@ if cherry_pick_had_conflicts:
     ai_config = self.github_webhook.ai_features
     ai_result = get_ai_config(ai_config)
     ai_provider, ai_model = ai_result if ai_result else ("unknown", "unknown")
-    await asyncio.to_thread(
-        pull_request.create_issue_comment,
-        f"**Cherry-pick conflicts were resolved by AI**\n\n"
-        f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
-        f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
-        f"**Manual verification is required** — please review the changes and test before merging.",
-    )
+    try:
+        await github_api_call(
+            pull_request.create_issue_comment,
+            f"**Cherry-pick conflicts were resolved by AI**\n\n"
+            f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}\n"
+            f"Conflicts were automatically resolved by AI ({ai_provider}/{ai_model}).\n\n"
+            f"@{pr_author} **Manual verification is required** — please review the changes and test before merging.",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+    except Exception:
+        self.logger.exception(f"{self.log_prefix} Failed to post cherry-pick AI resolution comment")
 else:
-    await asyncio.to_thread(
-        pull_request.create_issue_comment,
-        f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}",
-    )
+    try:
+        await github_api_call(
+            pull_request.create_issue_comment,
+            f"Cherry-picked PR {pull_request.title} into {target_branch}: {cherry_pick_pr_url}",
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+    except Exception:
+        self.logger.exception(f"{self.log_prefix} Failed to post cherry-pick success comment")
 ```
 
 > **Tip:** If you rely on cherry-pick automation, keep the `cherry-pick` label category enabled and set `cherry-pick-assign-to-pr-author: true` if you want the follow-up PR to land on the original author by default.
@@ -407,3 +460,11 @@ The most important keys for this page are:
 - `can-be-merged-required-labels`: adds extra exact label requirements before `can-be-merged` can succeed.
 
 > **Warning:** `can-be-merged-required-labels` uses exact label names. It is best suited for fixed labels such as `security-reviewed` or `tests-passed`, not dynamic reviewer labels such as `approved-<user>` or `lgtm-<user>`.
+
+
+## Related Pages
+
+- [Supported GitHub Events](supported-github-events.html)
+- [OWNERS and Reviewer Assignment](owners-and-reviewer-assignment.html)
+- [Labels, Check Runs, and Mergeability](labels-check-runs-and-mergeability.html)
+- [Issue Comment Commands](issue-comment-commands.html)

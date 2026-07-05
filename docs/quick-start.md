@@ -65,11 +65,15 @@ What each part means:
 
 > **Warning:** The key under `repositories` should be the short repository name, such as `test-repo`, not the full `owner/repo`. The full name belongs in the nested `name` field.
 
+
 > **Warning:** `webhook-ip` should be the full webhook URL. In a normal deployment that means including `/webhook_server`, for example `https://your-domain.com/webhook_server`.
+
 
 > **Warning:** `localhost` is fine for the health check, but GitHub cannot deliver webhooks to `localhost`. Use a real public URL or a `smee.io` channel URL for webhook delivery.
 
+
 > **Note:** If you omit `events`, the server creates the webhook with `*`, which subscribes it to all events.
+
 
 > **Note:** You can list more than one token in `github-tokens`. The server checks them and selects the one with the highest remaining rate limit.
 
@@ -90,6 +94,7 @@ Save the GitHub App private key as:
 The filename matters. The server loads that exact file from the data directory when it creates the GitHub App installation client.
 
 > **Warning:** The private key is not a replacement for `github-tokens`. You need both.
+
 
 > **Warning:** The matching GitHub App must be installed on every repository you add, or the server will not be able to fetch the repository installation.
 
@@ -114,6 +119,7 @@ By default, the server starts on `0.0.0.0:5000` with `10` workers. You can overr
 
 > **Note:** On startup, the server applies repository settings, resets in-progress check runs to queued, and creates or updates GitHub webhooks for every repository in `config.yaml`.
 
+
 > **Tip:** Validate the file before starting the server with `uv run webhook_server/tests/test_schema_validator.py "$WEBHOOK_SERVER_DATA_DIR/config.yaml"`.
 
 ## 5. Verify the Health Endpoint
@@ -137,3 +143,10 @@ This is the same endpoint the container health check uses.
 > **Note:** A healthy response means the web server is up. It does not confirm that GitHub can reach your public `webhook-ip` yet.
 
 At this point, the process is running and listening for webhook traffic on `/webhook_server`. If GitHub can reach the URL you set in `webhook-ip`, the server is ready to receive events.
+
+
+## Related Pages
+
+- [Installation](installation.html)
+- [Introduction](introduction.html)
+- [Configuration Model](configuration-model.html)

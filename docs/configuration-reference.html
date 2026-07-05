@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration Reference - github-webhook-server</title>
     <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
     <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
 </head>
@@ -257,7 +258,7 @@
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    <span class="github-stars" id="github-stars"></span>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
                 </a>
 
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -378,6 +379,10 @@
 <li><code>verify-github-ips</code>: If <code>true</code>, only accept webhook requests from GitHub’s published webhook IP ranges.</li>
 <li><code>verify-cloudflare-ips</code>: If <code>true</code>, also trust Cloudflare’s published IP ranges. This is useful when traffic reaches the server through Cloudflare.</li>
 <li><code>disable-ssl-warnings</code>: If <code>true</code>, suppress <code>urllib3</code> SSL warnings during runtime.</li>
+<li><code>security-checks.mandatory</code>: When <code>true</code> (default), failing security checks blocks <code>can-be-merged</code>. When <code>false</code>, they run as advisory only.</li>
+<li><code>security-checks.suspicious-paths</code>: List of path prefixes considered security-sensitive. PRs modifying these paths fail the <code>security-suspicious-paths</code> check. Default includes <code>.github/workflows/</code>, <code>.vscode/</code>, etc.</li>
+<li><code>security-checks.committer-identity-check</code>: When enabled (default <code>true</code>), fails the <code>security-committer-identity</code> check if the PR author differs from the last commit's committer.</li>
+<li><code>security-checks.trusted-committers</code>: List of GitHub logins that are always trusted for the committer-identity check (useful for bots and org identities).</li>
 </ul>
 <blockquote>
 <p><strong>Warning:</strong> IP allowlist verification is fail-closed. If <code>verify-github-ips</code> and/or <code>verify-cloudflare-ips</code> are enabled but the allowlists cannot be loaded, the server aborts startup instead of accepting requests insecurely.</p>
@@ -394,6 +399,7 @@
 <li><code>create-issue-for-new-pr</code>: Global default for creating a tracking issue when a new PR opens. Default is <code>true</code>.</li>
 <li><code>cherry-pick-assign-to-pr-author</code>: Global default for assigning cherry-pick PRs to the original PR author. Default is <code>true</code>.</li>
 <li><code>allow-commands-on-draft-prs</code>: Global default for user commands on draft PRs. Omit it to block commands on draft PRs. Set it to <code>[]</code> to allow all commands. Set it to a list such as <code>["build-and-push-container", "retest"]</code> to allow only those command names.</li>
+<li><code>welcome-extra-info</code>: Additional markdown information to display at the end of the PR welcome message. An empty string explicitly clears any inherited value.</li>
 </ul>
 <blockquote>
 <p><strong>Tip:</strong> Repository-level <code>github-tokens</code> replace the global token list for that repository. During webhook processing, the server also adds the GitHub users behind the active API tokens to the auto-verified user list.</p>
@@ -567,6 +573,7 @@
 <li><code>custom-check-runs[].mandatory</code>: Whether the custom check must pass for mergeability. Default is <code>true</code>. <code>false</code> checks still run; they just stop gating merges.</li>
 <li><code>test-oracle.server-url</code>, <code>test-oracle.ai-provider</code>, <code>test-oracle.ai-model</code>, <code>test-oracle.test-patterns</code>, <code>test-oracle.triggers</code>: Same meanings as the global <code>test-oracle</code> keys. A repository-level object replaces the global object for that repository.</li>
 <li><code>ai-features.ai-provider</code>, <code>ai-features.ai-model</code>, <code>ai-features.conventional-title.enabled</code>, <code>ai-features.conventional-title.mode</code>, <code>ai-features.conventional-title.timeout-minutes</code>, <code>ai-features.resolve-cherry-pick-conflicts-with-ai.enabled</code>, <code>ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes</code>: Same meanings as the global <code>ai-features</code> keys. A repository-level object replaces the global object for that repository.</li>
+<li><code>security-checks.mandatory</code>, <code>security-checks.suspicious-paths</code>, <code>security-checks.committer-identity-check</code>, <code>security-checks.trusted-committers</code>: Same meanings as the global <code>security-checks</code> keys. A repository-level object replaces the global object for that repository.</li>
 </ul>
 <blockquote>
 <p><strong>Tip:</strong> Custom check names become valid <code>/retest &lt;name&gt;</code> targets, and <code>/retest all</code> includes them.</p>
@@ -589,6 +596,7 @@
 <li><code>create-issue-for-new-pr</code>: Repository override for tracking-issue creation on new PRs.</li>
 <li><code>cherry-pick-assign-to-pr-author</code>: Repository override for assigning cherry-pick PRs to the original PR author.</li>
 <li><code>allow-commands-on-draft-prs</code>: Repository override for draft-PR comment commands. Omit it to block commands on draft PRs. Set it to <code>[]</code> to allow all commands. Set it to a list to allow only those raw command names, for example <code>build-and-push-container</code> or <code>retest</code>.</li>
+<li><code>welcome-extra-info</code>: Repository override for additional markdown information at the end of the PR welcome message. An empty string explicitly clears any inherited value.</li>
 </ul>
 <blockquote>
 <p><strong>Warning:</strong> For <code>protected-branches</code>, stick to <code>[]</code> or the object form with <code>include-runs</code> / <code>exclude-runs</code>. Those are the forms the branch-protection setup code actually uses.</p>
@@ -637,6 +645,12 @@
 <blockquote>
 <p><strong>Note:</strong> <code>slack-webhook-url</code> is used for successful PyPI publish messages and for container push success/failure notifications. It is not a general-purpose notification switch for every webhook event.</p>
 </blockquote>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="configuration-model.html">Configuration Model</a></li>
+<li><a href="security-configuration.html">Security Configuration</a></li>
+<li><a href="repository-overrides.html">Repository Overrides</a></li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -677,6 +691,7 @@
 <li><a href="#publishing-releases-and-notifications">Publishing, releases, and notifications</a></li>
 </ul>
 </li>
+<li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
 
@@ -687,9 +702,13 @@
         </main>
 
         <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
-            <span class="footer-sep">·</span>
-            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
     </div>
 

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pull Request Automation - github-webhook-server</title>
     <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
     <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
 </head>
@@ -257,7 +258,7 @@
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    <span class="github-stars" id="github-stars"></span>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
                 </a>
 
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -334,11 +335,16 @@
         <span class="p">)</span>
         <span class="k">return</span>
 
-    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+    <span class="n">assignee_login</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">login</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+    <span class="p">)</span>
+    <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">create_issue</span><span class="p">,</span>
         <span class="n">title</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_generate_issue_title</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">),</span>
         <span class="n">body</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_generate_issue_body</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">),</span>
-        <span class="n">assignee</span><span class="o">=</span><span class="n">pull_request</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">login</span><span class="p">,</span>
+        <span class="n">assignee</span><span class="o">=</span><span class="n">assignee_login</span><span class="p">,</span>
+        <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+        <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
     <span class="p">)</span>
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">set_pull_request_automerge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -349,7 +355,12 @@
     <span class="n">auto_merge</span> <span class="o">=</span> <span class="n">set_auto_merge_base_branch</span> <span class="ow">or</span> <span class="n">parent_committer_in_auto_merge_users</span>
 
     <span class="k">if</span> <span class="n">auto_merge</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">raw_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;auto_merge&quot;</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">enable_automerge</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">enable_automerge</span><span class="p">,</span>
+            <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
+        <span class="p">)</span>
 </code></pre></div>
 
 <blockquote>
@@ -368,7 +379,9 @@
         <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">all_repository_approvers</span>
     <span class="p">):</span>
         <span class="n">msg</span> <span class="o">=</span> <span class="s2">&quot;Only maintainers or approvers can set pull request to auto-merge&quot;</span>
-        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">msg</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+        <span class="p">)</span>
         <span class="k">return</span>
 
     <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">_add_label</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">AUTOMERGE_LABEL_STR</span><span class="p">)</span>
@@ -380,21 +393,34 @@
     <span class="k">if</span> <span class="n">remove</span><span class="p">:</span>
         <span class="n">label_changed</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">_remove_label</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">WIP_STR</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">label_changed</span><span class="p">:</span>
-            <span class="n">pr_title</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="p">)</span>
+            <span class="n">pr_title</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                <span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+            <span class="p">)</span>
             <span class="k">if</span> <span class="n">pr_title</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;WIP: &quot;</span><span class="p">):</span>
-                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="n">pr_title</span><span class="p">[</span><span class="mi">5</span><span class="p">:])</span>
+                <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                    <span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="n">pr_title</span><span class="p">[</span><span class="mi">5</span><span class="p">:],</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+                <span class="p">)</span>
             <span class="k">elif</span> <span class="n">pr_title</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;WIP:&quot;</span><span class="p">):</span>
-                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="n">pr_title</span><span class="p">[</span><span class="mi">4</span><span class="p">:])</span>
+                <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                    <span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="n">pr_title</span><span class="p">[</span><span class="mi">4</span><span class="p">:],</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+                <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">label_changed</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">labels_handler</span><span class="o">.</span><span class="n">_add_label</span><span class="p">(</span><span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="n">WIP_STR</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">label_changed</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">pr_title</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;WIP:&quot;</span><span class="p">):</span>
-            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">wip_for_title</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">pr_title</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                <span class="n">pull_request</span><span class="o">.</span><span class="n">edit</span><span class="p">,</span>
+                <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">wip_for_title</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">pr_title</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+                <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
+            <span class="p">)</span>
 
 <span class="k">elif</span> <span class="n">_command</span> <span class="o">==</span> <span class="n">HOLD_LABEL_STR</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">reviewed_user</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">all_pull_request_approvers</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
             <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reviewed_user</span><span class="si">}</span><span class="s2"> is not part of the approver, only approvers can mark pull request with hold&quot;</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">remove</span><span class="p">:</span>
@@ -427,7 +453,9 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">verified_job</span><span class="p">:</span>
         <span class="k">return</span>
 
-    <span class="n">labels</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">labels</span><span class="p">))</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">labels</span><span class="p">),</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+    <span class="p">)</span>
 
     <span class="n">is_ai_resolved</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">label</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">AI_RESOLVED_CONFLICTS_LABEL</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">is_ai_resolved</span><span class="p">:</span>
@@ -450,10 +478,20 @@
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">add_pull_request_owner_as_assingee</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">add_to_assignees</span><span class="p">,</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">login</span><span class="p">)</span>
+        <span class="n">assignee_login</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="k">lambda</span><span class="p">:</span> <span class="n">pull_request</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">login</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+        <span class="p">)</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">add_to_assignees</span><span class="p">,</span> <span class="n">assignee_login</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+        <span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">root_approvers</span><span class="p">:</span>
-            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">add_to_assignees</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">root_approvers</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                <span class="n">pull_request</span><span class="o">.</span><span class="n">add_to_assignees</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">owners_file_handler</span><span class="o">.</span><span class="n">root_approvers</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+                <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
+            <span class="p">)</span>
 </code></pre></div>
 
 <p>In practice, this means:</p>
@@ -478,7 +516,9 @@
             <span class="n">label</span><span class="o">=</span><span class="n">AUTOMERGE_LABEL_STR</span><span class="p">,</span> <span class="n">pull_request</span><span class="o">=</span><span class="n">pull_request</span>
         <span class="p">):</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">merge</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">)</span>
+                <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                    <span class="n">pull_request</span><span class="o">.</span><span class="n">merge</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s2">&quot;SQUASH&quot;</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+                <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Successfully auto-merged pull request #</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">number</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
@@ -533,7 +573,9 @@
 
     <span class="k">for</span> <span class="n">_target_branch</span> <span class="ow">in</span> <span class="n">_target_branches</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_branch</span><span class="p">,</span> <span class="n">_target_branch</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="o">.</span><span class="n">get_branch</span><span class="p">,</span> <span class="n">_target_branch</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+            <span class="p">)</span>
             <span class="n">_exits_target_branches</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">_target_branch</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
             <span class="n">_non_exits_target_branches_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;Target branch `</span><span class="si">{</span><span class="n">_target_branch</span><span class="si">}</span><span class="s2">` does not exist</span><span class="se">\n</span><span class="s2">&quot;</span>
@@ -548,7 +590,9 @@
 <span class="s2">Cherry-pick requested for PR: `</span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="s2">` by user `</span><span class="si">{</span><span class="n">reviewed_user</span><span class="si">}</span><span class="s2">`</span>
 <span class="s2">Adding label/s `</span><span class="si">{</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">_cp_label</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">_cp_label</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">cp_labels</span><span class="p">])</span><span class="si">}</span><span class="s2">` for automatic cheery-pick once the PR is merged</span>
 <span class="s2">&quot;&quot;&quot;</span>
-            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">info_msg</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+                <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span> <span class="n">info_msg</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span> <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">for</span> <span class="n">_exits_target_branch</span> <span class="ow">in</span> <span class="n">_exits_target_branches</span><span class="p">:</span>
                 <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">runner_handler</span><span class="o">.</span><span class="n">cherry_pick</span><span class="p">(</span>
@@ -567,18 +611,28 @@
     <span class="n">ai_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">github_webhook</span><span class="o">.</span><span class="n">ai_features</span>
     <span class="n">ai_result</span> <span class="o">=</span> <span class="n">get_ai_config</span><span class="p">(</span><span class="n">ai_config</span><span class="p">)</span>
     <span class="n">ai_provider</span><span class="p">,</span> <span class="n">ai_model</span> <span class="o">=</span> <span class="n">ai_result</span> <span class="k">if</span> <span class="n">ai_result</span> <span class="k">else</span> <span class="p">(</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">)</span>
-    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
-        <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
-        <span class="sa">f</span><span class="s2">&quot;**Cherry-pick conflicts were resolved by AI**</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;Cherry-picked PR </span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="s2"> into </span><span class="si">{</span><span class="n">target_branch</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">cherry_pick_pr_url</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;Conflicts were automatically resolved by AI (</span><span class="si">{</span><span class="n">ai_provider</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">ai_model</span><span class="si">}</span><span class="s2">).</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;**Manual verification is required** — please review the changes and test before merging.&quot;</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;**Cherry-pick conflicts were resolved by AI**</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Cherry-picked PR </span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="s2"> into </span><span class="si">{</span><span class="n">target_branch</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">cherry_pick_pr_url</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Conflicts were automatically resolved by AI (</span><span class="si">{</span><span class="n">ai_provider</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">ai_model</span><span class="si">}</span><span class="s2">).</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;@</span><span class="si">{</span><span class="n">pr_author</span><span class="si">}</span><span class="s2"> **Manual verification is required** — please review the changes and test before merging.&quot;</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Failed to post cherry-pick AI resolution comment&quot;</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
-        <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
-        <span class="sa">f</span><span class="s2">&quot;Cherry-picked PR </span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="s2"> into </span><span class="si">{</span><span class="n">target_branch</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">cherry_pick_pr_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">github_api_call</span><span class="p">(</span>
+            <span class="n">pull_request</span><span class="o">.</span><span class="n">create_issue_comment</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;Cherry-picked PR </span><span class="si">{</span><span class="n">pull_request</span><span class="o">.</span><span class="n">title</span><span class="si">}</span><span class="s2"> into </span><span class="si">{</span><span class="n">target_branch</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">cherry_pick_pr_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+            <span class="n">log_prefix</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Failed to post cherry-pick success comment&quot;</span><span class="p">)</span>
 </code></pre></div>
 
 <blockquote>
@@ -665,6 +719,13 @@
 <blockquote>
 <p><strong>Warning:</strong> <code>can-be-merged-required-labels</code> uses exact label names. It is best suited for fixed labels such as <code>security-reviewed</code> or <code>tests-passed</code>, not dynamic reviewer labels such as <code>approved-&lt;user&gt;</code> or <code>lgtm-&lt;user&gt;</code>.</p>
 </blockquote>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="supported-github-events.html">Supported GitHub Events</a></li>
+<li><a href="owners-and-reviewer-assignment.html">OWNERS and Reviewer Assignment</a></li>
+<li><a href="labels-check-runs-and-mergeability.html">Labels, Check Runs, and Mergeability</a></li>
+<li><a href="issue-comment-commands.html">Issue Comment Commands</a></li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -694,6 +755,7 @@
 <li><a href="#auto-merge">Auto-merge</a></li>
 <li><a href="#cherry-pick-workflows">Cherry-pick Workflows</a></li>
 <li><a href="#key-configuration">Key Configuration</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
 
@@ -704,9 +766,13 @@
         </main>
 
         <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
-            <span class="footer-sep">·</span>
-            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
     </div>
 

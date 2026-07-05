@@ -43,14 +43,15 @@ Common files and directories you will see:
 
 The private key is read from the data directory root, not from `logs/`:
 
-```410:417:webhook_server/utils/github_repository_settings.py
-def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
-    LOGGER.debug("Getting repositories GitHub app API")
+```413:421:webhook_server/utils/github_repository_settings.py
+def _create_github_integration(config_: Config, github_app_id: int | None = None) -> GithubIntegration:
+    """Create an authenticated GithubIntegration instance using App JWT.
 
+    Reads the private key and app ID from config to create an authenticated
+    GithubIntegration. This is the shared setup for all GitHub App API operations.
+    """
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
-
-    github_app_id: int = config_.root_data["github-app-id"]
 ```
 
 > **Note:** The `logs/` directory is created automatically when the server needs it.
@@ -411,7 +412,7 @@ if _log_viewer_controller_singleton is None:
 
 The same pattern is used for MCP logging during startup:
 
-```176:192:webhook_server/app.py
+```176:193:webhook_server/app.py
 # Configure MCP logging separation
 if MCP_SERVER_ENABLED:
     mcp_log_file = root_config.get("mcp-log-file", "mcp_server.log")
@@ -428,6 +429,7 @@ if MCP_SERVER_ENABLED:
             mcp_logger.addHandler(handler)
 
         mcp_logger.propagate = False
+        LOGGER.info(f"MCP logging configured to: {mcp_log_file} via handlers from {mcp_file_logger.name}")
 ```
 
 ## Log Viewer Files
@@ -504,3 +506,10 @@ What this means in practice:
 - Exports are streamed to the client on demand; they are not written back into the data directory as extra files.
 
 > **Warning:** The project does not add application-level authentication to the `/logs` endpoints. Treat the log viewer as an internal tool and protect it with trusted network placement or a reverse proxy that adds authentication.
+
+
+## Related Pages
+
+- [Log Viewer Guide](log-viewer-guide.html)
+- [Log Viewer API](log-viewer-api.html)
+- [Troubleshooting](troubleshooting.html)

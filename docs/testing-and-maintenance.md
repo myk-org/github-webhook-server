@@ -209,19 +209,19 @@ repos:
       - id: end-of-file-fixer
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.6
+    rev: v0.15.20
     hooks:
       - id: ruff
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.1
+    rev: v2.1.0
     hooks:
       - id: mypy
         exclude: (tests/)
 
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.0.3
+    rev: v10.6.0
     hooks:
       - id: eslint
         files: \.js$
@@ -307,14 +307,8 @@ The Renovate configuration is intentionally simple and low-noise:
   },
   "packageRules": [
     {
-      "matchManagers": ["pip_requirements", "pip-compile", "pep621"],
       "matchPackagePatterns": ["*"],
       "groupName": "python-deps"
-    },
-    {
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["@myk-org/pi-sidecar"],
-      "groupName": "npm-deps"
     }
   ]
 }
@@ -325,13 +319,21 @@ That setup means:
 - Renovate keeps a dependency dashboard.
 - Lock file maintenance is enabled weekly.
 - Dependency PRs are not throttled by hourly or concurrent limits.
-- Python updates are grouped into a `python-deps` stream and npm updates for the pi-sidecar package into a separate `npm-deps` stream, avoiding a flood of unrelated PRs.
+- Updates are grouped into a single `python-deps` stream instead of a flood of unrelated PRs.
 
 The rest of the repository bot setup looks like this:
 
 - `pre-commit.ci` is configured through `.pre-commit-config.yaml` and is part of the expected status-check flow.
-- CodeRabbit is configured in `.coderabbit.yaml` with auto-review on non-draft PRs targeting `main`, `request_changes_workflow: true`, and tool integrations including Ruff, Pylint, ESLint, ShellCheck, Yamllint, Gitleaks, Semgrep, Actionlint, and Hadolint.
+- CodeRabbit is configured in `.coderabbit.yaml` with auto-review on non-draft PRs targeting `main` (excluding `docs/**`), code guidelines enforcement from `AGENTS.md`, `request_changes_workflow: true`, and tool integrations including Ruff, Pylint, ESLint, ShellCheck, Yamllint, Gitleaks, Semgrep, Actionlint, and Hadolint.
+- PR Agent is configured in `.pr_agent.toml` for additional AI review capabilities like `/agentic_review` and inline comments.
 - The stale bot is configured in `.github/stale.yml` to mark inactive items stale after 60 days and close them 7 days later, while exempting `pinned` and `security`.
 - The In Solidarity bot is configured in `.github/in-solidarity.yml` to enforce inclusive-language checks at failure level.
 
 If you use `github-webhook-server` to manage your own repositories, the shipped example config also treats common automation accounts as trusted bots by listing `renovate[bot]` and `pre-commit-ci[bot]` under `auto-verified-and-merged-users`. That is a good starting point if you want dependency and hook-update PRs to fit cleanly into an automated review flow.
+
+
+## Related Pages
+
+- [Troubleshooting](troubleshooting.html)
+- [Logging and Data Files](logging-and-data-files.html)
+- [Docker and Container Deployment](docker-deployment.html)

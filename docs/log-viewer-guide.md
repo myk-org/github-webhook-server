@@ -228,3 +228,10 @@ These are the routes behind the viewer:
 - `WS /logs/ws` streams new log entries in real time.
 
 > **Note:** The per-step log drill-down route is additionally intended for trusted/private network use. If the main viewer loads but step logs do not, check your network path first.
+
+
+## Related Pages
+
+- [Log Viewer API](log-viewer-api.html)
+- [Logging and Data Files](logging-and-data-files.html)
+- [Troubleshooting](troubleshooting.html)

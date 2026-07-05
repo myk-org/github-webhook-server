@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Introduction - github-webhook-server</title>
     <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
     <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
 </head>
@@ -257,7 +258,7 @@
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    <span class="github-stars" id="github-stars"></span>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
                 </a>
 
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -317,7 +318,9 @@
 <li>Auto-merge the PR when the <code>automerge</code> label is present and the <code>can-be-merged</code> check succeeds.</li>
 </ul>
 <p>The core PR setup is explicit in the handler:</p>
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_opened_or_synchronize_pull_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_opened_or_synchronize_pull_request</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">pull_request</span><span class="p">:</span> <span class="n">PullRequest</span><span class="p">,</span> <span class="n">is_clean_rebase</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">label_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="c1"># Stage 1: Initial setup and check queue tasks</span>
     <span class="n">setup_tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Coroutine</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
 
@@ -341,24 +344,27 @@
 <p>In this repository's end-to-end tests, a normal PR is expected to end up with successful <code>build-container</code>, <code>pre-commit</code>, <code>python-module-install</code>, and <code>tox</code> checks; a queued <code>verified</code>; a failing <code>can-be-merged</code> until approval and policy requirements are satisfied; and labels such as <code>size/M</code> and <code>branch-main</code>.</p>
 <h3 id="from-comments-and-reviews">From comments and reviews</h3>
 <p>Contributors and maintainers can control automation directly from PR comments. In addition to label-driven commands such as <code>/wip</code>, <code>/hold</code>, <code>/verified</code>, <code>/lgtm</code>, <code>/approve</code>, and <code>/automerge</code>, the comment handler supports a set of built-in workflow commands:</p>
-<div class="highlight"><pre><span></span><code><span class="n">available_commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">COMMAND_RETEST_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_REPROCESS_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_CHERRY_PICK_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_ASSIGN_REVIEWERS_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_CHECK_CAN_MERGE_STR</span><span class="p">,</span>
-    <span class="n">BUILD_AND_PUSH_CONTAINER_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_ASSIGN_REVIEWER_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_ADD_ALLOWED_USER_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_REGENERATE_WELCOME_STR</span><span class="p">,</span>
-    <span class="n">COMMAND_TEST_ORACLE_STR</span><span class="p">,</span>
-<span class="p">]</span>
+<div class="highlight"><pre><span></span><code>        <span class="n">available_commands</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">COMMAND_RETEST_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_REPROCESS_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_CHERRY_PICK_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_CHERRY_PICK_RETRY_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_REBASE_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_ASSIGN_REVIEWERS_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_CHECK_CAN_MERGE_STR</span><span class="p">,</span>
+            <span class="n">BUILD_AND_PUSH_CONTAINER_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_ASSIGN_REVIEWER_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_ADD_ALLOWED_USER_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_REGENERATE_WELCOME_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_TEST_ORACLE_STR</span><span class="p">,</span>
+            <span class="n">COMMAND_SECURITY_OVERRIDE_STR</span><span class="p">,</span>
+        <span class="p">]</span>
 
 <span class="c1"># ...</span>
 
-<span class="k">if</span> <span class="n">_command</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">available_commands</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">USER_LABELS_DICT</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
-    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Command </span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not supported.&quot;</span><span class="p">)</span>
-    <span class="k">return</span>
+        <span class="k">if</span> <span class="n">_command</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">available_commands</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">USER_LABELS_DICT</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_prefix</span><span class="si">}</span><span class="s2"> Command </span><span class="si">{</span><span class="n">command</span><span class="si">}</span><span class="s2"> is not supported.&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
 </code></pre></div>
 
 <p>In practice, that means users can do things like:</p>
@@ -369,6 +375,9 @@
 <li><code>/check-can-merge</code> to force a mergeability recalculation</li>
 <li><code>/build-and-push-container</code> to publish a PR image on demand</li>
 <li><code>/cherry-pick &lt;branch&gt;</code> to queue or perform backports</li>
+<li><code>/cherry-pick-retry &lt;branch&gt;</code> to retry a failed cherry-pick</li>
+<li><code>/rebase</code> to attempt a clean rebase of the PR</li>
+<li><code>/security-override</code> to bypass or approve security check failures</li>
 <li><code>/test-oracle</code> to request AI-generated test recommendations when configured</li>
 <li><code>/regenerate-welcome</code> to refresh the onboarding comment</li>
 </ul>
@@ -502,6 +511,12 @@ reviewers:
 <p><strong>Warning:</strong> If you enable the optional log viewer, keep it on a trusted network. The project treats those endpoints as internal operational tooling, not a public-facing dashboard.</p>
 </blockquote>
 <p>Taken together, <code>github-webhook-server</code> is best understood as a shared automation layer for GitHub: contributors interact with simple PR comments and labels, while maintainers get consistent policy, repeatable release automation, and one place to operate everything.</p>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="architecture-and-event-flow.html">Architecture and Event Flow</a></li>
+<li><a href="quick-start.html">Quick Start</a></li>
+<li><a href="supported-github-events.html">Supported GitHub Events</a></li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -533,6 +548,7 @@ reviewers:
 <li><a href="#configuration-model">Configuration Model</a></li>
 <li><a href="#owners-driven-reviews">OWNERS-Driven Reviews</a></li>
 <li><a href="#operational-notes">Operational Notes</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
 
@@ -543,9 +559,13 @@ reviewers:
         </main>
 
         <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
-            <span class="footer-sep">·</span>
-            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> · <a href="llms-full.txt">llms-full.txt</a></span>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
     </div>
 
