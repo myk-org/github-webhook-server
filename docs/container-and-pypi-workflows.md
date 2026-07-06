@@ -28,7 +28,7 @@ You can set these values in the central `config.yaml` or in a repository-local `
 The relevant example from `examples/.github-webhook-server.yaml` looks like this:
 
 ```yaml
-slack-webhook-url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+slack-webhook-url: https://slack-webhook-url/replace-with-your-webhook-url
 
 pypi:
   token: pypi-your-token-here

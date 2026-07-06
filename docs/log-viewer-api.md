@@ -1,419 +1,719 @@
-# Log Viewer API
+Let me start by reading the knowledge graph and page manifest, then explore the relevant source files.
 
-The log viewer exposes a browser UI at `/logs`, historical REST endpoints under `/logs/api/*`, and a live stream at `/logs/ws`. Use it to search webhook history, export filtered results, inspect PR processing at a high level, drill into one webhook’s step timeline, and fetch the raw log lines that happened during a specific step.
+Now let me look at the `LogEntry` model and the `parse_datetime_string` utility:
 
-The examples below are copied from the shipped frontend and test fixtures in this repository.
+Now let me check the `APP_URL_ROOT_PATH` and routing info:
 
-> **Warning:** The log viewer is not authenticated by the application. Treat it as an internal tool and expose it only on trusted networks.
+Now let me also check the `get_workflow_steps_core` reference:
 
-## Enable It
+Now let me look at the actual response structures more carefully by checking tests:
 
-Set `ENABLE_LOG_SERVER=true` before you expect the page, REST endpoints, or WebSocket stream to be available.
+Let me now look at the tests related to endpoints specifically to understand the actual response format:
 
-```17:20:examples/docker-compose.yaml
-      - VERIFY_GITHUB_IPS=1 # Verify hook request is from GitHub IPs
-      - VERIFY_CLOUDFLARE_IPS=1 # Verify hook request is from Cloudflare IPs
-      - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
-      - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
+Now let me check the PR flow response by looking at `_analyze_pr_flow` more closely and the actual JSON response structure:
+
+Now I have a comprehensive understanding of the API. Let me write the reference page.
+
+# Log Viewer API Reference
+
+All Log Viewer endpoints are served by the webhook server at the same host and port. Endpoints require the `ENABLE_LOG_SERVER=true` environment variable to be set.
+
+> **Warning:** Log Viewer endpoints are **unauthenticated**. Never expose them to the public internet. Deploy on trusted networks only. See [Environment Variables](environment-variables.html) for configuration details.
+
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| Environment variable | `ENABLE_LOG_SERVER=true` |
+| Disabled response (REST) | `404` — `"Log server is disabled. Set ENABLE_LOG_SERVER=true to enable."` |
+| Disabled response (WebSocket) | Close code `1008` (Policy Violation) — `"Log server is disabled"` |
+
+## Endpoints Overview
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/logs` | Log viewer web UI |
+| `GET` | `/logs/api/entries` | Query log entries with filters and pagination |
+| `GET` | `/logs/api/export` | Export filtered logs as a JSON file download |
+| `GET` | `/logs/api/pr-flow/{hook_id}` | PR workflow flow visualization data |
+| `GET` | `/logs/api/workflow-steps/{hook_id}` | Detailed workflow step timeline |
+| `GET` | `/logs/api/step-logs/{hook_id}/{step_name}` | Log entries within a specific step's time window |
+| `WebSocket` | `/logs/ws` | Real-time log streaming |
+
+---
+
+## `GET /logs`
+
+Serves the log viewer web UI as an HTML page.
+
+**Response:** `200` — `text/html`
+
+```
+GET /logs
 ```
 
-You can also set a dedicated log file for the log viewer itself:
+---
 
-```3:7:examples/config.yaml
-log-level: INFO # Set global log level, change take effect immediately without server restart
-log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
-mcp-log-file: mcp_server.log # Set global MCP log file, change take effect immediately without server restart
-logs-server-log-file: logs_server.log # Set global Logs Server log file, change take effect immediately without server restart
-mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)
-```
+## `GET /logs/api/entries`
 
-> **Note:** When the log server is disabled, the REST endpoints respond as unavailable, the WebSocket closes with code `1008`, and the `/logs` page is not exposed.
+Retrieve historical log entries with filtering and pagination. Uses memory-efficient streaming internally.
 
-## What The API Reads
+### Query Parameters
 
-The log viewer scans files under `<data_dir>/logs/` and combines two sources:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `hook_id` | `string` | `null` | GitHub webhook delivery ID (`X-GitHub-Delivery` header value) |
+| `pr_number` | `integer` | `null` | Pull request number |
+| `repository` | `string` | `null` | Repository in `owner/repo` format |
+| `event_type` | `string` | `null` | GitHub event type (e.g., `pull_request`, `push`, `issue_comment`, `pull_request_review`) |
+| `github_user` | `string` | `null` | GitHub username who triggered the event |
+| `level` | `string` | `null` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `SUCCESS` |
+| `start_time` | `string` | `null` | ISO 8601 datetime (e.g., `2024-01-15T10:00:00Z`) |
+| `end_time` | `string` | `null` | ISO 8601 datetime (e.g., `2024-01-15T18:00:00Z`) |
+| `search` | `string` | `null` | Case-insensitive full-text search across log messages |
+| `limit` | `integer` | `100` | Maximum entries to return. Range: `1`–`10000` |
+| `offset` | `integer` | `0` | Number of entries to skip for pagination. Must be ≥ `0` |
 
-- Text logs such as `webhook-server.log` and rotated `*.log.*` files.
-- Structured JSONL files named `webhooks_YYYY-MM-DD.json`.
+### Response Body
 
-A few behaviors matter when you use the API:
-
-- Historical queries prefer `webhooks_*.json` first, then plain `.log` files.
-- Workflow-step lookups prefer structured JSON summaries and fall back to text logs only when needed.
-- Step-scoped log correlation reads text `.log` files only, because that is where detailed per-operation lines live.
-- Infrastructure-only noise from the log viewer, MCP server, and parser is filtered out unless it is tied to a webhook context.
-
-> **Note:** The viewer scans `<data_dir>/logs/` only. If you move your main text log file somewhere else with an absolute path, historical text queries and step-scoped log correlation will not see it.
-
-## Shared Log Entry Shape
-
-Historical query results and WebSocket messages use the same entry model. The important fields are:
-
-- `timestamp`: ISO 8601 timestamp.
-- `level`: exact log level, such as `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `COMPLETED`.
-- `logger_name`: the logger that emitted the line.
-- `message`: rendered message text.
-- `hook_id`: GitHub delivery ID.
-- `event_type`: GitHub event name such as `pull_request` or `check_run`.
-- `repository`: repository in `owner/repo` form when available.
-- `pr_number`: pull request number when available.
-- `github_user`: GitHub or API user associated with the entry.
-- `task_id`, `task_type`, `task_status`: workflow-correlation fields when the original log line included them.
-- `token_spend`: parsed GitHub API call usage when available.
-
-The `search` filter only matches `message`. All other filters are exact matches.
-
-> **Tip:** If you want one high-level row per webhook execution, filter `level=COMPLETED`. Those entries come from the structured webhook summary log.
-
-## Endpoint Reference
-
-### `GET /logs/api/entries`
-
-Use this endpoint for historical search and pagination.
-
-Supported query parameters:
-
-- `hook_id`: exact delivery ID.
-- `pr_number`: exact pull request number.
-- `repository`: exact `owner/repo`.
-- `event_type`: exact GitHub event type.
-- `github_user`: exact user value stored on the entry.
-- `level`: exact log level.
-- `start_time`: inclusive ISO 8601 lower bound.
-- `end_time`: inclusive ISO 8601 upper bound.
-- `search`: case-insensitive substring match against `message`.
-- `limit`: page size from `1` to `10000`.
-- `offset`: number of matching entries to skip.
-
-The built-in UI uses this endpoint like this:
-
-```354:375:webhook_server/web/static/js/log_viewer.js
-    const filters = new URLSearchParams();
-    const hookId = document.getElementById("hookIdFilter").value.trim();
-    const prNumber = document.getElementById("prNumberFilter").value.trim();
-    const repository = document.getElementById("repositoryFilter").value.trim();
-    const user = document.getElementById("userFilter").value.trim();
-    const level = document.getElementById("levelFilter").value;
-    const search = document.getElementById("searchFilter").value.trim();
-    const limit = document.getElementById("limitFilter").value;
-
-    filters.append("limit", limit);
-    if (hookId) filters.append("hook_id", hookId);
-    if (prNumber) filters.append("pr_number", prNumber);
-    if (repository) filters.append("repository", repository);
-    if (user) filters.append("github_user", user);
-    if (level) filters.append("level", level);
-    if (search) filters.append("search", search);
-    appendTimeFilters(filters);
-
-    const response = await fetch(`/logs/api/entries?${filters.toString()}`);
-```
-
-The response contains:
-
-- `entries`: the current page of matching log entries.
-- `entries_processed`: how many entries the server examined for this request. This may be an integer or a string such as `"50000+"`.
-- `filtered_count_min`: a lower bound for total matches, not an exact total.
-- `total_log_count_estimate`: a rough text-log size estimate, often formatted like `1.2K` or `1.0M`.
-- `limit`: echoed page size.
-- `offset`: echoed offset.
-- `is_partial_scan`: `true` when the server hit its internal scan cap.
-
-Operational details:
-
-- Unfiltered requests scan up to `20000` entries.
-- Filtered requests scan up to `50000` entries.
-- The scan reads up to `25` recent log files.
-- The server stops early once it has enough entries for your page.
-
-> **Note:** There is no exact total-count field. `filtered_count_min` is intentionally conservative because the server stops as soon as it has filled your page or reached the scan cap.
-
-### `GET /logs/api/export`
-
-Use this endpoint when you want a downloadable copy of the same filtered data.
-
-It accepts the same filters as `/logs/api/entries`, plus:
-
-- `format_type`: must be `json`.
-- `limit`: effective maximum `50000`.
-
-What you get back:
-
-- A streamed JSON download.
-- `Content-Type: application/json`.
-- A filename in the form `webhook_logs_YYYYMMDD_HHMMSS.json`.
-
-The JSON file contains:
-
-- `export_metadata.generated_at`
-- `export_metadata.filters_applied`
-- `export_metadata.total_entries`
-- `export_metadata.export_format`
-- `log_entries`
-
-Useful behavior to know:
-
-- The export is streamed instead of fully buffered in memory.
-- Requests above `50000` entries are rejected with `413`.
-- An empty match set still produces a valid JSON export.
-
-> **Tip:** Build your filters with `/logs/api/entries` first. When the result set looks right, send the same filters to `/logs/api/export`.
-
-### `GET /logs/api/pr-flow/{hook_id}`
-
-Use this endpoint for a compact, stage-based flow summary.
-
-Despite the `{hook_id}` path name, this endpoint accepts four identifier styles:
-
-- `hook-abc123`
-- `pr-42`
-- `42`
-- `abc123`
-
-How to choose:
-
-- Use a delivery ID when you want one webhook run.
-- Use `pr-42` or `42` when you want a PR-wide view across all matching log entries for that PR.
-
-The response includes:
-
-- `identifier`
-- `stages`
-- `total_duration_ms`
-- `success`
-- optional `error`
-
-Each stage can include:
-
-- `name`
-- `timestamp`
-- `duration_ms`
-- optional `error`
-
-The stage names are matched from log messages using these buckets:
-
-- `Webhook Received`
-- `Validation Complete`
-- `Reviewers Assigned`
-- `Labels Applied`
-- `Checks Started`
-- `Checks Complete`
-- `Processing Complete`
-
-> **Note:** This endpoint is pattern-based analysis, not a strict replay of structured workflow data. If you need the exact per-step timeline for one delivery, use `/logs/api/workflow-steps/{hook_id}` instead.
-
-### `GET /logs/api/workflow-steps/{hook_id}`
-
-Use this endpoint for the richest single-delivery view.
-
-This endpoint expects the raw delivery ID, such as `test-hook-123`. Unlike `/logs/api/pr-flow/{hook_id}`, it does not accept `hook-...`, `pr-...`, or bare PR-number aliases.
-
-When structured summary data exists in `webhooks_*.json`, the response can include:
-
-- `hook_id`
-- `start_time`
-- `total_duration_ms`
-- `step_count`
-- `steps`
-- `token_spend`
-- `event_type`
-- `action`
-- `repository`
-- `sender`
-- `pr`
-- `success`
-- `error`
-
-Each step can include:
-
-- `timestamp`
-- `step_name`
-- `message`
-- `level`
-- `repository`
-- `event_type`
-- `pr_number`
-- `task_id`
-- `task_type`
-- `task_status`
-- `duration_ms`
-- `error`
-- `step_details`
-- `relative_time_ms`
-
-A structured webhook summary in the test suite looks like this:
-
-```226:265:webhook_server/tests/conftest.py
-    return {
-        "hook_id": "test-hook-123",
-        "event_type": "pull_request",
-        "action": "opened",
-        "repository": "org/test-repo",
-        "sender": "test-user",
-        "pr": {
-            "number": 456,
-            "title": "Test PR",
-            "url": "https://github.com/org/test-repo/pull/456",
-        },
-        "timing": {
-            "started_at": "2025-01-05T10:00:00.000000Z",
-            "completed_at": "2025-01-05T10:00:05.000000Z",
-            "duration_ms": 5000,
-        },
-        "workflow_steps": {
-            "clone_repository": {
-                "timestamp": "2025-01-05T10:00:01.000000Z",
-                "status": "completed",
-                "duration_ms": 1500,
-            },
-            "assign_reviewers": {
-                "timestamp": "2025-01-05T10:00:02.500000Z",
-                "status": "completed",
-                "duration_ms": 800,
-            },
-            "apply_labels": {
-                "timestamp": "2025-01-05T10:00:03.500000Z",
-                "status": "failed",
-                "duration_ms": 200,
-                "error": {"type": "ValueError", "message": "Label not found"},
-            },
-        },
-        "token_spend": 35,
-        "success": False,
-        "error": {
-            "type": "TestError",
-            "message": "Test failure message for unit tests",
-        },
+```json
+{
+  "entries": [
+    {
+      "timestamp": "2024-01-15T14:30:25.123456",
+      "level": "INFO",
+      "logger_name": "webhook_server.app",
+      "message": "Processing webhook for repository: myakove/test-repo",
+      "hook_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+      "event_type": "pull_request",
+      "repository": "myakove/test-repo",
+      "github_user": "contributor123",
+      "pr_number": 42,
+      "task_id": null,
+      "task_type": null,
+      "task_status": null,
+      "token_spend": null
     }
+  ],
+  "entries_processed": 1542,
+  "filtered_count_min": 100,
+  "total_log_count_estimate": "12.5K",
+  "limit": 100,
+  "offset": 0,
+  "is_partial_scan": false
+}
 ```
 
-Fallback behavior:
+### Response Fields
 
-- The server first searches structured JSON summaries.
-- If it cannot find one, it falls back to text logs.
-- The fallback timeline is simpler and only includes entries that carried both `task_id` and `task_status`.
-- In fallback mode, `token_spend` can still be inferred from a text message such as `Token spend: 15 API calls`.
+| Field | Type | Description |
+|---|---|---|
+| `entries` | `array` | Log entry objects matching all applied filters |
+| `entries_processed` | `integer` or `string` | Number of log entries examined. A `"+"` suffix (e.g., `"50000+"`) means the streaming limit was reached and more entries exist |
+| `filtered_count_min` | `integer` | Lower bound of total matching entries (`len(entries) + offset`) |
+| `total_log_count_estimate` | `string` | Estimated total entries across all log files (e.g., `"12.5K"`, `"1.3M"`, `"0"`, `"Unknown"`) |
+| `limit` | `integer` | Echo of the requested `limit` |
+| `offset` | `integer` | Echo of the requested `offset` |
+| `is_partial_scan` | `boolean` | `true` if the scan stopped before examining all log files |
 
-> **Tip:** This is the endpoint the built-in `/logs` UI uses for its detailed flow modal. It is the best API to call once you already know the delivery ID you care about.
+### Log Entry Object
 
-### `GET /logs/api/step-logs/{hook_id}/{step_name}`
+Each entry in the `entries` array has these fields:
 
-Use this endpoint when you know which workflow step you want to inspect and need the raw log lines that happened during that step.
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | `string` | ISO 8601 timestamp |
+| `level` | `string` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `SUCCESS`) |
+| `logger_name` | `string` | Name of the Python logger that emitted the entry |
+| `message` | `string` | Log message text |
+| `hook_id` | `string` or `null` | Webhook delivery ID |
+| `event_type` | `string` or `null` | GitHub event type |
+| `repository` | `string` or `null` | Repository name (`owner/repo`) |
+| `pr_number` | `integer` or `null` | Pull request number |
+| `github_user` | `string` or `null` | GitHub username |
+| `task_id` | `string` or `null` | Workflow task identifier |
+| `task_type` | `string` or `null` | Workflow task type |
+| `task_status` | `string` or `null` | Workflow task status |
+| `token_spend` | `integer` or `null` | GitHub API token consumption count |
 
-This endpoint also expects the raw delivery ID, not the prefixed forms accepted by `/logs/api/pr-flow/{hook_id}`.
+### Error Responses
 
-How it works:
+| Status | Condition |
+|---|---|
+| `400` | Invalid `limit` (outside 1–10000), negative `offset`, or malformed datetime in `start_time`/`end_time` |
+| `404` | Log server is disabled |
+| `500` | Log file access errors or internal server errors |
 
-- It loads the workflow-step timeline for the delivery.
-- It finds the step whose `step_name` exactly matches your path segment.
-- It builds a time window from the step’s `timestamp` and `duration_ms`.
-- It scans text `.log` files for that delivery inside that time window.
+### Examples
 
-The built-in UI URL-encodes both path segments when it fetches step-scoped logs:
+Fetch errors from the last 24 hours:
 
-```1991:2005:webhook_server/web/static/js/log_viewer.js
-  // Fetch actual log entries for this step
-  const stepName = step.step_name;
-  const hookId = currentFlowData?.hook_id;
-
-  if (stepName && hookId) {
-    // Show loading indicator
-    const loadingDiv = document.createElement("div");
-    loadingDiv.className = "step-logs-loading";
-    loadingDiv.textContent = "Loading logs...";
-
-    try {
-      const response = await fetch(
-        `/logs/api/step-logs/${encodeURIComponent(hookId)}/${encodeURIComponent(stepName)}`,
-        { signal: currentStepLogsController.signal }
-      );
+```
+GET /logs/api/entries?level=ERROR&start_time=2024-01-14T00:00:00Z&limit=50
 ```
 
-The response contains:
+Fetch logs for a specific PR:
 
-- `step`: metadata for the requested step.
-- `logs`: matching log entries from the step’s execution window.
-- `log_count`: number of returned log entries.
-
-Important limits and edge cases:
-
-- At most `500` log entries are returned.
-- If `duration_ms` is missing, the server uses a default `60` second window starting at the step timestamp.
-- If the step exists but nothing was logged in that window, you still get `step` plus `logs: []`.
-- If the step timestamp is missing or malformed, the endpoint fails rather than guessing.
-
-> **Warning:** This is the only log-viewer endpoint with an additional trusted-network check. Requests are allowed only from private, loopback, or link-local client addresses.
-
-### `WS /logs/ws`
-
-Use the WebSocket when you want live updates after you have loaded history.
-
-Supported query parameters:
-
-- `hook_id`
-- `pr_number`
-- `repository`
-- `event_type`
-- `github_user`
-- `level`
-
-The shipped frontend builds the connection like this:
-
-```54:77:webhook_server/web/static/js/log_viewer.js
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-
-  // Build WebSocket URL with current filter parameters
-  const filters = new URLSearchParams();
-  const hookId = document.getElementById("hookIdFilter").value.trim();
-  const prNumber = document.getElementById("prNumberFilter").value.trim();
-  const repository = document.getElementById("repositoryFilter").value.trim();
-  const user = document.getElementById("userFilter").value.trim();
-  const level = document.getElementById("levelFilter").value;
-
-  if (hookId) filters.append("hook_id", hookId);
-  if (prNumber) filters.append("pr_number", prNumber);
-  if (repository) filters.append("repository", repository);
-  if (user) filters.append("github_user", user);
-  if (level) filters.append("level", level);
-
-  const wsUrl = `${protocol}//${window.location.host}/logs/ws${
-    filters.toString() ? "?" + filters.toString() : ""
-  }`;
-
-  ws = new WebSocket(wsUrl);
+```
+GET /logs/api/entries?repository=myakove/test-repo&pr_number=42
 ```
 
-Behavior to expect:
+Paginated access:
 
-- The stream starts at the end of the current file, so it delivers new entries only.
-- It monitors the most recent current `webhooks_*.json` file.
-- If no JSON webhook file exists, it falls back to the most recent current `.log` file.
-- Rotated files are not tailed in real time.
-- Messages use the same log-entry shape as `/logs/api/entries`.
+```
+GET /logs/api/entries?repository=myakove/test-repo&limit=50&offset=100
+```
 
-Connection and error behavior:
+Search for rate limit issues:
 
-- If the log directory is missing, the server sends `{"error": "Log directory not found"}`.
-- If the log server is disabled, the socket closes with code `1008`.
-- If the server hits an internal error while streaming, it closes with code `1011`.
-- On application shutdown, open log-viewer sockets are closed with code `1001`.
+```
+GET /logs/api/entries?search=rate%20limit&level=WARNING
+```
 
-> **Note:** The WebSocket only applies context filters. It does not do historical replay, time-range filtering, or free-text `search`. Use `/logs/api/entries` first if you need “history plus live updates.”
+Debug a specific webhook delivery:
 
-## Practical Drill-Down
+```
+GET /logs/api/entries?hook_id=f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f
+```
 
-A good workflow is:
+> **Note:** Infrastructure logger entries (MCP server, log viewer) without webhook context are automatically excluded from results to reduce noise.
 
-1. Query `/logs/api/entries` with `repository`, `pr_number`, `hook_id`, or `search` to find the run you care about.
-2. Take the raw `hook_id` from those results and call `/logs/api/workflow-steps/{hook_id}` for the precise per-step timeline.
-3. If one step looks suspicious, call `/logs/api/step-logs/{hook_id}/{step_name}` for the raw log lines inside that step window.
-4. Keep `/logs/ws` open if you want to watch new entries after the initial history load.
+---
 
-> **Tip:** If you start from a PR number, a practical first query is `/logs/api/entries?pr_number=456`. That matches how the built-in UI discovers the hook IDs attached to a PR before opening the detailed flow view.
+## `GET /logs/api/export`
 
+Export filtered logs as a downloadable JSON file. Supports the same filter parameters as `/logs/api/entries`.
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `format_type` | `string` | `"json"` | Export format. Only `"json"` is supported |
+| `hook_id` | `string` | `null` | Filter by webhook delivery ID |
+| `pr_number` | `integer` | `null` | Filter by PR number |
+| `repository` | `string` | `null` | Filter by repository (`owner/repo`) |
+| `event_type` | `string` | `null` | Filter by GitHub event type |
+| `github_user` | `string` | `null` | Filter by GitHub username |
+| `level` | `string` | `null` | Filter by log level |
+| `start_time` | `string` | `null` | ISO 8601 start time |
+| `end_time` | `string` | `null` | ISO 8601 end time |
+| `search` | `string` | `null` | Full-text search in messages |
+| `limit` | `integer` | `10000` | Maximum entries to export. Range: `1`–`100000`. Hard cap: `50000` entries in the export itself |
+
+### Response
+
+Returns a `StreamingResponse` with file download headers:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `Content-Disposition` | `attachment; filename=webhook_logs_YYYYMMDD_HHMMSS.json` |
+
+### Export File Format
+
+```json
+{
+  "export_metadata": {
+    "generated_at": "2024-01-15T14:30:25.123456+00:00",
+    "filters_applied": {
+      "repository": "myakove/test-repo",
+      "level": "ERROR"
+    },
+    "total_entries": 156,
+    "export_format": "json"
+  },
+  "log_entries": [
+    {
+      "timestamp": "2024-01-15T14:30:25.123456",
+      "level": "ERROR",
+      "logger_name": "webhook_server.app",
+      "message": "Container build failed for PR #42",
+      "hook_id": "delivery-id-123",
+      "repository": "myakove/test-repo",
+      "event_type": "pull_request",
+      "github_user": "contributor",
+      "pr_number": 42,
+      "task_id": null,
+      "task_type": null,
+      "task_status": null,
+      "token_spend": null
+    }
+  ]
+}
+```
+
+### Error Responses
+
+| Status | Condition |
+|---|---|
+| `400` | Invalid `format_type` (not `"json"`) or malformed datetime parameters |
+| `404` | Log server is disabled |
+| `413` | Export limit exceeds `50000` entries |
+| `500` | File system or export generation errors |
+
+### Examples
+
+Export all errors for a repository:
+
+```
+GET /logs/api/export?format_type=json&repository=myakove/test-repo&level=ERROR
+```
+
+Export a month of logs:
+
+```
+GET /logs/api/export?format_type=json&start_time=2024-01-01T00:00:00Z&end_time=2024-01-31T23:59:59Z&limit=50000
+```
+
+---
+
+## `GET /logs/api/pr-flow/{hook_id}`
+
+Get PR workflow flow visualization data. Analyzes log entries to identify processing stages and timing.
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `hook_id` | `string` | Identifier in one of these formats: raw hook ID, `hook-{id}` prefix, `pr-{number}` prefix, or a bare PR number |
+
+### Hook ID Format Resolution
+
+| Input | Interpretation |
+|---|---|
+| `hook-abc123` | Filters by hook ID `abc123` |
+| `pr-42` | Filters by PR number `42` |
+| `42` | Filters by PR number `42` |
+| `abc123` | Filters by hook ID `abc123` |
+
+### Response Body
+
+```json
+{
+  "identifier": "hook-abc123",
+  "stages": [
+    {
+      "name": "Webhook Received",
+      "timestamp": "2024-01-15T14:30:25.000000",
+      "duration_ms": null
+    },
+    {
+      "name": "Validation Complete",
+      "timestamp": "2024-01-15T14:30:25.050000",
+      "duration_ms": 50
+    },
+    {
+      "name": "Labels Applied",
+      "timestamp": "2024-01-15T14:30:26.200000",
+      "duration_ms": 1150,
+      "error": "Label not found: size/XL"
+    },
+    {
+      "name": "Processing Complete",
+      "timestamp": "2024-01-15T14:30:28.000000",
+      "duration_ms": 1800
+    }
+  ],
+  "total_duration_ms": 3000,
+  "success": true
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `identifier` | `string` | Echo of the `hook_id` path parameter |
+| `stages` | `array` | Detected workflow stages in chronological order |
+| `total_duration_ms` | `integer` | Total processing duration in milliseconds |
+| `success` | `boolean` | `true` if no `ERROR`-level log entries were found |
+| `error` | `string` | Present only when `success` is `false`; first error message |
+
+### Workflow Stages
+
+Stages are detected by matching log messages against these patterns:
+
+| Stage Name | Matches Log Messages Containing |
+|---|---|
+| Webhook Received | `Processing webhook` |
+| Validation Complete | `Signature verification successful` or `Processing webhook for` |
+| Reviewers Assigned | `Added reviewer`, `OWNERS file`, or `reviewer assignment` |
+| Labels Applied | `label` or `tag` |
+| Checks Started | `check`, `test`, or `build` |
+| Checks Complete | `check.*complete`, `test.*pass`, or `build.*success` |
+| Processing Complete | `completed successfully` or `processing complete` |
+
+> **Note:** Not all stages appear in every response. Only stages with matching log entries are included.
+
+### Error Responses
+
+| Status | Condition |
+|---|---|
+| `400` | Invalid hook ID format |
+| `404` | No log data found for the given hook ID or PR number |
+| `500` | Internal server error |
+
+### Example
+
+```
+GET /logs/api/pr-flow/hook-f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f
+```
+
+```
+GET /logs/api/pr-flow/pr-42
+```
+
+---
+
+## `GET /logs/api/workflow-steps/{hook_id}`
+
+Get a detailed timeline of individual workflow steps for a webhook processing event. Prioritizes structured JSON logs and falls back to text log parsing.
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `hook_id` | `string` | GitHub webhook delivery ID (`X-GitHub-Delivery` header value) |
+
+### Response Body
+
+```json
+{
+  "hook_id": "test-hook-123",
+  "start_time": "2025-01-05T10:00:00.000000Z",
+  "total_duration_ms": 5000,
+  "step_count": 3,
+  "steps": [
+    {
+      "timestamp": "2025-01-05T10:00:01.000000Z",
+      "step_name": "clone_repository",
+      "message": "clone_repository: completed (1500ms)",
+      "level": "INFO",
+      "repository": "org/test-repo",
+      "event_type": "pull_request",
+      "pr_number": 456,
+      "task_id": "clone_repository",
+      "task_type": null,
+      "task_status": "completed",
+      "duration_ms": 1500,
+      "error": null,
+      "step_details": {
+        "timestamp": "2025-01-05T10:00:01.000000Z",
+        "status": "completed",
+        "duration_ms": 1500
+      },
+      "relative_time_ms": 1000
+    },
+    {
+      "timestamp": "2025-01-05T10:00:03.500000Z",
+      "step_name": "apply_labels",
+      "message": "apply_labels: failed - Label not found",
+      "level": "ERROR",
+      "repository": "org/test-repo",
+      "event_type": "pull_request",
+      "pr_number": 456,
+      "task_id": "apply_labels",
+      "task_type": null,
+      "task_status": "failed",
+      "duration_ms": 200,
+      "error": {
+        "type": "ValueError",
+        "message": "Label not found"
+      },
+      "step_details": {
+        "timestamp": "2025-01-05T10:00:03.500000Z",
+        "status": "failed",
+        "duration_ms": 200,
+        "error": {
+          "type": "ValueError",
+          "message": "Label not found"
+        }
+      },
+      "relative_time_ms": 3500
+    }
+  ],
+  "token_spend": 35,
+  "event_type": "pull_request",
+  "action": "opened",
+  "repository": "org/test-repo",
+  "sender": "test-user",
+  "pr": {
+    "number": 456,
+    "title": "Test PR",
+    "url": "https://github.com/org/test-repo/pull/456"
+  },
+  "success": false,
+  "error": null
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `hook_id` | `string` | Webhook delivery ID |
+| `start_time` | `string` or `null` | ISO 8601 timestamp of processing start |
+| `total_duration_ms` | `integer` | Total processing duration in milliseconds |
+| `step_count` | `integer` | Number of workflow steps |
+| `steps` | `array` | Ordered list of step objects (see below) |
+| `token_spend` | `integer` or `null` | GitHub API token consumption count |
+| `event_type` | `string` or `null` | GitHub event type (`pull_request`, `check_run`, etc.) |
+| `action` | `string` or `null` | Event action (`opened`, `synchronize`, etc.) |
+| `repository` | `string` or `null` | Repository name (`owner/repo`) |
+| `sender` | `string` or `null` | GitHub username who triggered the event |
+| `pr` | `object` or `null` | PR info with `number`, `title`, `url` |
+| `success` | `boolean` or `null` | Whether webhook processing succeeded |
+| `error` | `string` or `null` | Error message if processing failed |
+
+### Step Object Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | `string` | ISO 8601 timestamp when step was recorded |
+| `step_name` | `string` | Step identifier (e.g., `clone_repository`, `assign_reviewers`) |
+| `message` | `string` | Human-readable step summary |
+| `level` | `string` | Derived log level: `DEBUG` for `started`, `INFO` for `completed`, `ERROR` for `failed` |
+| `repository` | `string` or `null` | Repository name |
+| `event_type` | `string` or `null` | Event type |
+| `pr_number` | `integer` or `null` | PR number |
+| `task_id` | `string` | Same as `step_name` |
+| `task_type` | `string` or `null` | Task type from the JSON log |
+| `task_status` | `string` | Step status: `started`, `completed`, `failed`, or `unknown` |
+| `duration_ms` | `integer` or `null` | Step execution duration in milliseconds |
+| `error` | `object` or `null` | Error details with `type` and `message` fields |
+| `step_details` | `object` | Raw step data from JSON log |
+| `relative_time_ms` | `integer` | Milliseconds elapsed since `start_time` |
+
+### Error Responses
+
+| Status | Condition |
+|---|---|
+| `400` | Invalid hook ID |
+| `404` | No workflow data or steps found for the hook ID |
+| `500` | Malformed log entry or internal server error |
+
+### Example
+
+```
+GET /logs/api/workflow-steps/f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f
+```
+
+---
+
+## `GET /logs/api/step-logs/{hook_id}/{step_name}`
+
+Retrieve log entries that occurred during a specific workflow step's execution time window.
+
+> **Note:** This endpoint requires access from a trusted network (private IP ranges, loopback, or link-local addresses). Requests from public IPs receive a `403` response.
+
+### Path Parameters
+
+| Parameter | Type | Constraints | Description |
+|---|---|---|---|
+| `hook_id` | `string` | 1–100 characters | GitHub webhook delivery ID |
+| `step_name` | `string` | 1–100 characters | Workflow step name (e.g., `clone_repository`, `webhook_routing`) |
+
+### Response Body
+
+```json
+{
+  "step": {
+    "name": "clone_repository",
+    "status": "completed",
+    "timestamp": "2025-01-05T10:00:01.000000Z",
+    "duration_ms": 1500,
+    "error": null
+  },
+  "logs": [
+    {
+      "timestamp": "2025-01-05T10:00:01.100000",
+      "level": "INFO",
+      "logger_name": "webhook_server.app",
+      "message": "Cloning repository org/test-repo",
+      "hook_id": "test-hook-123",
+      "event_type": "pull_request",
+      "repository": "org/test-repo",
+      "github_user": null,
+      "pr_number": 456,
+      "task_id": null,
+      "task_type": null,
+      "task_status": null,
+      "token_spend": null
+    }
+  ],
+  "log_count": 1
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `step` | `object` | Step metadata |
+| `step.name` | `string` | Step name |
+| `step.status` | `string` | Step status (`started`, `completed`, `failed`, `unknown`) |
+| `step.timestamp` | `string` | ISO 8601 timestamp |
+| `step.duration_ms` | `integer` or `null` | Step execution duration. When `null`, a 60-second default window is used |
+| `step.error` | `object` or `null` | Error details if the step failed |
+| `logs` | `array` | Log entries within the step's execution time window (max 500 entries) |
+| `log_count` | `integer` | Number of log entries returned |
+
+### Error Responses
+
+| Status | Condition |
+|---|---|
+| `403` | Request from untrusted (public) IP address |
+| `404` | Hook ID not found, or step name not found within the hook's workflow steps |
+| `500` | Step has no timestamp, or invalid timestamp format |
+
+### Example
+
+```
+GET /logs/api/step-logs/test-hook-123/clone_repository
+```
+
+---
+
+## `WebSocket /logs/ws`
+
+Real-time log streaming via WebSocket. Monitors log files for new entries and pushes them to connected clients. Supports server-side filtering.
+
+### Connection URL
+
+```
+ws://<host>:<port>/logs/ws
+```
+
+### Query Parameters
+
+All parameters are optional. When no filters are provided, all new log entries are streamed.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `hook_id` | `string` | `null` | Stream only entries for this webhook delivery ID |
+| `pr_number` | `integer` | `null` | Stream only entries for this PR number |
+| `repository` | `string` | `null` | Stream only entries for this repository |
+| `event_type` | `string` | `null` | Stream only entries for this event type |
+| `github_user` | `string` | `null` | Stream only entries for this GitHub user |
+| `level` | `string` | `null` | Stream only entries at this log level |
+
+### Connection Lifecycle
+
+1. Client connects to `ws://<host>:<port>/logs/ws?<filters>`
+2. Server accepts the connection
+3. Server monitors the log directory for new entries
+4. Matching entries are sent as JSON messages
+5. Connection closes on client disconnect or server shutdown (close code `1001`)
+6. On internal error, server closes with code `1011`
+
+### Message Format
+
+Each WebSocket message is a JSON object with the same structure as a [Log Entry Object](#log-entry-object):
+
+```json
+{
+  "timestamp": "2024-01-15T14:30:25.123456",
+  "level": "INFO",
+  "logger_name": "webhook_server.app",
+  "message": "Processing webhook for repository: myakove/test-repo",
+  "hook_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+  "event_type": "pull_request",
+  "repository": "myakove/test-repo",
+  "github_user": "contributor123",
+  "pr_number": 42,
+  "task_id": null,
+  "task_type": null,
+  "task_status": null,
+  "token_spend": null
+}
+```
+
+### Error Messages
+
+If the log directory is not found, the server sends an error object before the stream starts:
+
+```json
+{
+  "error": "Log directory not found"
+}
+```
+
+### WebSocket Close Codes
+
+| Code | Meaning |
+|---|---|
+| `1001` | Server shutdown |
+| `1008` | Log server is disabled (`ENABLE_LOG_SERVER` is not `true`) |
+| `1011` | Internal server error during streaming |
+
+### Examples
+
+Connect with no filters (stream all entries):
+
+```
+ws://localhost:8080/logs/ws
+```
+
+Stream only errors for a specific repository:
+
+```
+ws://localhost:8080/logs/ws?repository=myakove/test-repo&level=ERROR
+```
+
+Monitor a specific PR:
+
+```
+ws://localhost:8080/logs/ws?pr_number=42
+```
+
+> **Tip:** The server tracks all active WebSocket connections and closes them gracefully during shutdown.
+
+---
+
+## Datetime Format
+
+All datetime parameters and response fields use ISO 8601 format. The server accepts:
+
+| Format | Example |
+|---|---|
+| UTC with `Z` suffix | `2024-01-15T10:00:00Z` |
+| With timezone offset | `2024-01-15T10:00:00+00:00` |
+| With microseconds | `2024-01-15T10:00:00.123456` |
+| With microseconds and `Z` | `2024-01-15T10:00:00.123456Z` |
+
+Internally, `Z` is converted to `+00:00` for parsing.
+
+---
+
+## Scanning Limits
+
+The API uses memory-efficient streaming with processing caps to prevent resource exhaustion:
+
+| Context | Max Files Scanned | Max Entries Processed |
+|---|---|---|
+| `/logs/api/entries` (no filters) | 25 | 20,000 |
+| `/logs/api/entries` (with filters) | 25 | 50,000 |
+| `/logs/api/export` (with filters) | 25 | up to 100,000 |
+| `/logs/api/pr-flow/{hook_id}` | 15 | 10,000 |
+| `/logs/api/workflow-steps/{hook_id}` | 25 | 50,000 |
+| `/logs/api/step-logs/{hook_id}/{step_name}` | 25 | 50,000 |
+| Step logs per step | — | 500 (hard cap) |
+
+When the processing limit is reached, `is_partial_scan` is `true` in the entries response and `entries_processed` has a `"+"` suffix.
+
+---
 
 ## Related Pages
 
-- [Log Viewer Guide](log-viewer-guide.html)
-- [Logging and Data Files](logging-and-data-files.html)
-- [MCP API](mcp-api.html)
+- See [Using the Log Viewer](using-the-log-viewer.html) for a guide on browsing, searching, and filtering logs through the web UI.
+- See [Environment Variables](environment-variables.html) for `ENABLE_LOG_SERVER` and `WEBHOOK_SERVER_DATA_DIR` configuration.
+- See [Webhook Events and Handlers](webhook-events-reference.html) for the list of `event_type` values used in filters.
+- See [Configuration Reference](configuration-reference.html) for the `logs-server-log-file` config key.
+
+## Related Pages
+
+- [Using the Log Viewer](using-the-log-viewer.html)
+- [Environment Variables](environment-variables.html)
+- [Webhook Events and Handlers](webhook-events-reference.html)
+- [MCP Server for AI Agents](mcp-server-integration.html)
+- [Configuration Reference](configuration-reference.html)

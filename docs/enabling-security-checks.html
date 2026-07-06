@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enabling Security Checks - github-webhook-server</title>
+    <meta name="description" content="Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server">
+    <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="quickstart.html"
+                           class="nav-link">
+                            Getting Started
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="deploying-with-docker.html"
+                           class="nav-link">
+                            Deploying with Docker
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">User Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuring-repositories.html"
+                           class="nav-link">
+                            Configuring Repositories
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="managing-pull-requests.html"
+                           class="nav-link">
+                            Managing Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-ci-checks.html"
+                           class="nav-link">
+                            Setting Up CI Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuring-labels-and-size.html"
+                           class="nav-link">
+                            Configuring Labels and PR Size Thresholds
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="cherry-picking-and-branching.html"
+                           class="nav-link">
+                            Cherry-Picking and Branch Protection
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-security-checks.html"
+                           class="nav-link active" aria-current="page">
+                            Enabling Security Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-ai-features.html"
+                           class="nav-link">
+                            Enabling AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="using-the-log-viewer.html"
+                           class="nav-link">
+                            Using the Log Viewer
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-notifications.html"
+                           class="nav-link">
+                            Setting Up Slack Notifications
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="pr-command-recipes.html"
+                           class="nav-link">
+                            PR Comment Command Recipes
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="config-recipes.html"
+                           class="nav-link">
+                            Configuration Recipes
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="webhook-events-reference.html"
+                           class="nav-link">
+                            Webhook Events and Handlers
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="environment-variables.html"
+                           class="nav-link">
+                            Environment Variables
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API Reference
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="publishing-to-pypi.html"
+                           class="nav-link">
+                            Publishing Packages to PyPI
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-server-integration.html"
+                           class="nav-link">
+                            MCP Server for AI Agents
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <p>Let me start by exploring the repository structure and the knowledge graph.</p>
+<p>Now let me explore the security-related source code:</p>
+<p>Now let me look at the security override command and the issue comment handler:</p>
+<p>Now let me look at the security tests to understand edge cases and behaviors:</p>
+<p>Now let me check the retest command to see how security checks can be retested:</p>
+<p>Now let me check the per-repository security-checks override pattern:</p>
+<p>I now have a comprehensive understanding of the security checks system. Let me write the documentation.</p>
+<h1 id="enabling-security-checks">Enabling Security Checks</h1>
+<p>Protect your repositories from supply-chain attacks and unauthorized commits by enabling security checks on pull requests. These checks detect modifications to sensitive file paths and verify that committer identities match PR authors.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running webhook server instance (see <a href="quickstart.html">Getting Started</a>)</li>
+<li>At least one repository configured in <code>config.yaml</code> (see <a href="configuring-repositories.html">Configuring Repositories</a>)</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
+<p>Add this to your <code>config.yaml</code> to enable both security checks with default settings:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.claude/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.vscode/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.cursor/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.devcontainer/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.pi/&quot;</span>
+<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">trusted-committers</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit-ci[bot]&quot;</span>
+</code></pre></div>
+
+<p>This creates two GitHub check runs on every PR:</p>
+<ul>
+<li><strong><code>security-suspicious-paths</code></strong> — fails if any changed file starts with a monitored path prefix</li>
+<li><strong><code>security-committer-identity</code></strong> — fails if the last commit's committer doesn't match the PR author</li>
+</ul>
+<p>Both checks block merging by default (<code>mandatory: true</code>).</p>
+<h2 id="step-by-step-setup">Step-by-Step Setup</h2>
+<h3 id="1-enable-suspicious-path-detection">1. Enable Suspicious Path Detection</h3>
+<p>The suspicious path check compares every changed file in a PR against a list of path prefixes. If any file matches, the check run fails and lists all flagged files.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+</code></pre></div>
+
+<p>If you omit <code>suspicious-paths</code>, the server uses these defaults:</p>
+<table>
+<thead>
+<tr>
+<th>Default Path Prefix</th>
+<th>What It Protects</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.claude/</code></td>
+<td>Claude AI configuration</td>
+</tr>
+<tr>
+<td><code>.vscode/</code></td>
+<td>VS Code settings and extensions</td>
+</tr>
+<tr>
+<td><code>.cursor/</code></td>
+<td>Cursor editor rules</td>
+</tr>
+<tr>
+<td><code>.devcontainer/</code></td>
+<td>Dev container definitions</td>
+</tr>
+<tr>
+<td><code>.pi/</code></td>
+<td>Pi sidecar configuration</td>
+</tr>
+<tr>
+<td><code>.github/workflows/</code></td>
+<td>CI/CD workflow definitions</td>
+</tr>
+<tr>
+<td><code>.github/actions/</code></td>
+<td>Custom GitHub Actions</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Tip:</strong> Set <code>suspicious-paths</code> to an empty list (<code>[]</code>) to disable this check entirely while keeping other security checks active.</p>
+</blockquote>
+<h3 id="2-enable-committer-identity-verification">2. Enable Committer Identity Verification</h3>
+<p>The committer identity check compares the PR author against the last commit's committer. It catches cases where someone pushes a commit to another user's PR branch.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p>This check is enabled by default. The check run will:</p>
+<ul>
+<li><strong>Pass</strong> when the last committer matches the PR author</li>
+<li><strong>Pass</strong> when the last committer is in the trusted committers list</li>
+<li><strong>Fail</strong> when the last committer is a different, untrusted user</li>
+<li><strong>Fail</strong> when the committer identity is unknown (no linked GitHub account)</li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> The committer identity check also detects web-flow impersonation. If someone creates a GitHub account named <code>web-flow</code>, the check verifies the account's immutable user ID against GitHub's real web-flow system account.</p>
+</blockquote>
+<h3 id="3-configure-trusted-committers">3. Configure Trusted Committers</h3>
+<p>Bots and automation tools frequently commit to PR branches with a different identity than the PR author. Add them to <code>trusted-committers</code> to prevent false positives:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">trusted-committers</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit-ci[bot]&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;renovate[bot]&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;my-org-bot&quot;</span>
+</code></pre></div>
+
+<p>You only need to list <strong>external</strong> committers here. The following are automatically trusted:</p>
+<ul>
+<li>The GitHub App bot used by the webhook server</li>
+<li>GitHub's <code>web-flow</code> account (used for web UI merges and edits)</li>
+<li>All API users from your configured <code>github-tokens</code></li>
+</ul>
+<blockquote>
+<p><strong>Tip:</strong> Trusted committer matching is case-insensitive. <code>Pre-Commit-CI[bot]</code> and <code>pre-commit-ci[bot]</code> are treated as the same identity.</p>
+</blockquote>
+<h3 id="4-choose-mandatory-or-advisory-mode">4. Choose Mandatory or Advisory Mode</h3>
+<p>By default, security checks block the <code>can-be-merged</code> status. Set <code>mandatory: false</code> to make them advisory — the checks still run and report results, but they won't prevent merging:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Check Runs Execute</th>
+<th>Blocks Merge</th>
+<th>Blocks Auto-Merge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mandatory: true</code> (default)</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>mandatory: false</code></td>
+<td>✅</td>
+<td>❌</td>
+<td>✅*</td>
+</tr>
+</tbody>
+</table>
+<p>* Suspicious path detection always blocks auto-merge for flagged files, regardless of the <code>mandatory</code> setting.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Advisory only — checks run but don&#39;t block merge</span>
+<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
+<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<h2 id="overriding-security-checks">Overriding Security Checks</h2>
+<p>When a maintainer has reviewed a flagged PR and determined the changes are safe, they can override the security checks using a PR comment:</p>
+<div class="highlight"><pre><span></span><code>/security-override
+</code></pre></div>
+
+<p>This sets both security check runs to pass. Only repository maintainers (defined in OWNERS files) can use this command.</p>
+<p>To reverse an override and re-run the security checks:</p>
+<div class="highlight"><pre><span></span><code>/security-override cancel
+</code></pre></div>
+
+<blockquote>
+<p><strong>Warning:</strong> Non-maintainers who attempt <code>/security-override</code> will receive a rejection comment. The check runs remain in their original state.</p>
+</blockquote>
+<p>You can also re-run individual security checks using the retest command:</p>
+<div class="highlight"><pre><span></span><code>/retest security-suspicious-paths
+/retest security-committer-identity
+</code></pre></div>
+
+<p>See <a href="managing-pull-requests.html">Managing Pull Requests</a> for the full list of PR comment commands.</p>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="per-repository-configuration">Per-Repository Configuration</h3>
+<p>Override global security settings for a specific repository in <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span><span class="w">  </span><span class="c1"># Only monitor CI workflows for this repo</span>
+<span class="w">      </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Disable identity check for this repo</span>
+</code></pre></div>
+
+<p>You can also configure security checks in a repository's <code>.github-webhook-server.yaml</code> file, which takes priority over <code>config.yaml</code>. See <a href="configuring-repositories.html">Configuring Repositories</a> for the override hierarchy.</p>
+<h3 id="custom-suspicious-paths">Custom Suspicious Paths</h3>
+<p>Monitor project-specific sensitive locations by adding custom path prefixes:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;deploy/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;infra/terraform/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;scripts/ci/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.npmrc&quot;</span>
+</code></pre></div>
+
+<p>Path matching is prefix-based: a prefix of <code>deploy/</code> matches <code>deploy/production.yml</code>, <code>deploy/scripts/rollback.sh</code>, and any other file under that directory.</p>
+<h3 id="auto-merge-interaction">Auto-Merge Interaction</h3>
+<p>When suspicious path detection is enabled, the server automatically blocks auto-merge for any PR that modifies flagged files — even if auto-merge was already enabled on the PR:</p>
+<ol>
+<li>The PR is checked for changed files matching suspicious path prefixes</li>
+<li>If matches are found, auto-merge is blocked and a comment is posted listing the flagged files</li>
+<li>If auto-merge was already enabled on the PR, it is automatically disabled</li>
+<li>A maintainer can use <code>/security-override</code> to allow auto-merge to proceed</li>
+</ol>
+<blockquote>
+<p><strong>Note:</strong> This protection applies regardless of whether <code>mandatory</code> is <code>true</code> or <code>false</code>. Suspicious paths always block auto-merge as a defense-in-depth measure.</p>
+</blockquote>
+<h3 id="welcome-message-integration">Welcome Message Integration</h3>
+<p>When security checks are enabled, the PR welcome message automatically includes a <strong>Security Checks</strong> section showing:</p>
+<ul>
+<li>Which checks are active and what they monitor</li>
+<li>Whether checks are mandatory or advisory</li>
+<li>Available override commands (for maintainers)</li>
+</ul>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>Security check shows "unknown" committer</strong>
+The last commit was made with a local Git identity that isn't linked to a GitHub account. The committer needs to add their Git email to their GitHub profile, or push a new commit with a verified email.</p>
+<p><strong>Trusted committer still fails the identity check</strong>
+Verify the login name matches exactly (case doesn't matter, but special characters like <code>[bot]</code> do). Check the check run output — it shows both the PR author and last committer for comparison.</p>
+<p><strong>Security checks don't appear on PRs</strong>
+Ensure <code>security-checks</code> is configured either globally or for the specific repository. If <code>suspicious-paths</code> is set to <code>[]</code> <em>and</em> <code>committer-identity-check</code> is <code>false</code>, no checks will run.</p>
+<p><strong>Auto-merge blocked but security check passed</strong>
+This can happen if the security check was overridden by a maintainer but the check run result was later invalidated by a new push. Use <code>/security-override</code> again after reviewing the updated changes.</p>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="managing-pull-requests.html">Managing Pull Requests</a></li>
+<li><a href="configuring-repositories.html">Configuring Repositories</a></li>
+<li><a href="configuration-reference.html">Configuration Reference</a></li>
+<li><a href="pr-command-recipes.html">PR Comment Command Recipes</a></li>
+<li><a href="config-recipes.html">Configuration Recipes</a></li>
+</ul>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="cherry-picking-and-branching.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Cherry-Picking and Branch Protection</span>
+                </a>
+
+
+                <a href="enabling-ai-features.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">Enabling AI Features</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
+<li><a href="#step-by-step-setup">Step-by-Step Setup</a><ul>
+<li><a href="#1-enable-suspicious-path-detection">1. Enable Suspicious Path Detection</a></li>
+<li><a href="#2-enable-committer-identity-verification">2. Enable Committer Identity Verification</a></li>
+<li><a href="#3-configure-trusted-committers">3. Configure Trusted Committers</a></li>
+<li><a href="#4-choose-mandatory-or-advisory-mode">4. Choose Mandatory or Advisory Mode</a></li>
+</ul>
+</li>
+<li><a href="#overriding-security-checks">Overriding Security Checks</a></li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#per-repository-configuration">Per-Repository Configuration</a></li>
+<li><a href="#custom-suspicious-paths">Custom Suspicious Paths</a></li>
+<li><a href="#auto-merge-interaction">Auto-Merge Interaction</a></li>
+<li><a href="#welcome-message-integration">Welcome Message Integration</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>

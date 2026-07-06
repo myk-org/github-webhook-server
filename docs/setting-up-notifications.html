@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setting Up Slack Notifications - github-webhook-server</title>
+    <meta name="description" content="Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server">
+    <link rel="stylesheet" href="assets/style.css">
+    <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+    <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
+    <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">github-webhook-server</a>
+            <p class="sidebar-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="search-input" placeholder="Search... (⌘K)" autocomplete="off" readonly>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Getting Started</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="quickstart.html"
+                           class="nav-link">
+                            Getting Started
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="deploying-with-docker.html"
+                           class="nav-link">
+                            Deploying with Docker
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">User Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuring-repositories.html"
+                           class="nav-link">
+                            Configuring Repositories
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="managing-pull-requests.html"
+                           class="nav-link">
+                            Managing Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-ci-checks.html"
+                           class="nav-link">
+                            Setting Up CI Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="configuring-labels-and-size.html"
+                           class="nav-link">
+                            Configuring Labels and PR Size Thresholds
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="cherry-picking-and-branching.html"
+                           class="nav-link">
+                            Cherry-Picking and Branch Protection
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-security-checks.html"
+                           class="nav-link">
+                            Enabling Security Checks
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enabling-ai-features.html"
+                           class="nav-link">
+                            Enabling AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="using-the-log-viewer.html"
+                           class="nav-link">
+                            Using the Log Viewer
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="setting-up-notifications.html"
+                           class="nav-link active" aria-current="page">
+                            Setting Up Slack Notifications
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="pr-command-recipes.html"
+                           class="nav-link">
+                            PR Comment Command Recipes
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="config-recipes.html"
+                           class="nav-link">
+                            Configuration Recipes
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="configuration-reference.html"
+                           class="nav-link">
+                            Configuration Reference
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="webhook-events-reference.html"
+                           class="nav-link">
+                            Webhook Events and Handlers
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="environment-variables.html"
+                           class="nav-link">
+                            Environment Variables
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="log-viewer-api.html"
+                           class="nav-link">
+                            Log Viewer API Reference
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Guides</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="publishing-to-pypi.html"
+                           class="nav-link">
+                            Publishing Packages to PyPI
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="mcp-server-integration.html"
+                           class="nav-link">
+                            MCP Server for AI Agents
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+        </nav>
+    </aside>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <a href="index.html" class="top-bar-title">github-webhook-server</a>
+            </div>
+            <div class="top-bar-spacer"></div>
+            <div class="top-bar-right">
+                <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
+                    <kbd>&#8984;K</kbd> Search
+                </button>
+                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
+                    ⚡ docs<span class="brand-accent">fy</span>
+                </a>
+
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    <span class="github-stars" id="github-stars" title="GitHub stars"></span>
+                </a>
+
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="content">
+
+            <article class="article">
+                <div class="article-body">
+                    <!-- SECURITY: |safe is intentional. Content is AI-generated markdown
+                         converted to HTML server-side by the markdown library, not
+                         user-supplied input. XSS risk is minimal and accepted since
+                         the AI generates the content, not end users. -->
+                    <p>Let me start by reading the exclusions file and pages manifest, then explore the codebase thoroughly.</p>
+<p>Now let me check the examples/config.yaml for the full context of how slack-webhook-url sits in the config structure:</p>
+<p>Now let me look at the schema definition more carefully for the <code>slack-webhook-url</code> field and check if it can be set globally:</p>
+<p>Now let me check if slack-webhook-url is also defined at the global level or only at the repository level:</p>
+<p>So <code>slack-webhook-url</code> is defined only within repository config (<code>additionalProperties</code> under <code>repositories</code>), not at global level. Let me confirm by checking the schema structure:</p>
+<p>Let me check if there's a global-level <code>slack-webhook-url</code> in the schema:</p>
+<p>Good. The <code>slack-webhook-url</code> field is only available at the per-repository level. Let me also look at how the per-repo config in <code>.github-webhook-server.yaml</code> can set it:</p>
+<p>Now let me check what specific events trigger Slack notifications - the runner_handler container push section more broadly:</p>
+<p>Let me also look at the test for notification_utils to understand error scenarios:</p>
+<p>Now let me check how <code>mask-sensitive-data</code> handles slack URLs:</p>
+<p>Now let me check if there's a <code>.github-webhook-server.yaml</code> schema definition that includes <code>slack-webhook-url</code>:</p>
+<p>Now I have a thorough understanding of the Slack notification feature. Let me write the documentation.</p>
+<h1 id="setting-up-slack-notifications">Setting Up Slack Notifications</h1>
+<p>Get notified in Slack when your PyPI packages are published and container images are pushed (or fail to push). This guide walks you through connecting a Slack incoming webhook to your repositories.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running github-webhook-server instance with at least one repository configured</li>
+<li>A Slack workspace where you can create incoming webhooks</li>
+<li>PyPI publishing or container builds configured for the repository (notifications only fire for these events)</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
+<p>Add <code>slack-webhook-url</code> to your repository configuration in either <code>config.yaml</code> or <code>.github-webhook-server.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+</code></pre></div>
+
+<p>That's it. Once configured, you'll receive Slack messages when:</p>
+<ul>
+<li>A Python package version is published to PyPI</li>
+<li>A container image is successfully pushed to a registry</li>
+<li>A container image push fails</li>
+</ul>
+<h2 id="step-by-step-setup">Step-by-Step Setup</h2>
+<h3 id="1-create-a-slack-incoming-webhook">1. Create a Slack Incoming Webhook</h3>
+<ol>
+<li>Go to <a href="https://api.slack.com/apps">https://api.slack.com/apps</a> and create a new app (or use an existing one).</li>
+<li>Under <strong>Incoming Webhooks</strong>, toggle the feature on.</li>
+<li>Click <strong>Add New Webhook to Workspace</strong> and select the channel where you want notifications.</li>
+<li>Copy the webhook URL. It looks like:
+   <code>https://slack-webhook-url/replace-with-your-webhook-url</code></li>
+</ol>
+<h3 id="2-add-the-webhook-url-to-your-repository">2. Add the Webhook URL to Your Repository</h3>
+<p>You have two options for where to place the configuration.</p>
+<p><strong>Option A: Server-side in <code>config.yaml</code></strong></p>
+<p>Add <code>slack-webhook-url</code> under the repository entry:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;PYPI TOKEN&gt;</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-user</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-password</span>
+<span class="w">      </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/my-org/my-repo</span>
+<span class="w">      </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">latest</span>
+<span class="w">      </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p><strong>Option B: In-repository <code>.github-webhook-server.yaml</code></strong></p>
+<p>Place a <code>.github-webhook-server.yaml</code> file in the root of your GitHub repository:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Tip:</strong> Values in <code>.github-webhook-server.yaml</code> take precedence over <code>config.yaml</code>. Use the in-repository file when different teams manage their own notification channels.</p>
+</blockquote>
+<h3 id="3-verify-it-works">3. Verify It Works</h3>
+<p>Push a tag to a repository that has PyPI publishing configured. For example:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.0.0
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.0.0
+</code></pre></div>
+
+<p>If the PyPI upload succeeds, you'll see a message in your Slack channel like:</p>
+<div class="highlight"><pre><span></span><code>my-org/my-repository Version v1.0.0 published to PYPI.
+</code></pre></div>
+
+<h2 id="what-triggers-notifications">What Triggers Notifications</h2>
+<p>Slack notifications are not a general-purpose event stream — they fire only for specific release-related operations:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Notification sent?</th>
+<th>Message content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PyPI package published successfully</td>
+<td>✅ Yes</td>
+<td><code>&lt;repo&gt; Version &lt;tag&gt; published to PYPI.</code></td>
+</tr>
+<tr>
+<td>Container image pushed successfully</td>
+<td>✅ Yes</td>
+<td><code>&lt;repo&gt; New container for &lt;image:tag&gt; published.</code></td>
+</tr>
+<tr>
+<td>Container image push failed</td>
+<td>✅ Yes</td>
+<td><code>&lt;repo&gt; Failed to build and push &lt;image:tag&gt;.</code></td>
+</tr>
+<tr>
+<td>PR opened/closed/merged</td>
+<td>❌ No</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Check runs (tox, pre-commit)</td>
+<td>❌ No</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Cherry-picks</td>
+<td>❌ No</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Label changes</td>
+<td>❌ No</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Note:</strong> If <code>slack-webhook-url</code> is not set for a repository, notifications are silently skipped. No errors are logged.</p>
+</blockquote>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="different-webhook-urls-per-repository">Different Webhook URLs Per Repository</h3>
+<p>Each repository can have its own Slack webhook URL pointing to a different channel. There is no global <code>slack-webhook-url</code> setting — you configure it per repository:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">frontend</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/frontend</span>
+<span class="w">    </span><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># ...</span>
+
+<span class="w">  </span><span class="nt">backend</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/backend</span>
+<span class="w">    </span><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;TOKEN&gt;</span>
+</code></pre></div>
+
+<h3 id="sensitive-data-masking">Sensitive Data Masking</h3>
+<p>The webhook URL is treated as sensitive data. When <code>mask-sensitive-data</code> is enabled (the default), Slack webhook URLs are automatically redacted in log output. This prevents accidental exposure of the URL in logs.</p>
+<blockquote>
+<p><strong>Warning:</strong> Do not set <code>mask-sensitive-data: false</code> in production. Your Slack webhook URL will appear in plaintext in logs. See <a href="configuration-reference.html">Configuration Reference</a> for details on the masking behavior.</p>
+</blockquote>
+<h3 id="combining-with-container-and-pypi-workflows">Combining with Container and PyPI Workflows</h3>
+<p>Slack notifications work alongside container builds and PyPI publishing — not independently. You must configure at least one of these for the repository to receive any notifications:</p>
+<ul>
+<li><strong>PyPI publishing</strong> requires a <code>pypi.token</code> in your config. See <a href="setting-up-ci-checks.html">Setting Up CI Checks</a> for details.</li>
+<li><strong>Container push on release</strong> requires a <code>container</code> block with <code>release: true</code>. See <a href="setting-up-ci-checks.html">Setting Up CI Checks</a> for container build configuration.</li>
+</ul>
+<p>A minimal config that enables both container push notifications and PyPI publish notifications:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://slack-webhook-url/replace-with-your-webhook-url</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;PYPI TOKEN&gt;</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-user</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-password</span>
+<span class="w">      </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/my-org/my-repo</span>
+<span class="w">      </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">latest</span>
+<span class="w">      </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>No notifications appearing in Slack</strong></p>
+<ul>
+<li>Confirm <code>slack-webhook-url</code> is set at the repository level, not at the root of <code>config.yaml</code>. It is a per-repository setting only.</li>
+<li>Verify the event is one that triggers notifications (PyPI publish or container push). PR merges and check runs do not send Slack messages.</li>
+<li>Check that the triggering workflow completed — a PyPI upload that fails before finishing does not send a notification.</li>
+</ul>
+<p><strong>Error: "Request to slack returned an error 401"</strong></p>
+<p>The webhook URL is invalid or has been revoked. Generate a new incoming webhook in your Slack app settings and update the configuration.</p>
+<p><strong>Error: "Request to slack returned an error 404"</strong></p>
+<p>The webhook URL endpoint no longer exists. This typically happens when the Slack app or the webhook has been deleted. Recreate it in <a href="https://api.slack.com/apps">Slack's API dashboard</a>.</p>
+<p><strong>Connection timeout errors</strong></p>
+<p>The server uses a 10-second timeout for Slack webhook requests. If your network is slow or Slack is experiencing an outage, the notification will fail but the underlying operation (PyPI publish, container push) will still complete normally.</p>
+<blockquote>
+<p><strong>Tip:</strong> Slack is a notification layer, not the source of truth. Your actual release state lives in GitHub, your container registry, and PyPI. A failed Slack notification does not mean the release failed.</p>
+</blockquote>
+<h2 id="related-pages">Related Pages</h2>
+<ul>
+<li><a href="configuring-repositories.html">Configuring Repositories</a></li>
+<li><a href="setting-up-ci-checks.html">Setting Up CI Checks</a></li>
+<li><a href="publishing-to-pypi.html">Publishing Packages to PyPI</a></li>
+<li><a href="configuration-reference.html">Configuration Reference</a></li>
+<li><a href="config-recipes.html">Configuration Recipes</a></li>
+</ul>
+                </div>
+            </article>
+            <nav class="page-nav">
+
+                <a href="using-the-log-viewer.html" class="page-nav-link page-nav-prev">
+                    <span class="page-nav-label">Previous</span>
+                    <span class="page-nav-title">Using the Log Viewer</span>
+                </a>
+
+
+                <a href="pr-command-recipes.html" class="page-nav-link page-nav-next">
+                    <span class="page-nav-label">Next</span>
+                    <span class="page-nav-title">PR Comment Command Recipes</span>
+                </a>
+
+            </nav>
+
+            <aside class="toc-sidebar">
+                <div class="toc-container">
+                    <h3>On this page</h3>
+                    <div class="toc">
+<ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
+<li><a href="#step-by-step-setup">Step-by-Step Setup</a><ul>
+<li><a href="#1-create-a-slack-incoming-webhook">1. Create a Slack Incoming Webhook</a></li>
+<li><a href="#2-add-the-webhook-url-to-your-repository">2. Add the Webhook URL to Your Repository</a></li>
+<li><a href="#3-verify-it-works">3. Verify It Works</a></li>
+</ul>
+</li>
+<li><a href="#what-triggers-notifications">What Triggers Notifications</a></li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#different-webhook-urls-per-repository">Different Webhook URLs Per Repository</a></li>
+<li><a href="#sensitive-data-masking">Sensitive Data Masking</a></li>
+<li><a href="#combining-with-container-and-pypi-workflows">Combining with Container and PyPI Workflows</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#related-pages">Related Pages</a></li>
+</ul>
+</div>
+
+                </div>
+            </aside>
+
+
+        </main>
+
+        <footer class="page-footer">
+
+            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-sep">&middot;</span>
+
+            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            <span class="footer-sep">&middot;</span>
+            <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
+        </footer>
+    </div>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="assets/theme.js"></script>
+    <script src="assets/search.js"></script>
+    <script src="assets/copy.js"></script>
+    <script src="assets/callouts.js"></script>
+    <script src="assets/scrollspy.js"></script>
+    <script src="assets/codelabels.js"></script>
+    <script src="assets/github.js"></script>
+    <script>
+(function() {
+    var toggle = document.getElementById('sidebar-toggle');
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.getElementById('sidebar-overlay');
+    if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+            var expanded = sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        });
+    }
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('open');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        });
+    }
+})();
+</script>
+<script>
+(function() {
+    var sidebar = document.querySelector('.sidebar-nav') || document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    // Restore scroll position
+    var saved = sessionStorage.getItem('sidebar-scroll');
+    if (saved) sidebar.scrollTop = parseInt(saved, 10);
+
+    // Save scroll position before navigating
+    sidebar.addEventListener('scroll', function() {
+        sessionStorage.setItem('sidebar-scroll', sidebar.scrollTop.toString());
+    });
+
+    // Also scroll active link into view if no saved position
+    if (!saved) {
+        var active = sidebar.querySelector('.nav-link.active');
+        if (active) {
+            active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+    }
+})();
+</script>
+</body>
+</html>
