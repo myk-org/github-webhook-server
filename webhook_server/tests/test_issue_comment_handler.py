@@ -1849,10 +1849,87 @@ class TestIssueCommentHandler:
             mock_check.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_verified_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /verified command is blocked for unauthorized users."""
+    async def test_verified_command_allows_pr_author(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /verified works for PR author without allowed-user membership."""
         mock_pull_request = Mock()
         mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "pr-author"
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(),
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.check_run_handler,
+                "set_check_success",
+                new=AsyncMock(),
+            ) as mock_success,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=VERIFIED_LABEL_STR,
+                reviewed_user="pr-author",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_verified_command_allows_pr_author_case_insensitive(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /verified author bypass is case-insensitive for GitHub logins."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "Pr-Author"
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(),
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.check_run_handler,
+                "set_check_success",
+                new=AsyncMock(),
+            ) as mock_success,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=VERIFIED_LABEL_STR,
+                reviewed_user="@pr-author",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_verified_command_blocks_unrelated_commenter(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /verified is blocked for commenters who are neither author nor allowed."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "pr-author"
 
         with (
             patch.object(
@@ -1870,7 +1947,7 @@ class TestIssueCommentHandler:
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
                 command=VERIFIED_LABEL_STR,
-                reviewed_user="unauthorized-user",
+                reviewed_user="random-commenter",
                 issue_comment_id=123,
                 is_draft=False,
             )
@@ -1878,10 +1955,45 @@ class TestIssueCommentHandler:
             mock_add_label.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_wip_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /wip command is blocked for unauthorized users."""
+    async def test_wip_command_allows_pr_author(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /wip works for PR author without allowed-user membership."""
+        mock_pull_request = Mock()
+        mock_pull_request.title = "Test PR"
+        mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "pr-author"
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(return_value=True),
+            ) as mock_add_label,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch.object(mock_pull_request, "edit") as mock_edit,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=WIP_STR,
+                reviewed_user="pr-author",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=WIP_STR)
+            mock_edit.assert_called_once_with(title="WIP: Test PR")
+
+    @pytest.mark.asyncio
+    async def test_wip_command_blocks_unrelated_commenter(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /wip is blocked for commenters who are neither author nor allowed."""
         mock_pull_request = Mock()
         mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "pr-author"
 
         with (
             patch.object(
@@ -1899,7 +2011,7 @@ class TestIssueCommentHandler:
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
                 command=WIP_STR,
-                reviewed_user="unauthorized-user",
+                reviewed_user="random-commenter",
                 issue_comment_id=123,
                 is_draft=False,
             )
