@@ -146,6 +146,29 @@ class TestOwnersFileHandler:
         invalid_content = {"approvers": ["user1", "user2"], "reviewers": ["user3", {"name": "user4"}]}
         assert owners_file_handler._validate_owners_content(invalid_content, "test/path") is False
 
+    def test_validate_owners_content_allowed_users_valid(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test _validate_owners_content accepts allowed-users list of strings."""
+        valid_content = {"approvers": ["user1"], "allowed-users": ["bob", "@alice"]}
+        assert owners_file_handler._validate_owners_content(valid_content, "test/path") is True
+
+    def test_validate_owners_content_allowed_users_not_list(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test _validate_owners_content rejects non-list allowed-users."""
+        invalid_content = {"allowed-users": "bob"}
+        assert owners_file_handler._validate_owners_content(invalid_content, "test/path") is False
+
+    def test_validate_owners_content_allowed_users_not_strings(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test _validate_owners_content rejects non-string allowed-users entries."""
+        invalid_content = {"allowed-users": ["bob", 123]}
+        assert owners_file_handler._validate_owners_content(invalid_content, "test/path") is False
+
+    def test_allowed_users_strips_at_prefix(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test allowed_users normalizes @username entries to GitHub logins."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"allowed-users": ["@bob", "alice"]},
+        }
+        assert owners_file_handler.allowed_users == ["bob", "alice"]
+
     @pytest.mark.asyncio
     async def test_get_file_content_from_local(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
         """Test _get_file_content_from_local method."""

@@ -425,6 +425,8 @@ class IssueCommentHandler:
                 )
 
         elif _command == WIP_STR:
+            if not await self._can_manage_pr_status_label(pull_request=pull_request, reviewed_user=reviewed_user):
+                return
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
@@ -477,6 +479,8 @@ class IssueCommentHandler:
                     await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
         elif _command == VERIFIED_LABEL_STR:
+            if not await self._can_manage_pr_status_label(pull_request=pull_request, reviewed_user=reviewed_user):
+                return
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
                 await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
@@ -507,6 +511,18 @@ class IssueCommentHandler:
             pull_request.get_issue_comment, issue_comment_id, logger=self.logger, log_prefix=self.log_prefix
         )
         await github_api_call(_comment.create_reaction, reaction, logger=self.logger, log_prefix=self.log_prefix)
+
+    async def _can_manage_pr_status_label(self, pull_request: PullRequest, reviewed_user: str) -> bool:
+        """Allow /verified and /wip for the PR author or users allowed to run commands.
+
+        Status labels are intentionally usable by the PR author without requiring
+        collaborators/OWNERS membership, but random commenters must not set them.
+        """
+        if reviewed_user == self.github_webhook.parent_committer:
+            return True
+        return await self.owners_file_handler.is_user_valid_to_run_commands(
+            pull_request=pull_request, reviewed_user=reviewed_user
+        )
 
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")

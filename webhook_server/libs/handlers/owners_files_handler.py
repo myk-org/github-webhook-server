@@ -81,8 +81,10 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         _allowed_users = self.all_repository_approvers_and_reviewers.get(".", {}).get("allowed-users", [])
-        self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
-        return _allowed_users
+        # Strip leading @ so OWNERS entries match GitHub login format
+        normalized = [user.lstrip("@") for user in _allowed_users]
+        self.logger.debug(f"{self.log_prefix} ROOT allowed users: {normalized}")
+        return normalized
 
     async def list_changed_files(self) -> list[str]:
         """List changed files in the PR using git diff on cloned repository.
@@ -175,7 +177,7 @@ class OwnersFileHandler:
             if not isinstance(content, dict):
                 raise ValueError("OWNERS file must contain a dictionary")
 
-            for key in ["approvers", "reviewers"]:
+            for key in ["approvers", "reviewers", "allowed-users"]:
                 if key in content:
                     if not isinstance(content[key], list):
                         raise ValueError(f"{key} must be a list")
