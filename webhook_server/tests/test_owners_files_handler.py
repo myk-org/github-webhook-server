@@ -509,6 +509,7 @@ class TestOwnersFileHandler:
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
         owners_file_handler.all_repository_approvers = ["approver1", "user1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
         with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
@@ -526,6 +527,7 @@ class TestOwnersFileHandler:
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
         owners_file_handler.all_repository_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
 
@@ -554,6 +556,7 @@ class TestOwnersFileHandler:
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
         owners_file_handler.all_repository_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
 
@@ -581,9 +584,32 @@ class TestOwnersFileHandler:
                             assert "invalid_user is not allowed to run commands" in mock_create_comment.call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_valid_users_to_run_commands(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test valid_users_to_run_commands property."""
+    async def test_is_user_valid_to_run_commands_owners_allowed_users(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Users in OWNERS allowed-users can run commands without being collaborators."""
         owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"allowed-users": ["owners-allowed-user"]},
+        }
+        owners_file_handler.all_repository_approvers = ["approver1"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
+            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
+                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
+                    result = await owners_file_handler.is_user_valid_to_run_commands(
+                        mock_pull_request, "owners-allowed-user"
+                    )
+                    assert result is True
+
+    @pytest.mark.asyncio
+    async def test_valid_users_to_run_commands(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test valid_users_to_run_commands property includes OWNERS allowed-users."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"allowed-users": ["allowed-user1", "allowed-user2"]},
+        }
         owners_file_handler.all_repository_approvers = ["approver1", "approver2"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
 
@@ -603,6 +629,8 @@ class TestOwnersFileHandler:
                     "collaborator2",
                     "contributor1",
                     "contributor2",
+                    "allowed-user1",
+                    "allowed-user2",
                 }
                 assert result == expected
 

@@ -522,6 +522,7 @@ Maintainers:
             *repository_contributors,
             *self.all_repository_approvers,
             *self.all_pull_request_reviewers,
+            *self.allowed_users,
         ))
 
     async def get_all_repository_contributors(self) -> list[str]:

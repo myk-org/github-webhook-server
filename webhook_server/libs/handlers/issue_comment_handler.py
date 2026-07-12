@@ -425,10 +425,6 @@ class IssueCommentHandler:
                 )
 
         elif _command == WIP_STR:
-            if not await self.owners_file_handler.is_user_valid_to_run_commands(
-                pull_request=pull_request, reviewed_user=reviewed_user
-            ):
-                return
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
@@ -481,10 +477,6 @@ class IssueCommentHandler:
                     await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
         elif _command == VERIFIED_LABEL_STR:
-            if not await self.owners_file_handler.is_user_valid_to_run_commands(
-                pull_request=pull_request, reviewed_user=reviewed_user
-            ):
-                return
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
                 await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)

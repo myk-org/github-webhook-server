@@ -1849,8 +1849,8 @@ class TestIssueCommentHandler:
             mock_check.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_verified_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /verified command is blocked for unauthorized users."""
+    async def test_verified_command_skips_allowed_user_check(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /verified works without allowed-user check (status label for PR authors)."""
         mock_pull_request = Mock()
         mock_is_valid = AsyncMock(return_value=False)
 
@@ -1865,6 +1865,11 @@ class TestIssueCommentHandler:
                 "_add_label",
                 new=AsyncMock(),
             ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.check_run_handler,
+                "set_check_success",
+                new=AsyncMock(),
+            ) as mock_success,
             patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
         ):
             await issue_comment_handler.user_commands(
@@ -1874,13 +1879,15 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_awaited_once()
-            mock_add_label.assert_not_awaited()
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
-    async def test_wip_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /wip command is blocked for unauthorized users."""
+    async def test_wip_command_skips_allowed_user_check(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /wip works without allowed-user check (status label for PR authors)."""
         mock_pull_request = Mock()
+        mock_pull_request.title = "Test PR"
         mock_is_valid = AsyncMock(return_value=False)
 
         with (
@@ -1892,9 +1899,10 @@ class TestIssueCommentHandler:
             patch.object(
                 issue_comment_handler.labels_handler,
                 "_add_label",
-                new=AsyncMock(),
+                new=AsyncMock(return_value=True),
             ) as mock_add_label,
             patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(mock_pull_request, "edit") as mock_edit,
         ):
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
@@ -1903,8 +1911,9 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_awaited_once()
-            mock_add_label.assert_not_awaited()
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=WIP_STR)
+            mock_edit.assert_called_once_with(title="WIP: Test PR")
 
     @pytest.mark.asyncio
     async def test_test_oracle_command_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
