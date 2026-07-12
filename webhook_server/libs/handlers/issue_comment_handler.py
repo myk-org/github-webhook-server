@@ -518,7 +518,8 @@ class IssueCommentHandler:
         Status labels are intentionally usable by the PR author without requiring
         collaborators/OWNERS membership, but random commenters must not set them.
         """
-        if reviewed_user == self.github_webhook.parent_committer:
+        normalized_user = reviewed_user.lstrip("@").strip()
+        if normalized_user.casefold() == self.github_webhook.parent_committer.casefold():
             return True
         return await self.owners_file_handler.is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user

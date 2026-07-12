@@ -1885,6 +1885,44 @@ class TestIssueCommentHandler:
             mock_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
+    async def test_verified_command_allows_pr_author_case_insensitive(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /verified author bypass is case-insensitive for GitHub logins."""
+        mock_pull_request = Mock()
+        mock_is_valid = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.parent_committer = "Pr-Author"
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=mock_is_valid,
+            ),
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new=AsyncMock(),
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.check_run_handler,
+                "set_check_success",
+                new=AsyncMock(),
+            ) as mock_success,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=VERIFIED_LABEL_STR,
+                reviewed_user="@pr-author",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_is_valid.assert_not_awaited()
+            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+            mock_success.assert_awaited_once_with(name=VERIFIED_LABEL_STR)
+
+    @pytest.mark.asyncio
     async def test_verified_command_blocks_unrelated_commenter(
         self, issue_comment_handler: IssueCommentHandler
     ) -> None:
