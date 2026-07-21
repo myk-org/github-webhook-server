@@ -462,21 +462,12 @@ class IssueCommentHandler:
                         )
 
         elif _command == HOLD_LABEL_STR:
-            if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
-                self.logger.debug(
-                    f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
-                )
-                await github_api_call(
-                    pull_request.create_issue_comment,
-                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
+            if not await self._can_manage_pr_status_label(pull_request=pull_request, reviewed_user=reviewed_user):
+                return
+            if remove:
+                await self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
             else:
-                if remove:
-                    await self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
-                else:
-                    await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
+                await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
         elif _command == VERIFIED_LABEL_STR:
             if not await self._can_manage_pr_status_label(pull_request=pull_request, reviewed_user=reviewed_user):
@@ -513,7 +504,7 @@ class IssueCommentHandler:
         await github_api_call(_comment.create_reaction, reaction, logger=self.logger, log_prefix=self.log_prefix)
 
     async def _can_manage_pr_status_label(self, pull_request: PullRequest, reviewed_user: str) -> bool:
-        """Allow /verified and /wip for the PR author or users allowed to run commands.
+        """Allow /verified, /wip, and /hold for the PR author or users allowed to run commands.
 
         Status labels are intentionally usable by the PR author without requiring
         collaborators/OWNERS membership, but random commenters must not set them.

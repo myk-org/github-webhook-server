@@ -626,7 +626,7 @@ For more information, please refer to the project documentation or contact the m
             commands.append("* `/wip cancel` - Remove work in progress status")
 
         if self.labels_handler.is_label_enabled(HOLD_LABEL_STR):
-            commands.append("* `/hold` - Block PR merging (approvers only)")
+            commands.append("* `/hold` - Block PR merging")
             commands.append("* `/hold cancel` - Unblock PR merging")
 
         if self.labels_handler.is_label_enabled(VERIFIED_LABEL_STR):
