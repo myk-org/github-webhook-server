@@ -651,7 +651,7 @@ class TestIssueCommentHandler:
                 "_add_label",
                 new=AsyncMock(),
             ) as mock_add_label,
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
         ):
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
@@ -661,6 +661,7 @@ class TestIssueCommentHandler:
                 is_draft=False,
             )
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+            mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author_cancel(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -675,7 +676,7 @@ class TestIssueCommentHandler:
                 "_remove_label",
                 new=AsyncMock(),
             ) as mock_remove_label,
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
         ):
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
@@ -685,6 +686,7 @@ class TestIssueCommentHandler:
                 is_draft=False,
             )
             mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+            mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author_case_insensitive(
@@ -701,7 +703,7 @@ class TestIssueCommentHandler:
                 "_add_label",
                 new=AsyncMock(),
             ) as mock_add_label,
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
         ):
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
@@ -711,6 +713,7 @@ class TestIssueCommentHandler:
                 is_draft=False,
             )
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+            mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_hold_command_blocks_unrelated_commenter(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -726,7 +729,7 @@ class TestIssueCommentHandler:
                 "_add_label",
                 new=AsyncMock(),
             ) as mock_add_label,
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
         ):
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
@@ -736,6 +739,7 @@ class TestIssueCommentHandler:
                 is_draft=False,
             )
             mock_add_label.assert_not_awaited()
+            mock_reaction.assert_awaited_once()
             deny_calls = [
                 call
                 for call in mock_api.await_args_list
