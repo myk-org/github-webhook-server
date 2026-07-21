@@ -640,17 +640,12 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /hold works for PR author without allowed-user membership."""
+        """Test /hold works for PR author without being an OWNERS approver."""
         mock_pull_request = Mock()
-        mock_is_valid = AsyncMock(return_value=False)
         issue_comment_handler.github_webhook.parent_committer = "pr-author"
+        issue_comment_handler.owners_file_handler.all_pull_request_approvers = ["approver1", "approver2"]
 
         with (
-            patch.object(
-                issue_comment_handler.owners_file_handler,
-                "is_user_valid_to_run_commands",
-                new=mock_is_valid,
-            ),
             patch.object(
                 issue_comment_handler.labels_handler,
                 "_add_label",
@@ -665,22 +660,16 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_not_awaited()
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author_cancel(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /hold cancel works for PR author without allowed-user membership."""
+        """Test /hold cancel works for PR author without being an OWNERS approver."""
         mock_pull_request = Mock()
-        mock_is_valid = AsyncMock(return_value=False)
         issue_comment_handler.github_webhook.parent_committer = "pr-author"
+        issue_comment_handler.owners_file_handler.all_pull_request_approvers = ["approver1", "approver2"]
 
         with (
-            patch.object(
-                issue_comment_handler.owners_file_handler,
-                "is_user_valid_to_run_commands",
-                new=mock_is_valid,
-            ),
             patch.object(
                 issue_comment_handler.labels_handler,
                 "_remove_label",
@@ -695,7 +684,6 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_not_awaited()
             mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
 
     @pytest.mark.asyncio
@@ -704,15 +692,10 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test /hold author bypass is case-insensitive for GitHub logins."""
         mock_pull_request = Mock()
-        mock_is_valid = AsyncMock(return_value=False)
         issue_comment_handler.github_webhook.parent_committer = "Pr-Author"
+        issue_comment_handler.owners_file_handler.all_pull_request_approvers = ["approver1", "approver2"]
 
         with (
-            patch.object(
-                issue_comment_handler.owners_file_handler,
-                "is_user_valid_to_run_commands",
-                new=mock_is_valid,
-            ),
             patch.object(
                 issue_comment_handler.labels_handler,
                 "_add_label",
@@ -727,22 +710,17 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_not_awaited()
             mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_hold_command_blocks_unrelated_commenter(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test /hold is blocked for commenters who are neither author nor allowed."""
+        """Test /hold is blocked for commenters who are neither author nor approver."""
         mock_pull_request = Mock()
-        mock_is_valid = AsyncMock(return_value=False)
         issue_comment_handler.github_webhook.parent_committer = "pr-author"
+        issue_comment_handler.owners_file_handler.all_pull_request_approvers = ["approver1", "approver2"]
 
         with (
-            patch.object(
-                issue_comment_handler.owners_file_handler,
-                "is_user_valid_to_run_commands",
-                new=mock_is_valid,
-            ),
+            patch("webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=AsyncMock()) as mock_api,
             patch.object(
                 issue_comment_handler.labels_handler,
                 "_add_label",
@@ -757,8 +735,14 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            mock_is_valid.assert_awaited_once()
             mock_add_label.assert_not_awaited()
+            deny_calls = [
+                call
+                for call in mock_api.await_args_list
+                if call.args and call.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert deny_calls
+            assert "cannot manage hold" in deny_calls[0].args[1]
 
     @pytest.mark.asyncio
     async def test_user_commands_verified_add(self, issue_comment_handler: IssueCommentHandler) -> None:
