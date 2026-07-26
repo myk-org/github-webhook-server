@@ -37,12 +37,14 @@ Usage:
         ctx.start_step("assign_reviewers")
 """
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-_webhook_context: ContextVar["WebhookContext | None"] = ContextVar("webhook_context", default=None)
+_webhook_context: ContextVar[WebhookContext | None] = ContextVar("webhook_context", default=None)
 
 
 def _format_duration(ms: int) -> str:

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class PushHandler:
-    def __init__(self, github_webhook: "GithubWebhook"):
+    def __init__(self, github_webhook: GithubWebhook):
         self.github_webhook = github_webhook
 
         self.hook_data = self.github_webhook.hook_data

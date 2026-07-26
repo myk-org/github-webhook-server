@@ -44,7 +44,7 @@ STATIC_PR_SIZE_THRESHOLDS: tuple[tuple[int | float, str, str], ...] = (
 
 
 class LabelsHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler) -> None:
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler) -> None:
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
 
