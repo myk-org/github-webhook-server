@@ -13,6 +13,9 @@ preview = true
 line-length = 120
 fix = true
 output-format = "grouped"
+# Pin to py313: ruff format with py314 strips parens from except (X, Y) per PEP 758,
+# but mypy doesn't support PEP 758 yet and requires them. Remove once mypy supports PEP 758.
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "PLC0415", "ARG", "RUF059"]
@@ -42,7 +45,7 @@ packages = ["webhook_server"]
 [project]
 name = "github-webhook-server"
 version = "4.0.1"
-requires-python = "==3.13.*"
+requires-python = "==3.14.*"
 description = "A webhook server to manage Github repositories and pull requests."
 readme = "README.md"
 license = "Apache-2.0"

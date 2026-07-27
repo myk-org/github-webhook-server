@@ -34,6 +34,7 @@ RUN  dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-o
   python3.11-devel \
   python3.12-devel \
   python3.13-devel \
+  python3.14-devel \
   clang \
   cargo \
   libcurl-devel \
@@ -58,7 +59,7 @@ RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
 USER $USERNAME
 WORKDIR $HOME_DIR
 
-ENV UV_PYTHON=python3.13 \
+ENV UV_PYTHON=python3.14 \
   UV_COMPILE_BYTECODE=1 \
   UV_NO_SYNC=1 \
   UV_CACHE_DIR=${APP_DIR}/.cache \

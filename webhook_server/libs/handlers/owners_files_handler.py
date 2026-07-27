@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import shlex
 from collections.abc import Coroutine
@@ -22,13 +24,13 @@ if TYPE_CHECKING:
 
 
 class OwnersFileHandler:
-    def __init__(self, github_webhook: "GithubWebhook") -> None:
+    def __init__(self, github_webhook: GithubWebhook) -> None:
         self.github_webhook = github_webhook
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
 
-    async def initialize(self) -> "OwnersFileHandler":
+    async def initialize(self) -> OwnersFileHandler:
         """Initialize handler with PR data (optimized with parallel operations).
 
         Phase 1: Fetch independent data in parallel (changed files + OWNERS data)

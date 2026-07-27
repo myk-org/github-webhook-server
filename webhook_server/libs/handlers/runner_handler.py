@@ -123,7 +123,7 @@ def _count_files_changed(stat_output: str) -> int:
 
 
 class RunnerHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler or OwnersFileHandler(github_webhook=self.github_webhook)
         self.hook_data = self.github_webhook.hook_data

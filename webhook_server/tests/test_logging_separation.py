@@ -1,4 +1,5 @@
 import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -147,16 +148,14 @@ class TestJsonLogHandlerNotAttachedForInfrastructureLoggers:
             # JsonLogHandler must NOT be added
             mock_logger.addHandler.assert_not_called()
 
-    def test_json_handler_attached_when_log_file_name_default(self) -> None:
+    def test_json_handler_attached_when_log_file_name_default(self, tmp_path: Path) -> None:
         """get_logger_with_params without log_file_name must attach JsonLogHandler."""
         with (
             patch("webhook_server.utils.helpers.Config") as MockConfig,
             patch("webhook_server.utils.helpers.get_logger") as mock_get_logger,
-            patch("os.path.isdir", return_value=False),
-            patch("os.makedirs"),
         ):
             mock_config_instance = MockConfig.return_value
-            mock_config_instance.data_dir = "/tmp/data"
+            mock_config_instance.data_dir = str(tmp_path)
             # Return a log file config so a file handler exists
             mock_config_instance.get_value.side_effect = lambda value, return_on_none=None: (
                 "webhook_server.log" if value == "log-file" else return_on_none

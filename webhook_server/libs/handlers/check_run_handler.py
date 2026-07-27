@@ -41,7 +41,7 @@ class CheckRunOutput(TypedDict, total=False):
 
 
 class CheckRunHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
         self.ctx: WebhookContext | None = github_webhook.ctx
         self.owners_file_handler = owners_file_handler
