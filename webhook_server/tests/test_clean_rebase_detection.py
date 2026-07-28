@@ -600,6 +600,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": "bug"}]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch.object(handler, "remove_labels_when_pull_request_sync", new_callable=AsyncMock) as mock_remove_labels,
@@ -621,6 +626,11 @@ class TestSynchronizeWithCleanRebase:
     ) -> None:
         """Test that synchronize without clean rebase calls both process and remove_labels."""
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch.object(handler, "remove_labels_when_pull_request_sync", new_callable=AsyncMock) as mock_remove_labels,
@@ -647,6 +657,11 @@ class TestSynchronizeWithCleanRebase:
         before_sha = handler.hook_data["before"]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
             patch(
@@ -678,6 +693,11 @@ class TestSynchronizeWithCleanRebase:
         before_sha = handler.hook_data["before"]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
             patch(
@@ -701,6 +721,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": VERIFIED_LABEL_STR}]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
             patch(
@@ -723,6 +748,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": cr_name}]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
             patch(
@@ -745,6 +775,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": commented_name}]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock),
             patch(
@@ -770,6 +805,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": name} for name in label_names]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch(
@@ -805,6 +845,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = [{"name": VERIFIED_LABEL_STR}]
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch(
                 "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
@@ -833,6 +878,11 @@ class TestSynchronizeWithCleanRebase:
         handler.hook_data["pull_request"]["labels"] = []
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(
                 handler,
@@ -945,6 +995,11 @@ class TestPostCleanRebaseComment:
         mock_pull_request.create_issue_comment = Mock(side_effect=RuntimeError("API error"))
 
         with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=True),
             patch.object(handler, "process_opened_or_synchronize_pull_request", new_callable=AsyncMock) as mock_process,
             patch(

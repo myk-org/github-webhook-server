@@ -1028,11 +1028,24 @@ class TestGithubWebhook:
                                 with (
                                     patch("webhook_server.libs.github_api.CheckRunHandler") as mock_check_handler,
                                     patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler,
+                                    patch(
+                                        "webhook_server.libs.github_api.is_stale_for_pr",
+                                        new_callable=AsyncMock,
+                                        return_value=False,
+                                    ),
+                                    patch("webhook_server.libs.github_api._merge_check_debouncer") as mock_debouncer,
                                 ):
                                     mock_check_handler.return_value.process_pull_request_check_run_webhook_data = (
                                         AsyncMock(return_value=True)
                                     )
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
+
+                                    async def immediate_schedule(
+                                        repo_full_name, pr_number, callback, logger, log_prefix
+                                    ):
+                                        await callback()
+
+                                    mock_debouncer.schedule = AsyncMock(side_effect=immediate_schedule)
 
                                     webhook = GithubWebhook(check_run_data, headers, logger)
                                     with (
@@ -1105,7 +1118,14 @@ class TestGithubWebhook:
                                 mock_api1.get_user.return_value.login = "user1"
                                 mock_get_apis.return_value = [(mock_api1, "token1")]
 
-                                with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler:
+                                with (
+                                    patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler,
+                                    patch(
+                                        "webhook_server.libs.github_api.is_stale_for_pr",
+                                        new_callable=AsyncMock,
+                                        return_value=False,
+                                    ),
+                                ):
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     with patch(
@@ -1119,6 +1139,9 @@ class TestGithubWebhook:
                                             GithubWebhook, "_clone_repository", new_callable=AsyncMock
                                         ) as mock_clone:
                                             webhook = GithubWebhook(status_data, headers, logger)
+                                            webhook._recheck_merge_eligibility_debounced = (
+                                                webhook._recheck_merge_eligibility
+                                            )
 
                                             with patch.object(
                                                 webhook,
@@ -2612,6 +2635,9 @@ class TestGithubWebhook:
                                             GithubWebhook, "_clone_repository", new_callable=AsyncMock
                                         ) as mock_clone:
                                             webhook = GithubWebhook(review_thread_data, headers, logger)
+                                            webhook._recheck_merge_eligibility_debounced = (
+                                                webhook._recheck_merge_eligibility
+                                            )
 
                                             with patch.object(
                                                 webhook,

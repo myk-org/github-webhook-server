@@ -47,6 +47,7 @@ from webhook_server.utils.constants import (
 )
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import run_command
+from webhook_server.utils.staleness import is_stale_for_pr
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -293,6 +294,19 @@ class PullRequestHandler:
             return
 
         if hook_action == "synchronize":
+            # Staleness check: if the PR already has newer commits, skip the
+            # expensive clone + CI/CD pipeline for this superseded push.
+            webhook_head_sha: str = self.hook_data["after"]
+            if await is_stale_for_pr(
+                pull_request=pull_request,
+                webhook_sha=webhook_head_sha,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            ):
+                if self.ctx:
+                    self.ctx.complete_step("pr_handler", action=hook_action)
+                return
+
             clean_rebase = await self._is_clean_rebase(_pull_request=pull_request)
 
             if clean_rebase:
