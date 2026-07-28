@@ -98,6 +98,9 @@ class MergeCheckDebouncer:
         # Tasks cancelled internally by schedule() supersession.
         # Used to distinguish supersession from external shutdown cancellation.
         self._superseded: set[int] = set()
+        # Tasks that have started executing their callback (past debounce sleep).
+        # These should NOT be cancelled by schedule() — let them finish.
+        self._executing: set[int] = set()
 
     async def schedule(
         self,
@@ -121,17 +124,28 @@ class MergeCheckDebouncer:
         key = (repo_full_name, pr_number)
 
         async with self._lock:
-            existing = self._pending.pop(key, None)
+            existing = self._pending.get(key)
             if existing and not existing.done():
-                # Mark as internally superseded before cancelling
-                self._superseded.add(id(existing))
-                existing.cancel()
-                logger.debug(
-                    "%s Debounce: cancelled pending merge check for %s PR #%d (superseded)",
-                    log_prefix,
-                    repo_full_name,
-                    pr_number,
-                )
+                if id(existing) in self._executing:
+                    # Callback is already running — don't cancel it.
+                    # Wait for it to finish, then the new task will run.
+                    logger.debug(
+                        "%s Debounce: merge check for %s PR #%d already executing, waiting",
+                        log_prefix,
+                        repo_full_name,
+                        pr_number,
+                    )
+                else:
+                    # Still in debounce sleep — cancel and replace
+                    self._pending.pop(key, None)
+                    self._superseded.add(id(existing))
+                    existing.cancel()
+                    logger.debug(
+                        "%s Debounce: cancelled pending merge check for %s PR #%d (superseded)",
+                        log_prefix,
+                        repo_full_name,
+                        pr_number,
+                    )
 
             task = asyncio.create_task(
                 self._delayed_run(key, callback, logger, log_prefix),
@@ -164,20 +178,17 @@ class MergeCheckDebouncer:
     ) -> None:
         """Wait for the debounce window, then execute *callback*.
 
-        Uses try/finally to ensure ``_pending`` cleanup happens when
-        cancellation occurs at *any* await point — not only during
-        ``asyncio.sleep`` but also while acquiring ``_lock``.
+        The task stays in ``_pending`` throughout callback execution so that
+        ``schedule()`` can see an in-progress evaluation and avoid starting
+        a concurrent one.  Cleanup happens only after the callback completes
+        (or on cancellation at any await point).
         """
         current_task = asyncio.current_task()
 
         try:
             await asyncio.sleep(self._window)
 
-            # Remove ourselves from _pending before executing so a new event
-            # during execution doesn't try to cancel us mid-run.
-            async with self._lock:
-                if self._pending.get(key) is current_task:
-                    self._pending.pop(key, None)
+            self._executing.add(id(current_task))
 
             repo_full_name, pr_number = key
             logger.info(
@@ -189,9 +200,12 @@ class MergeCheckDebouncer:
             )
             await callback()
         except asyncio.CancelledError:
-            # Clean up _pending regardless of which await point was cancelled
+            raise
+        finally:
+            # Clean up _pending and _executing after callback completes
+            # (or on cancellation).  This ensures no concurrent merge check
+            # can start for the same PR while the callback is running.
+            self._executing.discard(id(current_task))
             async with self._lock:
                 if self._pending.get(key) is current_task:
                     self._pending.pop(key, None)
-            # Always re-raise — schedule() distinguishes internal vs external
-            raise
