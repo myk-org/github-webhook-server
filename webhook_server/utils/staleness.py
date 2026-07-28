@@ -95,6 +95,9 @@ class MergeCheckDebouncer:
         # (repo_full_name, pr_number) → pending asyncio.Task
         self._pending: dict[tuple[str, int], asyncio.Task[Any]] = {}
         self._lock = asyncio.Lock()
+        # Tasks cancelled internally by schedule() supersession.
+        # Used to distinguish supersession from external shutdown cancellation.
+        self._superseded: set[int] = set()
 
     async def schedule(
         self,
@@ -112,13 +115,16 @@ class MergeCheckDebouncer:
         The caller **awaits** the debounced task so that the webhook's clone
         directory stays alive.  If this call is superseded by a newer
         ``schedule()``, the ``await`` returns silently (the newer call takes
-        over execution).
+        over execution).  External cancellation (shutdown/timeout) is
+        re-raised to propagate properly.
         """
         key = (repo_full_name, pr_number)
 
         async with self._lock:
             existing = self._pending.pop(key, None)
             if existing and not existing.done():
+                # Mark as internally superseded before cancelling
+                self._superseded.add(id(existing))
                 existing.cancel()
                 logger.debug(
                     "%s Debounce: cancelled pending merge check for %s PR #%d (superseded)",
@@ -133,17 +139,21 @@ class MergeCheckDebouncer:
             self._pending[key] = task
 
         # Await the task so the caller's clone dir stays alive.
-        # If a newer schedule() cancels this task, CancelledError is raised
-        # here — catch it and return silently (the newer call takes over).
         try:
             await task
         except asyncio.CancelledError:
-            logger.debug(
-                "%s Debounce: merge check for %s PR #%d superseded by newer event",
-                log_prefix,
-                repo_full_name,
-                pr_number,
-            )
+            if id(task) in self._superseded:
+                # Internal supersession — swallow and return silently
+                self._superseded.discard(id(task))
+                logger.debug(
+                    "%s Debounce: merge check for %s PR #%d superseded by newer event",
+                    log_prefix,
+                    repo_full_name,
+                    pr_number,
+                )
+            else:
+                # External cancellation (shutdown/timeout) — propagate
+                raise
 
     async def _delayed_run(
         self,
@@ -153,15 +163,23 @@ class MergeCheckDebouncer:
         log_prefix: str,
     ) -> None:
         """Wait for the debounce window, then execute *callback*."""
+        current_task = asyncio.current_task()
+
         try:
             await asyncio.sleep(self._window)
         except asyncio.CancelledError:
-            return  # Superseded by a newer schedule — silently exit.
+            # Clean up _pending for the cancelled task
+            async with self._lock:
+                if self._pending.get(key) is current_task:
+                    self._pending.pop(key, None)
+            # Always re-raise — schedule() distinguishes internal vs external
+            raise
 
         # Remove ourselves from _pending before executing so a new event
         # during execution doesn't try to cancel us mid-run.
         async with self._lock:
-            self._pending.pop(key, None)
+            if self._pending.get(key) is current_task:
+                self._pending.pop(key, None)
 
         repo_full_name, pr_number = key
         logger.info(

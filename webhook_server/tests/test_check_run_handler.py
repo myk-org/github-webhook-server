@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -1247,7 +1249,13 @@ class TestCheckRunRepositoryCloning:
                                 mock_pr_handler.check_if_can_be_merged = AsyncMock()
                                 mock_pr_handler_class.return_value = mock_pr_handler
 
-                                async def immediate_schedule(repo_full_name, pr_number, callback, logger, log_prefix):
+                                async def immediate_schedule(
+                                    repo_full_name: str,
+                                    pr_number: int,
+                                    callback: Callable[[], Awaitable[None]],
+                                    logger: logging.Logger,
+                                    log_prefix: str,
+                                ) -> None:
                                     await callback()
 
                                 mock_debouncer.schedule = AsyncMock(side_effect=immediate_schedule)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import tempfile
 from collections.abc import Awaitable, Callable, Generator
@@ -1041,8 +1042,12 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     async def immediate_schedule(
-                                        repo_full_name, pr_number, callback, logger, log_prefix
-                                    ):
+                                        repo_full_name: str,
+                                        pr_number: int,
+                                        callback: Callable[[], Awaitable[None]],
+                                        logger: logging.Logger,
+                                        log_prefix: str,
+                                    ) -> None:
                                         await callback()
 
                                     mock_debouncer.schedule = AsyncMock(side_effect=immediate_schedule)
@@ -1334,7 +1339,12 @@ class TestGithubWebhook:
                             mock_get_app_api.return_value = Mock()
 
                             webhook = GithubWebhook(check_run_data, headers, logger)
-                            result = await webhook.get_pull_request()
+
+                            async def _to_thread_inline(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
+
+                            with patch("asyncio.to_thread", side_effect=_to_thread_inline):
+                                result = await webhook.get_pull_request()
 
                             assert result == mock_pr
                             assert webhook._check_run_sha_verified is True
@@ -1376,7 +1386,12 @@ class TestGithubWebhook:
                             mock_get_app_api.return_value = Mock()
 
                             webhook = GithubWebhook(check_run_data, headers, logger)
-                            result = await webhook.get_pull_request()
+
+                            async def _to_thread_inline(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
+
+                            with patch("asyncio.to_thread", side_effect=_to_thread_inline):
+                                result = await webhook.get_pull_request()
 
                             # Should return None since SHA doesn't match
                             assert result is None
@@ -1422,7 +1437,12 @@ class TestGithubWebhook:
                             mock_get_app_api.return_value = Mock()
 
                             webhook = GithubWebhook(check_run_data, headers, logger)
-                            result = await webhook.get_pull_request()
+
+                            async def _to_thread_inline(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
+
+                            with patch("asyncio.to_thread", side_effect=_to_thread_inline):
+                                result = await webhook.get_pull_request()
 
                             # Should fall back to slow path and find the PR
                             assert result == mock_pr
@@ -1458,11 +1478,11 @@ class TestGithubWebhook:
                                 async def immediate_schedule(
                                     repo_full_name: str,
                                     pr_number: int,
-                                    callback: object,
-                                    logger: object,
+                                    callback: Callable[[], Awaitable[None]],
+                                    logger: logging.Logger,
                                     log_prefix: str,
                                 ) -> None:
-                                    await callback()  # type: ignore[misc]
+                                    await callback()
 
                                 mock_debouncer.schedule = AsyncMock(side_effect=immediate_schedule)
 
