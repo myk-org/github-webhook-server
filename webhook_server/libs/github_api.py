@@ -1397,25 +1397,63 @@ class GithubWebhook:
 
         if self.github_event == "status":
             sha = self.hook_data["sha"]
-            self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
-            open_pulls = await github_api_call(
-                lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
-            )
-            head_shas = await asyncio.gather(
-                *(
-                    github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
-                    for pr in open_pulls
+
+            # Fast-path: use commit.get_pulls() API to find PRs for this SHA.
+            # This is O(2) API calls instead of O(N+1) for the open-PR scan.
+            try:
+                commit_obj = await github_api_call(
+                    self.repository.get_commit, sha, logger=self.logger, log_prefix=self.log_prefix
                 )
-            )
-            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
-                if pr_head_sha == sha:
-                    self.logger.debug(
-                        f"{self.log_prefix} Found pull request {_pull_request.title} "
-                        f"[{_pull_request.number}] for status context "
-                        f"{self.hook_data['context']}"
+                commit_pulls = await github_api_call(
+                    lambda: list(commit_obj.get_pulls()),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                for pr in commit_pulls:
+                    pr_state = await github_api_call(
+                        lambda _pr=pr: _pr.state, logger=self.logger, log_prefix=self.log_prefix
                     )
-                    return _pull_request
-            self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
+                    if pr_state == "open":
+                        pr_head = await github_api_call(
+                            lambda _pr=pr: _pr.head.sha, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        if pr_head == sha:
+                            self.logger.debug(f"{self.log_prefix} Found PR #{pr.number} via status commit fast-path")
+                            return pr
+                        self.logger.info(
+                            f"{self.log_prefix} Stale status for PR #{pr.number}: status SHA "
+                            f"{sha[:7]} != current HEAD {pr_head[:7]}"
+                        )
+                        return None
+
+                self.logger.debug(f"{self.log_prefix} No open PR found via status commit fast-path")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.debug(f"{self.log_prefix} Status commit fast-path failed, falling back to open-PR scan")
+                # Fall through to slow-path
+
+                # Slow-path: iterate all open PRs when commit fast-path fails
+                open_pulls = await github_api_call(
+                    lambda: list(self.repository.get_pulls(state="open")),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                head_shas = await asyncio.gather(
+                    *(
+                        github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
+                        for pr in open_pulls
+                    )
+                )
+                for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                    if pr_head_sha == sha:
+                        self.logger.debug(
+                            f"{self.log_prefix} Found pull request {_pull_request.title} "
+                            f"[{_pull_request.number}] for status context "
+                            f"{self.hook_data['context']}"
+                        )
+                        return _pull_request
+                self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
 
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
