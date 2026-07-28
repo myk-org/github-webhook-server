@@ -267,11 +267,6 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
         with (
-            patch(
-                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
-                new_callable=AsyncMock,
-                return_value=False,
-            ),
             patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process,
             patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels,
@@ -2530,11 +2525,6 @@ class TestPullRequestHandler:
         mock_github_webhook.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
         with (
-            patch(
-                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
-                new_callable=AsyncMock,
-                return_value=False,
-            ),
             patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(
                 pull_request_handler,
@@ -3277,11 +3267,6 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["after"] = "bbb2222222222222222222222222222222222222"
 
         with (
-            patch(
-                "webhook_server.libs.handlers.pull_request_handler.is_stale_for_pr",
-                new_callable=AsyncMock,
-                return_value=False,
-            ),
             patch.object(pull_request_handler, "_is_clean_rebase", new_callable=AsyncMock, return_value=False),
             patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request"),
             patch.object(pull_request_handler, "remove_labels_when_pull_request_sync"),

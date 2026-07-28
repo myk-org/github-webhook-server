@@ -135,6 +135,7 @@ class GithubWebhook:
         self.last_committer_id: int = 0
         self.pr_base_sha: str = ""
         self.pr_head_sha: str = ""
+        self._check_run_sha_verified: bool = False
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
@@ -721,6 +722,26 @@ class GithubWebhook:
             ):
                 await self.load_welcome_extra_info_from_file()
 
+            # Staleness check for synchronize: skip before expensive clone + CI/CD
+            # when the PR already has newer commits than this webhook's payload.
+            if (
+                self.github_event == "pull_request"
+                and self.hook_data.get("action") == "synchronize"
+                and await is_stale_for_pr(
+                    pull_request=pull_request,
+                    webhook_sha=self.hook_data["after"],
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            ):
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: "
+                    f"pull_request synchronize (stale, skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
             # cloning happens later only when needed (inside their respective handlers)
@@ -799,9 +820,11 @@ class GithubWebhook:
                     await self._update_context_metrics()
                     return None
 
-                # Staleness check: skip if the check_run targets an old commit
+                # Staleness check: skip if the check_run targets an old commit.
+                # When the fast-path in get_pull_request() already verified the
+                # SHA matches, skip the redundant API call.
                 check_run_head_sha = self.hook_data["check_run"]["head_sha"]
-                if await is_stale_for_pr(
+                if not self._check_run_sha_verified and await is_stale_for_pr(
                     pull_request=pull_request,
                     webhook_sha=check_run_head_sha,
                     logger=self.logger,
@@ -1328,11 +1351,14 @@ class GithubWebhook:
                             self.logger.debug(
                                 f"{self.log_prefix} Found PR #{pr_number} via check_run payload fast-path"
                             )
+                            self._check_run_sha_verified = True
                             return pr
                         self.logger.info(
                             f"{self.log_prefix} Stale check_run for PR #{pr_number}: payload SHA "
                             f"{head_sha[:7]} != current HEAD {pr_head[:7]}"
                         )
+                    except asyncio.CancelledError:
+                        raise
                     except Exception:
                         self.logger.exception(
                             f"{self.log_prefix} Fast-path PR lookup failed for #{pr_number}, "
