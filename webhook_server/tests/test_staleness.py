@@ -313,3 +313,36 @@ class TestMergeCheckDebouncer:
         # Wait for schedule to complete
         await task
         callback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_delayed_run_cancelled_during_sleep(self, logger: Mock) -> None:
+        """Directly cancelling the internal task exits silently via CancelledError."""
+        debouncer = MergeCheckDebouncer(window=5.0)  # Long window so we can cancel mid-sleep
+        callback = AsyncMock()
+
+        # Schedule but don't await — we want to cancel the internal task directly
+        schedule_task = asyncio.create_task(
+            debouncer.schedule(
+                repo_full_name="org/test-repo", pr_number=42, callback=callback, logger=logger, log_prefix="[TEST]"
+            )
+        )
+
+        # Let schedule() create the internal _delayed_run task
+        await asyncio.sleep(0.01)
+
+        # Cancel the pending task directly (simulating what schedule() does internally)
+        key = ("org/test-repo", 42)
+        task = debouncer._pending.get(key)
+        assert task is not None
+        task.cancel()
+
+        # Wait for cancellation to propagate
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        await schedule_task
+
+        # Callback should NOT have been called
+        callback.assert_not_awaited()
