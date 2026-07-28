@@ -162,31 +162,36 @@ class MergeCheckDebouncer:
         logger: logging.Logger,
         log_prefix: str,
     ) -> None:
-        """Wait for the debounce window, then execute *callback*."""
+        """Wait for the debounce window, then execute *callback*.
+
+        Uses try/finally to ensure ``_pending`` cleanup happens when
+        cancellation occurs at *any* await point — not only during
+        ``asyncio.sleep`` but also while acquiring ``_lock``.
+        """
         current_task = asyncio.current_task()
 
         try:
             await asyncio.sleep(self._window)
+
+            # Remove ourselves from _pending before executing so a new event
+            # during execution doesn't try to cancel us mid-run.
+            async with self._lock:
+                if self._pending.get(key) is current_task:
+                    self._pending.pop(key, None)
+
+            repo_full_name, pr_number = key
+            logger.info(
+                "%s Debounce: executing merge check for %s PR #%d after %.1fs quiet window",
+                log_prefix,
+                repo_full_name,
+                pr_number,
+                self._window,
+            )
+            await callback()
         except asyncio.CancelledError:
-            # Clean up _pending for the cancelled task
+            # Clean up _pending regardless of which await point was cancelled
             async with self._lock:
                 if self._pending.get(key) is current_task:
                     self._pending.pop(key, None)
             # Always re-raise — schedule() distinguishes internal vs external
             raise
-
-        # Remove ourselves from _pending before executing so a new event
-        # during execution doesn't try to cancel us mid-run.
-        async with self._lock:
-            if self._pending.get(key) is current_task:
-                self._pending.pop(key, None)
-
-        repo_full_name, pr_number = key
-        logger.info(
-            "%s Debounce: executing merge check for %s PR #%d after %.1fs quiet window",
-            log_prefix,
-            repo_full_name,
-            pr_number,
-            self._window,
-        )
-        await callback()
