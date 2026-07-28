@@ -1413,24 +1413,28 @@ class GithubWebhook:
                     pr_state = await github_api_call(
                         lambda _pr=pr: _pr.state, logger=self.logger, log_prefix=self.log_prefix
                     )
-                    if pr_state == "open":
-                        pr_head = await github_api_call(
-                            lambda _pr=pr: _pr.head.sha, logger=self.logger, log_prefix=self.log_prefix
-                        )
-                        if pr_head == sha:
-                            self.logger.debug(f"{self.log_prefix} Found PR #{pr.number} via status commit fast-path")
-                            return pr
-                        self.logger.info(
-                            f"{self.log_prefix} Stale status for PR #{pr.number}: status SHA "
-                            f"{sha[:7]} != current HEAD {pr_head[:7]}"
-                        )
-                        return None
+                    if pr_state != "open":
+                        continue
+
+                    pr_number = await github_api_call(
+                        lambda _pr=pr: _pr.number, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    pr_head = await github_api_call(
+                        lambda _pr=pr: _pr.head.sha, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    if pr_head == sha:
+                        self.logger.debug(f"{self.log_prefix} Found PR #{pr_number} via status commit fast-path")
+                        return pr
+                    self.logger.info(
+                        f"{self.log_prefix} Stale status for PR #{pr_number}: status SHA "
+                        f"{sha[:7]} != current HEAD {pr_head[:7]}"
+                    )
 
                 self.logger.debug(f"{self.log_prefix} No open PR found via status commit fast-path")
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self.logger.debug(f"{self.log_prefix} Status commit fast-path failed, falling back to open-PR scan")
+                self.logger.exception(f"{self.log_prefix} Status commit fast-path failed, falling back to open-PR scan")
                 # Fall through to slow-path
 
                 # Slow-path: iterate all open PRs when commit fast-path fails
