@@ -61,10 +61,16 @@ from webhook_server.utils.helpers import (
     prepare_log_prefix,
     run_command,
 )
+from webhook_server.utils.staleness import MergeCheckDebouncer, is_stale_for_pr
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _WELCOME_EXTRA_INFO_MAX_BYTES: int = 10240
 _WELCOME_EXTRA_INFO_FILENAME: str = ".github-webhook-server-welcome-message.md"
+
+# Module-level singleton for debouncing check_if_can_be_merged calls across
+# concurrent webhook tasks.  Shared by all GithubWebhook instances so that
+# burst check_run / status events for the same PR coalesce automatically.
+_merge_check_debouncer = MergeCheckDebouncer()
 
 
 class CountingRequester:
@@ -129,6 +135,7 @@ class GithubWebhook:
         self.last_committer_id: int = 0
         self.pr_base_sha: str = ""
         self.pr_head_sha: str = ""
+        self._check_run_sha_verified: bool = False
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
@@ -508,6 +515,22 @@ class GithubWebhook:
             pull_request=pull_request
         )
 
+    async def _recheck_merge_eligibility_debounced(self, pull_request: PullRequest) -> None:
+        """Debounced version of :meth:`_recheck_merge_eligibility`.
+
+        Coalesces rapid calls for the same PR (e.g. burst of status or
+        review-thread events) so only the last trigger within the debounce
+        window actually performs the expensive clone + merge check.
+        """
+        pr_number = await github_api_call(lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix)
+        await _merge_check_debouncer.schedule(
+            repo_full_name=self.repository_full_name,
+            pr_number=pr_number,
+            callback=lambda: self._recheck_merge_eligibility(pull_request=pull_request),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+
     async def process(self) -> Any:
         # Early exit for pull_request_review_thread events that don't need processing.
         # Must run BEFORE get_api_users() to avoid
@@ -699,6 +722,26 @@ class GithubWebhook:
             ):
                 await self.load_welcome_extra_info_from_file()
 
+            # Staleness check for synchronize: skip before expensive clone + CI/CD
+            # when the PR already has newer commits than this webhook's payload.
+            if (
+                self.github_event == "pull_request"
+                and self.hook_data.get("action") == "synchronize"
+                and await is_stale_for_pr(
+                    pull_request=pull_request,
+                    webhook_sha=self.hook_data["after"],
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            ):
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: "
+                    f"pull_request synchronize (stale, skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
             # Clone repository for local file processing (OWNERS, changed files)
             # For check_run, status, and pull_request_review_thread events,
             # cloning happens later only when needed (inside their respective handlers)
@@ -777,6 +820,24 @@ class GithubWebhook:
                     await self._update_context_metrics()
                     return None
 
+                # Staleness check: skip if the check_run targets an old commit.
+                # When the fast-path in get_pull_request() already verified the
+                # SHA matches, skip the redundant API call.
+                check_run_head_sha = self.hook_data["check_run"]["head_sha"]
+                if not self._check_run_sha_verified and await is_stale_for_pr(
+                    pull_request=pull_request,
+                    webhook_sha=check_run_head_sha,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                ):
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} Webhook processing completed: "
+                        f"check_run (stale commit {check_run_head_sha[:7]}, skipped) - {token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
                 # Only clone repository when we actually need it (action is completed and processing is needed)
                 await self._clone_repository(pull_request=pull_request)
 
@@ -787,9 +848,18 @@ class GithubWebhook:
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request)
                 if handled:
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
-                        await PullRequestHandler(
-                            github_webhook=self, owners_file_handler=owners_file_handler
-                        ).check_if_can_be_merged(pull_request=pull_request)
+                        pr_number = await github_api_call(
+                            lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        await _merge_check_debouncer.schedule(
+                            repo_full_name=self.repository_full_name,
+                            pr_number=pr_number,
+                            callback=lambda: PullRequestHandler(
+                                github_webhook=self, owners_file_handler=owners_file_handler
+                            ).check_if_can_be_merged(pull_request=pull_request),
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
                 # Log completion regardless of whether check run was processed or skipped
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
@@ -802,12 +872,29 @@ class GithubWebhook:
                 # Pending state already filtered by early exit above — only terminal states reach here
                 state = self.hook_data["state"]
                 context_name = self.hook_data["context"]
+
+                # Staleness check: skip if the status targets an old commit
+                status_sha = self.hook_data["sha"]
+                if await is_stale_for_pr(
+                    pull_request=pull_request,
+                    webhook_sha=status_sha,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                ):
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.info(
+                        f"{self.log_prefix} Webhook processing completed: "
+                        f"status (stale commit {status_sha[:7]}, skipped) - {token_metrics}",
+                    )
+                    await self._update_context_metrics()
+                    return None
+
                 self.logger.info(
                     f"{self.log_prefix} Status check '{context_name}' reached terminal state ({state}), "
                     f"re-evaluating can-be-merged"
                 )
 
-                await self._recheck_merge_eligibility(pull_request=pull_request)
+                await self._recheck_merge_eligibility_debounced(pull_request=pull_request)
 
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
@@ -821,7 +908,7 @@ class GithubWebhook:
                 action = self.hook_data["action"]
                 self.logger.info(f"{self.log_prefix} Review thread {action}, re-evaluating can-be-merged")
 
-                await self._recheck_merge_eligibility(pull_request=pull_request)
+                await self._recheck_merge_eligibility_debounced(pull_request=pull_request)
 
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
@@ -1243,6 +1330,51 @@ class GithubWebhook:
 
         if self.github_event == "check_run":
             head_sha = self.hook_data["check_run"]["head_sha"]
+
+            # Fast-path: use the pull_requests array from the webhook payload
+            # (GitHub populates this when the app has pull-request read permissions).
+            # Avoids the expensive O(N) open-PR iteration + N head-SHA fetches.
+            payload_prs: list[dict[str, Any]] = self.hook_data["check_run"].get("pull_requests", [])
+            payload_had_prs = False
+            for pr_data in payload_prs:
+                pr_number = pr_data.get("number")
+                if pr_number:
+                    payload_had_prs = True
+                    try:
+                        pr = await github_api_call(
+                            self.repository.get_pull, pr_number, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        pr_head = await github_api_call(
+                            lambda _pr=pr: _pr.head.sha, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        if pr_head == head_sha:
+                            self.logger.debug(
+                                f"{self.log_prefix} Found PR #{pr_number} via check_run payload fast-path"
+                            )
+                            self._check_run_sha_verified = True
+                            return pr
+                        self.logger.info(
+                            f"{self.log_prefix} Stale check_run for PR #{pr_number}: payload SHA "
+                            f"{head_sha[:7]} != current HEAD {pr_head[:7]}"
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        self.logger.exception(
+                            f"{self.log_prefix} Fast-path PR lookup failed for #{pr_number}, "
+                            "falling back to open-PR scan"
+                        )
+                        payload_had_prs = False
+                        break
+
+            # All payload PRs checked and none matched — check_run is stale
+            if payload_had_prs:
+                self.logger.info(
+                    f"{self.log_prefix} All payload PRs have moved past check_run SHA {head_sha[:7]} — skipping"
+                )
+                return None
+
+            # Slow-path: iterate all open PRs when payload doesn't include pull_requests
             self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
             open_pulls = await github_api_call(
                 lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
@@ -1265,25 +1397,67 @@ class GithubWebhook:
 
         if self.github_event == "status":
             sha = self.hook_data["sha"]
-            self.logger.debug(f"{self.log_prefix} Searching open PRs for status SHA: {sha}")
-            open_pulls = await github_api_call(
-                lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
-            )
-            head_shas = await asyncio.gather(
-                *(
-                    github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
-                    for pr in open_pulls
+
+            # Fast-path: use commit.get_pulls() API to find PRs for this SHA.
+            # This is O(2) API calls instead of O(N+1) for the open-PR scan.
+            try:
+                commit_obj = await github_api_call(
+                    self.repository.get_commit, sha, logger=self.logger, log_prefix=self.log_prefix
                 )
-            )
-            for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
-                if pr_head_sha == sha:
-                    self.logger.debug(
-                        f"{self.log_prefix} Found pull request {_pull_request.title} "
-                        f"[{_pull_request.number}] for status context "
-                        f"{self.hook_data['context']}"
+                commit_pulls = await github_api_call(
+                    lambda: list(commit_obj.get_pulls()),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                for pr in commit_pulls:
+                    pr_state = await github_api_call(
+                        lambda _pr=pr: _pr.state, logger=self.logger, log_prefix=self.log_prefix
                     )
-                    return _pull_request
-            self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
+                    if pr_state != "open":
+                        continue
+
+                    pr_number = await github_api_call(
+                        lambda _pr=pr: _pr.number, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    pr_head = await github_api_call(
+                        lambda _pr=pr: _pr.head.sha, logger=self.logger, log_prefix=self.log_prefix
+                    )
+                    if pr_head == sha:
+                        self.logger.debug(f"{self.log_prefix} Found PR #{pr_number} via status commit fast-path")
+                        return pr
+                    self.logger.info(
+                        f"{self.log_prefix} Stale status for PR #{pr_number}: status SHA "
+                        f"{sha[:7]} != current HEAD {pr_head[:7]}"
+                    )
+
+                self.logger.debug(f"{self.log_prefix} No open PR found via status commit fast-path")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Status commit fast-path failed, falling back to open-PR scan")
+                # Fall through to slow-path
+
+                # Slow-path: iterate all open PRs when commit fast-path fails
+                open_pulls = await github_api_call(
+                    lambda: list(self.repository.get_pulls(state="open")),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                head_shas = await asyncio.gather(
+                    *(
+                        github_api_call(_get_pr_head_sha, pr, logger=self.logger, log_prefix=self.log_prefix)
+                        for pr in open_pulls
+                    )
+                )
+                for _pull_request, pr_head_sha in zip(open_pulls, head_shas, strict=False):
+                    if pr_head_sha == sha:
+                        self.logger.debug(
+                            f"{self.log_prefix} Found pull request {_pull_request.title} "
+                            f"[{_pull_request.number}] for status context "
+                            f"{self.hook_data['context']}"
+                        )
+                        return _pull_request
+                self.logger.debug(f"{self.log_prefix} No open PR found matching status SHA")
 
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:

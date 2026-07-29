@@ -2067,7 +2067,7 @@ class TestPullRequestHandler:
         mock_pull_request.title = "Test PR"
         mock_pull_request.number = 123
         mock_requester = Mock()
-        ex = GithubException(500, {}, {})
+        ex = GithubException(400, {}, {})
         mock_requester.requestJsonAndCheck = Mock(side_effect=ex)
         with (
             patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),

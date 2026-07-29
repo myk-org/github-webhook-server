@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -1196,7 +1198,12 @@ class TestCheckRunRepositoryCloning:
         # Setup webhook data for completed normal check
         hook_data = {
             "action": "completed",
-            "check_run": {"name": "test-check", "status": "completed", "conclusion": "success"},
+            "check_run": {
+                "name": "test-check",
+                "status": "completed",
+                "conclusion": "success",
+                "head_sha": "abc123",
+            },
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
         }
 
@@ -1229,10 +1236,29 @@ class TestCheckRunRepositoryCloning:
                             mock_owners_class.return_value = mock_owners
 
                             # Mock PullRequestHandler to avoid actual check_if_can_be_merged
-                            with patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler_class:
+                            with (
+                                patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler_class,
+                                patch(
+                                    "webhook_server.libs.github_api.is_stale_for_pr",
+                                    new_callable=AsyncMock,
+                                    return_value=False,
+                                ),
+                                patch("webhook_server.libs.github_api._merge_check_debouncer") as mock_debouncer,
+                            ):
                                 mock_pr_handler = AsyncMock()
                                 mock_pr_handler.check_if_can_be_merged = AsyncMock()
                                 mock_pr_handler_class.return_value = mock_pr_handler
+
+                                async def immediate_schedule(
+                                    repo_full_name: str,
+                                    pr_number: int,
+                                    callback: Callable[[], Awaitable[None]],
+                                    logger: logging.Logger,
+                                    log_prefix: str,
+                                ) -> None:
+                                    await callback()
+
+                                mock_debouncer.schedule = AsyncMock(side_effect=immediate_schedule)
 
                                 # Mock get_pull_request to return mock PR
                                 with patch.object(
@@ -1280,7 +1306,12 @@ class TestCheckRunRepositoryCloning:
         # Setup webhook data for can-be-merged with success conclusion
         hook_data = {
             "action": "completed",
-            "check_run": {"name": CAN_BE_MERGED_STR, "status": "completed", "conclusion": "success"},
+            "check_run": {
+                "name": CAN_BE_MERGED_STR,
+                "status": "completed",
+                "conclusion": "success",
+                "head_sha": "abc123",
+            },
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
         }
 
@@ -1307,7 +1338,14 @@ class TestCheckRunRepositoryCloning:
                         mock_handler_class.return_value = mock_handler
 
                         # Mock OwnersFileHandler to avoid actual initialization
-                        with patch("webhook_server.libs.github_api.OwnersFileHandler") as mock_owners_class:
+                        with (
+                            patch("webhook_server.libs.github_api.OwnersFileHandler") as mock_owners_class,
+                            patch(
+                                "webhook_server.libs.github_api.is_stale_for_pr",
+                                new_callable=AsyncMock,
+                                return_value=False,
+                            ),
+                        ):
                             mock_owners = AsyncMock()
                             mock_owners.initialize = AsyncMock(return_value=mock_owners)
                             mock_owners_class.return_value = mock_owners
