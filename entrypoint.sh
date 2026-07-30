@@ -4,6 +4,23 @@ set -euo pipefail
 # Start Pi SDK sidecar in background with lifecycle coupling
 if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     export SIDECAR_PORT="${SIDECAR_PORT:-9100}"
+    # Resolve extension paths for sidecar provider registration
+    _ORCH_EXTENSIONS="$APP_DIR/sidecar-helper/node_modules/pi-orchestrator-config/extensions"
+    if [ -z "${SIDECAR_ACPX_EXTENSION_PATH:-}" ]; then
+        if [ -f "${_ORCH_EXTENSIONS}/acpx-provider/index.ts" ]; then
+            export SIDECAR_ACPX_EXTENSION_PATH="${_ORCH_EXTENSIONS}/acpx-provider/index.ts"
+        fi
+    fi
+    if [ -z "${SIDECAR_CLI_PROVIDER_EXTENSION_PATH:-}" ]; then
+        if [ -f "${_ORCH_EXTENSIONS}/cli-provider/index.ts" ]; then
+            export SIDECAR_CLI_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/cli-provider/index.ts"
+        fi
+    fi
+    if [ -z "${SIDECAR_PROVIDER_EXTENSION_PATH:-}" ]; then
+        if [ -f "${_ORCH_EXTENSIONS}/providers/index.ts" ]; then
+            export SIDECAR_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/providers/index.ts"
+        fi
+    fi
     node "$APP_DIR/sidecar-helper/dist/server.js" &
     SIDECAR_PID=$!
     echo "[sidecar] Started Pi SDK sidecar (PID $SIDECAR_PID) on port $SIDECAR_PORT"
