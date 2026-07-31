@@ -4,29 +4,6 @@ set -euo pipefail
 # Start Pi SDK sidecar in background with lifecycle coupling
 if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     export SIDECAR_PORT="${SIDECAR_PORT:-9100}"
-    # Resolve extension paths for sidecar provider registration
-    _ORCH_EXTENSIONS="$APP_DIR/sidecar-helper/node_modules/pi-orchestrator-config/extensions"
-    if [ -z "${SIDECAR_ACPX_EXTENSION_PATH:-}" ]; then
-        if [ -f "${_ORCH_EXTENSIONS}/acpx-provider/index.ts" ]; then
-            export SIDECAR_ACPX_EXTENSION_PATH="${_ORCH_EXTENSIONS}/acpx-provider/index.ts"
-        else
-            echo "[sidecar] WARNING: ACPX extension not found at ${_ORCH_EXTENSIONS}/acpx-provider/index.ts" >&2
-        fi
-    fi
-    if [ -z "${SIDECAR_CLI_PROVIDER_EXTENSION_PATH:-}" ]; then
-        if [ -f "${_ORCH_EXTENSIONS}/cli-provider/index.ts" ]; then
-            export SIDECAR_CLI_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/cli-provider/index.ts"
-        else
-            echo "[sidecar] WARNING: CLI provider extension not found at ${_ORCH_EXTENSIONS}/cli-provider/index.ts" >&2
-        fi
-    fi
-    if [ -z "${SIDECAR_PROVIDER_EXTENSION_PATH:-}" ]; then
-        if [ -f "${_ORCH_EXTENSIONS}/providers/index.ts" ]; then
-            export SIDECAR_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/providers/index.ts"
-        else
-            echo "[sidecar] WARNING: Providers extension not found at ${_ORCH_EXTENSIONS}/providers/index.ts" >&2
-        fi
-    fi
     node "$APP_DIR/sidecar-helper/dist/server.js" &
     SIDECAR_PID=$!
     echo "[sidecar] Started Pi SDK sidecar (PID $SIDECAR_PID) on port $SIDECAR_PORT"
@@ -48,11 +25,13 @@ if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     done
 
     if ! curl -sf http://127.0.0.1:$SIDECAR_PORT/health > /dev/null 2>&1; then
-        echo "[sidecar] ERROR: sidecar failed to become healthy within 15s — AI features will not work" >&2
+        echo "[sidecar] ERROR: sidecar failed to become healthy within 15s" >&2
+        exit 1
     fi
+
+    # Don't use exec when sidecar runs — EXIT trap needs to fire
+    uv run entrypoint.py
 else
     echo "[sidecar] WARNING: sidecar-helper/dist/server.js not found, AI features will not be available"
+    exec uv run entrypoint.py
 fi
-
-# Execute the main application
-exec uv run entrypoint.py
