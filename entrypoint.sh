@@ -29,8 +29,15 @@ if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
         exit 1
     fi
 
-    # Don't use exec when sidecar runs — EXIT trap needs to fire
-    uv run entrypoint.py
+    # Run app in background + wait — ensures SIGTERM/SIGINT forwarding
+    # and EXIT trap fires to clean up sidecar
+    uv run entrypoint.py &
+    APP_PID=$!
+
+    trap 'kill -TERM $APP_PID 2>/dev/null || true' TERM
+    trap 'kill -INT $APP_PID 2>/dev/null || true' INT
+
+    wait $APP_PID
 else
     echo "[sidecar] WARNING: sidecar-helper/dist/server.js not found, AI features will not be available"
     exec uv run entrypoint.py
