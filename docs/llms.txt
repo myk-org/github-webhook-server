@@ -1,37 +1,19 @@
 # github-webhook-server
 
-> Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server
+> Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.
 
 ## Getting Started
 
-- [Getting Started](quickstart.md): Install and run the webhook server, configure your first repository, and receive your first GitHub webhook in under 10 minutes
-- [Deploying with Docker](deploying-with-docker.md): Deploy the webhook server as a container using Docker Compose with persistent storage, health checks, and environment configuration
+- [Start Automating a Repository](quick-start.md): Set up the server, add the minimal data directory and config, connect one repository, and verify the webhook is live in minutes.
 
 ## User Guides
 
-- [Configuring Repositories](configuring-repositories.md): Set up config.yaml and per-repository .github-webhook-server.yaml files to control webhook behavior, tokens, and event subscriptions for each repository
-- [Managing Pull Requests](managing-pull-requests.md): Use PR comment commands like /retest, /cherry-pick, /approve, /rebase, /automerge, and /assign-reviewers to control your PR workflow
-- [Setting Up CI Checks](setting-up-ci-checks.md): Configure tox, pre-commit, container builds, Python module installs, conventional commit validation, and custom check runs that execute on every PR
-- [Configuring Labels and PR Size Thresholds](configuring-labels-and-size.md): Customize which labels are enabled, set label colors, and define PR size thresholds with custom categories like Tiny, Small, Medium, and Large
-- [Cherry-Picking and Branch Protection](cherry-picking-and-branching.md): Automate cherry-picks to target branches on PR merge, configure branch protection rules, and use OWNERS files for approval workflows
-- [Enabling Security Checks](enabling-security-checks.md): Detect suspicious file path modifications and committer identity mismatches on pull requests, configure trusted committers, and set mandatory vs advisory security gates
-- [Enabling AI Features](enabling-ai-features.md): Configure AI-powered conventional title suggestions, automatic cherry-pick conflict resolution, and PR test oracle integration using Claude, Gemini, or Cursor
-- [Using the Log Viewer](using-the-log-viewer.md): Enable the built-in log viewer to browse, search, filter, and export webhook processing logs through a web UI and REST API
-- [Setting Up Slack Notifications](setting-up-notifications.md): Configure Slack webhook URLs to receive notifications about PR merges, container builds, PyPI uploads, and other webhook processing events
-
-## Recipes
-
-- [PR Comment Command Recipes](pr-command-recipes.md): Copy-paste examples for common PR workflows: retesting failed checks, cherry-picking to release branches, rebasing PRs, overriding security checks, and triggering container builds
-- [Configuration Recipes](config-recipes.md): Ready-to-use config.yaml snippets for common setups: bot auto-merge, conventional commits enforcement, multi-token failover, custom check runs, and repository-specific overrides
+- [Configure Repositories](configure-repositories.md): Add repositories, choose global defaults, apply per-repo overrides, and let repository maintainers customize behavior safely.
+- [Manage Pull Requests](manage-pull-requests.md): Learn what the server does automatically on PR open, review, sync, and merge so contributors understand labels, checks, approvals, and merge readiness.
+- [Enable AI Features](enable-ai-features.md): Turn on conventional title suggestions, AI-assisted cherry-pick conflict resolution, and test-oracle recommendations with the sidecar and provider settings.
+- [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.md): Protect incoming webhooks and PR automation with secrets, IP allowlists, suspicious-path detection, committer identity checks, and trusted-network-only access.
+- [Debug with the Log Viewer](debug-with-the-log-viewer.md): Open live and historical webhook logs, trace PR flow by delivery ID, and inspect step-level failures when automation does not behave as expected.
 
 ## Reference
 
-- [Configuration Reference](configuration-reference.md): Complete reference for all config.yaml and .github-webhook-server.yaml options including server settings, repository settings, labels, security checks, AI features, and container builds
-- [Webhook Events and Handlers](webhook-events-reference.md): Reference of all supported GitHub webhook events (push, pull_request, issue_comment, check_run, status, pull_request_review) and what each handler does
-- [Environment Variables](environment-variables.md): Reference of all environment variables: WEBHOOK_SERVER_DATA_DIR, ENABLE_LOG_SERVER, ENABLE_MCP_SERVER, SIDECAR_PORT, and Docker Compose configuration options
-- [Log Viewer API Reference](log-viewer-api.md): REST API reference for log entries, log export, PR flow visualization, workflow steps, and WebSocket streaming endpoints
-
-## Guides
-
-- [Publishing Packages to PyPI](publishing-to-pypi.md): How to configure automatic PyPI package publishing when a Git tag is pushed. Covers the pypi config section (token setup), the tag-push trigger mechanism, automatic issue creation on publish failure, Slack notifications on success, and the relationship with the python-module-install PR check that validates builds before release.
-- [MCP Server for AI Agents](mcp-server-integration.md): How to enable and use the Model Context Protocol (MCP) server that exposes webhook server API endpoints (log entries, export, PR flow, workflow steps) as tools for AI agents. Covers enabling via ENABLE_MCP_SERVER, the /mcp endpoint, connecting AI clients (Claude Desktop, Cursor, etc.), available tools, MCP logging configuration (mcp-log-file), security considerations (no authentication, trusted networks only), and stateless session mode.
+- [Configuration Reference](configuration-reference.md): Look up every supported `config.yaml` and `.github-webhook-server.yaml` key, including defaults, repository overrides, and validation rules.

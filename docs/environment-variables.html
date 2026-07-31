@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Environment Variables - github-webhook-server</title>
-    <meta name="description" content="Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server">
+    <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
     <link rel="stylesheet" href="assets/style.css">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="index.html" class="sidebar-logo">github-webhook-server</a>
-            <p class="sidebar-tagline">Automate GitHub repository management — PR workflows, CI checks, cherry-picks, and merge gates — from a single webhook server</p>
+            <p class="sidebar-tagline">Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.</p>
         </div>
 
         <div class="sidebar-search">
@@ -29,16 +29,9 @@
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="quickstart.html"
+                        <a href="quick-start.html"
                            class="nav-link">
-                            Getting Started
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="deploying-with-docker.html"
-                           class="nav-link">
-                            Deploying with Docker
+                            Start Automating a Repository
                         </a>
                     </li>
 
@@ -50,65 +43,58 @@
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="configuring-repositories.html"
+                        <a href="configure-repositories.html"
                            class="nav-link">
-                            Configuring Repositories
+                            Configure Repositories
                         </a>
                     </li>
 
                     <li>
-                        <a href="managing-pull-requests.html"
+                        <a href="set-up-owners-and-reviewers.html"
                            class="nav-link">
-                            Managing Pull Requests
+                            Set Up OWNERS and Review Rules
                         </a>
                     </li>
 
                     <li>
-                        <a href="setting-up-ci-checks.html"
+                        <a href="manage-pull-requests.html"
                            class="nav-link">
-                            Setting Up CI Checks
+                            Manage Pull Requests
                         </a>
                     </li>
 
                     <li>
-                        <a href="configuring-labels-and-size.html"
+                        <a href="run-pull-request-commands.html"
                            class="nav-link">
-                            Configuring Labels and PR Size Thresholds
+                            Run Pull Request Commands
                         </a>
                     </li>
 
                     <li>
-                        <a href="cherry-picking-and-branching.html"
+                        <a href="set-up-checks-and-release-workflows.html"
                            class="nav-link">
-                            Cherry-Picking and Branch Protection
+                            Set Up Checks and Release Workflows
                         </a>
                     </li>
 
                     <li>
-                        <a href="enabling-security-checks.html"
+                        <a href="enable-ai-features.html"
                            class="nav-link">
-                            Enabling Security Checks
+                            Enable AI Features
                         </a>
                     </li>
 
                     <li>
-                        <a href="enabling-ai-features.html"
+                        <a href="secure-webhooks-and-pull-requests.html"
                            class="nav-link">
-                            Enabling AI Features
+                            Secure Webhooks and Pull Requests
                         </a>
                     </li>
 
                     <li>
-                        <a href="using-the-log-viewer.html"
+                        <a href="debug-with-the-log-viewer.html"
                            class="nav-link">
-                            Using the Log Viewer
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="setting-up-notifications.html"
-                           class="nav-link">
-                            Setting Up Slack Notifications
+                            Debug with the Log Viewer
                         </a>
                     </li>
 
@@ -120,16 +106,9 @@
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="pr-command-recipes.html"
+                        <a href="automation-recipes.html"
                            class="nav-link">
-                            PR Comment Command Recipes
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="config-recipes.html"
-                           class="nav-link">
-                            Configuration Recipes
+                            Automate Common Maintainer Tasks
                         </a>
                     </li>
 
@@ -148,13 +127,6 @@
                     </li>
 
                     <li>
-                        <a href="webhook-events-reference.html"
-                           class="nav-link">
-                            Webhook Events and Handlers
-                        </a>
-                    </li>
-
-                    <li>
                         <a href="environment-variables.html"
                            class="nav-link active" aria-current="page">
                             Environment Variables
@@ -162,30 +134,23 @@
                     </li>
 
                     <li>
-                        <a href="log-viewer-api.html"
+                        <a href="webhook-and-health-api.html"
                            class="nav-link">
-                            Log Viewer API Reference
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Guides</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="publishing-to-pypi.html"
-                           class="nav-link">
-                            Publishing Packages to PyPI
+                            Webhook and Health API
                         </a>
                     </li>
 
                     <li>
-                        <a href="mcp-server-integration.html"
+                        <a href="log-viewer-and-mcp-api.html"
                            class="nav-link">
-                            MCP Server for AI Agents
+                            Log Viewer and MCP API
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="supported-github-events.html"
+                           class="nav-link">
+                            Supported GitHub Events
                         </a>
                     </li>
 
@@ -238,732 +203,21 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <p>Let me explore the codebase to understand all environment variables used in the project.</p>
-<p>Let me check how those Docker Compose environment variables map to config.yaml:</p>
-<p>Now let me check how the Docker Compose environment variables map to config.yaml settings:</p>
-<p>These Docker Compose environment variables appear in the example <code>docker-compose.yaml</code> but are not actually read by the Python code via <code>os.environ</code>. Let me check if there's any mapping logic:</p>
-<p>These are only in the Docker Compose example and docs, not actually consumed by the Python app. Let me verify by checking config.yaml examples:</p>
-<p>Now let me check the <code>scripts/podman-cleanup.sh</code> for PUID/PGID usage:</p>
-<p>Now let me check the exposed ports and any additional env vars:</p>
-<p>Now let me also verify the MCP server specifics:</p>
-<p>Now I have a thorough understanding. Let me also verify the <code>TZ</code> usage:</p>
-<p>Good — <code>TZ</code> is only in the Docker Compose example and isn't read by the application code directly (it's a standard Linux/container env var).</p>
-<p>Let me also verify if <code>FORCE_COLOR</code> is just documented or actively used:</p>
-<p>Now let me check the exclusion file again to make sure I handle it properly:</p>
-<p>These are pages I should not reference. Let me check the pages list again:</p>
-<p>The deny-list contains page slugs that I should NOT mention or reference. These are:</p>
-<ul>
-<li><code>using-the-log-viewer.html</code></li>
-<li><code>enabling-ai-features.html</code>  </li>
-<li><code>deploying-with-docker.html</code></li>
-</ul>
-<p>Now I have everything I need. Let me write the documentation.</p>
-<h1 id="environment-variables">Environment Variables</h1>
-<p>All environment variables recognized by the webhook server, grouped by function.</p>
-<h2 id="server-core">Server Core</h2>
-<h3 id="webhook_server_data_dir"><code>WEBHOOK_SERVER_DATA_DIR</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>String (directory path)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td><code>/home/podman/data</code></td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>webhook_server/libs/config.py</code></td>
-</tr>
-</tbody>
-</table>
-<p>Base directory containing <code>config.yaml</code> and the <code>logs/</code> subdirectory. The server reads its configuration from <code>$WEBHOOK_SERVER_DATA_DIR/config.yaml</code> and writes structured logs to <code>$WEBHOOK_SERVER_DATA_DIR/logs/</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Local development</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/my/data
-uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
-
-<span class="c1"># Docker Compose</span>
-environment:
-<span class="w">  </span>-<span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/home/podman/data<span class="w">  </span><span class="c1"># matches the container default</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Note:</strong> When running outside Docker, you must set this variable to a directory that contains a valid <code>config.yaml</code>. See <a href="configuration-reference.html">Configuration Reference</a> for the full config schema.</p>
-</blockquote>
-<hr />
-<h3 id="webhook_server_dev_mode"><code>WEBHOOK_SERVER_DEV_MODE</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Boolean string (<code>1</code>, <code>true</code>, <code>yes</code> — case-insensitive)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Disabled (empty / unset)</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>entrypoint.py</code></td>
-</tr>
-</tbody>
-</table>
-<p>Enables Uvicorn's auto-reload mode for development. When enabled, the server watches for file changes and restarts automatically. When disabled, the server starts with the configured number of workers (<code>max-workers</code> in <code>config.yaml</code>, default <code>10</code>).</p>
-<div class="highlight"><pre><span></span><code><span class="nv">WEBHOOK_SERVER_DEV_MODE</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
-</code></pre></div>
-
-<blockquote>
-<p><strong>Warning:</strong> Do not enable in production. Dev mode disables multi-worker support and adds filesystem polling overhead.</p>
-</blockquote>
-<hr />
-<h3 id="enable_log_server"><code>ENABLE_LOG_SERVER</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>String (exact match: <code>true</code>)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Disabled (any value other than <code>true</code>)</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>webhook_server/app.py</code></td>
-</tr>
-</tbody>
-</table>
-<p>Registers the log viewer HTTP and WebSocket endpoints under <code>/logs</code>. When not set to exactly <code>true</code>, all <code>/logs/*</code> endpoints return HTTP 404.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Enable</span>
-<span class="nv">ENABLE_LOG_SERVER</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
-
-<span class="c1"># Docker Compose</span>
-environment:
-<span class="w">  </span>-<span class="w"> </span><span class="nv">ENABLE_LOG_SERVER</span><span class="o">=</span><span class="nb">true</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Warning:</strong> Log viewer endpoints are unauthenticated. Only enable on trusted networks (VPN, internal). Access is restricted to private/loopback IP ranges, but this can be bypassed behind a misconfigured reverse proxy.</p>
-</blockquote>
-<p>Affected endpoints when enabled:</p>
-<table>
-<thead>
-<tr>
-<th>Endpoint</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GET /logs</code></td>
-<td>Log viewer web UI</td>
-</tr>
-<tr>
-<td><code>GET /logs/api/entries</code></td>
-<td>Query log entries</td>
-</tr>
-<tr>
-<td><code>GET /logs/api/export</code></td>
-<td>Export logs as JSON</td>
-</tr>
-<tr>
-<td><code>GET /logs/api/pr-flow/{hook_id}</code></td>
-<td>PR workflow visualization</td>
-</tr>
-<tr>
-<td><code>GET /logs/api/workflow-steps/{hook_id}</code></td>
-<td>Workflow step timeline</td>
-</tr>
-<tr>
-<td><code>GET /logs/api/step-logs/{hook_id}/{step_name}</code></td>
-<td>Logs for a specific step</td>
-</tr>
-<tr>
-<td><code>WS /logs/ws</code></td>
-<td>Real-time log streaming</td>
-</tr>
-</tbody>
-</table>
-<p>See <a href="log-viewer-api.html">Log Viewer API Reference</a> for endpoint details.</p>
-<hr />
-<h3 id="enable_mcp_server"><code>ENABLE_MCP_SERVER</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>String (exact match: <code>true</code>)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Disabled (any value other than <code>true</code>)</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>webhook_server/app.py</code></td>
-</tr>
-</tbody>
-</table>
-<p>Registers the Model Context Protocol (MCP) endpoint at <code>/mcp</code> for AI agent integration. When enabled, the server exposes its API operations as MCP tools that AI agents can discover and invoke.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Enable</span>
-<span class="nv">ENABLE_MCP_SERVER</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
-
-<span class="c1"># Docker Compose</span>
-environment:
-<span class="w">  </span>-<span class="w"> </span><span class="nv">ENABLE_MCP_SERVER</span><span class="o">=</span><span class="nb">true</span>
-</code></pre></div>
-
-<p>MCP logging is separated from the main application log. The log file is configured via the <code>mcp-log-file</code> key in <code>config.yaml</code> (default: <code>mcp_server.log</code>).</p>
-<blockquote>
-<p><strong>Warning:</strong> The MCP endpoint has no authentication. Deploy only on trusted networks. Use a reverse proxy with authentication for any external access.</p>
-<p><strong>Tip:</strong> You must restart the server after changing <code>ENABLE_MCP_SERVER</code>. The endpoint registration happens at import time, not at runtime.</p>
-</blockquote>
-<hr />
-<h2 id="ai-sidecar">AI Sidecar</h2>
-<h3 id="sidecar_port"><code>SIDECAR_PORT</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Integer (port number)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td><code>9100</code></td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>entrypoint.sh</code></td>
-</tr>
-</tbody>
-</table>
-<p>Port on which the Pi SDK sidecar Node.js process listens. The sidecar bridges AI CLI tools (Claude, Gemini, Cursor) for features such as conventional title suggestions and cherry-pick conflict resolution. The sidecar is started automatically by <code>entrypoint.sh</code> if <code>sidecar-helper/dist/server.js</code> exists.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Override default port</span>
-<span class="nv">SIDECAR_PORT</span><span class="o">=</span><span class="m">9200</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.sh
-
-<span class="c1"># Docker Compose</span>
-environment:
-<span class="w">  </span>-<span class="w"> </span><span class="nv">SIDECAR_PORT</span><span class="o">=</span><span class="m">9100</span>
-</code></pre></div>
-
-<p>The container health check probes both the main server and the sidecar:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">healthcheck</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;curl</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">http://localhost:5000/webhook_server/healthcheck</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">curl</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">http://localhost:${SIDECAR_PORT:-9100}/health&quot;</span><span class="p p-Indicator">]</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Note:</strong> If the sidecar binary is not present or fails to start within 15 seconds, the main server still starts, but AI features will not be available.</p>
-</blockquote>
-<hr />
-<h3 id="acpx_agents"><code>ACPX_AGENTS</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>String</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Unset</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td>Pi SDK sidecar</td>
-</tr>
-</tbody>
-</table>
-<p>Enables model discovery for the specified AI agent. Set to <code>cursor</code> to enable Cursor model discovery for AI features.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Docker Compose</span>
-<span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ACPX_AGENTS=cursor</span>
-</code></pre></div>
-
-<hr />
-<h3 id="vertex_claude_1m"><code>VERTEX_CLAUDE_1M</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Boolean string (<code>true</code>)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Unset</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td>Pi SDK sidecar</td>
-</tr>
-</tbody>
-</table>
-<p>Enables Claude 1M context window models via Google Vertex AI. Requires Google Cloud credentials to be mounted into the container.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Docker Compose</span>
-<span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VERTEX_CLAUDE_1M=true</span>
-<span class="nt">volumes</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.config/gcloud:/home/podman/.config/gcloud:ro</span>
-</code></pre></div>
-
-<hr />
-<h2 id="ai-cli-api-keys">AI CLI API Keys</h2>
-<p>These environment variables provide authentication credentials for the AI CLI tools used by the sidecar. They are required only when the corresponding AI provider is configured in the <code>ai-features</code> section of <code>config.yaml</code>. See <a href="configuration-reference.html">Configuration Reference</a> for <code>ai-features</code> settings.</p>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Provider</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ANTHROPIC_API_KEY</code></td>
-<td>Claude Code</td>
-<td>API key for Anthropic Claude CLI</td>
-</tr>
-<tr>
-<td><code>GEMINI_API_KEY</code></td>
-<td>Gemini CLI</td>
-<td>API key for Google Gemini CLI</td>
-</tr>
-<tr>
-<td><code>CURSOR_API_KEY</code></td>
-<td>Cursor Agent</td>
-<td>API key for Cursor Agent (API key method)</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="c1"># Docker Compose — set only the key for your chosen provider</span>
-<span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ANTHROPIC_API_KEY=sk-ant-xxx</span>
-<span class="w">  </span><span class="c1"># OR</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GEMINI_API_KEY=xxx</span>
-<span class="w">  </span><span class="c1"># OR</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CURSOR_API_KEY=xxx</span>
-</code></pre></div>
-
-<blockquote>
-<p><strong>Tip:</strong> For Cursor interactive login (instead of API key), use: <code>docker exec -it github-webhook-server agent</code></p>
-</blockquote>
-<hr />
-<h2 id="container-runtime">Container Runtime</h2>
-<h3 id="puid"><code>PUID</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Integer (Unix user ID)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td><code>1000</code></td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td><code>scripts/podman-cleanup.sh</code></td>
-</tr>
-</tbody>
-</table>
-<p>User ID used by the Podman runtime cleanup script to locate stale runtime directories at <code>/tmp/storage-run-{PUID}/</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PUID=1000</span>
-</code></pre></div>
-
-<hr />
-<h3 id="pgid"><code>PGID</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Integer (Unix group ID)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td><code>1000</code></td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-</tbody>
-</table>
-<p>Group ID for container process ownership. Standard Docker/Podman convention for controlling file permissions on mounted volumes.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PGID=1000</span>
-</code></pre></div>
-
-<hr />
-<h3 id="tz"><code>TZ</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>String (IANA timezone identifier)</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Container OS default (typically UTC)</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-</tbody>
-</table>
-<p>Sets the container timezone. Affects log timestamps and any time-dependent operations.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TZ=Asia/Jerusalem</span>
-</code></pre></div>
-
-<hr />
-<h3 id="force_color"><code>FORCE_COLOR</code></h3>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Type</strong></td>
-<td>Boolean string</td>
-</tr>
-<tr>
-<td><strong>Default</strong></td>
-<td>Unset</td>
-</tr>
-<tr>
-<td><strong>Required</strong></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Read by</strong></td>
-<td>Uvicorn (via standard convention)</td>
-</tr>
-</tbody>
-</table>
-<p>Enables colored terminal output in Uvicorn HTTP request logs. Useful when viewing Docker container logs in a terminal that supports ANSI colors. Application-level logs use <code>simple-logger</code> with <code>console=True</code>, which provides colored output independently.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">environment</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">FORCE_COLOR=1</span>
-</code></pre></div>
-
-<hr />
-<h2 id="docker-compose-configuration">Docker Compose Configuration</h2>
-<p>The example <code>docker-compose.yaml</code> at <code>examples/docker-compose.yaml</code> includes several environment variables that map directly to keys in <code>config.yaml</code>. These are <strong>not</strong> read via <code>os.environ</code> by the Python application — they are passed as container environment variables and are available for shell-level substitution or container configuration.</p>
-<blockquote>
-<p><strong>Note:</strong> Server settings such as bind address, port, webhook secret, and IP verification are configured in <code>config.yaml</code>, not via environment variables. See <a href="configuration-reference.html">Configuration Reference</a> for all <code>config.yaml</code> options.</p>
-</blockquote>
-<h3 id="docker-compose-example">Docker Compose Example</h3>
-<div class="highlight"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github-webhook-server</span>
-<span class="w">    </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/myk-org/github-webhook-server:latest</span>
-<span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;./webhook_server_data_dir:/home/podman/data:Z&quot;</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;/tmp/podman-storage-${USER:-1000}:/tmp/storage-run-1000&quot;</span>
-<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PUID=1000</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PGID=1000</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TZ=Asia/Jerusalem</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ENABLE_LOG_SERVER=true</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ENABLE_MCP_SERVER=false</span>
-<span class="w">      </span><span class="c1"># - SIDECAR_PORT=9100</span>
-<span class="w">      </span><span class="c1"># - ACPX_AGENTS=cursor</span>
-<span class="w">      </span><span class="c1"># - VERTEX_CLAUDE_1M=true</span>
-<span class="w">      </span><span class="c1"># - ANTHROPIC_API_KEY=sk-ant-xxx</span>
-<span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5000:5000&quot;</span>
-<span class="w">    </span><span class="nt">privileged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD-SHELL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;curl</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">http://localhost:5000/webhook_server/healthcheck</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">curl</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">http://localhost:${SIDECAR_PORT:-9100}/health&quot;</span><span class="p p-Indicator">]</span>
-<span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
-<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-<span class="w">      </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
-<span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
-</code></pre></div>
-
-<h3 id="exposed-container-ports">Exposed Container Ports</h3>
-<table>
-<thead>
-<tr>
-<th>Port</th>
-<th>Service</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>5000</code></td>
-<td>Webhook server</td>
-<td>Main FastAPI application (webhook endpoint, health check, log viewer, MCP)</td>
-</tr>
-<tr>
-<td><code>5001</code></td>
-<td>Tool server</td>
-<td>Internal async tool server for AI custom tools (binds to <code>127.0.0.1</code> only)</td>
-</tr>
-<tr>
-<td><code>9100</code></td>
-<td>Pi SDK sidecar</td>
-<td>AI feature sidecar (configurable via <code>SIDECAR_PORT</code>)</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="e2e-test-variables">E2E Test Variables</h2>
-<p>These variables are used exclusively by the end-to-end test infrastructure. They are loaded from a <code>.dev/.env</code> file and are not relevant to production deployments.</p>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Type</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SERVER_PORT</code></td>
-<td>Integer</td>
-<td>Local server port that webhooks are forwarded to</td>
-</tr>
-<tr>
-<td><code>SMEE_URL</code></td>
-<td>URL</td>
-<td>Smee.io webhook proxy URL for forwarding GitHub webhooks to local dev</td>
-</tr>
-<tr>
-<td><code>TEST_REPO</code></td>
-<td>String</td>
-<td>GitHub repository for E2E tests (<code>owner/repo-name</code> format)</td>
-</tr>
-<tr>
-<td><code>DOCKER_COMPOSE_FILE</code></td>
-<td>Path</td>
-<td>Path to docker-compose.yaml for E2E test infrastructure</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="c1"># .dev/.env</span>
-<span class="nv">SERVER_PORT</span><span class="o">=</span><span class="m">5000</span>
-<span class="nv">SMEE_URL</span><span class="o">=</span>https://smee.io/YOUR_UNIQUE_CHANNEL
-<span class="nv">TEST_REPO</span><span class="o">=</span>owner/repo-name
-<span class="nv">DOCKER_COMPOSE_FILE</span><span class="o">=</span>.dev/docker-compose.yaml
-</code></pre></div>
-
-<hr />
-<h2 id="quick-reference">Quick Reference</h2>
-<p>All environment variables in one table:</p>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Default</th>
-<th>Category</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>WEBHOOK_SERVER_DATA_DIR</code></td>
-<td><code>/home/podman/data</code></td>
-<td>Server</td>
-<td>Path to data directory containing <code>config.yaml</code></td>
-</tr>
-<tr>
-<td><code>WEBHOOK_SERVER_DEV_MODE</code></td>
-<td>Disabled</td>
-<td>Server</td>
-<td>Enable Uvicorn auto-reload for development</td>
-</tr>
-<tr>
-<td><code>ENABLE_LOG_SERVER</code></td>
-<td>Disabled</td>
-<td>Server</td>
-<td>Enable <code>/logs</code> endpoints</td>
-</tr>
-<tr>
-<td><code>ENABLE_MCP_SERVER</code></td>
-<td>Disabled</td>
-<td>Server</td>
-<td>Enable <code>/mcp</code> endpoint for AI agents</td>
-</tr>
-<tr>
-<td><code>SIDECAR_PORT</code></td>
-<td><code>9100</code></td>
-<td>AI Sidecar</td>
-<td>Pi SDK sidecar listen port</td>
-</tr>
-<tr>
-<td><code>ACPX_AGENTS</code></td>
-<td>Unset</td>
-<td>AI Sidecar</td>
-<td>AI agent model discovery (e.g., <code>cursor</code>)</td>
-</tr>
-<tr>
-<td><code>VERTEX_CLAUDE_1M</code></td>
-<td>Unset</td>
-<td>AI Sidecar</td>
-<td>Enable Claude 1M models via Vertex AI</td>
-</tr>
-<tr>
-<td><code>ANTHROPIC_API_KEY</code></td>
-<td>Unset</td>
-<td>AI Keys</td>
-<td>Anthropic Claude API key</td>
-</tr>
-<tr>
-<td><code>GEMINI_API_KEY</code></td>
-<td>Unset</td>
-<td>AI Keys</td>
-<td>Google Gemini API key</td>
-</tr>
-<tr>
-<td><code>CURSOR_API_KEY</code></td>
-<td>Unset</td>
-<td>AI Keys</td>
-<td>Cursor Agent API key</td>
-</tr>
-<tr>
-<td><code>PUID</code></td>
-<td><code>1000</code></td>
-<td>Container</td>
-<td>Container user ID</td>
-</tr>
-<tr>
-<td><code>PGID</code></td>
-<td><code>1000</code></td>
-<td>Container</td>
-<td>Container group ID</td>
-</tr>
-<tr>
-<td><code>TZ</code></td>
-<td>UTC</td>
-<td>Container</td>
-<td>Container timezone</td>
-</tr>
-<tr>
-<td><code>FORCE_COLOR</code></td>
-<td>Unset</td>
-<td>Container</td>
-<td>Enable colored Uvicorn log output</td>
-</tr>
-</tbody>
-</table>
-<h2 id="related-pages">Related Pages</h2>
-<ul>
-<li><a href="deploying-with-docker.html">Deploying with Docker</a></li>
-<li><a href="configuration-reference.html">Configuration Reference</a></li>
-<li><a href="enabling-ai-features.html">Enabling AI Features</a></li>
-<li><a href="using-the-log-viewer.html">Using the Log Viewer</a></li>
-<li><a href="quickstart.html">Getting Started</a></li>
-</ul>
+                    <h1 id="environment-variables">Environment Variables</h1>
+<p><em>Documentation generation failed. Please re-run.</em></p>
                 </div>
             </article>
             <nav class="page-nav">
 
-                <a href="webhook-events-reference.html" class="page-nav-link page-nav-prev">
+                <a href="configuration-reference.html" class="page-nav-link page-nav-prev">
                     <span class="page-nav-label">Previous</span>
-                    <span class="page-nav-title">Webhook Events and Handlers</span>
+                    <span class="page-nav-title">Configuration Reference</span>
                 </a>
 
 
-                <a href="log-viewer-api.html" class="page-nav-link page-nav-next">
+                <a href="webhook-and-health-api.html" class="page-nav-link page-nav-next">
                     <span class="page-nav-label">Next</span>
-                    <span class="page-nav-title">Log Viewer API Reference</span>
+                    <span class="page-nav-title">Webhook and Health API</span>
                 </a>
 
             </nav>
@@ -972,37 +226,7 @@ environment:
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul>
-<li><a href="#server-core">Server Core</a><ul>
-<li><a href="#webhook_server_data_dir">WEBHOOK_SERVER_DATA_DIR</a></li>
-<li><a href="#webhook_server_dev_mode">WEBHOOK_SERVER_DEV_MODE</a></li>
-<li><a href="#enable_log_server">ENABLE_LOG_SERVER</a></li>
-<li><a href="#enable_mcp_server">ENABLE_MCP_SERVER</a></li>
-</ul>
-</li>
-<li><a href="#ai-sidecar">AI Sidecar</a><ul>
-<li><a href="#sidecar_port">SIDECAR_PORT</a></li>
-<li><a href="#acpx_agents">ACPX_AGENTS</a></li>
-<li><a href="#vertex_claude_1m">VERTEX_CLAUDE_1M</a></li>
-</ul>
-</li>
-<li><a href="#ai-cli-api-keys">AI CLI API Keys</a></li>
-<li><a href="#container-runtime">Container Runtime</a><ul>
-<li><a href="#puid">PUID</a></li>
-<li><a href="#pgid">PGID</a></li>
-<li><a href="#tz">TZ</a></li>
-<li><a href="#force_color">FORCE_COLOR</a></li>
-</ul>
-</li>
-<li><a href="#docker-compose-configuration">Docker Compose Configuration</a><ul>
-<li><a href="#docker-compose-example">Docker Compose Example</a></li>
-<li><a href="#exposed-container-ports">Exposed Container Ports</a></li>
-</ul>
-</li>
-<li><a href="#e2e-test-variables">E2E Test Variables</a></li>
-<li><a href="#quick-reference">Quick Reference</a></li>
-<li><a href="#related-pages">Related Pages</a></li>
-</ul>
+<ul></ul>
 </div>
 
                 </div>
@@ -1013,7 +237,7 @@ environment:
 
         <footer class="page-footer">
 
-            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-version">Generated from version 4.1.0</span>
             <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
