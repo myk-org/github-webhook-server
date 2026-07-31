@@ -25,11 +25,20 @@ if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     done
 
     if ! curl -sf http://127.0.0.1:$SIDECAR_PORT/health > /dev/null 2>&1; then
-        echo "[sidecar] ERROR: sidecar failed to become healthy within 15s — AI features will not work" >&2
+        echo "[sidecar] ERROR: sidecar failed to become healthy within 15s" >&2
+        exit 1
     fi
+
+    # Run app in background + wait — ensures SIGTERM/SIGINT forwarding
+    # and EXIT trap fires to clean up sidecar
+    uv run entrypoint.py &
+    APP_PID=$!
+
+    trap 'kill -TERM $APP_PID 2>/dev/null || true' TERM
+    trap 'kill -INT $APP_PID 2>/dev/null || true' INT
+
+    wait $APP_PID
 else
     echo "[sidecar] WARNING: sidecar-helper/dist/server.js not found, AI features will not be available"
+    exec uv run entrypoint.py
 fi
-
-# Execute the main application
-exec uv run entrypoint.py

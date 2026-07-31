@@ -80,6 +80,9 @@ RUN mkdir -p $HOME_DIR/.npm-global \
   && npm config set prefix "$HOME_DIR/.npm-global" \
   && npm install -g @google/gemini-cli
 
+# ACPX agent runtime (needed for cursor provider discovery)
+RUN npm install -g acpx
+
 RUN set -ex \
   && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
   && chmod +x $BIN_DIR/rosa \
