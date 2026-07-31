@@ -9,16 +9,22 @@ if [ -f "$APP_DIR/sidecar-helper/dist/server.js" ]; then
     if [ -z "${SIDECAR_ACPX_EXTENSION_PATH:-}" ]; then
         if [ -f "${_ORCH_EXTENSIONS}/acpx-provider/index.ts" ]; then
             export SIDECAR_ACPX_EXTENSION_PATH="${_ORCH_EXTENSIONS}/acpx-provider/index.ts"
+        else
+            echo "[sidecar] WARNING: ACPX extension not found at ${_ORCH_EXTENSIONS}/acpx-provider/index.ts" >&2
         fi
     fi
     if [ -z "${SIDECAR_CLI_PROVIDER_EXTENSION_PATH:-}" ]; then
         if [ -f "${_ORCH_EXTENSIONS}/cli-provider/index.ts" ]; then
             export SIDECAR_CLI_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/cli-provider/index.ts"
+        else
+            echo "[sidecar] WARNING: CLI provider extension not found at ${_ORCH_EXTENSIONS}/cli-provider/index.ts" >&2
         fi
     fi
     if [ -z "${SIDECAR_PROVIDER_EXTENSION_PATH:-}" ]; then
         if [ -f "${_ORCH_EXTENSIONS}/providers/index.ts" ]; then
             export SIDECAR_PROVIDER_EXTENSION_PATH="${_ORCH_EXTENSIONS}/providers/index.ts"
+        else
+            echo "[sidecar] WARNING: Providers extension not found at ${_ORCH_EXTENSIONS}/providers/index.ts" >&2
         fi
     fi
     node "$APP_DIR/sidecar-helper/dist/server.js" &
