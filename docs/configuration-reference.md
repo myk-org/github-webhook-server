@@ -1,428 +1,258 @@
-Let me start by reading the knowledge graph and understanding the project structure.
+# config.yaml
+github-app-id: 123456
+github-tokens:
+  - ghp_admin_token
+webhook-ip: https://hooks.example.com/webhook_server
 
-Now let me look at the repository-local config (`.github-webhook-server.yaml`) handling and more details:
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    pre-commit: true
+    conventional-title: "feat,fix,docs"
 
-Now let me check what's available in `.github-webhook-server.yaml` (what keys it can contain):
+# .github-webhook-server.yaml
+pre-commit: false
+conventional-title: "feat,fix,docs,refactor"
+```
 
-Let me check the `verify-github-ips` and `verify-cloudflare-ips` usage:
+## Global Keys
 
-Now let me look at the `.github-webhook-server.yaml` more closely - what keys does it support:
+### Logging
 
-Let me look at the `welcome-message.md` file pattern and remaining config usage:
-
-Now let me look at tox config more closely and check events config:
-
-Now let me check the OWNERS file support:
-
-Let me also check the `verify-github-ips` and IP allowlist implementation:
-
-Now let me check the `disable-ssl-warnings` key and look for all the config keys used at the app level:
-
-Now let me check the `.github-webhook-server.yaml` in-repo config more carefully - specifically what keys it can accept. It should be basically the same as the repository-level config:
-
-Now I have a comprehensive understanding. Let me verify the `dockerfile` key usage:
-
-Now I have enough information. Let me write the comprehensive Configuration Reference page.
-
-# Configuration Reference
-
-Complete reference for all configuration options in `config.yaml` (global server config) and `.github-webhook-server.yaml` (per-repository in-repo config).
-
-## Configuration Files Overview
-
-| File | Location | Purpose |
-|---|---|---|
-| `config.yaml` | `$WEBHOOK_SERVER_DATA_DIR/config.yaml` | Main server config: global settings + per-repository settings |
-| `.github-webhook-server.yaml` | Repository root (committed to repo) | Per-repository overrides (highest priority) |
-| `.github-webhook-server-welcome-message.md` | Repository root (committed to repo) | Custom PR welcome message content (overrides `welcome-extra-info`) |
-| `OWNERS` | Any directory in repo | Approver/reviewer definitions for OWNERS-based approval workflow |
-
-### Config Resolution Order
-
-Values are resolved in this order (first match wins):
-
-1. `.github-webhook-server.yaml` (in-repo file)
-2. Repository-level settings in `config.yaml` (under `repositories.<name>`)
-3. Global (root-level) settings in `config.yaml`
-
-> **Note:** Dot notation is supported for nested lookups (e.g., `docker.username`, `pypi.token`).
-
----
-
-## Global Server Settings
-
-These settings are defined at the root level of `config.yaml` only. They cannot be set in `.github-webhook-server.yaml`.
-
-### `log-level`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Allowed values | `INFO`, `DEBUG` |
-| Default | — |
-
-Global log level. Changes take effect immediately without server restart.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `log-level` | `string` | `INFO` | Main application log level. Allowed values: `INFO`, `DEBUG`. | Controls webhook server log verbosity. |
+| `log-file` | `string` | unset | Main application log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes main server logs to this file; omit for console-only main logs. |
+| `mcp-log-file` | `string` | `mcp_server.log` | MCP server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/mcp` server logs when MCP is enabled. |
+| `logs-server-log-file` | `string` | `logs_server.log` | Log viewer server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/logs` server logs when the log viewer is enabled. |
+| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. |
 
 ```yaml
 log-level: INFO
-```
-
-### `log-file`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | — |
-
-File path for the main log file. Changes take effect immediately without server restart.
-
-```yaml
 log-file: webhook-server.log
-```
-
-### `mcp-log-file`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | `mcp_server.log` |
-
-File path for the MCP server log file.
-
-```yaml
 mcp-log-file: mcp_server.log
-```
-
-### `logs-server-log-file`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | `logs_server.log` |
-
-File path for the Logs Server log file.
-
-```yaml
 logs-server-log-file: logs_server.log
-```
-
-### `mask-sensitive-data`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
-
-Mask sensitive data (tokens, passwords, secrets) in logs. Can be overridden per repository.
-
-```yaml
 mask-sensitive-data: true
 ```
 
-> **Warning:** Setting to `false` in production will expose secrets in log files.
+### GitHub Access and Network
 
-### `github-app-id`
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `github-app-id` | `integer` | unset | GitHub App ID used by the server. | Identifies the GitHub App when the server looks up app metadata and manages repositories. |
+| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | The server picks the token with the highest remaining rate limit. |
+| `webhook-ip` | `string` | unset | Full webhook callback URL, including path. | Registered on managed repositories as the webhook target URL. |
+| `webhook-secret` | `string` | unset | Shared webhook secret. | Enables HMAC-SHA256 validation of incoming GitHub webhook payloads. |
+| `verify-github-ips` | `boolean` | `false` | Restrict incoming requests to GitHub’s published webhook IP ranges. | Loads GitHub CIDRs at startup and rejects requests outside the allowlist. |
+| `verify-cloudflare-ips` | `boolean` | `false` | Restrict incoming requests to Cloudflare’s published IP ranges. | Loads Cloudflare CIDRs at startup and rejects requests outside the allowlist. |
+| `disable-ssl-warnings` | `boolean` | `false` | Disable urllib3 SSL warnings. | Suppresses SSL warning noise in logs. |
+| `ip-bind` | `string` | `0.0.0.0` | Interface address for the HTTP server. | Controls which network interface the server listens on. |
+| `port` | `integer` | `500` | HTTP server port. | Controls the listening port for webhook and API endpoints. |
+| `max-workers` | `integer` | `10` | Maximum Uvicorn worker count. | Used in production mode; ignored when dev reload mode is enabled. |
 
-| Property | Value |
-|---|---|
-| Type | `integer` |
-| Default | — |
-
-The GitHub App ID used by the webhook server for repository management.
+> **Warning:** If `verify-github-ips` or `verify-cloudflare-ips` is enabled and no allowlist loads successfully, the server fails closed and does not start.
 
 ```yaml
 github-app-id: 123456
-```
-
-### `github-tokens`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | — |
-
-Global GitHub personal access tokens. Multiple tokens enable automatic failover — the server selects the token with the highest remaining rate limit. Can be overridden per repository.
-
-```yaml
 github-tokens:
-  - ghp_token1abc123
-  - ghp_token2def456
-```
-
-### `webhook-ip`
-
-| Property | Value |
-|---|---|
-| Type | `string` (URI) |
-| Default | — |
-
-Full webhook URL including path. This is registered on each managed repository as the webhook endpoint.
-
-```yaml
-webhook-ip: https://your-domain.com/webhook_server
-```
-
-> **Tip:** For local development, use a [smee.io](https://smee.io) channel: `https://smee.io/your-channel`.
-
-### `ip-bind`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | `0.0.0.0` |
-
-IP address to bind the HTTP server to.
-
-```yaml
+  - ghp_primary_token
+  - ghp_fallback_token
+webhook-ip: https://hooks.example.com/webhook_server
+webhook-secret: <webhook-secret>
+verify-github-ips: true
+verify-cloudflare-ips: true
+disable-ssl-warnings: false
 ip-bind: 0.0.0.0
-```
-
-### `port`
-
-| Property | Value |
-|---|---|
-| Type | `integer` |
-| Default | `5000` |
-
-Port to bind the HTTP server to.
-
-```yaml
-port: 5000
-```
-
-### `max-workers`
-
-| Property | Value |
-|---|---|
-| Type | `integer` |
-| Default | `10` |
-
-Maximum number of uvicorn worker processes. Only used in production mode (not in dev mode with `WEBHOOK_SERVER_DEV_MODE=true`).
-
-```yaml
+port: 500
 max-workers: 10
 ```
 
-### `webhook-secret`
+### Global Repository Defaults
 
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | — |
-
-Shared secret for validating GitHub webhook payloads via HMAC-SHA256 signature. When set, the server verifies the `x-hub-signature-256` header on every incoming request.
-
-```yaml
-webhook-secret: my-super-secret-value
-```
-
-### `verify-github-ips`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `false` |
-
-Restrict incoming webhooks to GitHub's published IP ranges. At startup, the server fetches the GitHub meta API to build an IP allowlist.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `default-status-checks` | `array<string>` | `[]` | Seed list of required status checks for protected branches. | When a branch is listed under `protected-branches`, the server starts with this list, always adds `can-be-merged`, then appends built-in checks implied by repo settings. |
+| `auto-verified-and-merged-users` | `array<string>` | `[]` | Users whose PRs are treated as auto-verified. | Applies as the global fallback user list; API users from `github-tokens` are added at runtime. |
+| `auto-verify-cherry-picked-prs` | `boolean` | `true` | Global default for cherry-picked PR auto-verification. | Repo-level value can disable or re-enable automatic verification of cherry-picked PRs. |
+| `create-issue-for-new-pr` | `boolean` | `true` | Global default for PR issue creation. | Controls whether new PRs create a tracking issue by default. |
+| `cherry-pick-assign-to-pr-author` | `boolean` | `true` | Global default for cherry-pick assignee behavior. | Controls whether cherry-pick PRs are assigned to the original PR author by default. |
+| `allow-commands-on-draft-prs` | `array<string>` | unset | Global draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, and a non-empty list allows only the listed commands. |
 
 ```yaml
-verify-github-ips: true
-```
-
-### `verify-cloudflare-ips`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `false` |
-
-Restrict incoming webhooks to Cloudflare's published IP ranges. Use when the server sits behind a Cloudflare proxy.
-
-```yaml
-verify-cloudflare-ips: true
-```
-
-> **Note:** `verify-github-ips` and `verify-cloudflare-ips` can be combined. If both are enabled, requests from either range are accepted. If enabled but IP lists fail to load, the server refuses to start.
-
-### `disable-ssl-warnings`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `false` |
-
-Disable urllib3 SSL warnings. Useful in production environments with internal CAs to reduce log noise.
-
-```yaml
-disable-ssl-warnings: true
+default-status-checks:
+  - ci/external
+  - policy/manual-approval
+auto-verified-and-merged-users:
+  - renovate[bot]
+auto-verify-cherry-picked-prs: true
+create-issue-for-new-pr: true
+cherry-pick-assign-to-pr-author: true
+allow-commands-on-draft-prs:
+  - retest
+  - build-and-push-container
 ```
 
 ### `docker`
 
-Docker Hub credentials for pulling base images during container builds.
+Where: `Global`
 
-| Key | Type | Description |
-|---|---|---|
-| `username` | `string` | Docker Hub username |
-| `password` | `string` | Docker Hub password |
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `docker.username` | `string` | unset | Docker Hub username. Required when the `docker` block is present. | Used for startup `docker.io` login. |
+| `docker.password` | `string` | unset | Docker Hub password or token. Required when the `docker` block is present. | Used for startup `docker.io` login. |
 
 ```yaml
 docker:
-  username: my-docker-user
-  password: my-docker-password
+  username: dockerhub-user
+  password: <dockerhub-token>
 ```
 
----
+## Repository Registration
 
-## Global Defaults
+### `repositories`
 
-These settings are defined at the root level of `config.yaml` and serve as defaults. They can be overridden at the repository level in `config.yaml` or in `.github-webhook-server.yaml`.
+Where: `Global`
 
-### `default-status-checks`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | — |
-
-Status checks included when configuring branch protection required status checks. The `can-be-merged` check is always appended automatically.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `repositories` | `object` | none | Non-empty map of managed repositories. | Required. Registers the repositories the server manages. |
+| `repositories.<repo-id>` | `object` | none | Per-repository configuration block. `<repo-id>` must match the GitHub repository name from the webhook payload, not `owner/repo`. | Selects the correct repo config at webhook time. |
+| `repositories.<repo-id>.name` | `string` | none | Full repository name in `owner/repo` format. | Used for GitHub API access, webhook registration, and repo setup. |
 
 ```yaml
-default-status-checks:
-  - "WIP"
-  - "dpulls"
-  - "can-be-merged"
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+  docsfy:
+    name: my-org/docsfy
 ```
 
-### `auto-verified-and-merged-users`
+## Repository Keys
 
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | `[]` |
+### Repo Keys Read From `config.yaml` Only
 
-Users whose PRs are automatically verified and merged. Typically used for bots like Renovate or pre-commit CI.
+Where: `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `log-level` | `string` | inherits global; else `INFO` | Per-repo log level. Allowed values: `INFO`, `DEBUG`. | Overrides global log verbosity for this repository. |
+| `log-file` | `string` | inherits global | Per-repo log file path. Relative paths resolve under `<data-dir>/logs/`. | Overrides the main log destination for this repository. |
+| `mask-sensitive-data` | `boolean` | inherits global; else `true` | Per-repo log masking override. | Enables or disables secret redaction for this repository’s logs. |
+| `github-tokens` | `array<string>` | inherits global | Per-repo token list. | Replaces the global token list for this repository’s API selection. |
+| `events` | `array<string>` | `["*"]` | GitHub webhook event names to subscribe to for this repository. | Controls the repository webhook subscription created or updated at startup. |
+| `default-status-checks` | `array<string>` | inherits global; else `[]` | Per-repo replacement for the global seed list. | Used when protected branches are configured for this repository. |
+| `allow-commands-on-draft-prs` | `array<string>` | inherits global; else unset | Per-repo draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, non-empty list allows only the listed commands. |
+
+> **Note:** For event behavior after delivery, see [Supported GitHub Events](supported-github-events.html).
 
 ```yaml
-auto-verified-and-merged-users:
-  - "renovate[bot]"
-  - "pre-commit-ci[bot]"
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    log-level: DEBUG
+    log-file: github-webhook-server.log
+    mask-sensitive-data: true
+    github-tokens:
+      - ghp_repo_specific_token
+    events:
+      - pull_request
+      - issue_comment
+      - push
+      - check_run
+      - status
+    default-status-checks:
+      - ci/external
+    allow-commands-on-draft-prs:
+      - retest
+      - build-and-push-container
 ```
 
-### `auto-verify-cherry-picked-prs`
+### Repo Keys Read From `config.yaml` or `.github-webhook-server.yaml`
 
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
+Where: `Repo/local`
 
-Automatically add the `verified` label to cherry-picked PRs.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `slack-webhook-url` | `string` | unset | Slack incoming webhook URL. | Sends Slack notifications for container and PyPI publish results and failures. |
+| `verified-job` | `boolean` | `true` | Enable the `verified` workflow. | Adds the `verified` check to merge logic and required-check generation. |
+| `pre-commit` | `boolean` | `false` | Enable pre-commit execution for PR checks. | Adds the `pre-commit` check run for this repository. |
+| `tox-python-version` | `string` | unset | Legacy tox Python version key. | Used only when `tox.python-version` is absent; emits a deprecation warning. |
+| `auto-verified-and-merged-users` | `array<string>` | inherits global; else `[]` | Per-repo replacement for the auto-verified user list. | Limits auto-verification to the listed users for this repository. |
+| `auto-verify-cherry-picked-prs` | `boolean` | inherits global; else `true` | Per-repo cherry-pick auto-verification setting. | Controls whether eligible cherry-picked PRs are auto-verified. |
+| `set-auto-merge-prs` | `array<string>` | `[]` | Exact base branch names that should have auto-merge enabled. | If a PR targets a listed branch and becomes mergeable, the server enables GitHub auto-merge. |
+| `can-be-merged-required-labels` | `array<string>` | `[]` | Labels that must be present before a PR can be marked mergeable. | Adds extra label gates to the `can-be-merged` workflow. |
+| `conventional-title` | `string` | unset | Comma-separated allowed Conventional Commit types, or `*` for any valid type. | Enables the `conventional-title` check run for this repository. |
+| `minimum-lgtm` | `integer` | `0` | Minimum LGTM count. | Requires this many LGTM approvals before the PR can satisfy merge rules. |
+| `create-issue-for-new-pr` | `boolean` | inherits global; else `true` | Per-repo tracking-issue setting. | Overrides the global issue-creation behavior for new PRs. |
+| `cherry-pick-assign-to-pr-author` | `boolean` | inherits global; else `true` | Per-repo cherry-pick assignee setting. | Overrides whether cherry-pick PRs are assigned to the original PR author. |
 
-```yaml
-auto-verify-cherry-picked-prs: true
-```
-
-### `create-issue-for-new-pr`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
-
-Create a tracking issue for each new pull request.
-
-```yaml
-create-issue-for-new-pr: true
-```
-
-### `cherry-pick-assign-to-pr-author`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
-
-Assign cherry-pick PRs to the original PR author.
+> **Warning:** `pre-commit` is runtime-disabled until you set it to `true`, even though the schema advertises a `true` default.
 
 ```yaml
+# Either under repositories.<repo-id> in config.yaml
+# or at the root of .github-webhook-server.yaml
+slack-webhook-url: https://hooks.slack.com/services/TEAM/CHANNEL/TOKEN
+verified-job: true
+pre-commit: true
+conventional-title: "feat,fix,docs,refactor"
+minimum-lgtm: 2
+set-auto-merge-prs:
+  - main
+can-be-merged-required-labels:
+  - approved
+  - security-reviewed
+create-issue-for-new-pr: false
 cherry-pick-assign-to-pr-author: true
 ```
 
-### `allow-commands-on-draft-prs`
+## Shared Blocks
 
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | not set (commands blocked on drafts) |
+### `branch-protection`
 
-Controls which PR comment commands are allowed on draft PRs.
+Where: `Global` or `Repo`
 
-| Configuration | Behavior |
-|---|---|
-| Not set (default) | All commands blocked on draft PRs |
-| Empty list `[]` | All commands allowed on draft PRs |
-| List with values | Only listed commands allowed on draft PRs |
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `branch-protection.strict` | `boolean` | `true` | Use strict status checks. | GitHub requires the branch to be up to date before merging. |
+| `branch-protection.require_code_owner_reviews` | `boolean` | `false` | Require code owner reviews. | GitHub enforces code owner review approval before merge. |
+| `branch-protection.dismiss_stale_reviews` | `boolean` | `true` | Dismiss stale reviews after new commits. | GitHub invalidates earlier approvals on newer commits. |
+| `branch-protection.required_approving_review_count` | `integer` | `0` | Required GitHub approval count. | GitHub enforces the numeric approval threshold. |
+| `branch-protection.required_linear_history` | `boolean` | `true` | Require linear commit history. | GitHub blocks non-linear merge history. |
+| `branch-protection.required_conversation_resolution` | `boolean` | `true` | Require resolved review conversations. | GitHub enforces conversation resolution, and the webhook runtime listens to review-thread events only when this is enabled. |
 
-```yaml
-# Allow all commands on draft PRs
-allow-commands-on-draft-prs: []
-
-# Allow only specific commands
-allow-commands-on-draft-prs:
-  - build-and-push-container
-  - retest
-```
-
-### `welcome-extra-info`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Max length | 10,240 bytes |
-| Default | `""` |
-
-Additional markdown content appended to the PR welcome message. An empty string explicitly clears any inherited value.
+> **Note:** Repo `branch-protection` values overlay global values field by field.
 
 ```yaml
-welcome-extra-info: |
-  **Note:** Please review the contribution guide before merging.
-  - Ensure tests pass
-  - Update documentation if needed
+branch-protection:
+  strict: true
+  require_code_owner_reviews: false
+  dismiss_stale_reviews: true
+  required_approving_review_count: 1
+  required_linear_history: true
+  required_conversation_resolution: true
+
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    branch-protection:
+      require_code_owner_reviews: true
+      required_approving_review_count: 2
 ```
-
-> **Tip:** For larger welcome message content, commit a `.github-webhook-server-welcome-message.md` file to the repository root. It takes priority over all config-based `welcome-extra-info` settings.
-
----
-
-## Labels Configuration
-
-Controls which labels the server manages and their colors. Can be set globally or per repository. See [Configuring Labels and PR Size Thresholds](configuring-labels-and-size.html) for usage details.
 
 ### `labels`
 
-#### `labels.enabled-labels`
+Where: `Global` or `Repo/local`
 
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | all categories enabled |
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `labels.enabled-labels` | `array<string>` | all configurable categories enabled | Enabled label categories. Valid values: `verified`, `hold`, `wip`, `needs-rebase`, `has-conflicts`, `can-be-merged`, `size`, `branch`, `cherry-pick`, `automerge`. | Restricts which auto-managed label families the server creates and updates. |
+| `labels.colors` | `object<string,string>` | `{}` | Color overrides using CSS3 color names. | Overrides default label colors. |
+| `labels.colors.<label-or-prefix>` | `string` | unset | Exact label name such as `hold`, or a dynamic label prefix ending in `-` such as `approved-` or `branch-`. | Applies the configured color when matching labels are created or updated. |
 
-List of label categories to enable. If not set, all categories are active.
+> **Note:** Reviewed-by labels such as `approved-*`, `lgtm-*`, `commented-*`, and `changes-requested-*` are always enabled.
 
-| Category | Labels managed |
-|---|---|
-| `verified` | `verified` |
-| `hold` | `hold` |
-| `wip` | `wip` |
-| `needs-rebase` | `needs-rebase` |
-| `has-conflicts` | `has-conflicts` |
-| `can-be-merged` | `can-be-merged` |
-| `size` | `size/XS`, `size/S`, `size/M`, `size/L`, `size/XL`, `size/XXL` (or custom thresholds) |
-| `branch` | `branch-<name>` |
-| `cherry-pick` | `cherry-pick-<branch>`, `CherryPicked`, `ai-resolved-conflicts` |
-| `automerge` | `automerge` |
 
-> **Note:** Reviewed-by labels (`approved-<user>`, `lgtm-<user>`, `changes-requested-<user>`, `commented-<user>`) are always enabled and cannot be disabled.
+> **Tip:** Use `pr-size-thresholds` to control `size/*` label names and colors.
 
 ```yaml
 labels:
@@ -430,180 +260,82 @@ labels:
     - verified
     - hold
     - size
-    - can-be-merged
-```
-
-#### `labels.colors`
-
-| Property | Value |
-|---|---|
-| Type | `object` (label name → CSS3 color) |
-| Default | built-in color scheme |
-
-Custom colors for labels. Use the exact label name for static labels, or the prefix for dynamic labels.
-
-| Default label / prefix | Default color |
-|---|---|
-| `hold` | `B60205` (red) |
-| `verified` | `0E8A16` (green) |
-| `wip` | `B60205` (red) |
-| `automerge` | `0E8A16` (green) |
-| `needs-rebase` | `B60205` (red) |
-| `can-be-merged` | `0E8A17` (green) |
-| `has-conflicts` | `B60205` (red) |
-| `approved-` | `0E8A16` (green) |
-| `lgtm-` | `DCED6F` (yellow-green) |
-| `changes-requested-` | `F5621C` (orange) |
-| `commented-` | `D93F0B` (dark orange) |
-| `cherry-pick-` | `F09C74` (salmon) |
-| `branch-` | `1D76DB` (blue) |
-
-```yaml
-labels:
+    - branch
   colors:
     hold: red
     verified: green
-    approved-: green
-    lgtm-: yellowgreen
-    cherry-pick-: coral
-    branch-: royalblue
+    approved-: blue
+    branch-: darkorange
 ```
 
-### `pr-size-thresholds`
+### `welcome-extra-info`
 
-| Property | Value |
-|---|---|
-| Type | `object` (category name → `{threshold, color}`) |
-| Default | built-in XS/S/M/L/XL/XXL categories |
+Where: `Global` or `Repo/local`
 
-Custom PR size categories based on total lines changed (additions + deletions).
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `welcome-extra-info` | `string` | inherits outer scope; else empty string | Markdown appended to the PR welcome comment. Maximum runtime size is 10 KB UTF-8. An empty string explicitly clears an inherited value. | Adds extra guidance to the welcome comment unless a repo file overrides it. |
 
-| Sub-key | Type | Required | Description |
-|---|---|---|---|
-| `threshold` | `integer` or `"inf"` | Yes | Minimum number of changed lines for this category |
-| `color` | `string` | No | CSS3 color name for the label |
-
-Categories are sorted by threshold. Each PR gets the label whose threshold it meets but whose next-higher threshold it does not. Use `"inf"` for the unbounded largest category.
+> **Note:** If `.github-webhook-server-welcome-message.md` exists in the repository, its contents replace `welcome-extra-info`. An empty file suppresses configured welcome text.
 
 ```yaml
-pr-size-thresholds:
-  Tiny:
-    threshold: 10    # 0–9 lines changed
-    color: lightgray
-  Small:
-    threshold: 50    # 10–49 lines changed
-    color: green
-  Medium:
-    threshold: 150   # 50–149 lines changed
-    color: orange
-  Large:
-    threshold: 300   # 150–299 lines changed
-    color: red
-  Massive:
-    threshold: inf   # 300+ lines changed
-    color: darkred
+welcome-extra-info: |
+  Please link the tracking issue.
+  Review the release checklist before merging.
 ```
-
----
-
-## Branch Protection
-
-Configures GitHub branch protection rules applied at server startup. Can be set globally or per repository. Repository-level settings override global.
-
-### `branch-protection`
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `strict` | `boolean` | `true` | Require branches to be up to date before merging |
-| `require_code_owner_reviews` | `boolean` | `false` | Require review from code owners |
-| `dismiss_stale_reviews` | `boolean` | `true` | Dismiss approvals when new commits are pushed |
-| `required_approving_review_count` | `integer` | `0` | Number of required approving reviews |
-| `required_linear_history` | `boolean` | `true` | Require linear commit history |
-| `required_conversation_resolution` | `boolean` | `true` | Require all PR review conversations to be resolved before merge |
-
-```yaml
-branch-protection:
-  strict: true
-  require_code_owner_reviews: true
-  dismiss_stale_reviews: false
-  required_approving_review_count: 1
-  required_linear_history: true
-  required_conversation_resolution: true
-```
-
----
-
-## Security Checks
-
-Detects potentially malicious PR patterns. Can be set globally or per repository. See [Enabling Security Checks](enabling-security-checks.html) for usage details.
 
 ### `security-checks`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `mandatory` | `boolean` | `true` | When `true`, security check failures block `can-be-merged`. When `false`, checks are advisory only. |
-| `suspicious-paths` | `array` of `string` | See below | Path prefixes considered security-sensitive. PRs modifying files under these paths fail the `security-suspicious-paths` check run. |
-| `committer-identity-check` | `boolean` | `true` | Compare PR author against the last commit's committer. Fails if they differ. |
-| `trusted-committers` | `array` of `string` | `[]` | Committer logins always trusted for the identity check (case-insensitive). |
+Where: `Global` or `Repo/local`
 
-**Default suspicious paths:**
-- `.claude/`
-- `.vscode/`
-- `.cursor/`
-- `.devcontainer/`
-- `.pi/`
-- `.github/workflows/`
-- `.github/actions/`
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `security-checks.mandatory` | `boolean` | `true` | Make security checks blocking instead of advisory. | When `true`, security checks join required merge checks. |
+| `security-checks.suspicious-paths` | `array<string>` | built-in sensitive-path set | Path prefixes treated as sensitive. | PRs that modify matching paths fail the `security-suspicious-paths` check. |
+| `security-checks.committer-identity-check` | `boolean` | `true` | Compare the PR author with the last commit committer. | Fails the `security-committer-identity` check when the identities do not match and no trust exception applies. |
+| `security-checks.trusted-committers` | `array<string>` | `[]` | Additional trusted committer logins. | Allows listed committers to pass the identity check; entries are normalized to lowercase. |
 
-> **Note:** The GitHub App bot, `web-flow`, and API users from `github-tokens` are automatically added to the trusted committers list. Only list additional external committers.
+> **Note:** Built-in `suspicious-paths` defaults are `.claude/`, `.vscode/`, `.cursor/`, `.devcontainer/`, `.pi/`, `.github/workflows/`, and `.github/actions/`.
+
+
+> **Note:** The server automatically trusts the GitHub App bot login, `web-flow`, and the API users behind `github-tokens`.
 
 ```yaml
 security-checks:
   mandatory: true
   suspicious-paths:
-    - ".github/workflows/"
-    - ".github/actions/"
+    - .github/workflows/
+    - .github/actions/
+    - Dockerfile
   committer-identity-check: true
   trusted-committers:
-    - "pre-commit-ci[bot]"
+    - pre-commit-ci[bot]
+    - release-bot
 ```
-
----
-
-## AI Features
-
-AI-powered enhancements using external AI CLI providers. Can be set globally or per repository. See [Enabling AI Features](enabling-ai-features.html) for usage details.
 
 ### `ai-features`
 
-| Key | Type | Required | Description |
-|---|---|---|---|
-| `ai-provider` | `string` | Yes | AI CLI provider: `claude`, `gemini`, or `cursor` |
-| `ai-model` | `string` | Yes | Model identifier (e.g., `claude-opus-4-6-1m`, `sonnet`, `gemini-2.5-pro`) |
-| `conventional-title` | `object` | No | AI-powered conventional title suggestions |
-| `resolve-cherry-pick-conflicts-with-ai` | `object` | No | AI-powered cherry-pick conflict resolution |
+Where: `Global` or `Repo/local`
 
-#### `ai-features.conventional-title`
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `ai-features.ai-provider` | `string` | none | AI provider. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Selects the provider for all AI features in the block. |
+| `ai-features.ai-model` | `string` | none | Model identifier. Required when the block is present. | Selects the model for all AI features in the block. |
+| `ai-features.conventional-title.enabled` | `boolean` | none | Enable AI assistance for the `conventional-title` check. Required when the sub-block is present. | Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures. |
+| `ai-features.conventional-title.mode` | `string` | `suggest` | Allowed values: `suggest`, `fix`. | `suggest` writes a suggestion into the check run; `fix` updates the PR title automatically. |
+| `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
+| `ai-features.resolve-cherry-pick-conflicts-with-ai.enabled` | `boolean` | none | Enable AI cherry-pick conflict resolution. Required when the sub-block is present. | Lets the server attempt AI conflict resolution for cherry-pick failures. |
+| `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI cherry-pick resolution step can run. |
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | `boolean` | — (required) | Enable AI conventional title suggestions |
-| `mode` | `string` | `suggest` | `suggest`: show suggestion in check run output. `fix`: auto-update the PR title. |
-| `timeout-minutes` | `integer` | `10` | Timeout for the AI CLI process (minimum: 1) |
+> **Warning:** Repo/local `ai-features` replaces the global block. Repeat `ai-provider` and `ai-model` in every override.
 
-#### `ai-features.resolve-cherry-pick-conflicts-with-ai`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | `boolean` | — (required) | Enable AI conflict resolution for cherry-picks |
-| `timeout-minutes` | `integer` | `10` | Timeout for the AI CLI process (minimum: 1) |
-
-> **Note:** AI-resolved cherry-picks are never auto-verified — manual review is always required.
+> **Note:** Cherry-picks resolved with AI are never auto-verified.
 
 ```yaml
 ai-features:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: claude
+  ai-model: sonnet
   conventional-title:
     enabled: true
     mode: suggest
@@ -613,385 +345,184 @@ ai-features:
     timeout-minutes: 10
 ```
 
----
-
-## Test Oracle
-
-PR Test Oracle integration that analyzes diffs with AI and recommends which tests to run. Can be set globally or per repository.
-
 ### `test-oracle`
 
-| Key | Type | Required | Default | Description |
+Where: `Global` or `Repo`
+
+| Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `server-url` | `string` (URI) | Yes | — | URL of the pr-test-oracle server |
-| `ai-provider` | `string` | Yes | — | AI provider: `claude`, `gemini`, or `cursor` |
-| `ai-model` | `string` | Yes | — | AI model identifier |
-| `test-patterns` | `array` of `string` | No | oracle defaults | Glob patterns for test files |
-| `triggers` | `array` of `string` | No | `[approved]` | When to automatically run analysis |
+| `test-oracle.server-url` | `string` | none | Base URL of the test oracle service. Required when the block is present. | The webhook server calls this service for recommendations. |
+| `test-oracle.ai-provider` | `string` | none | Provider name. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Sent to the oracle service for model selection. |
+| `test-oracle.ai-model` | `string` | none | Model identifier. Required when the block is present. | Sent to the oracle service for model selection. |
+| `test-oracle.test-patterns` | `array<string>` | service defaults | Test file globs. | Restricts which test paths the oracle recommends from. |
+| `test-oracle.triggers` | `array<string>` | `["approved"]` | Automatic trigger names. Allowed values: `approved`, `pr-opened`, `pr-synchronized`. | Controls when the server runs automatic oracle analysis. |
 
-**Trigger values:**
+> **Note:** `approved` refers to the `/approve` command path used by this server. The `/test-oracle` command works whenever the block is configured.
 
-| Trigger | Description |
-|---|---|
-| `approved` | Run when a PR review is approved |
-| `pr-opened` | Run when a new PR is opened |
-| `pr-synchronized` | Run when new commits are pushed to a PR |
 
-> **Tip:** The `/test-oracle` comment command always works when configured, regardless of triggers.
+> **Warning:** Repo `test-oracle` replaces the global block. `.github-webhook-server.yaml` does not override this block.
 
 ```yaml
 test-oracle:
-  server-url: "http://localhost:8000"
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  server-url: http://test-oracle.internal:800
+  ai-provider: claude
+  ai-model: sonnet
   test-patterns:
-    - "tests/**/*.py"
+    - tests/**/*.py
   triggers:
     - approved
     - pr-opened
 ```
 
----
+### `pr-size-thresholds`
 
-## Repository Settings
+Where: `Global` or `Repo`
 
-Each repository is defined under the `repositories` key in `config.yaml`. The repository key is an alias; the actual GitHub repository is identified by the `name` field.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `pr-size-thresholds.<label>.threshold` | `integer` or `string` | none | Exclusive upper bound for the bucket. Use a positive integer or the string `inf`. | The first threshold greater than total additions plus deletions wins. |
+| `pr-size-thresholds.<label>.color` | `string` | `lightgray` | CSS3 color name for `size/<label>`. | Sets the label color for the bucket. |
 
-```yaml
-repositories:
-  my-repo-alias:
-    name: my-org/my-repository
-    # ... repository-specific settings
-```
+> **Note:** Built-in thresholds are `size/XS` for `<20`, `size/S` for `<50`, `size/M` for `<100`, `size/L` for `<300`, `size/XL` for `<500`, and `size/XXL` otherwise.
 
-### `name`
 
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Required | Yes |
-
-Full repository name in `org/repo` format.
+> **Warning:** Repo `pr-size-thresholds` replaces the global block. `.github-webhook-server.yaml` does not override this block.
 
 ```yaml
-name: my-org/my-repository
+pr-size-thresholds:
+  XS:
+    threshold: 20
+    color: lightgray
+  M:
+    threshold: 100
+    color: orange
+  XXL:
+    threshold: inf
+    color: darkred
 ```
 
-### `log-level`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Allowed values | `INFO`, `DEBUG` |
-| Default | inherits global |
-
-Override the global log level for this repository.
-
-```yaml
-log-level: DEBUG
-```
-
-### `log-file`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | inherits global |
-
-Override the global log file for this repository.
-
-```yaml
-log-file: my-repository.log
-```
-
-### `mask-sensitive-data`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
-
-Override the global sensitive data masking for this repository.
-
-```yaml
-mask-sensitive-data: false
-```
-
-### `slack-webhook-url`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | — |
-
-Slack webhook URL for notifications on PR merges, container builds, PyPI uploads, and other events. See [Setting Up Slack Notifications](setting-up-notifications.html) for details.
-
-```yaml
-slack-webhook-url: https://slack-webhook-url/replace-with-your-webhook-url
-```
-
-### `verified-job`
-
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `true` |
-
-Enable the verified job check run functionality.
-
-```yaml
-verified-job: true
-```
-
-### `events`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | `["*"]` (all events) |
-
-GitHub webhook events to listen to. If omitted, all events are subscribed. See [Webhook Events and Handlers](webhook-events-reference.html) for supported events.
-
-```yaml
-events:
-  - push
-  - pull_request
-  - pull_request_review
-  - pull_request_review_thread
-  - issue_comment
-  - check_run
-  - status
-```
-
-### `github-tokens`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | inherits global |
-
-Override global GitHub tokens for this repository. Supports multi-token failover.
-
-```yaml
-github-tokens:
-  - ghp_repo_specific_token1
-  - ghp_repo_specific_token2
-```
-
-### `default-status-checks`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | inherits global |
-
-Override global default status checks for this repository.
-
-```yaml
-default-status-checks:
-  - "WIP"
-  - "can-be-merged"
-  - "ci/my-external-check"
-```
-
-### `minimum-lgtm`
-
-| Property | Value |
-|---|---|
-| Type | `integer` |
-| Default | `0` |
-
-Minimum number of LGTM approvals required before a PR can be approved.
-
-```yaml
-minimum-lgtm: 2
-```
-
-### `can-be-merged-required-labels`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | `[]` |
-
-Additional labels required for a PR to receive the `can-be-merged` label.
-
-```yaml
-can-be-merged-required-labels:
-  - qa-approved
-  - docs-reviewed
-```
-
-### `set-auto-merge-prs`
-
-| Property | Value |
-|---|---|
-| Type | `array` of `string` |
-| Default | `[]` |
-
-Branches for which auto-merge is automatically enabled on new PRs.
-
-```yaml
-set-auto-merge-prs:
-  - main
-  - release
-```
-
-### `conventional-title`
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | — (disabled) |
-
-Comma-separated list of allowed [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) types for PR title validation. Use `"*"` to accept any type while still enforcing the format `<type>[optional scope]: <description>`.
-
-**Standard types:** `feat`, `fix`, `build`, `chore`, `ci`, `docs`, `style`, `refactor`, `perf`, `test`, `revert`
-
-```yaml
-# Specific types
-conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
-
-# Any type (wildcard) — enforces format only
-conventional-title: "*"
-```
-
-See [Setting Up CI Checks](setting-up-ci-checks.html) for details on how validation integrates with check runs.
-
-### `pypi`
-
-PyPI publishing configuration. When set, the server runs a Python module install check on PRs.
-
-| Key | Type | Description |
-|---|---|---|
-| `token` | `string` | PyPI API token for package publishing |
-
-```yaml
-pypi:
-  token: pypi-AgEIcHlwaS5vcmc...
-```
-
----
-
-## Tox Configuration
-
-Configures tox test execution per branch. Defined under the repository in `config.yaml`. See [Setting Up CI Checks](setting-up-ci-checks.html) for details.
+## Repository-Only Blocks
 
 ### `tox`
 
-The `tox` key maps branch names to tox environments, with optional sub-keys for extra configuration.
+Where: `Repo/local`
 
-| Key | Type | Description |
-|---|---|---|
-| `<branch-name>` | `string` | Comma-separated tox environments, or `all` for all environments |
-| `args` | `string` | Additional CLI arguments passed to tox (e.g., `-p -v`) |
-| `python-version` | `string` | Python version for tox execution (e.g., `3.11`) |
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `tox.<base-branch>` | `string` | unset | Exact PR base branch name mapped to a tox env list, or the literal value `all`. | If the PR base branch matches exactly, the value becomes the `tox -e` selection; `all` runs tox without `-e`. |
+| `tox.args` | `string` | empty string | Extra CLI arguments appended to the generated tox command. | Modifies the tox invocation for every PR in this repository. |
+| `tox.python-version` | `string` | unset | Python version passed to `uvx` as `--python=<version>`. | Selects the Python runtime used to launch tox. |
+| `tox-python-version` | `string` | unset | Deprecated legacy form of `tox.python-version`. | Used only when `tox.python-version` is absent. |
+
+> **Warning:** Use exact branch names and string env lists. The runtime does not expand branch globs, and array branch values are not normalized before execution.
+
+
+> **Note:** If a `tox` block exists but no branch key matches the PR base branch, tox still runs with the repository’s default tox configuration.
 
 ```yaml
 tox:
-  args: "-p -v"
-  python-version: "3.12"
   main: all
-  dev: testenv1,testenv2
-  feature: lint,test
-```
-
-### `tox-python-version` (deprecated)
-
-| Property | Value |
-|---|---|
-| Type | `string` |
-| Default | — |
-
-> **Warning:** Deprecated. Use `tox.python-version` instead. This key still works but logs a warning.
-
-```yaml
-# Deprecated
-tox-python-version: "3.11"
-
-# Use instead
-tox:
+  develop: unit,lint
+  args: "-p -v"
   python-version: "3.11"
 ```
 
----
+### `protected-branches`
 
-## Pre-commit
+Where: `Repo`
 
-### `pre-commit`
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `protected-branches.<branch>` | `object` | unset | Exact branch name to configure at startup. Use `{}` for automatic required checks. | The startup repository setup applies GitHub branch protection to this branch. |
+| `protected-branches.<branch>.include-runs` | `array<string>` | `[]` | Explicit required status checks. | If non-empty, this becomes the branch’s full required-check list. |
+| `protected-branches.<branch>.exclude-runs` | `array<string>` | `[]` | Status checks to remove from the automatic required-check list. | Applied only when `include-runs` is empty. |
 
-| Property | Value |
-|---|---|
-| Type | `boolean` |
-| Default | `false` |
-
-Enable pre-commit checks on pull requests. When enabled, the server runs `pre-commit run --all-files` in the PR worktree.
+> **Warning:** Use exact branch names and the object form shown below. The schema accepts array shorthand, but the startup branch-settings path reads the object form.
 
 ```yaml
-pre-commit: true
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    protected-branches:
+      main: {}
+      develop:
+        include-runs:
+          - can-be-merged
+          - verified
+          - tox
+        exclude-runs:
+          - pre-commit.ci - pr
 ```
 
----
+### `pypi`
 
-## Container Build Configuration
+Where: `Repo/local`
 
-Configures container image builds using Podman. See [Setting Up CI Checks](setting-up-ci-checks.html) for details.
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `pypi.token` | `string` | unset | PyPI token. Required when the `pypi` block is present. | Enables package publishing on the repository’s release/tag workflow. |
+
+```yaml
+pypi:
+  token: <pypi-token>
+```
 
 ### `container`
 
-| Key | Type | Required | Default | Description |
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `username` | `string` | Yes | — | Container registry username |
-| `password` | `string` | Yes | — | Container registry password |
-| `repository` | `string` | Yes | — | Full registry repository path (e.g., `quay.io/org/image`) |
-| `tag` | `string` | No | `latest` | Image tag |
-| `dockerfile` | `string` | No | `Dockerfile` | Path to Dockerfile (not in schema but supported in code) |
-| `release` | `boolean` | No | `false` | Push image with release tag on new GitHub release |
-| `build-args` | `array` of `string` | No | `[]` | Build arguments (e.g., `my-arg=value`) |
-| `args` | `array` of `string` | No | `[]` | Additional podman build command arguments |
-| `context` | `string` | No | `""` (repo root) | Subdirectory for Docker build context (alphanumeric, dots, hyphens, underscores, slashes only) |
-| `oci-annotations` | `object` | No | disabled | OCI image annotation configuration |
+| `container.username` | `string` | none | Registry username. Required when the `container` block is present. | Used for image push credentials. |
+| `container.password` | `string` | none | Registry password or token. Required when the `container` block is present. | Used for image push credentials. |
+| `container.repository` | `string` | none | Full image repository name. Required when the `container` block is present. | Target image repository for builds and pushes. |
+| `container.tag` | `string` | `latest` | Default main/master release tag. | Used for merged PRs targeting `main` or `master`; PR builds use `pr-<number>`. |
+| `container.release` | `boolean` | `false` | Push images on release/tag workflows. | Enables publish behavior in release flows. |
+| `container.build-args` | `array<string>` | `[]` | Build arguments passed to the container build command. | Adds `--build-arg` inputs to the build. |
+| `container.args` | `array<string>` | `[]` | Extra build command arguments. | Appends additional arguments such as `--platform` or `--pull`. |
+| `container.context` | `string` | empty string | Build context subdirectory, relative to repo root. Allowed characters: letters, numbers, `.`, `_`, `-`, `/`. | Uses the given subdirectory as the build context. |
+| `container.dockerfile` | `string` | `Dockerfile` | Dockerfile path. Supported by the runtime even though it is not declared in the schema. | Selects the Dockerfile used for the build. |
 
 ```yaml
 container:
-  username: my-user
-  password: my-password
-  repository: quay.io/myorg/myimage
+  username: quay-user
+  password: <quay-token>
+  repository: quay.io/example/my-image
   tag: latest
   release: true
-  context: src
   build-args:
-    - BUILD_VERSION=1.0
+    - VERSION=1.2.3
   args:
-    - --format docker
+    - --platform=linux/amd64
+  context: src/app
+  dockerfile: Dockerfile
 ```
 
 #### `container.oci-annotations`
 
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | `boolean` | `false` | Enable OCI annotations on built images |
-| `static` | `object` | `{}` | Static key-value annotation pairs (reverse domain notation recommended) |
-| `auto` | `object` | all `true` when enabled | Auto-populated annotations from webhook context |
+Where: `Repo/local`
 
-**Auto annotations (all default to `true` when `enabled` is `true`):**
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `container.oci-annotations.enabled` | `boolean` | `false` | Turn OCI annotations on. | Adds OCI annotations to built images. |
+| `container.oci-annotations.static.<key>` | `string` | unset | Static annotation value. Use reverse-domain keys such as `org.opencontainers.image.vendor`. | Adds fixed annotations to every built image. |
+| `container.oci-annotations.auto.created` | `boolean` | `true` | Auto-populate `org.opencontainers.image.created`. | Adds the build timestamp annotation. |
+| `container.oci-annotations.auto.source` | `boolean` | `true` | Auto-populate `org.opencontainers.image.source`. | Adds the source repository URL annotation. |
+| `container.oci-annotations.auto.revision` | `boolean` | `true` | Auto-populate `org.opencontainers.image.revision`. | Adds the commit SHA annotation. |
+| `container.oci-annotations.auto.version` | `boolean` | `true` | Auto-populate `org.opencontainers.image.version`. | Adds the pushed tag on release builds. |
+| `container.oci-annotations.auto.title` | `boolean` | `true` | Auto-populate `org.opencontainers.image.title`. | Adds the repository name annotation. |
 
-| Key | OCI Annotation | Description |
-|---|---|---|
-| `created` | `org.opencontainers.image.created` | Build timestamp |
-| `source` | `org.opencontainers.image.source` | Repository URL |
-| `revision` | `org.opencontainers.image.revision` | Commit SHA |
-| `version` | `org.opencontainers.image.version` | Tag on release builds |
-| `title` | `org.opencontainers.image.title` | Repository name |
+> **Warning:** `container.context` must stay under the repository root. Path traversal is rejected at runtime.
 
 ```yaml
 container:
-  # ...
+  username: quay-user
+  password: <quay-token>
+  repository: quay.io/example/my-image
   oci-annotations:
     enabled: true
     static:
-      org.opencontainers.image.vendor: "My Organization"
-      org.opencontainers.image.licenses: "Apache-2.0"
+      org.opencontainers.image.vendor: Example Corp
     auto:
       created: true
       source: true
@@ -1000,60 +531,20 @@ container:
       title: true
 ```
 
----
-
-## Protected Branches
-
-Configures required status checks for branch protection per branch.
-
-### `protected-branches`
-
-Each key is a branch name. The value is either:
-- An empty array `[]` — uses all default status checks
-- An array of strings — uses those exact status checks
-- An object with `include-runs` and/or `exclude-runs`
-
-| Sub-key | Type | Description |
-|---|---|---|
-| `include-runs` | `array` of `string` | Explicit list of required status checks (overrides auto-detection) |
-| `exclude-runs` | `array` of `string` | Status checks to exclude from auto-detected list |
-
-```yaml
-protected-branches:
-  dev: []  # All default checks
-  main:
-    include-runs:
-      - "pre-commit.ci - pr"
-      - "WIP"
-    exclude-runs:
-      - "SonarCloud Code Analysis"
-  feature:
-    - "lint"
-    - "test"
-```
-
----
-
-## Custom Check Runs
-
-User-defined check runs that execute commands on PR events. See [Setting Up CI Checks](setting-up-ci-checks.html) for details.
-
 ### `custom-check-runs`
 
-| Property | Value |
-|---|---|
-| Type | `array` of objects |
-| Default | `[]` |
+Where: `Repo/local`
 
-Each custom check run object:
-
-| Key | Type | Required | Default | Description |
+| Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `name` | `string` | Yes | — | Unique name displayed in the GitHub UI |
-| `command` | `string` | Yes | — | Command to execute in the repository worktree. Environment variables can be inlined. |
-| `mandatory` | `boolean` | No | `true` | Whether this check must pass for the PR to be mergeable |
+| `custom-check-runs[].name` | `string` | none | Check run name. Required. Use only `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`, maximum length `64`. | Creates a GitHub check run with this exact name and exposes `/retest <name>`. |
+| `custom-check-runs[].command` | `string` | none | Shell command to run in the repository worktree. Required. Leading `VAR=value` assignments are allowed. | Executes the custom check command for PR workflows. |
+| `custom-check-runs[].mandatory` | `boolean` | `true` | Whether this custom check is required for merge. | Mandatory checks join the required-check list; optional checks still run but do not block merge. |
 
-> **Warning:** Custom check names cannot conflict with built-in check names: `tox`, `pre-commit`, `build-container`, `python-module-install`, `conventional-title`, `can-be-merged`, `security-suspicious-paths`, `security-committer-identity`.
+> **Warning:** Custom check names must be unique and cannot collide with built-in check names: `tox`, `pre-commit`, `build-container`, `python-module-install`, `conventional-title`, `can-be-merged`, `security-suspicious-paths`, and `security-committer-identity`.
+
+
+> **Note:** The server validates that the command has an executable after any leading environment assignments, and that the executable exists on the server.
 
 ```yaml
 custom-check-runs:
@@ -1061,207 +552,600 @@ custom-check-runs:
     command: uv tool run --from ruff ruff check
     mandatory: true
   - name: security-scan
-    command: TOKEN=xyz uv tool run --from bandit bandit -r .
+    command: TOKEN=value uv tool run --from bandit bandit -r .
     mandatory: false
-  - name: complex-check
-    command: |
-      uv run python -c "
-      import sys
-      print('Running complex check')
-      sys.exit(0)
-      "
-```
+```# Configuration Reference
 
----
+Reference for `config.yaml`, repository entries under `repositories.<repo-id>`, and repository-local `.github-webhook-server.yaml` overrides. See [Configure Repositories](configure-repositories.html) for rollout patterns, [Set Up Checks and Release Workflows](set-up-checks-and-release-workflows.html) for workflow examples, [Enable AI Features](enable-ai-features.html) for AI setup, [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.html) for hardening, [Supported GitHub Events](supported-github-events.html) for event coverage, and [Environment Variables](environment-variables.html) for non-YAML settings.
 
-## Per-Repository In-Repo Config
+## Files and Resolution
 
-The `.github-webhook-server.yaml` file is committed to a repository's root and provides repository-specific overrides at the highest priority.
-
-### Supported Keys
-
-This file accepts any key that is valid under `repositories.<name>` in `config.yaml`. The value resolution order is: `.github-webhook-server.yaml` → repository config in `config.yaml` → global config in `config.yaml`.
-
-Common keys used in `.github-webhook-server.yaml`:
-
-- `tox`
-- `pre-commit`
-- `conventional-title`
-- `container`
-- `auto-verified-and-merged-users`
-- `auto-verify-cherry-picked-prs`
-- `can-be-merged-required-labels`
-- `labels`
-- `pr-size-thresholds`
-- `ai-features`
-- `security-checks`
-- `custom-check-runs`
-- `welcome-extra-info`
-- `test-oracle`
-- `set-auto-merge-prs`
-- `minimum-lgtm`
-- `create-issue-for-new-pr`
-- `cherry-pick-assign-to-pr-author`
-- `allow-commands-on-draft-prs`
-- `branch-protection`
-
-```yaml
-# .github-webhook-server.yaml (in repository root)
-conventional-title: "feat,fix,docs,chore"
-pre-commit: true
-tox:
-  main: all
-labels:
-  enabled-labels:
-    - verified
-    - size
-```
-
----
-
-## Welcome Message File
-
-### `.github-webhook-server-welcome-message.md`
-
-A markdown file committed to the repository root. Its content replaces the `welcome-extra-info` config value for the Additional Information section of the PR welcome comment.
-
-| Property | Value |
+| Scope label | Location |
 |---|---|
-| Location | Repository root |
-| Encoding | UTF-8 |
-| Max size | 10,240 bytes (10 KB) |
-| Priority | Overrides all `welcome-extra-info` config settings |
+| `Global` | Root of `config.yaml` |
+| `Repo` | `config.yaml` under `repositories.<repo-id>` |
+| `Local` | Root of `.github-webhook-server.yaml` |
 
-```markdown
-<!-- .github-webhook-server-welcome-message.md -->
-**Contribution Guidelines:**
-- All PRs must include tests
-- Update CHANGELOG.md for user-facing changes
-- Squash commits before merging
-```
+| File | Purpose | Effect |
+|---|---|---|
+| `config.yaml` | Server-wide settings and per-repository registration | Required. Defines global defaults, managed repositories, webhook subscriptions, branch settings, and runtime behavior. |
+| `.github-webhook-server.yaml` | Repository-local runtime overrides | Optional. Overrides only the keys the webhook runtime reads from the repository after startup. |
 
----
+| Resolution rule | Effect |
+|---|---|
+| Scalar and array values | First defined value wins: `Local` -> `Repo` -> `Global`. |
+| `branch-protection` | Repo values overlay global values property by property. |
+| `labels` | Repo/local values overlay global values; `labels.colors` entries merge by key. |
+| `welcome-extra-info` | Empty string clears an inherited value. A repo file named `.github-webhook-server-welcome-message.md` overrides configured text entirely. |
+| `ai-features`, `security-checks`, `test-oracle`, `pr-size-thresholds` | A repo-scoped block replaces the global block instead of deep-merging it. Repeat required subkeys when overriding. |
 
-## Full Example
+> **Warning:** `.github-webhook-server.yaml` is not consulted for `name`, `log-level`, `log-file`, `mask-sensitive-data`, `github-tokens`, `events`, `default-status-checks`, `protected-branches`, `allow-commands-on-draft-prs`, `test-oracle`, or `pr-size-thresholds`. Put those keys in `config.yaml`.
+
+> **Note:** A repo-local `branch-protection` block only affects webhook-time `required_conversation_resolution` handling. GitHub branch protection updates at startup still come from `config.yaml`.
 
 ```yaml
 # config.yaml
-log-level: INFO
-log-file: webhook-server.log
-mask-sensitive-data: true
-
 github-app-id: 123456
 github-tokens:
-  - ghp_globaltoken1
-  - ghp_globaltoken2
+  - ghp_admin_token
+webhook-ip: https://hooks.example.com/webhook_server
 
-webhook-ip: https://webhooks.example.com/webhook_server
-webhook-secret: my-secret
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    pre-commit: true
+    conventional-title: "feat,fix,docs"
+
+# .github-webhook-server.yaml
+pre-commit: false
+conventional-title: "feat,fix,docs,refactor"
+```
+
+## Global Keys
+
+### Logging
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `log-level` | `string` | `INFO` | Main application log level. Allowed values: `INFO`, `DEBUG`. | Controls webhook server log verbosity. |
+| `log-file` | `string` | unset | Main application log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes main server logs to this file; omit for console-only main logs. |
+| `mcp-log-file` | `string` | `mcp_server.log` | MCP server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/mcp` server logs when MCP is enabled. |
+| `logs-server-log-file` | `string` | `logs_server.log` | Log viewer server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/logs` server logs when the log viewer is enabled. |
+| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. |
+
+```yaml
+log-level: INFO
+log-file: webhook-server.log
+mcp-log-file: mcp_server.log
+logs-server-log-file: logs_server.log
+mask-sensitive-data: true
+```
+
+### GitHub Access and Network
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `github-app-id` | `integer` | unset | GitHub App ID used by the server. | Identifies the GitHub App when the server looks up app metadata and manages repositories. |
+| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | The server picks the token with the highest remaining rate limit. |
+| `webhook-ip` | `string` | unset | Full webhook callback URL, including path. | Registered on managed repositories as the webhook target URL. |
+| `webhook-secret` | `string` | unset | Shared webhook secret. | Enables HMAC-SHA256 validation of incoming GitHub webhook payloads. |
+| `verify-github-ips` | `boolean` | `false` | Restrict incoming requests to GitHub’s published webhook IP ranges. | Loads GitHub CIDRs at startup and rejects requests outside the allowlist. |
+| `verify-cloudflare-ips` | `boolean` | `false` | Restrict incoming requests to Cloudflare’s published IP ranges. | Loads Cloudflare CIDRs at startup and rejects requests outside the allowlist. |
+| `disable-ssl-warnings` | `boolean` | `false` | Disable urllib3 SSL warnings. | Suppresses SSL warning noise in logs. |
+| `ip-bind` | `string` | `0.0.0.0` | Interface address for the HTTP server. | Controls which network interface the server listens on. |
+| `port` | `integer` | `5000` | HTTP server port. | Controls the listening port for webhook and API endpoints. |
+| `max-workers` | `integer` | `10` | Maximum Uvicorn worker count. | Used in production mode; ignored when dev reload mode is enabled. |
+
+> **Warning:** If `verify-github-ips` or `verify-cloudflare-ips` is enabled and no allowlist loads successfully, the server fails closed and does not start.
+
+```yaml
+github-app-id: 123456
+github-tokens:
+  - ghp_primary_token
+  - ghp_fallback_token
+webhook-ip: https://hooks.example.com/webhook_server
+webhook-secret: <webhook-secret>
+verify-github-ips: true
+verify-cloudflare-ips: true
+disable-ssl-warnings: false
 ip-bind: 0.0.0.0
 port: 5000
 max-workers: 10
+```
 
-verify-github-ips: true
-disable-ssl-warnings: false
+### Global Repository Defaults
 
-docker:
-  username: dockeruser
-  password: dockerpass
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `default-status-checks` | `array<string>` | `[]` | Seed list of required status checks for protected branches. | When a branch is listed under `protected-branches`, the server starts with this list, always adds `can-be-merged`, then appends built-in checks implied by repo settings. |
+| `auto-verified-and-merged-users` | `array<string>` | `[]` | Users whose PRs are treated as auto-verified. | Applies as the global fallback user list; API users from `github-tokens` are added at runtime. |
+| `auto-verify-cherry-picked-prs` | `boolean` | `true` | Global default for cherry-picked PR auto-verification. | Repo-level value can disable or re-enable automatic verification of cherry-picked PRs. |
+| `create-issue-for-new-pr` | `boolean` | `true` | Global default for PR issue creation. | Controls whether new PRs create a tracking issue by default. |
+| `cherry-pick-assign-to-pr-author` | `boolean` | `true` | Global default for cherry-pick assignee behavior. | Controls whether cherry-pick PRs are assigned to the original PR author by default. |
+| `allow-commands-on-draft-prs` | `array<string>` | unset | Global draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, and a non-empty list allows only the listed commands. |
 
+```yaml
 default-status-checks:
-  - "WIP"
-  - "can-be-merged"
-
+  - ci/external
+  - policy/manual-approval
 auto-verified-and-merged-users:
-  - "renovate[bot]"
-
+  - renovate[bot]
 auto-verify-cherry-picked-prs: true
 create-issue-for-new-pr: true
 cherry-pick-assign-to-pr-author: true
+allow-commands-on-draft-prs:
+  - retest
+  - build-and-push-container
+```
 
+### `docker`
+
+Where: `Global`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `docker.username` | `string` | unset | Docker Hub username. Required when the `docker` block is present. | Used for startup `docker.io` login. |
+| `docker.password` | `string` | unset | Docker Hub password or token. Required when the `docker` block is present. | Used for startup `docker.io` login. |
+
+```yaml
+docker:
+  username: dockerhub-user
+  password: <dockerhub-token>
+```
+
+## Repository Registration
+
+### `repositories`
+
+Where: `Global`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `repositories` | `object` | none | Non-empty map of managed repositories. | Required. Registers the repositories the server manages. |
+| `repositories.<repo-id>` | `object` | none | Per-repository configuration block. `<repo-id>` must match the GitHub repository name from the webhook payload, not `owner/repo`. | Selects the correct repo config at webhook time. |
+| `repositories.<repo-id>.name` | `string` | none | Full repository name in `owner/repo` format. | Used for GitHub API access, webhook registration, and repo setup. |
+
+```yaml
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+  docsfy:
+    name: my-org/docsfy
+```
+
+## Repository Keys
+
+### Repo Keys Read From `config.yaml` Only
+
+Where: `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `log-level` | `string` | inherits global; else `INFO` | Per-repo log level. Allowed values: `INFO`, `DEBUG`. | Overrides global log verbosity for this repository. |
+| `log-file` | `string` | inherits global | Per-repo log file path. Relative paths resolve under `<data-dir>/logs/`. | Overrides the main log destination for this repository. |
+| `mask-sensitive-data` | `boolean` | inherits global; else `true` | Per-repo log masking override. | Enables or disables secret redaction for this repository’s logs. |
+| `github-tokens` | `array<string>` | inherits global | Per-repo token list. | Replaces the global token list for this repository’s API selection. |
+| `events` | `array<string>` | `["*"]` | GitHub webhook event names to subscribe to for this repository. | Controls the repository webhook subscription created or updated at startup. |
+| `default-status-checks` | `array<string>` | inherits global; else `[]` | Per-repo replacement for the global seed list. | Used when protected branches are configured for this repository. |
+| `allow-commands-on-draft-prs` | `array<string>` | inherits global; else unset | Per-repo draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, non-empty list allows only the listed commands. |
+
+> **Note:** For event behavior after delivery, see [Supported GitHub Events](supported-github-events.html).
+
+```yaml
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    log-level: DEBUG
+    log-file: github-webhook-server.log
+    mask-sensitive-data: true
+    github-tokens:
+      - ghp_repo_specific_token
+    events:
+      - pull_request
+      - issue_comment
+      - push
+      - check_run
+      - status
+    default-status-checks:
+      - ci/external
+    allow-commands-on-draft-prs:
+      - retest
+      - build-and-push-container
+```
+
+### Repo Keys Read From `config.yaml` or `.github-webhook-server.yaml`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `slack-webhook-url` | `string` | unset | Slack incoming webhook URL. | Sends Slack notifications for container and PyPI publish results and failures. |
+| `verified-job` | `boolean` | `true` | Enable the `verified` workflow. | Adds the `verified` check to merge logic and required-check generation. |
+| `pre-commit` | `boolean` | `false` | Enable pre-commit execution for PR checks. | Adds the `pre-commit` check run for this repository. |
+| `tox-python-version` | `string` | unset | Legacy tox Python version key. | Used only when `tox.python-version` is absent; emits a deprecation warning. |
+| `auto-verified-and-merged-users` | `array<string>` | inherits global; else `[]` | Per-repo replacement for the auto-verified user list. | Limits auto-verification to the listed users for this repository. |
+| `auto-verify-cherry-picked-prs` | `boolean` | inherits global; else `true` | Per-repo cherry-pick auto-verification setting. | Controls whether eligible cherry-picked PRs are auto-verified. |
+| `set-auto-merge-prs` | `array<string>` | `[]` | Exact base branch names that should have auto-merge enabled. | If a PR targets a listed branch and becomes mergeable, the server enables GitHub auto-merge. |
+| `can-be-merged-required-labels` | `array<string>` | `[]` | Labels that must be present before a PR can be marked mergeable. | Adds extra label gates to the `can-be-merged` workflow. |
+| `conventional-title` | `string` | unset | Comma-separated allowed Conventional Commit types, or `*` for any valid type. | Enables the `conventional-title` check run for this repository. |
+| `minimum-lgtm` | `integer` | `0` | Minimum LGTM count. | Requires this many LGTM approvals before the PR can satisfy merge rules. |
+| `create-issue-for-new-pr` | `boolean` | inherits global; else `true` | Per-repo tracking-issue setting. | Overrides the global issue-creation behavior for new PRs. |
+| `cherry-pick-assign-to-pr-author` | `boolean` | inherits global; else `true` | Per-repo cherry-pick assignee setting. | Overrides whether cherry-pick PRs are assigned to the original PR author. |
+
+> **Warning:** `pre-commit` is runtime-disabled until you set it to `true`, even though the schema advertises a `true` default.
+
+```yaml
+# Either under repositories.<repo-id> in config.yaml
+# or at the root of .github-webhook-server.yaml
+slack-webhook-url: https://hooks.slack.com/services/TEAM/CHANNEL/TOKEN
+verified-job: true
+pre-commit: true
+conventional-title: "feat,fix,docs,refactor"
+minimum-lgtm: 2
+set-auto-merge-prs:
+  - main
+can-be-merged-required-labels:
+  - approved
+  - security-reviewed
+create-issue-for-new-pr: false
+cherry-pick-assign-to-pr-author: true
+```
+
+## Shared Blocks
+
+### `branch-protection`
+
+Where: `Global` or `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `branch-protection.strict` | `boolean` | `true` | Use strict status checks. | GitHub requires the branch to be up to date before merging. |
+| `branch-protection.require_code_owner_reviews` | `boolean` | `false` | Require code owner reviews. | GitHub enforces code owner review approval before merge. |
+| `branch-protection.dismiss_stale_reviews` | `boolean` | `true` | Dismiss stale reviews after new commits. | GitHub invalidates earlier approvals on newer commits. |
+| `branch-protection.required_approving_review_count` | `integer` | `0` | Required GitHub approval count. | GitHub enforces the numeric approval threshold. |
+| `branch-protection.required_linear_history` | `boolean` | `true` | Require linear commit history. | GitHub blocks non-linear merge history. |
+| `branch-protection.required_conversation_resolution` | `boolean` | `true` | Require resolved review conversations. | GitHub enforces conversation resolution, and the webhook runtime listens to review-thread events only when this is enabled. |
+
+> **Note:** Repo `branch-protection` values overlay global values field by field.
+
+```yaml
+branch-protection:
+  strict: true
+  require_code_owner_reviews: false
+  dismiss_stale_reviews: true
+  required_approving_review_count: 1
+  required_linear_history: true
+  required_conversation_resolution: true
+
+repositories:
+  github-webhook-server:
+    name: my-org/github-webhook-server
+    branch-protection:
+      require_code_owner_reviews: true
+      required_approving_review_count: 2
+```
+
+### `labels`
+
+Where: `Global` or `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `labels.enabled-labels` | `array<string>` | all configurable categories enabled | Enabled label categories. Valid values: `verified`, `hold`, `wip`, `needs-rebase`, `has-conflicts`, `can-be-merged`, `size`, `branch`, `cherry-pick`, `automerge`. | Restricts which auto-managed label families the server creates and updates. |
+| `labels.colors` | `object<string,string>` | `{}` | Color overrides using CSS3 color names. | Overrides default label colors. |
+| `labels.colors.<label-or-prefix>` | `string` | unset | Exact label name such as `hold`, or a dynamic label prefix ending in `-` such as `approved-` or `branch-`. | Applies the configured color when matching labels are created or updated. |
+
+> **Note:** Reviewed-by labels such as `approved-*`, `lgtm-*`, `commented-*`, and `changes-requested-*` are always enabled.
+
+
+> **Tip:** Use `pr-size-thresholds` to control `size/*` label names and colors.
+
+```yaml
 labels:
   enabled-labels:
     - verified
     - hold
     - size
-    - can-be-merged
+    - branch
   colors:
     hold: red
     verified: green
+    approved-: blue
+    branch-: darkorange
+```
 
-pr-size-thresholds:
-  Small:
-    threshold: 50
-    color: green
-  Medium:
-    threshold: 200
-    color: orange
-  Large:
-    threshold: inf
-    color: red
+### `welcome-extra-info`
 
-branch-protection:
-  strict: true
-  required_approving_review_count: 1
-  required_conversation_resolution: true
+Where: `Global` or `Repo/local`
 
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `welcome-extra-info` | `string` | inherits outer scope; else empty string | Markdown appended to the PR welcome comment. Maximum runtime size is 10 KB UTF-8. An empty string explicitly clears an inherited value. | Adds extra guidance to the welcome comment unless a repo file overrides it. |
+
+> **Note:** If `.github-webhook-server-welcome-message.md` exists in the repository, its contents replace `welcome-extra-info`. An empty file suppresses configured welcome text.
+
+```yaml
+welcome-extra-info: |
+  Please link the tracking issue.
+  Review the release checklist before merging.
+```
+
+### `security-checks`
+
+Where: `Global` or `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `security-checks.mandatory` | `boolean` | `true` | Make security checks blocking instead of advisory. | When `true`, security checks join required merge checks. |
+| `security-checks.suspicious-paths` | `array<string>` | built-in sensitive-path set | Path prefixes treated as sensitive. | PRs that modify matching paths fail the `security-suspicious-paths` check. |
+| `security-checks.committer-identity-check` | `boolean` | `true` | Compare the PR author with the last commit committer. | Fails the `security-committer-identity` check when the identities do not match and no trust exception applies. |
+| `security-checks.trusted-committers` | `array<string>` | `[]` | Additional trusted committer logins. | Allows listed committers to pass the identity check; entries are normalized to lowercase. |
+
+> **Note:** Built-in `suspicious-paths` defaults are `.claude/`, `.vscode/`, `.cursor/`, `.devcontainer/`, `.pi/`, `.github/workflows/`, and `.github/actions/`.
+
+
+> **Note:** The server automatically trusts the GitHub App bot login, `web-flow`, and the API users behind `github-tokens`.
+
+```yaml
 security-checks:
   mandatory: true
+  suspicious-paths:
+    - .github/workflows/
+    - .github/actions/
+    - Dockerfile
   committer-identity-check: true
   trusted-committers:
-    - "pre-commit-ci[bot]"
+    - pre-commit-ci[bot]
+    - release-bot
+```
 
+### `ai-features`
+
+Where: `Global` or `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `ai-features.ai-provider` | `string` | none | AI provider. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Selects the provider for all AI features in the block. |
+| `ai-features.ai-model` | `string` | none | Model identifier. Required when the block is present. | Selects the model for all AI features in the block. |
+| `ai-features.conventional-title.enabled` | `boolean` | none | Enable AI assistance for the `conventional-title` check. Required when the sub-block is present. | Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures. |
+| `ai-features.conventional-title.mode` | `string` | `suggest` | Allowed values: `suggest`, `fix`. | `suggest` writes a suggestion into the check run; `fix` updates the PR title automatically. |
+| `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
+| `ai-features.resolve-cherry-pick-conflicts-with-ai.enabled` | `boolean` | none | Enable AI cherry-pick conflict resolution. Required when the sub-block is present. | Lets the server attempt AI conflict resolution for cherry-pick failures. |
+| `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI cherry-pick resolution step can run. |
+
+> **Warning:** Repo/local `ai-features` replaces the global block. Repeat `ai-provider` and `ai-model` in every override.
+
+
+> **Note:** Cherry-picks resolved with AI are never auto-verified.
+
+```yaml
 ai-features:
   ai-provider: claude
   ai-model: sonnet
   conventional-title:
     enabled: true
     mode: suggest
+    timeout-minutes: 10
+  resolve-cherry-pick-conflicts-with-ai:
+    enabled: true
+    timeout-minutes: 10
+```
 
+### `test-oracle`
+
+Where: `Global` or `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `test-oracle.server-url` | `string` | none | Base URL of the test oracle service. Required when the block is present. | The webhook server calls this service for recommendations. |
+| `test-oracle.ai-provider` | `string` | none | Provider name. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Sent to the oracle service for model selection. |
+| `test-oracle.ai-model` | `string` | none | Model identifier. Required when the block is present. | Sent to the oracle service for model selection. |
+| `test-oracle.test-patterns` | `array<string>` | service defaults | Test file globs. | Restricts which test paths the oracle recommends from. |
+| `test-oracle.triggers` | `array<string>` | `["approved"]` | Automatic trigger names. Allowed values: `approved`, `pr-opened`, `pr-synchronized`. | Controls when the server runs automatic oracle analysis. |
+
+> **Note:** `approved` refers to the `/approve` command path used by this server. The `/test-oracle` command works whenever the block is configured.
+
+
+> **Warning:** Repo `test-oracle` replaces the global block. `.github-webhook-server.yaml` does not override this block.
+
+```yaml
 test-oracle:
-  server-url: "http://localhost:8000"
+  server-url: http://test-oracle.internal:8000
   ai-provider: claude
   ai-model: sonnet
+  test-patterns:
+    - tests/**/*.py
   triggers:
     - approved
+    - pr-opened
+```
 
+### `pr-size-thresholds`
+
+Where: `Global` or `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `pr-size-thresholds.<label>.threshold` | `integer` or `string` | none | Exclusive upper bound for the bucket. Use a positive integer or the string `inf`. | The first threshold greater than total additions plus deletions wins. |
+| `pr-size-thresholds.<label>.color` | `string` | `lightgray` | CSS3 color name for `size/<label>`. | Sets the label color for the bucket. |
+
+> **Note:** Built-in thresholds are `size/XS` for `<20`, `size/S` for `<50`, `size/M` for `<100`, `size/L` for `<300`, `size/XL` for `<500`, and `size/XXL` otherwise.
+
+
+> **Warning:** Repo `pr-size-thresholds` replaces the global block. `.github-webhook-server.yaml` does not override this block.
+
+```yaml
+pr-size-thresholds:
+  XS:
+    threshold: 20
+    color: lightgray
+  M:
+    threshold: 100
+    color: orange
+  XXL:
+    threshold: inf
+    color: darkred
+```
+
+## Repository-Only Blocks
+
+### `tox`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `tox.<base-branch>` | `string` | unset | Exact PR base branch name mapped to a tox env list, or the literal value `all`. | If the PR base branch matches exactly, the value becomes the `tox -e` selection; `all` runs tox without `-e`. |
+| `tox.args` | `string` | empty string | Extra CLI arguments appended to the generated tox command. | Modifies the tox invocation for every PR in this repository. |
+| `tox.python-version` | `string` | unset | Python version passed to `uvx` as `--python=<version>`. | Selects the Python runtime used to launch tox. |
+| `tox-python-version` | `string` | unset | Deprecated legacy form of `tox.python-version`. | Used only when `tox.python-version` is absent. |
+
+> **Warning:** Use exact branch names and string env lists. The runtime does not expand branch globs, and array branch values are not normalized before execution.
+
+
+> **Note:** If a `tox` block exists but no branch key matches the PR base branch, tox still runs with the repository’s default tox configuration.
+
+```yaml
+tox:
+  main: all
+  develop: unit,lint
+  args: "-p -v"
+  python-version: "3.11"
+```
+
+### `protected-branches`
+
+Where: `Repo`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `protected-branches.<branch>` | `object` | unset | Exact branch name to configure at startup. Use `{}` for automatic required checks. | The startup repository setup applies GitHub branch protection to this branch. |
+| `protected-branches.<branch>.include-runs` | `array<string>` | `[]` | Explicit required status checks. | If non-empty, this becomes the branch’s full required-check list. |
+| `protected-branches.<branch>.exclude-runs` | `array<string>` | `[]` | Status checks to remove from the automatic required-check list. | Applied only when `include-runs` is empty. |
+
+> **Warning:** Use exact branch names and the object form shown below. The schema accepts array shorthand, but the startup branch-settings path reads the object form.
+
+```yaml
 repositories:
-  my-service:
-    name: my-org/my-service
-    log-level: DEBUG
-    slack-webhook-url: https://slack-webhook-url/replace-with-your-webhook-url
-    events:
-      - push
-      - pull_request
-      - issue_comment
-      - check_run
-    conventional-title: "feat,fix,chore,docs,ci"
-    pre-commit: true
-    tox:
-      python-version: "3.12"
-      main: all
-      dev: lint,test
-    container:
-      username: quayuser
-      password: quaypass
-      repository: quay.io/myorg/my-service
-      tag: latest
-      release: true
+  github-webhook-server:
+    name: my-org/github-webhook-server
     protected-branches:
-      main:
+      main: {}
+      develop:
         include-runs:
-          - "tox"
-          - "pre-commit"
-    custom-check-runs:
-      - name: lint
-        command: uv tool run --from ruff ruff check
-        mandatory: true
+          - can-be-merged
+          - verified
+          - tox
+        exclude-runs:
+          - pre-commit.ci - pr
+```
+
+### `pypi`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `pypi.token` | `string` | unset | PyPI token. Required when the `pypi` block is present. | Enables package publishing on the repository’s release/tag workflow. |
+
+```yaml
+pypi:
+  token: <pypi-token>
+```
+
+### `container`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `container.username` | `string` | none | Registry username. Required when the `container` block is present. | Used for image push credentials. |
+| `container.password` | `string` | none | Registry password or token. Required when the `container` block is present. | Used for image push credentials. |
+| `container.repository` | `string` | none | Full image repository name. Required when the `container` block is present. | Target image repository for builds and pushes. |
+| `container.tag` | `string` | `latest` | Default main/master release tag. | Used for merged PRs targeting `main` or `master`; PR builds use `pr-<number>`. |
+| `container.release` | `boolean` | `false` | Push images on release/tag workflows. | Enables publish behavior in release flows. |
+| `container.build-args` | `array<string>` | `[]` | Build arguments passed to the container build command. | Adds `--build-arg` inputs to the build. |
+| `container.args` | `array<string>` | `[]` | Extra build command arguments. | Appends additional arguments such as `--platform` or `--pull`. |
+| `container.context` | `string` | empty string | Build context subdirectory, relative to repo root. Allowed characters: letters, numbers, `.`, `_`, `-`, `/`. | Uses the given subdirectory as the build context. |
+| `container.dockerfile` | `string` | `Dockerfile` | Dockerfile path. Supported by the runtime even though it is not declared in the schema. | Selects the Dockerfile used for the build. |
+
+```yaml
+container:
+  username: quay-user
+  password: <quay-token>
+  repository: quay.io/example/my-image
+  tag: latest
+  release: true
+  build-args:
+    - VERSION=1.2.3
+  args:
+    - --platform=linux/amd64
+  context: src/app
+  dockerfile: Dockerfile
+```
+
+#### `container.oci-annotations`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `container.oci-annotations.enabled` | `boolean` | `false` | Turn OCI annotations on. | Adds OCI annotations to built images. |
+| `container.oci-annotations.static.<key>` | `string` | unset | Static annotation value. Use reverse-domain keys such as `org.opencontainers.image.vendor`. | Adds fixed annotations to every built image. |
+| `container.oci-annotations.auto.created` | `boolean` | `true` | Auto-populate `org.opencontainers.image.created`. | Adds the build timestamp annotation. |
+| `container.oci-annotations.auto.source` | `boolean` | `true` | Auto-populate `org.opencontainers.image.source`. | Adds the source repository URL annotation. |
+| `container.oci-annotations.auto.revision` | `boolean` | `true` | Auto-populate `org.opencontainers.image.revision`. | Adds the commit SHA annotation. |
+| `container.oci-annotations.auto.version` | `boolean` | `true` | Auto-populate `org.opencontainers.image.version`. | Adds the pushed tag on release builds. |
+| `container.oci-annotations.auto.title` | `boolean` | `true` | Auto-populate `org.opencontainers.image.title`. | Adds the repository name annotation. |
+
+> **Warning:** `container.context` must stay under the repository root. Path traversal is rejected at runtime.
+
+```yaml
+container:
+  username: quay-user
+  password: <quay-token>
+  repository: quay.io/example/my-image
+  oci-annotations:
+    enabled: true
+    static:
+      org.opencontainers.image.vendor: Example Corp
+    auto:
+      created: true
+      source: true
+      revision: true
+      version: true
+      title: true
+```
+
+### `custom-check-runs`
+
+Where: `Repo/local`
+
+| Key | Type | Default | Description | Effect |
+|---|---|---|---|---|
+| `custom-check-runs[].name` | `string` | none | Check run name. Required. Use only `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`, maximum length `64`. | Creates a GitHub check run with this exact name and exposes `/retest <name>`. |
+| `custom-check-runs[].command` | `string` | none | Shell command to run in the repository worktree. Required. Leading `VAR=value` assignments are allowed. | Executes the custom check command for PR workflows. |
+| `custom-check-runs[].mandatory` | `boolean` | `true` | Whether this custom check is required for merge. | Mandatory checks join the required-check list; optional checks still run but do not block merge. |
+
+> **Warning:** Custom check names must be unique and cannot collide with built-in check names: `tox`, `pre-commit`, `build-container`, `python-module-install`, `conventional-title`, `can-be-merged`, `security-suspicious-paths`, and `security-committer-identity`.
+
+
+> **Note:** The server validates that the command has an executable after any leading environment assignments, and that the executable exists on the server.
+
+```yaml
+custom-check-runs:
+  - name: lint
+    command: uv tool run --from ruff ruff check
+    mandatory: true
+  - name: security-scan
+    command: TOKEN=value uv tool run --from bandit bandit -r .
+    mandatory: false
 ```
 
 ## Related Pages
 
-- [Configuring Repositories](configuring-repositories.html)
-- [Configuration Recipes](config-recipes.html)
+- [Configure Repositories](configure-repositories.html)
+- [Set Up Checks and Release Workflows](set-up-checks-and-release-workflows.html)
+- [Enable AI Features](enable-ai-features.html)
+- [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.html)
 - [Environment Variables](environment-variables.html)
-- [Setting Up CI Checks](setting-up-ci-checks.html)
-- [Enabling Security Checks](enabling-security-checks.html)

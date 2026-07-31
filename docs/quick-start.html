@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quick Start - github-webhook-server</title>
-    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <title>Start Automating a Repository - github-webhook-server</title>
+    <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
     <link rel="stylesheet" href="assets/style.css">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="index.html" class="sidebar-logo">github-webhook-server</a>
-            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+            <p class="sidebar-tagline">Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.</p>
         </div>
 
         <div class="sidebar-search">
@@ -25,48 +25,13 @@
         <nav class="sidebar-nav">
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Overview</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="introduction.html"
-                           class="nav-link">
-                            Introduction
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="architecture-and-event-flow.html"
-                           class="nav-link">
-                            Architecture and Event Flow
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
                 <h3 class="nav-group-title">Getting Started</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="installation.html"
-                           class="nav-link">
-                            Installation
-                        </a>
-                    </li>
-
-                    <li>
                         <a href="quick-start.html"
                            class="nav-link active" aria-current="page">
-                            Quick Start
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="docker-deployment.html"
-                           class="nav-link">
-                            Docker and Container Deployment
+                            Start Automating a Repository
                         </a>
                     </li>
 
@@ -74,15 +39,85 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Configuration</h3>
+                <h3 class="nav-group-title">User Guides</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="configuration-model.html"
+                        <a href="configure-repositories.html"
                            class="nav-link">
-                            Configuration Model
+                            Configure Repositories
                         </a>
                     </li>
+
+                    <li>
+                        <a href="set-up-owners-and-reviewers.html"
+                           class="nav-link">
+                            Set Up OWNERS and Review Rules
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="manage-pull-requests.html"
+                           class="nav-link">
+                            Manage Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="run-pull-request-commands.html"
+                           class="nav-link">
+                            Run Pull Request Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="set-up-checks-and-release-workflows.html"
+                           class="nav-link">
+                            Set Up Checks and Release Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enable-ai-features.html"
+                           class="nav-link">
+                            Enable AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="secure-webhooks-and-pull-requests.html"
+                           class="nav-link">
+                            Secure Webhooks and Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="debug-with-the-log-viewer.html"
+                           class="nav-link">
+                            Debug with the Log Viewer
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="automation-recipes.html"
+                           class="nav-link">
+                            Automate Common Maintainer Tasks
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
 
                     <li>
                         <a href="configuration-reference.html"
@@ -92,88 +127,11 @@
                     </li>
 
                     <li>
-                        <a href="repository-overrides.html"
+                        <a href="environment-variables.html"
                            class="nav-link">
-                            Repository Overrides
+                            Environment Variables
                         </a>
                     </li>
-
-                    <li>
-                        <a href="security-configuration.html"
-                           class="nav-link">
-                            Security Configuration
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Guides</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="supported-github-events.html"
-                           class="nav-link">
-                            Supported GitHub Events
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="owners-and-reviewer-assignment.html"
-                           class="nav-link">
-                            OWNERS and Reviewer Assignment
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="pull-request-automation.html"
-                           class="nav-link">
-                            Pull Request Automation
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="issue-comment-commands.html"
-                           class="nav-link">
-                            Issue Comment Commands
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="labels-check-runs-and-mergeability.html"
-                           class="nav-link">
-                            Labels, Check Runs, and Mergeability
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="container-and-pypi-workflows.html"
-                           class="nav-link">
-                            Container and PyPI Workflows
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="ai-features-and-test-oracle.html"
-                           class="nav-link">
-                            AI Features and Test Oracle
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="log-viewer-guide.html"
-                           class="nav-link">
-                            Log Viewer Guide
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">API Reference</h3>
-                <ul class="nav-group-pages">
 
                     <li>
                         <a href="webhook-and-health-api.html"
@@ -183,51 +141,16 @@
                     </li>
 
                     <li>
-                        <a href="log-viewer-api.html"
+                        <a href="log-viewer-and-mcp-api.html"
                            class="nav-link">
-                            Log Viewer API
+                            Log Viewer and MCP API
                         </a>
                     </li>
 
                     <li>
-                        <a href="mcp-api.html"
+                        <a href="supported-github-events.html"
                            class="nav-link">
-                            MCP API
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Operations</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="repository-bootstrap-and-github-app.html"
-                           class="nav-link">
-                            Repository Bootstrap and GitHub App
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="logging-and-data-files.html"
-                           class="nav-link">
-                            Logging and Data Files
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="testing-and-maintenance.html"
-                           class="nav-link">
-                            Testing and Maintenance
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="troubleshooting.html"
-                           class="nav-link">
-                            Troubleshooting
+                            Supported GitHub Events
                         </a>
                     </li>
 
@@ -280,107 +203,367 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <h1 id="quick-start">Quick Start</h1>
-<p>This guide gets <code>github-webhook-server</code> running with one repository. You will create a data directory, add a minimal <code>config.yaml</code>, place the GitHub App private key where the server expects it, start the app, and verify that it is alive.</p>
-<h2 id="before-you-start">Before You Start</h2>
-<p>You need:</p>
+                    <h1 id="start-automating-a-repository">Start Automating a Repository</h1>
+<p>You want one GitHub repository under automation quickly so new pull requests start getting webhook handling, labels, and review workflow help without manual setup in GitHub. This guide gets you from an empty data directory to a live webhook and a working health check in a few minutes.</p>
+<h2 id="prerequisites">Prerequisites</h2>
 <ul>
-<li>Python <code>3.13</code></li>
+<li>Python <code>3.14</code></li>
 <li><code>uv</code></li>
 <li>A GitHub App ID</li>
 <li>The matching GitHub App private key in PEM format</li>
-<li>At least one GitHub token the server can use for API calls</li>
-<li>A repository where that GitHub App is installed</li>
+<li>At least one GitHub token that can manage the target repository</li>
+<li>A repository where the GitHub App is installed</li>
+<li>A public URL GitHub can reach, or a <code>smee.io</code> channel for local testing</li>
 </ul>
-<blockquote>
-<p><strong>Warning:</strong> The server uses both <code>github-tokens</code> and GitHub App auth. The token pool is used for regular GitHub API calls, and <code>github-app-id</code> plus <code>webhook-server.private-key.pem</code> are used to authenticate as the app installation.</p>
-</blockquote>
-<h2 id="1-create-a-data-directory">1. Create a Data Directory</h2>
-<p>The server loads <code>config.yaml</code> from <code>WEBHOOK_SERVER_DATA_DIR</code>. If you do not set that variable, it defaults to <code>/home/podman/data</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/data
+<h2 id="quick-example">Quick example</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml&quot;</span><span class="w"> </span><span class="s">&lt;&lt;&#39;YAML&#39;</span>
+<span class="s">github-app-id: 123456</span>
+<span class="s">github-tokens:</span>
+<span class="s">  - ghp_your_token_here</span>
+
+<span class="s">webhook-ip: https://your-domain.example/webhook_server</span>
+
+<span class="s">repositories:</span>
+<span class="s">  your-repo:</span>
+<span class="s">    name: your-org/your-repo</span>
+<span class="s">YAML</span>
+
+cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+
+uv<span class="w"> </span>sync
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:500/webhook_server/healthcheck
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+</code></pre></div>
+
+<p>Once the server starts, it bootstraps the repository you listed: it creates or updates the webhook and prepares the built-in automation. The health check proves the process is running; the steps below confirm GitHub can actually reach it.</p>
+<h2 id="step-by-step">Step-by-step</h2>
+<h3 id="1-create-the-data-directory">1. Create the data directory</h3>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
 mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
 </code></pre></div>
 
-<p>Your directory should look like this:</p>
-<div class="highlight"><pre><span></span><code>/path/to/data/
+<p>Your minimal layout should look like this:</p>
+<div class="highlight"><pre><span></span><code>$WEBHOOK_SERVER_DATA_DIR/
 ├── config.yaml
 └── webhook-server.private-key.pem
 </code></pre></div>
 
-<h2 id="2-create-a-minimal-configyaml">2. Create a Minimal <code>config.yaml</code></h2>
-<p>A minimal working config needs:</p>
-<ul>
-<li><code>github-app-id</code></li>
-<li><code>github-tokens</code></li>
-<li><code>webhook-ip</code></li>
-<li>At least one repository under <code>repositories</code></li>
-</ul>
-<div class="highlight"><pre><span></span><code><span class="c1"># yaml-language-server: $schema=https://raw.githubusercontent.com/myk-org/github-webhook-server/refs/heads/main/webhook_server/config/schema.yaml</span>
-
-<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<blockquote>
+<p><strong>Note:</strong> If you do not set <code>WEBHOOK_SERVER_DATA_DIR</code>, the server uses <code>/home/podman/data</code>.</p>
+</blockquote>
+<h3 id="2-add-the-smallest-working-configyaml">2. Add the smallest working <code>config.yaml</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
 <span class="nt">github-tokens</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token1</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_your_token_here</span>
 
-<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.com/webhook_server</span>
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.example/webhook_server</span>
 
 <span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">test-repo</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/test-repo</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
 </code></pre></div>
 
-<p>Replace <code>123456</code>, <code>token1</code>, <code>https://your-domain.com/webhook_server</code>, and <code>org/test-repo</code> with your real values.</p>
-<p>What each part means:</p>
-<ul>
-<li><code>github-app-id</code> is your GitHub App ID.</li>
-<li><code>github-tokens</code> is the token pool the server will choose from at startup.</li>
-<li><code>webhook-ip</code> is the public URL GitHub should call.</li>
-<li><code>repositories</code> is the list of repositories the server should manage.</li>
-<li><code>test-repo</code> is the short repository name.</li>
-<li><code>name</code> is the full <code>owner/repo</code> name.</li>
-</ul>
+<p>Use these values carefully:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What to put there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>github-app-id</code></td>
+<td>Your GitHub App ID</td>
+</tr>
+<tr>
+<td><code>github-tokens</code></td>
+<td>One or more GitHub tokens for repository administration</td>
+</tr>
+<tr>
+<td><code>webhook-ip</code></td>
+<td>The callback URL GitHub will call</td>
+</tr>
+<tr>
+<td><code>repositories.your-repo</code></td>
+<td>The short repository name, such as <code>your-repo</code></td>
+</tr>
+<tr>
+<td><code>repositories.your-repo.name</code></td>
+<td>The full repository name, such as <code>your-org/your-repo</code></td>
+</tr>
+</tbody>
+</table>
 <blockquote>
-<p><strong>Warning:</strong> The key under <code>repositories</code> should be the short repository name, such as <code>test-repo</code>, not the full <code>owner/repo</code>. The full name belongs in the nested <code>name</code> field.</p>
-<p><strong>Warning:</strong> <code>webhook-ip</code> should be the full webhook URL. In a normal deployment that means including <code>/webhook_server</code>, for example <code>https://your-domain.com/webhook_server</code>.</p>
-<p><strong>Warning:</strong> <code>localhost</code> is fine for the health check, but GitHub cannot deliver webhooks to <code>localhost</code>. Use a real public URL or a <code>smee.io</code> channel URL for webhook delivery.</p>
-<p><strong>Note:</strong> If you omit <code>events</code>, the server creates the webhook with <code>*</code>, which subscribes it to all events.</p>
-<p><strong>Note:</strong> You can list more than one token in <code>github-tokens</code>. The server checks them and selects the one with the highest remaining rate limit.</p>
+<p><strong>Warning:</strong> For a normal public deployment, <code>webhook-ip</code> should include the full webhook path, for example <code>https://your-domain.example/webhook_server</code>.</p>
+<p><strong>Warning:</strong> The key under <code>repositories</code> should be the short repository name, not <code>owner/repo</code>. In the example above, the key is <code>your-repo</code> and the full name belongs in <code>name</code>.</p>
+<p><strong>Warning:</strong> GitHub cannot deliver webhooks to <code>localhost</code>. Use a public URL or the <code>smee.io</code> workflow in <a href="#advanced-usage">Advanced Usage</a>.</p>
+<p><strong>Tip:</strong> You do not need repo-local overrides for the first run. See <a href="configure-repositories.html">Configure Repositories</a> for global defaults, per-repo overrides, and self-service settings.</p>
 </blockquote>
-<p>If you want GitHub to sign webhook deliveries, add a shared secret:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test-webhook-secret</span>
+<h3 id="3-add-the-github-app-private-key">3. Add the GitHub App private key</h3>
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
 </code></pre></div>
 
-<blockquote>
-<p><strong>Tip:</strong> You do not need a repo-local <code>.github-webhook-server.yaml</code> file for a minimal setup. The global <code>config.yaml</code> is enough to get started.</p>
-</blockquote>
-<h2 id="3-add-the-github-app-private-key">3. Add the GitHub App Private Key</h2>
-<p>Save the GitHub App private key as:</p>
-<p><code>$WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem</code></p>
-<p>The filename matters. The server loads that exact file from the data directory when it creates the GitHub App installation client.</p>
-<blockquote>
-<p><strong>Warning:</strong> The private key is not a replacement for <code>github-tokens</code>. You need both.</p>
-<p><strong>Warning:</strong> The matching GitHub App must be installed on every repository you add, or the server will not be able to fetch the repository installation.</p>
-</blockquote>
-<h2 id="4-install-dependencies-and-start-the-server">4. Install Dependencies and Start the Server</h2>
-<p>Install the project dependencies:</p>
+<p>The filename matters. The server looks for that exact name in the data directory.</p>
+<p>Install the GitHub App on <code>your-org/your-repo</code> before you start the server. You need both the private key and at least one GitHub token for a working setup.</p>
+<h3 id="4-install-dependencies-and-start-the-server">4. Install dependencies and start the server</h3>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
-<p>Start the server:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/data<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
-</code></pre></div>
-
-<p>By default, the server starts on <code>0.0.0.0:5000</code> with <code>10</code> workers. You can override that in <code>config.yaml</code> with:</p>
-<ul>
-<li><code>ip-bind</code></li>
-<li><code>port</code></li>
-<li><code>max-workers</code></li>
-</ul>
+<p>By default, the server listens on <code>0.0.0.0:500</code>. On startup it creates or updates the repository webhook and prepares the repository for automation.</p>
 <blockquote>
-<p><strong>Note:</strong> On startup, the server applies repository settings, resets in-progress check runs to queued, and creates or updates GitHub webhooks for every repository in <code>config.yaml</code>.</p>
-<p><strong>Tip:</strong> Validate the file before starting the server with <code>uv run webhook_server/tests/test_schema_validator.py "$WEBHOOK_SERVER_DATA_DIR/config.yaml"</code>.</p>
+<p><strong>Tip:</strong> If you only need one repository working quickly, omit optional keys like <code>events</code>, <code>pre-commit</code>, <code>tox</code>, <code>container</code>, and <code>pypi</code> until the webhook is live.</p>
 </blockquote>
-<h2 id="5-verify-the-health-endpoint">5. Verify the Health Endpoint</h2>
-<p>Once the server is running, check the health endpoint:</p>
+<h3 id="5-verify-the-server-is-healthy">5. Verify the server is healthy</h3>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:500/webhook_server/healthcheck
+</code></pre></div>
+
+<p>You should get:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+</code></pre></div>
+
+<p>A healthy response means the web process is running and listening on the webhook route.</p>
+<blockquote>
+<p><strong>Note:</strong> The health check does not prove that GitHub can reach your <code>webhook-ip</code>. It only proves the server is up locally.</p>
+</blockquote>
+<h3 id="6-verify-github-can-deliver-to-the-webhook">6. Verify GitHub can deliver to the webhook</h3>
+<p>After the server is running, check the delivery from GitHub:</p>
+<ol>
+<li>Open the repository in GitHub.</li>
+<li>Open the webhook or GitHub App delivery view for that repository.</li>
+<li>Send a ping or redeliver the most recent test event.</li>
+<li>Confirm the delivery gets an HTTP <code>200</code>.</li>
+</ol>
+<p>If you see <code>200</code>, the server accepted the event and queued it for processing.</p>
+<blockquote>
+<p><strong>Note:</strong> A <code>200</code> delivery means the event was accepted for background processing. It does not guarantee every automation step succeeded. See <a href="webhook-and-health-api.html">Webhook and Health API</a> for the response behavior.</p>
+</blockquote>
+<h3 id="7-prove-the-repository-is-actually-automated">7. Prove the repository is actually automated</h3>
+<p>The fastest end-to-end proof is a tiny pull request.</p>
+<ol>
+<li>Open a small PR against <code>your-org/your-repo</code>.</li>
+<li>Wait for the server to process the <code>pull_request</code> event.</li>
+<li>Confirm you see automation, such as a welcome comment, labels, or check runs on the PR.</li>
+</ol>
+<p>If that works, the repository is connected and ready for deeper configuration. See <a href="manage-pull-requests.html">Manage Pull Requests</a> for what happens on new PRs, see <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a> before rolling this out to a team, and see <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a> to add CI and release automation.</p>
+<h2 id="advanced-usage">Advanced Usage</h2>
+<h3 id="add-a-webhook-secret">Add a webhook secret</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_your_token_here</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.example/webhook_server</span>
+<span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">replace-this-with-a-shared-secret</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+</code></pre></div>
+
+<p>Add <code>webhook-secret</code> once the basic flow works. GitHub will sign deliveries, and the server will reject requests with the wrong signature.</p>
+<blockquote>
+<p><strong>Tip:</strong> See <a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> for production hardening after your first repository is connected.</p>
+</blockquote>
+<h3 id="use-more-than-one-github-token">Use more than one GitHub token</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_primary_token</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_backup_token</span>
+</code></pre></div>
+
+<p>The server supports a token pool. This is useful if you want more rate-limit headroom or a backup token when one is exhausted.</p>
+<h3 id="test-locally-with-smeeio">Test locally with <code>smee.io</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://smee.io/your-channel</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>smee<span class="w"> </span>-u<span class="w"> </span>https://smee.io/your-channel<span class="w"> </span>-p<span class="w"> </span><span class="m">500</span><span class="w"> </span>-P<span class="w"> </span>/webhook_server
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>This is the fastest way to test from a laptop when GitHub cannot reach your machine directly.</p>
+<blockquote>
+<p><strong>Warning:</strong> For <code>smee.io</code>, use the channel URL as <code>webhook-ip</code>. Do not append <code>/webhook_server</code> to the <code>smee.io</code> URL, because the local forwarding command already adds that path.</p>
+</blockquote>
+<h3 id="change-the-bind-address-port-or-worker-count">Change the bind address, port, or worker count</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">ip-bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="nt">max-workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+</code></pre></div>
+
+<p>Restart the server after changing these values. If you change <code>webhook-ip</code>, restart too so the startup bootstrap can update the repository webhook.</p>
+<p>See <a href="environment-variables.html">Environment Variables</a> for startup toggles such as log viewer and MCP support.</p>
+<h3 id="limit-the-events-the-repository-processes">Limit the events the repository processes</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
+</code></pre></div>
+
+<p>If you omit <code>events</code>, the webhook is created with <code>*</code>. See <a href="supported-github-events.html">Supported GitHub Events</a> to decide which events you actually want.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>The server says <code>config.yaml</code> was not found</strong></li>
+<li>Make sure <code>WEBHOOK_SERVER_DATA_DIR</code> points to the directory that contains <code>config.yaml</code>.</li>
+<li>
+<p>Make sure the file is named exactly <code>config.yaml</code>.</p>
+</li>
+<li>
+<p><strong>The server starts, but repository automation never appears</strong></p>
+</li>
+<li>Check that the GitHub App is installed on the repository.</li>
+<li>Check that the <code>repositories</code> key uses the short repo name and <code>name</code> uses the full <code>owner/repo</code> value.</li>
+<li>
+<p>Check that the private key file is named exactly <code>webhook-server.private-key.pem</code>.</p>
+</li>
+<li>
+<p><strong>GitHub deliveries fail even though the health check passes</strong></p>
+</li>
+<li>Make sure <code>webhook-ip</code> is publicly reachable.</li>
+<li>Make sure a public deployment uses the full callback path ending in <code>/webhook_server</code>.</li>
+<li>
+<p>If you set <code>webhook-secret</code>, make sure GitHub is using the same shared secret.</p>
+</li>
+<li>
+<p><strong>GitHub shows <code>200</code>, but the PR still did not update</strong></p>
+</li>
+<li>The server accepts webhook events immediately and processes them in the background.</li>
+<li>See <a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a> to inspect delivery IDs, step failures, and log output.# Start Automating a Repository</li>
+</ul>
+<p>You want one GitHub repository under automation quickly so new pull requests start getting webhook handling, labels, and review workflow help without manual setup in GitHub. This guide gets you from an empty data directory to a live webhook and a working health check in a few minutes.</p>
+<h2 id="prerequisites_1">Prerequisites</h2>
+<ul>
+<li>Python <code>3.14</code></li>
+<li><code>uv</code></li>
+<li>A GitHub App ID</li>
+<li>The matching GitHub App private key in PEM format</li>
+<li>At least one GitHub token that can manage the target repository</li>
+<li>A repository where the GitHub App is installed</li>
+<li>A public URL GitHub can reach, or a <code>smee.io</code> channel for local testing</li>
+</ul>
+<h2 id="quick-example_1">Quick example</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml&quot;</span><span class="w"> </span><span class="s">&lt;&lt;&#39;YAML&#39;</span>
+<span class="s">github-app-id: 123456</span>
+<span class="s">github-tokens:</span>
+<span class="s">  - ghp_your_token_here</span>
+
+<span class="s">webhook-ip: https://your-domain.example/webhook_server</span>
+
+<span class="s">repositories:</span>
+<span class="s">  your-repo:</span>
+<span class="s">    name: your-org/your-repo</span>
+<span class="s">YAML</span>
+
+cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+
+uv<span class="w"> </span>sync
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+</code></pre></div>
+
+<p>Once the server starts, it bootstraps the repository you listed: it creates or updates the webhook and prepares the built-in automation. The health check proves the process is running; the steps below confirm GitHub can actually reach it.</p>
+<h2 id="step-by-step_1">Step-by-step</h2>
+<h3 id="1-create-the-data-directory_1">1. Create the data directory</h3>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+</code></pre></div>
+
+<p>Your minimal layout should look like this:</p>
+<div class="highlight"><pre><span></span><code>$WEBHOOK_SERVER_DATA_DIR/
+├── config.yaml
+└── webhook-server.private-key.pem
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> If you do not set <code>WEBHOOK_SERVER_DATA_DIR</code>, the server uses <code>/home/podman/data</code>.</p>
+</blockquote>
+<h3 id="2-add-the-smallest-working-configyaml_1">2. Add the smallest working <code>config.yaml</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_your_token_here</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.example/webhook_server</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+</code></pre></div>
+
+<p>Use these values carefully:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What to put there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>github-app-id</code></td>
+<td>Your GitHub App ID</td>
+</tr>
+<tr>
+<td><code>github-tokens</code></td>
+<td>One or more GitHub tokens for repository administration</td>
+</tr>
+<tr>
+<td><code>webhook-ip</code></td>
+<td>The callback URL GitHub will call</td>
+</tr>
+<tr>
+<td><code>repositories.your-repo</code></td>
+<td>The short repository name, such as <code>your-repo</code></td>
+</tr>
+<tr>
+<td><code>repositories.your-repo.name</code></td>
+<td>The full repository name, such as <code>your-org/your-repo</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Warning:</strong> For a normal public deployment, <code>webhook-ip</code> should include the full webhook path, for example <code>https://your-domain.example/webhook_server</code>.</p>
+<p><strong>Warning:</strong> The key under <code>repositories</code> should be the short repository name, not <code>owner/repo</code>. In the example above, the key is <code>your-repo</code> and the full name belongs in <code>name</code>.</p>
+<p><strong>Warning:</strong> GitHub cannot deliver webhooks to <code>localhost</code>. Use a public URL or the <code>smee.io</code> workflow in <a href="#advanced-usage">Advanced Usage</a>.</p>
+<p><strong>Tip:</strong> You do not need repo-local overrides for the first run. See <a href="configure-repositories.html">Configure Repositories</a> for global defaults, per-repo overrides, and self-service settings.</p>
+</blockquote>
+<h3 id="3-add-the-github-app-private-key_1">3. Add the GitHub App private key</h3>
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+</code></pre></div>
+
+<p>The filename matters. The server looks for that exact name in the data directory.</p>
+<p>Install the GitHub App on <code>your-org/your-repo</code> before you start the server. You need both the private key and at least one GitHub token for a working setup.</p>
+<h3 id="4-install-dependencies-and-start-the-server_1">4. Install dependencies and start the server</h3>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>By default, the server listens on <code>0.0.0.0:5000</code>. On startup it creates or updates the repository webhook and prepares the repository for automation.</p>
+<blockquote>
+<p><strong>Tip:</strong> If you only need one repository working quickly, omit optional keys like <code>events</code>, <code>pre-commit</code>, <code>tox</code>, <code>container</code>, and <code>pypi</code> until the webhook is live.</p>
+</blockquote>
+<h3 id="5-verify-the-server-is-healthy_1">5. Verify the server is healthy</h3>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
 </code></pre></div>
 
@@ -388,31 +571,133 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 <div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
 </code></pre></div>
 
-<p>If you changed <code>port</code> in <code>config.yaml</code>, use that port instead of <code>5000</code>.</p>
-<p>This is the same endpoint the container health check uses.</p>
+<p>A healthy response means the web process is running and listening on the webhook route.</p>
 <blockquote>
-<p><strong>Note:</strong> A healthy response means the web server is up. It does not confirm that GitHub can reach your public <code>webhook-ip</code> yet.</p>
+<p><strong>Note:</strong> The health check does not prove that GitHub can reach your <code>webhook-ip</code>. It only proves the server is up locally.</p>
 </blockquote>
-<p>At this point, the process is running and listening for webhook traffic on <code>/webhook_server</code>. If GitHub can reach the URL you set in <code>webhook-ip</code>, the server is ready to receive events.</p>
+<h3 id="6-verify-github-can-deliver-to-the-webhook_1">6. Verify GitHub can deliver to the webhook</h3>
+<p>After the server is running, check the delivery from GitHub:</p>
+<ol>
+<li>Open the repository in GitHub.</li>
+<li>Open the webhook or GitHub App delivery view for that repository.</li>
+<li>Send a ping or redeliver the most recent test event.</li>
+<li>Confirm the delivery gets an HTTP <code>200</code>.</li>
+</ol>
+<p>If you see <code>200</code>, the server accepted the event and queued it for processing.</p>
+<blockquote>
+<p><strong>Note:</strong> A <code>200</code> delivery means the event was accepted for background processing. It does not guarantee every automation step succeeded. See <a href="webhook-and-health-api.html">Webhook and Health API</a> for the response behavior.</p>
+</blockquote>
+<h3 id="7-prove-the-repository-is-actually-automated_1">7. Prove the repository is actually automated</h3>
+<p>The fastest end-to-end proof is a tiny pull request.</p>
+<ol>
+<li>Open a small PR against <code>your-org/your-repo</code>.</li>
+<li>Wait for the server to process the <code>pull_request</code> event.</li>
+<li>Confirm you see automation, such as a welcome comment, labels, or check runs on the PR.</li>
+</ol>
+<p>If that works, the repository is connected and ready for deeper configuration. See <a href="manage-pull-requests.html">Manage Pull Requests</a> for what happens on new PRs, see <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a> before rolling this out to a team, and see <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a> to add CI and release automation.</p>
+<h2 id="advanced-usage_1">Advanced Usage</h2>
+<h3 id="add-a-webhook-secret_1">Add a webhook secret</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_your_token_here</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.example/webhook_server</span>
+<span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">replace-this-with-a-shared-secret</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+</code></pre></div>
+
+<p>Add <code>webhook-secret</code> once the basic flow works. GitHub will sign deliveries, and the server will reject requests with the wrong signature.</p>
+<blockquote>
+<p><strong>Tip:</strong> See <a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> for production hardening after your first repository is connected.</p>
+</blockquote>
+<h3 id="use-more-than-one-github-token_1">Use more than one GitHub token</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_primary_token</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_backup_token</span>
+</code></pre></div>
+
+<p>The server supports a token pool. This is useful if you want more rate-limit headroom or a backup token when one is exhausted.</p>
+<h3 id="test-locally-with-smeeio_1">Test locally with <code>smee.io</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://smee.io/your-channel</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>smee<span class="w"> </span>-u<span class="w"> </span>https://smee.io/your-channel<span class="w"> </span>-p<span class="w"> </span><span class="m">5000</span><span class="w"> </span>-P<span class="w"> </span>/webhook_server
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>This is the fastest way to test from a laptop when GitHub cannot reach your machine directly.</p>
+<blockquote>
+<p><strong>Warning:</strong> For <code>smee.io</code>, use the channel URL as <code>webhook-ip</code>. Do not append <code>/webhook_server</code> to the <code>smee.io</code> URL, because the local forwarding command already adds that path.</p>
+</blockquote>
+<h3 id="change-the-bind-address-port-or-worker-count_1">Change the bind address, port, or worker count</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">ip-bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="nt">max-workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+</code></pre></div>
+
+<p>Restart the server after changing these values. If you change <code>webhook-ip</code>, restart too so the startup bootstrap can update the repository webhook.</p>
+<p>See <a href="environment-variables.html">Environment Variables</a> for startup toggles such as log viewer and MCP support.</p>
+<h3 id="limit-the-events-the-repository-processes_1">Limit the events the repository processes</h3>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
+</code></pre></div>
+
+<p>If you omit <code>events</code>, the webhook is created with <code>*</code>. See <a href="supported-github-events.html">Supported GitHub Events</a> to decide which events you actually want.</p>
+<h2 id="troubleshooting_1">Troubleshooting</h2>
+<ul>
+<li><strong>The server says <code>config.yaml</code> was not found</strong></li>
+<li>Make sure <code>WEBHOOK_SERVER_DATA_DIR</code> points to the directory that contains <code>config.yaml</code>.</li>
+<li>
+<p>Make sure the file is named exactly <code>config.yaml</code>.</p>
+</li>
+<li>
+<p><strong>The server starts, but repository automation never appears</strong></p>
+</li>
+<li>Check that the GitHub App is installed on the repository.</li>
+<li>Check that the <code>repositories</code> key uses the short repo name and <code>name</code> uses the full <code>owner/repo</code> value.</li>
+<li>
+<p>Check that the private key file is named exactly <code>webhook-server.private-key.pem</code>.</p>
+</li>
+<li>
+<p><strong>GitHub deliveries fail even though the health check passes</strong></p>
+</li>
+<li>Make sure <code>webhook-ip</code> is publicly reachable.</li>
+<li>Make sure a public deployment uses the full callback path ending in <code>/webhook_server</code>.</li>
+<li>
+<p>If you set <code>webhook-secret</code>, make sure GitHub is using the same shared secret.</p>
+</li>
+<li>
+<p><strong>GitHub shows <code>200</code>, but the PR still did not update</strong></p>
+</li>
+<li>The server accepts webhook events immediately and processes them in the background.</li>
+<li>See <a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a> to inspect delivery IDs, step failures, and log output.</li>
+</ul>
 <h2 id="related-pages">Related Pages</h2>
 <ul>
-<li><a href="installation.html">Installation</a></li>
-<li><a href="introduction.html">Introduction</a></li>
-<li><a href="configuration-model.html">Configuration Model</a></li>
+<li><a href="configure-repositories.html">Configure Repositories</a></li>
+<li><a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a></li>
+<li><a href="manage-pull-requests.html">Manage Pull Requests</a></li>
+<li><a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a></li>
+<li><a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a></li>
 </ul>
                 </div>
             </article>
             <nav class="page-nav">
 
-                <a href="installation.html" class="page-nav-link page-nav-prev">
-                    <span class="page-nav-label">Previous</span>
-                    <span class="page-nav-title">Installation</span>
-                </a>
+                <div></div>
 
 
-                <a href="docker-deployment.html" class="page-nav-link page-nav-next">
+                <a href="configure-repositories.html" class="page-nav-link page-nav-next">
                     <span class="page-nav-label">Next</span>
-                    <span class="page-nav-title">Docker and Container Deployment</span>
+                    <span class="page-nav-title">Configure Repositories</span>
                 </a>
 
             </nav>
@@ -422,12 +707,48 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
-<li><a href="#before-you-start">Before You Start</a></li>
-<li><a href="#1-create-a-data-directory">1. Create a Data Directory</a></li>
-<li><a href="#2-create-a-minimal-configyaml">2. Create a Minimal config.yaml</a></li>
-<li><a href="#3-add-the-github-app-private-key">3. Add the GitHub App Private Key</a></li>
-<li><a href="#4-install-dependencies-and-start-the-server">4. Install Dependencies and Start the Server</a></li>
-<li><a href="#5-verify-the-health-endpoint">5. Verify the Health Endpoint</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick example</a></li>
+<li><a href="#step-by-step">Step-by-step</a><ul>
+<li><a href="#1-create-the-data-directory">1. Create the data directory</a></li>
+<li><a href="#2-add-the-smallest-working-configyaml">2. Add the smallest working config.yaml</a></li>
+<li><a href="#3-add-the-github-app-private-key">3. Add the GitHub App private key</a></li>
+<li><a href="#4-install-dependencies-and-start-the-server">4. Install dependencies and start the server</a></li>
+<li><a href="#5-verify-the-server-is-healthy">5. Verify the server is healthy</a></li>
+<li><a href="#6-verify-github-can-deliver-to-the-webhook">6. Verify GitHub can deliver to the webhook</a></li>
+<li><a href="#7-prove-the-repository-is-actually-automated">7. Prove the repository is actually automated</a></li>
+</ul>
+</li>
+<li><a href="#advanced-usage">Advanced Usage</a><ul>
+<li><a href="#add-a-webhook-secret">Add a webhook secret</a></li>
+<li><a href="#use-more-than-one-github-token">Use more than one GitHub token</a></li>
+<li><a href="#test-locally-with-smeeio">Test locally with smee.io</a></li>
+<li><a href="#change-the-bind-address-port-or-worker-count">Change the bind address, port, or worker count</a></li>
+<li><a href="#limit-the-events-the-repository-processes">Limit the events the repository processes</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#prerequisites_1">Prerequisites</a></li>
+<li><a href="#quick-example_1">Quick example</a></li>
+<li><a href="#step-by-step_1">Step-by-step</a><ul>
+<li><a href="#1-create-the-data-directory_1">1. Create the data directory</a></li>
+<li><a href="#2-add-the-smallest-working-configyaml_1">2. Add the smallest working config.yaml</a></li>
+<li><a href="#3-add-the-github-app-private-key_1">3. Add the GitHub App private key</a></li>
+<li><a href="#4-install-dependencies-and-start-the-server_1">4. Install dependencies and start the server</a></li>
+<li><a href="#5-verify-the-server-is-healthy_1">5. Verify the server is healthy</a></li>
+<li><a href="#6-verify-github-can-deliver-to-the-webhook_1">6. Verify GitHub can deliver to the webhook</a></li>
+<li><a href="#7-prove-the-repository-is-actually-automated_1">7. Prove the repository is actually automated</a></li>
+</ul>
+</li>
+<li><a href="#advanced-usage_1">Advanced Usage</a><ul>
+<li><a href="#add-a-webhook-secret_1">Add a webhook secret</a></li>
+<li><a href="#use-more-than-one-github-token_1">Use more than one GitHub token</a></li>
+<li><a href="#test-locally-with-smeeio_1">Test locally with smee.io</a></li>
+<li><a href="#change-the-bind-address-port-or-worker-count_1">Change the bind address, port, or worker count</a></li>
+<li><a href="#limit-the-events-the-repository-processes_1">Limit the events the repository processes</a></li>
+</ul>
+</li>
+<li><a href="#troubleshooting_1">Troubleshooting</a></li>
 <li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
@@ -440,7 +761,7 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 
         <footer class="page-footer">
 
-            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-version">Generated from version 4.1.0</span>
             <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>

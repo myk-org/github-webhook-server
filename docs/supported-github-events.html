@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supported GitHub Events - github-webhook-server</title>
-    <meta name="description" content="FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.">
+    <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
     <link rel="stylesheet" href="assets/style.css">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="index.html" class="sidebar-logo">github-webhook-server</a>
-            <p class="sidebar-tagline">FastAPI webhook server for automating GitHub repository settings, pull request workflows, checks, releases, and log analysis.</p>
+            <p class="sidebar-tagline">Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.</p>
         </div>
 
         <div class="sidebar-search">
@@ -25,48 +25,13 @@
         <nav class="sidebar-nav">
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Overview</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="introduction.html"
-                           class="nav-link">
-                            Introduction
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="architecture-and-event-flow.html"
-                           class="nav-link">
-                            Architecture and Event Flow
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
                 <h3 class="nav-group-title">Getting Started</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="installation.html"
-                           class="nav-link">
-                            Installation
-                        </a>
-                    </li>
-
-                    <li>
                         <a href="quick-start.html"
                            class="nav-link">
-                            Quick Start
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="docker-deployment.html"
-                           class="nav-link">
-                            Docker and Container Deployment
+                            Start Automating a Repository
                         </a>
                     </li>
 
@@ -74,15 +39,85 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Configuration</h3>
+                <h3 class="nav-group-title">User Guides</h3>
                 <ul class="nav-group-pages">
 
                     <li>
-                        <a href="configuration-model.html"
+                        <a href="configure-repositories.html"
                            class="nav-link">
-                            Configuration Model
+                            Configure Repositories
                         </a>
                     </li>
+
+                    <li>
+                        <a href="set-up-owners-and-reviewers.html"
+                           class="nav-link">
+                            Set Up OWNERS and Review Rules
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="manage-pull-requests.html"
+                           class="nav-link">
+                            Manage Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="run-pull-request-commands.html"
+                           class="nav-link">
+                            Run Pull Request Commands
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="set-up-checks-and-release-workflows.html"
+                           class="nav-link">
+                            Set Up Checks and Release Workflows
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="enable-ai-features.html"
+                           class="nav-link">
+                            Enable AI Features
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="secure-webhooks-and-pull-requests.html"
+                           class="nav-link">
+                            Secure Webhooks and Pull Requests
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="debug-with-the-log-viewer.html"
+                           class="nav-link">
+                            Debug with the Log Viewer
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Recipes</h3>
+                <ul class="nav-group-pages">
+
+                    <li>
+                        <a href="automation-recipes.html"
+                           class="nav-link">
+                            Automate Common Maintainer Tasks
+                        </a>
+                    </li>
+
+                </ul>
+            </div>
+
+            <div class="nav-group">
+                <h3 class="nav-group-title">Reference</h3>
+                <ul class="nav-group-pages">
 
                     <li>
                         <a href="configuration-reference.html"
@@ -92,88 +127,11 @@
                     </li>
 
                     <li>
-                        <a href="repository-overrides.html"
+                        <a href="environment-variables.html"
                            class="nav-link">
-                            Repository Overrides
+                            Environment Variables
                         </a>
                     </li>
-
-                    <li>
-                        <a href="security-configuration.html"
-                           class="nav-link">
-                            Security Configuration
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Guides</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="supported-github-events.html"
-                           class="nav-link active" aria-current="page">
-                            Supported GitHub Events
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="owners-and-reviewer-assignment.html"
-                           class="nav-link">
-                            OWNERS and Reviewer Assignment
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="pull-request-automation.html"
-                           class="nav-link">
-                            Pull Request Automation
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="issue-comment-commands.html"
-                           class="nav-link">
-                            Issue Comment Commands
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="labels-check-runs-and-mergeability.html"
-                           class="nav-link">
-                            Labels, Check Runs, and Mergeability
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="container-and-pypi-workflows.html"
-                           class="nav-link">
-                            Container and PyPI Workflows
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="ai-features-and-test-oracle.html"
-                           class="nav-link">
-                            AI Features and Test Oracle
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="log-viewer-guide.html"
-                           class="nav-link">
-                            Log Viewer Guide
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">API Reference</h3>
-                <ul class="nav-group-pages">
 
                     <li>
                         <a href="webhook-and-health-api.html"
@@ -183,51 +141,16 @@
                     </li>
 
                     <li>
-                        <a href="log-viewer-api.html"
+                        <a href="log-viewer-and-mcp-api.html"
                            class="nav-link">
-                            Log Viewer API
+                            Log Viewer and MCP API
                         </a>
                     </li>
 
                     <li>
-                        <a href="mcp-api.html"
-                           class="nav-link">
-                            MCP API
-                        </a>
-                    </li>
-
-                </ul>
-            </div>
-
-            <div class="nav-group">
-                <h3 class="nav-group-title">Operations</h3>
-                <ul class="nav-group-pages">
-
-                    <li>
-                        <a href="repository-bootstrap-and-github-app.html"
-                           class="nav-link">
-                            Repository Bootstrap and GitHub App
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="logging-and-data-files.html"
-                           class="nav-link">
-                            Logging and Data Files
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="testing-and-maintenance.html"
-                           class="nav-link">
-                            Testing and Maintenance
-                        </a>
-                    </li>
-
-                    <li>
-                        <a href="troubleshooting.html"
-                           class="nav-link">
-                            Troubleshooting
+                        <a href="supported-github-events.html"
+                           class="nav-link active" aria-current="page">
+                            Supported GitHub Events
                         </a>
                     </li>
 
@@ -281,103 +204,18 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="supported-github-events">Supported GitHub Events</h1>
-<p>To automate repository and pull request workflows, the webhook server listens to specific GitHub events. By configuring your GitHub App to send these events, the server can trigger CI/CD builds, label PRs, and enforce mergeability rules.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>A GitHub App installed and configured to deliver webhook payloads.</li>
-<li>Your repository configured in the global configuration file.</li>
-</ul>
-<h2 id="quick-example">Quick Example</h2>
-<p>When configuring your GitHub App, subscribe to the necessary events. You can optionally filter which events a specific repository processes in your configuration:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-org/my-repo</span><span class="p">:</span>
-<span class="w">    </span><span class="c1"># Optional: explicitly filter which events this repository processes</span>
-<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
-</code></pre></div>
-
-<h2 id="step-by-step-event-triggers-and-actions">Step-by-Step: Event Triggers and Actions</h2>
-<p>The server handles specific GitHub events and intentionally skips others to save API rate limits and avoid unnecessary processing.</p>
-<h3 id="1-pull_request">1. <code>pull_request</code></h3>
-<p>Triggers pull request automation workflows.</p>
-<ul>
-<li><strong>Triggers:</strong> Welcome comments, labeling (size, WIP, hold), owner and reviewer assignment, and mergeability checks.</li>
-<li><strong>Skipped:</strong> PRs in a Draft state are ignored immediately (unless explicitly allowed to receive commands, which primarily applies to issue comments).</li>
-</ul>
-<h3 id="2-issue_comment">2. <code>issue_comment</code></h3>
-<p>Triggers ChatOps commands via PR comments.</p>
-<ul>
-<li><strong>Triggers:</strong> User-issued commands such as <code>/retest</code>, <code>/cherry-pick</code>, or <code>/assign-reviewer</code>.</li>
-<li><strong>Skipped:</strong> Commands on Draft PRs are skipped by default.</li>
-</ul>
-<h3 id="3-push">3. <code>push</code></h3>
-<p>Triggers CI/CD actions for repository pushes.</p>
-<ul>
-<li><strong>Triggers:</strong> Tag pushes initiate PyPI package uploads and container build/push workflows.</li>
-<li><strong>Skipped:</strong> Branch pushes and branch/tag deletion events are skipped (no repository clone is performed).</li>
-</ul>
-<h3 id="4-pull_request_review">4. <code>pull_request_review</code></h3>
-<p>Evaluates pull request approval status.</p>
-<ul>
-<li><strong>Triggers:</strong> Re-evaluates whether a PR can be merged by verifying if minimum LGTM/approvals are met from valid <code>OWNERS</code> file approvers.</li>
-</ul>
-<h3 id="5-pull_request_review_thread">5. <code>pull_request_review_thread</code></h3>
-<p>Monitors conversational threads.</p>
-<ul>
-<li><strong>Triggers:</strong> Re-evaluates mergeability based on conversation resolution.</li>
-<li><strong>Skipped:</strong> If the action is not <code>resolved</code> or <code>unresolved</code>, or if the <code>required_conversation_resolution</code> configuration is disabled.</li>
-</ul>
-<h3 id="6-check_run">6. <code>check_run</code></h3>
-<p>Integrates with modern GitHub Check Runs and Test Oracle.</p>
-<ul>
-<li><strong>Triggers:</strong> Updates PR mergeability state when a check run completes.</li>
-<li><strong>Skipped:</strong> Actions other than <code>completed</code> (such as <code>created</code> or <code>requested</code>) are ignored.</li>
-</ul>
-<h3 id="7-status">7. <code>status</code></h3>
-<p>Handles legacy GitHub commit status updates.</p>
-<ul>
-<li><strong>Triggers:</strong> Re-evaluates mergeability upon terminal status states (<code>success</code>, <code>failure</code>, or <code>error</code>).</li>
-<li><strong>Skipped:</strong> Updates with a <code>pending</code> state are intentionally skipped to avoid redundant processing.</li>
-</ul>
-<h3 id="8-ping">8. <code>ping</code></h3>
-<p>Verifies webhook connectivity.</p>
-<ul>
-<li><strong>Triggers:</strong> Logs successful connection and validates webhook delivery. Performs no repository actions.</li>
-</ul>
-<h2 id="advanced-usage">Advanced Usage</h2>
-<h3 id="optimizing-rate-limits">Optimizing Rate Limits</h3>
-<p>Because the server receives a high volume of events, it uses a "fail-fast" optimization strategy. It reads the <code>X-GitHub-Event</code> header and inspects the payload state BEFORE cloning the repository or fetching users via the GitHub API. This prevents burning through rate limits on events that ultimately require no action.</p>
-<h3 id="processing-draft-prs">Processing Draft PRs</h3>
-<p>By default, the server strictly avoids acting on Draft PRs to minimize noise. If your workflow requires ChatOps commands on Draft PRs, configure the <code>allow-commands-on-draft-prs</code> property in your configuration to enable <code>issue_comment</code> event processing for draft states. See <a href="configuration-reference.html">Configuration Reference</a> for details.</p>
-<h2 id="troubleshooting">Troubleshooting</h2>
-<ul>
-<li><strong>Missing Actions on PRs:</strong> If commands or actions are not triggering, ensure your GitHub App is actively subscribed to the <code>issue_comment</code> and <code>pull_request</code> events.</li>
-<li><strong>Draft PR Commands Ignored:</strong> If you expect commands on Draft PRs to work, verify that <code>allow-commands-on-draft-prs</code> is defined as a valid list in your configuration.</li>
-<li><strong>Webhooks Timing Out:</strong> The server is designed to immediately respond with an HTTP 200 OK after basic validation, processing events in the background. If you see GitHub delivery failures, check the <a href="log-viewer-guide.html">Log Viewer Guide</a> using the webhook Delivery ID.</li>
-</ul>
-<p>See <a href="architecture-and-event-flow.html">Architecture and Event Flow</a> for more details on the background processing model.</p>
-<h2 id="related-pages">Related Pages</h2>
-<ul>
-<li><a href="pull-request-automation.html">Pull Request Automation</a></li>
-<li><a href="issue-comment-commands.html">Issue Comment Commands</a></li>
-<li><a href="architecture-and-event-flow.html">Architecture and Event Flow</a></li>
-</ul>
+<p><em>Documentation generation failed. Please re-run.</em></p>
                 </div>
             </article>
             <nav class="page-nav">
 
-                <a href="security-configuration.html" class="page-nav-link page-nav-prev">
+                <a href="log-viewer-and-mcp-api.html" class="page-nav-link page-nav-prev">
                     <span class="page-nav-label">Previous</span>
-                    <span class="page-nav-title">Security Configuration</span>
+                    <span class="page-nav-title">Log Viewer and MCP API</span>
                 </a>
 
 
-                <a href="owners-and-reviewer-assignment.html" class="page-nav-link page-nav-next">
-                    <span class="page-nav-label">Next</span>
-                    <span class="page-nav-title">OWNERS and Reviewer Assignment</span>
-                </a>
+                <div></div>
 
             </nav>
 
@@ -385,28 +223,7 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul>
-<li><a href="#prerequisites">Prerequisites</a></li>
-<li><a href="#quick-example">Quick Example</a></li>
-<li><a href="#step-by-step-event-triggers-and-actions">Step-by-Step: Event Triggers and Actions</a><ul>
-<li><a href="#1-pull_request">1. pull_request</a></li>
-<li><a href="#2-issue_comment">2. issue_comment</a></li>
-<li><a href="#3-push">3. push</a></li>
-<li><a href="#4-pull_request_review">4. pull_request_review</a></li>
-<li><a href="#5-pull_request_review_thread">5. pull_request_review_thread</a></li>
-<li><a href="#6-check_run">6. check_run</a></li>
-<li><a href="#7-status">7. status</a></li>
-<li><a href="#8-ping">8. ping</a></li>
-</ul>
-</li>
-<li><a href="#advanced-usage">Advanced Usage</a><ul>
-<li><a href="#optimizing-rate-limits">Optimizing Rate Limits</a></li>
-<li><a href="#processing-draft-prs">Processing Draft PRs</a></li>
-</ul>
-</li>
-<li><a href="#troubleshooting">Troubleshooting</a></li>
-<li><a href="#related-pages">Related Pages</a></li>
-</ul>
+<ul></ul>
 </div>
 
                 </div>
@@ -417,7 +234,7 @@
 
         <footer class="page-footer">
 
-            <span class="footer-version">Generated from version 4.0.1</span>
+            <span class="footer-version">Generated from version 4.1.0</span>
             <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
