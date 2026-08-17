@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import ipaddress
 import json
 import logging
@@ -26,11 +27,6 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-
-# Import for MCP integration
-from fastapi_mcp import FastApiMCP
-from fastapi_mcp.transport.http import FastApiHttpSessionManager
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
@@ -66,9 +62,10 @@ LOGGER = get_logger_with_params()
 _lifespan_http_client: httpx.AsyncClient | None = None
 _background_tasks: set[asyncio.Task[Any]] = set()
 
-# MCP Globals
+# MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
 http_transport: Any | None = None
 mcp: Any | None = None
+StreamableHTTPSessionManager: Any | None = None
 
 
 class IgnoreMCPClosedResourceErrorFilter(logging.Filter):
@@ -143,7 +140,7 @@ async def require_trusted_network(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    global _lifespan_http_client
+    global _lifespan_http_client, http_transport, mcp, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
@@ -244,27 +241,47 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             )
 
         # Initialize MCP session manager if enabled and configured
-        global http_transport, mcp
         if MCP_SERVER_ENABLED and http_transport is not None and mcp is not None:
-            if http_transport._session_manager is None:
-                http_transport._session_manager = StreamableHTTPSessionManager(
-                    app=mcp.server,
-                    event_store=http_transport.event_store,
-                    json_response=True,
-                    stateless=True,  # Enable stateless mode - no session management required
-                )
+            try:
+                if http_transport._session_manager is None:
+                    session_manager_cls = StreamableHTTPSessionManager
+                    if session_manager_cls is None:
+                        raise RuntimeError("StreamableHTTPSessionManager is not available")
+                    http_transport._session_manager = session_manager_cls(
+                        app=mcp.server,
+                        event_store=http_transport.event_store,
+                        json_response=True,
+                        stateless=True,  # Enable stateless mode - no session management required
+                    )
 
-                async def run_manager() -> None:
-                    if http_transport and http_transport._session_manager:
-                        async with http_transport._session_manager.run():
-                            await asyncio.Event().wait()
+                    async def run_manager() -> None:
+                        if http_transport and http_transport._session_manager:
+                            async with http_transport._session_manager.run():
+                                await asyncio.Event().wait()
 
-                http_transport._manager_task = asyncio.create_task(run_manager())
-                http_transport._manager_started = True
-                LOGGER.info("MCP session manager initialized in lifespan")
+                    manager_task = asyncio.create_task(run_manager())
+                    http_transport._manager_task = manager_task
+                    _background_tasks.add(manager_task)
+                    manager_task.add_done_callback(_background_tasks.discard)
+                    http_transport._manager_started = True
+                    LOGGER.info("MCP session manager initialized in lifespan")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                LOGGER.exception("MCP session manager initialization failed; continuing without MCP")
+                if http_transport is not None:
+                    failed_manager_task = getattr(http_transport, "_manager_task", None)
+                    if failed_manager_task is not None:
+                        failed_manager_task.cancel()
+                        await asyncio.gather(failed_manager_task, return_exceptions=True)
+                    http_transport._session_manager = None
+                    http_transport._manager_started = False
+                    http_transport._manager_task = None
 
         yield
 
+    except asyncio.CancelledError:
+        raise
     except Exception as ex:
         LOGGER.error(f"Application failed during lifespan management: {ex}")
         raise
@@ -280,8 +297,18 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
 
+        if http_transport is not None:
+            shutdown_manager_task = getattr(http_transport, "_manager_task", None)
+            if shutdown_manager_task is not None:
+                shutdown_manager_task.cancel()
+                await asyncio.gather(shutdown_manager_task, return_exceptions=True)
+                _background_tasks.discard(shutdown_manager_task)
+            http_transport._session_manager = None
+            if hasattr(http_transport, "_manager_started"):
+                http_transport._manager_started = False
+            http_transport._manager_task = None
+
         # Optionally wait for pending background tasks for graceful shutdown
-        global _background_tasks
         if _background_tasks:
             LOGGER.info(f"Waiting for {len(_background_tasks)} pending background task(s) to complete...")
             # Wait up to 30 seconds for tasks to complete
@@ -1245,33 +1272,71 @@ async def websocket_log_stream(
     )
 
 
+async def handle_mcp_streamable_http(request: Request) -> Response:
+    """Handle MCP Streamable HTTP requests.
+
+    Session manager is initialized in lifespan. Returns 500 when MCP init failed
+    so the webhook app can still serve other routes.
+    """
+    if http_transport is None or http_transport._session_manager is None:
+        LOGGER.error("MCP session manager not initialized")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized")
+
+    return await http_transport.handle_fastapi_request(request)
+
+
+def _initialize_mcp(app: FastAPI) -> None:
+    """Initialize optional MCP integration.
+
+    Lazy import so MCP dep failure cannot block webhook startup.
+    """
+    global mcp, http_transport, StreamableHTTPSessionManager
+
+    StreamableHTTPSessionManager = None
+    try:
+        fastapi_mcp_mod = importlib.import_module("fastapi_mcp")
+        fastapi_mcp_http_mod = importlib.import_module("fastapi_mcp.transport.http")
+        streamable_http_mod = importlib.import_module("mcp.server.streamable_http_manager")
+        FastApiMCP = fastapi_mcp_mod.FastApiMCP
+        FastApiHttpSessionManager = fastapi_mcp_http_mod.FastApiHttpSessionManager
+        StreamableHTTPSessionManagerClass = streamable_http_mod.StreamableHTTPSessionManager
+
+        StreamableHTTPSessionManager = StreamableHTTPSessionManagerClass
+
+        mcp = FastApiMCP(app, exclude_tags=["mcp_exclude"])
+
+        # Create stateless HTTP transport to avoid session management issues
+        http_transport = FastApiHttpSessionManager(
+            mcp_server=mcp.server,
+            event_store=None,  # No event store needed for stateless mode
+            json_response=True,
+        )
+        # Manually patch to use stateless mode
+        http_transport._session_manager = None  # Force recreation with stateless=True
+
+        LOGGER.info("MCP integration initialized successfully (no authentication configured)")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to initialize MCP server; continuing without MCP")
+        mcp = None
+        http_transport = None
+        StreamableHTTPSessionManager = None
+
+
 # MCP Integration - Only register if ENABLE_MCP_SERVER=true
 if MCP_SERVER_ENABLED:
-    # Create MCP instance with the main app
     # NOTE: No authentication configured - MCP server runs without auth
     # ⚠️ SECURITY WARNING: Deploy only on trusted networks (VPN, internal)
     # Never expose to public internet - use reverse proxy with auth for external access
-    mcp = FastApiMCP(FASTAPI_APP, exclude_tags=["mcp_exclude"])
+    _initialize_mcp(FASTAPI_APP)
 
-    # Create stateless HTTP transport to avoid session management issues
-    # Override with stateless session manager
-    http_transport = FastApiHttpSessionManager(
-        mcp_server=mcp.server,
-        event_store=None,  # No event store needed for stateless mode
-        json_response=True,
+    # Register even if FastApiMCP() failed so /mcp is 500 not 404
+    FASTAPI_APP.add_api_route(
+        "/mcp",
+        handle_mcp_streamable_http,
+        methods=["GET", "POST", "DELETE"],
+        include_in_schema=False,
+        operation_id="mcp_http",
     )
-    # Manually patch to use stateless mode
-    http_transport._session_manager = None  # Force recreation with stateless=True
-
-    # Register the HTTP endpoint manually
-    @FASTAPI_APP.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False, operation_id="mcp_http")
-    async def handle_mcp_streamable_http(request: Request) -> Response:
-        # Session manager is initialized in lifespan
-        if http_transport is None or http_transport._session_manager is None:
-            LOGGER.error("MCP session manager not initialized")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized")
-
-        return await http_transport.handle_fastapi_request(request)
-
-    LOGGER.info("MCP integration initialized successfully (no authentication configured)")
     LOGGER.debug("MCP HTTP endpoint mounted at: /mcp")
