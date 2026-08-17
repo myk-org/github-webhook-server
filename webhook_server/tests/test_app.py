@@ -17,6 +17,7 @@ from webhook_server.app import (
     FASTAPI_APP,
     HTTPException,
     get_log_viewer_controller,
+    healthcheck,
     require_log_server_enabled,
     status,
     websocket_log_stream,
@@ -769,6 +770,70 @@ class TestWebhookApp:
                 # Verify session manager was initialized
                 # The code sets: http_transport._session_manager = StreamableHTTPSessionManager(...)
                 assert mock_transport_instance._manager_started is True
+
+    @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
+    @patch("webhook_server.app.StreamableHTTPSessionManager")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_mcp_init_failure_does_not_raise(self, mock_config: Mock, mock_stream_manager: Mock) -> None:
+        """MCP session-manager failure must not prevent lifespan from yielding."""
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+        mock_stream_manager.side_effect = RuntimeError("MCP session manager boom")
+
+        mock_transport_instance = Mock()
+        mock_transport_instance._session_manager = None
+        mock_transport_instance.event_store = Mock()
+
+        mock_mcp_instance = Mock()
+        mock_mcp_instance.server = Mock()
+
+        with patch("webhook_server.app.http_transport", mock_transport_instance):
+            with patch("webhook_server.app.mcp", mock_mcp_instance):
+                with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                    async with app_module.lifespan(FASTAPI_APP):
+                        health = healthcheck()
+                        assert health["status"] == 200
+                        assert health["message"] == "Alive"
+
+        assert mock_transport_instance._session_manager is None
+
+    @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
+    @patch("webhook_server.app.StreamableHTTPSessionManager")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_mcp_init_partial_failure_resets_session_manager(
+        self, mock_config: Mock, mock_stream_manager: Mock
+    ) -> None:
+        """Session manager construction success then later failure must reset _session_manager."""
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+        mock_stream_manager.return_value = Mock()
+
+        mock_transport_instance = Mock()
+        mock_transport_instance._session_manager = None
+        mock_transport_instance.event_store = Mock()
+        mock_transport_instance._manager_task = None
+        mock_transport_instance._manager_started = False
+
+        mock_mcp_instance = Mock()
+        mock_mcp_instance.server = Mock()
+
+        def _create_task_boom(coro: object, *args: object, **kwargs: object) -> None:
+            close = getattr(coro, "close", None)
+            if close is not None:
+                close()
+            raise RuntimeError("create_task boom")
+
+        with patch("webhook_server.app.http_transport", mock_transport_instance):
+            with patch("webhook_server.app.mcp", mock_mcp_instance):
+                with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                    with patch("webhook_server.app.asyncio.create_task", side_effect=_create_task_boom):
+                        async with app_module.lifespan(FASTAPI_APP):
+                            health = healthcheck()
+                            assert health["status"] == 200
+                            assert health["message"] == "Alive"
+                            assert mock_transport_instance._session_manager is None
+
+        assert mock_transport_instance._session_manager is None
+        assert mock_transport_instance._manager_started is False
+        assert mock_transport_instance._manager_task is None
 
     @patch("webhook_server.app.get_cloudflare_allowlist")
     @patch("webhook_server.app.Config")

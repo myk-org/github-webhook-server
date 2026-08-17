@@ -17,6 +17,12 @@
       "groupName": "python-deps"
     },
     {
+      "description": "mcp 2.x breaks fastapi-mcp 0.4; disable majors so they cannot join python-deps",
+      "matchPackageNames": ["mcp"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["npm"],
       "matchPackageNames": ["@myk-org/pi-sidecar"],
       "groupName": "npm-deps"
