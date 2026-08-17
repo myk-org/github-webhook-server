@@ -766,10 +766,9 @@ class TestWebhookApp:
                     async with app_module.lifespan(FASTAPI_APP):
                         # Give the background task a moment to run
                         await asyncio.sleep(0.01)
-
-                # Verify session manager was initialized
-                # The code sets: http_transport._session_manager = StreamableHTTPSessionManager(...)
-                assert mock_transport_instance._manager_started is True
+                        # Verify session manager was initialized
+                        # The code sets: http_transport._session_manager = StreamableHTTPSessionManager(...)
+                        assert mock_transport_instance._manager_started is True
 
     @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
     @patch("webhook_server.app.StreamableHTTPSessionManager")
@@ -892,6 +891,50 @@ class TestWebhookApp:
         assert mock_transport_instance._manager_task is None
         assert created_tasks
         assert all(task.done() for task in created_tasks)
+
+    @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
+    @patch("webhook_server.app.StreamableHTTPSessionManager")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_mcp_restart_recreates_session_manager(
+        self, mock_config: Mock, mock_stream_manager: Mock
+    ) -> None:
+        """Second lifespan start after shutdown must re-create the MCP session manager."""
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        class _FakeSessionCM:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        mock_stream_manager.return_value.run.return_value = _FakeSessionCM()
+
+        mock_transport_instance = Mock()
+        mock_transport_instance._session_manager = None
+        mock_transport_instance.event_store = Mock()
+        mock_transport_instance._manager_task = None
+        mock_transport_instance._manager_started = False
+
+        mock_mcp_instance = Mock()
+        mock_mcp_instance.server = Mock()
+
+        with patch("webhook_server.app.http_transport", mock_transport_instance):
+            with patch("webhook_server.app.mcp", mock_mcp_instance):
+                with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                    async with app_module.lifespan(FASTAPI_APP):
+                        await asyncio.sleep(0.01)
+                        assert mock_stream_manager.call_count == 1
+                        assert mock_transport_instance._manager_started is True
+
+                    assert mock_transport_instance._session_manager is None
+                    assert mock_transport_instance._manager_started is False
+                    assert mock_transport_instance._manager_task is None
+
+                    async with app_module.lifespan(FASTAPI_APP):
+                        await asyncio.sleep(0.01)
+                        assert mock_stream_manager.call_count == 2
+                        assert mock_transport_instance._manager_started is True
 
     @patch("webhook_server.app.get_cloudflare_allowlist")
     @patch("webhook_server.app.Config")

@@ -302,7 +302,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             if shutdown_manager_task is not None:
                 shutdown_manager_task.cancel()
                 await asyncio.gather(shutdown_manager_task, return_exceptions=True)
-                http_transport._manager_task = None
+                _background_tasks.discard(shutdown_manager_task)
+            http_transport._session_manager = None
+            if hasattr(http_transport, "_manager_started"):
+                http_transport._manager_started = False
+            http_transport._manager_task = None
 
         # Optionally wait for pending background tasks for graceful shutdown
         if _background_tasks:
