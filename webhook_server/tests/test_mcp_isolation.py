@@ -1,5 +1,4 @@
 import asyncio
-import builtins
 import os
 import subprocess
 import sys
@@ -211,27 +210,41 @@ def test_initialize_mcp_failure_does_not_raise() -> None:
 
     assert app_module.mcp is None
     assert app_module.http_transport is None
+    assert app_module.StreamableHTTPSessionManager is None
+
+
+def test_initialize_mcp_clears_session_manager_class_after_fastapi_mcp_failure() -> None:
+    """Import success then FastApiMCP failure must clear StreamableHTTPSessionManager."""
+    modules = _install_fake_mcp_modules()
+    streamable_cls = cast(Any, modules["mcp.server.streamable_http_manager"]).StreamableHTTPSessionManager
+    seen_assigned: list[object] = []
+
+    class BoomFastApiMCP:
+        def __init__(self, app: object, exclude_tags: list[str] | None = None) -> None:
+            seen_assigned.append(app_module.StreamableHTTPSessionManager)
+            raise TypeError("boom after successful import")
+
+    cast(Any, modules["fastapi_mcp"]).FastApiMCP = BoomFastApiMCP
+
+    with patch.dict(sys.modules, modules):
+        app_module._initialize_mcp(FASTAPI_APP)
+
+    assert seen_assigned == [streamable_cls]
+    assert app_module.StreamableHTTPSessionManager is None
+    assert app_module.mcp is None
+    assert app_module.http_transport is None
 
 
 def test_initialize_mcp_import_error_does_not_raise() -> None:
-    real_import = builtins.__import__
-
-    def fake_import(
-        name: str,
-        globals: Any = None,
-        locals: Any = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> Any:
-        if name == "fastapi_mcp" or name.startswith("fastapi_mcp."):
-            raise ImportError("simulated fastapi_mcp import failure")
-        return real_import(name, globals, locals, fromlist, level)
-
-    with patch("builtins.__import__", side_effect=fake_import):
+    with patch(
+        "webhook_server.app.importlib.import_module",
+        side_effect=ImportError("simulated fastapi_mcp import failure"),
+    ):
         app_module._initialize_mcp(FASTAPI_APP)
 
     assert app_module.mcp is None
     assert app_module.http_transport is None
+    assert app_module.StreamableHTTPSessionManager is None
 
 
 def test_initialize_mcp_reraises_cancelled_error() -> None:

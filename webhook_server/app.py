@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import ipaddress
 import json
 import logging
@@ -139,7 +140,7 @@ async def require_trusted_network(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    global _lifespan_http_client
+    global _lifespan_http_client, http_transport, mcp, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
@@ -240,7 +241,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             )
 
         # Initialize MCP session manager if enabled and configured
-        global http_transport, mcp
         if MCP_SERVER_ENABLED and http_transport is not None and mcp is not None:
             try:
                 if http_transport._session_manager is None:
@@ -259,7 +259,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                             async with http_transport._session_manager.run():
                                 await asyncio.Event().wait()
 
-                    http_transport._manager_task = asyncio.create_task(run_manager())
+                    manager_task = asyncio.create_task(run_manager())
+                    http_transport._manager_task = manager_task
+                    _background_tasks.add(manager_task)
+                    manager_task.add_done_callback(_background_tasks.discard)
                     http_transport._manager_started = True
                     LOGGER.info("MCP session manager initialized in lifespan")
             except asyncio.CancelledError:
@@ -267,9 +270,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             except Exception:
                 LOGGER.exception("MCP session manager initialization failed; continuing without MCP")
                 if http_transport is not None:
-                    manager_task = getattr(http_transport, "_manager_task", None)
-                    if manager_task is not None:
-                        manager_task.cancel()
+                    failed_manager_task = getattr(http_transport, "_manager_task", None)
+                    if failed_manager_task is not None:
+                        failed_manager_task.cancel()
+                        await asyncio.gather(failed_manager_task, return_exceptions=True)
                     http_transport._session_manager = None
                     http_transport._manager_started = False
                     http_transport._manager_task = None
@@ -293,8 +297,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
 
+        if http_transport is not None:
+            shutdown_manager_task = getattr(http_transport, "_manager_task", None)
+            if shutdown_manager_task is not None:
+                shutdown_manager_task.cancel()
+                await asyncio.gather(shutdown_manager_task, return_exceptions=True)
+                http_transport._manager_task = None
+
         # Optionally wait for pending background tasks for graceful shutdown
-        global _background_tasks
         if _background_tasks:
             LOGGER.info(f"Waiting for {len(_background_tasks)} pending background task(s) to complete...")
             # Wait up to 30 seconds for tasks to complete
@@ -1278,12 +1288,14 @@ def _initialize_mcp(app: FastAPI) -> None:
     """
     global mcp, http_transport, StreamableHTTPSessionManager
 
+    StreamableHTTPSessionManager = None
     try:
-        from fastapi_mcp import FastApiMCP  # noqa: PLC0415
-        from fastapi_mcp.transport.http import FastApiHttpSessionManager  # noqa: PLC0415
-        from mcp.server.streamable_http_manager import (  # noqa: PLC0415
-            StreamableHTTPSessionManager as StreamableHTTPSessionManagerClass,
-        )
+        fastapi_mcp_mod = importlib.import_module("fastapi_mcp")
+        fastapi_mcp_http_mod = importlib.import_module("fastapi_mcp.transport.http")
+        streamable_http_mod = importlib.import_module("mcp.server.streamable_http_manager")
+        FastApiMCP = fastapi_mcp_mod.FastApiMCP
+        FastApiHttpSessionManager = fastapi_mcp_http_mod.FastApiHttpSessionManager
+        StreamableHTTPSessionManagerClass = streamable_http_mod.StreamableHTTPSessionManager
 
         StreamableHTTPSessionManager = StreamableHTTPSessionManagerClass
 
@@ -1305,6 +1317,7 @@ def _initialize_mcp(app: FastAPI) -> None:
         LOGGER.exception("Failed to initialize MCP server; continuing without MCP")
         mcp = None
         http_transport = None
+        StreamableHTTPSessionManager = None
 
 
 # MCP Integration - Only register if ENABLE_MCP_SERVER=true

@@ -782,6 +782,8 @@ class TestWebhookApp:
         mock_transport_instance = Mock()
         mock_transport_instance._session_manager = None
         mock_transport_instance.event_store = Mock()
+        mock_transport_instance._manager_task = None
+        mock_transport_instance._manager_started = False
 
         mock_mcp_instance = Mock()
         mock_mcp_instance.server = Mock()
@@ -834,6 +836,62 @@ class TestWebhookApp:
         assert mock_transport_instance._session_manager is None
         assert mock_transport_instance._manager_started is False
         assert mock_transport_instance._manager_task is None
+
+    @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
+    @patch("webhook_server.app.StreamableHTTPSessionManager")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_mcp_init_cancels_and_awaits_manager_task(
+        self, mock_config: Mock, mock_stream_manager: Mock
+    ) -> None:
+        """Failure after create_task must cancel and await the manager task."""
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        class _FakeSessionCM:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        mock_stream_manager.return_value.run.return_value = _FakeSessionCM()
+
+        created_tasks: list[asyncio.Task[Any]] = []
+        real_create_task = asyncio.create_task
+
+        def _tracking_create_task(coro: Any, *args: Any, **kwargs: Any) -> asyncio.Task[Any]:
+            task = real_create_task(coro, *args, **kwargs)
+            created_tasks.append(task)
+            return task
+
+        class BoomTransport:
+            def __init__(self) -> None:
+                self._session_manager = None
+                self.event_store = Mock()
+                self._manager_task: asyncio.Task[Any] | None = None
+
+            def __setattr__(self, name: str, value: object) -> None:
+                if name == "_manager_started" and value is True:
+                    raise RuntimeError("boom after manager task created")
+                object.__setattr__(self, name, value)
+
+        mock_transport_instance = BoomTransport()
+        mock_mcp_instance = Mock()
+        mock_mcp_instance.server = Mock()
+
+        with patch("webhook_server.app.http_transport", mock_transport_instance):
+            with patch("webhook_server.app.mcp", mock_mcp_instance):
+                with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                    with patch("webhook_server.app.asyncio.create_task", side_effect=_tracking_create_task):
+                        async with app_module.lifespan(FASTAPI_APP):
+                            health = healthcheck()
+                            assert health["status"] == 200
+                            assert health["message"] == "Alive"
+
+        assert mock_transport_instance._session_manager is None
+        assert mock_transport_instance._manager_started is False
+        assert mock_transport_instance._manager_task is None
+        assert created_tasks
+        assert all(task.done() for task in created_tasks)
 
     @patch("webhook_server.app.get_cloudflare_allowlist")
     @patch("webhook_server.app.Config")
