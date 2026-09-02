@@ -740,25 +740,171 @@ class TestPullRequestHandler:
             mock_issue.edit.assert_called_once_with(state="closed")
 
     @pytest.mark.asyncio
-    async def test_process_opened_or_synchronize_pull_request(
+    async def test_process_opened_or_synchronize_pull_request_skips_ci_for_new_conflict(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        with patch.object(
-            pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()
-        ) as mock_process_verified:
-            with patch.object(
+        conflict_comment = (
+            "⚠️ CI checks were skipped because this pull request has merge conflicts.\n\n"
+            "Please resolve the conflicts (rebase/merge) — checks will run automatically on your next push."
+        )
+
+        with (
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                pull_request_handler.labels_handler, "_add_label", new=AsyncMock(return_value=True)
+            ) as mock_add_label,
+            patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_review_labels,
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+        mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
+        mock_pull_request.create_issue_comment.assert_called_once_with(conflict_comment)
+        mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
+        pull_request_handler.check_run_handler.set_check_queued.assert_not_awaited()
+        pull_request_handler.runner_handler.run_tox.assert_not_awaited()
+        pull_request_handler.owners_file_handler.assign_reviewers.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_opened_or_synchronize_pull_request_deduplicates_conflict_comment(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        with (
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_review_labels,
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+        pull_request_handler.labels_handler._add_label.assert_not_awaited()
+        mock_pull_request.create_issue_comment.assert_not_called()
+        mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
+        pull_request_handler.check_run_handler.set_check_queued.assert_not_awaited()
+        pull_request_handler.runner_handler.run_tox.assert_not_awaited()
+        pull_request_handler.owners_file_handler.assign_reviewers.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_opened_or_synchronize_pull_request_does_not_comment_when_conflict_label_not_added(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        with (
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                pull_request_handler.labels_handler, "_add_label", new=AsyncMock(return_value=False)
+            ) as mock_add_label,
+            patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_review_labels,
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+        mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
+        mock_pull_request.create_issue_comment.assert_not_called()
+        mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
+        pull_request_handler.check_run_handler.set_check_queued.assert_not_awaited()
+        pull_request_handler.runner_handler.run_tox.assert_not_awaited()
+        pull_request_handler.owners_file_handler.assign_reviewers.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_opened_or_synchronize_pull_request_runs_ci_without_conflicts(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        mock_pull_request.mergeable = True
+
+        with (
+            patch.object(
+                pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()
+            ) as mock_process_verified,
+            patch.object(
                 pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()
-            ) as mock_add_assignee:
-                with patch.object(
-                    pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()
-                ) as mock_label:
-                    with patch.object(pull_request_handler.owners_file_handler, "assign_reviewers", new=AsyncMock()):
-                        await pull_request_handler.process_opened_or_synchronize_pull_request(
-                            pull_request=mock_pull_request
-                        )
-                        mock_process_verified.assert_awaited_once_with(pull_request=mock_pull_request)
-                        mock_add_assignee.assert_awaited_once_with(pull_request=mock_pull_request)
-                        mock_label.assert_awaited_once_with(pull_request=mock_pull_request)
+            ) as mock_add_assignee,
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label,
+            patch.object(pull_request_handler.owners_file_handler, "assign_reviewers", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+        mock_process_verified.assert_awaited_once_with(pull_request=mock_pull_request)
+        mock_add_assignee.assert_awaited_once_with(pull_request=mock_pull_request)
+        mock_label.assert_awaited_once_with(pull_request=mock_pull_request)
+        pull_request_handler.check_run_handler.set_check_queued.assert_any_await(name=CAN_BE_MERGED_STR)
+        pull_request_handler.runner_handler.run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+        mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mergeability_api_failure_allows_normal_ci_flow(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        with (
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.github_api_call",
+                new=AsyncMock(side_effect=Exception("GitHub unavailable")),
+            ),
+            patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
+            patch.object(pull_request_handler.owners_file_handler, "assign_reviewers", new=AsyncMock()),
+        ):
+            has_conflicts = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+        assert has_conflicts is False
+        pull_request_handler.logger.exception.assert_called_with(
+            "[TEST] Failed to determine mergeable state; allowing CI to proceed"
+        )
+        pull_request_handler.check_run_handler.set_check_queued.assert_any_await(name=CAN_BE_MERGED_STR)
+        pull_request_handler.runner_handler.run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+        mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pull_request_has_conflicts_polls_until_definitive(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        mock_pull_request.mergeable = None
+        refreshed_pull_request = Mock(mergeable=False)
+        pull_request_handler.repository.get_pull = Mock(return_value=refreshed_pull_request)
+
+        with patch(
+            "webhook_server.libs.handlers.pull_request_handler.TimeoutSampler",
+            side_effect=lambda **kwargs: iter([kwargs["func"]()]),
+        ):
+            result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
+
+        assert result is True
+        pull_request_handler.repository.get_pull.assert_called_with(mock_pull_request.number)
+
+    @pytest.mark.asyncio
+    async def test_pull_request_has_conflicts_treats_timeout_as_unknown(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        mock_pull_request.mergeable = None
+
+        with patch(
+            "webhook_server.libs.handlers.pull_request_handler.TimeoutSampler",
+            side_effect=TimeoutExpiredError("Timed out"),
+        ):
+            result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
+
+        assert result is False
+        pull_request_handler.logger.debug.assert_called_with(
+            "[TEST] PR mergeable status still None after retries; allowing CI to proceed"
+        )
 
     @pytest.mark.asyncio
     async def test_set_pull_request_automerge_enabled(
