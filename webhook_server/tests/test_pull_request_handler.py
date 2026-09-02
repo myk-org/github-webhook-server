@@ -116,11 +116,18 @@ class TestPullRequestHandler:
 
     @pytest.fixture(autouse=True)
     def run_github_calls_inline(self) -> Generator[AsyncMock]:
-        """Run github_api_call callables inline instead of spawning worker threads."""
+        """Run GitHub calls inline, but keep mergeable polling in a worker thread."""
+        real_to_thread = asyncio.to_thread
+
+        async def _run_inline(function: Any, *args: Any, **kwargs: Any) -> Any:
+            if getattr(function, "__name__", None) == "_run_sampler":
+                return await real_to_thread(function, *args, **kwargs)
+            return function(*args, **kwargs)
+
         with patch(
             "asyncio.to_thread",
             new_callable=AsyncMock,
-            side_effect=lambda function, *args, **kwargs: function(*args, **kwargs),
+            side_effect=_run_inline,
         ) as mock_to_thread:
             yield mock_to_thread
 
@@ -1040,7 +1047,7 @@ class TestPullRequestHandler:
         assert result is True
         assert pull_request_handler.repository.get_pull.call_count == 2
         pull_request_handler.repository.get_pull.assert_called_with(mock_pull_request.number)
-        assert run_github_calls_inline.await_count == 3
+        assert run_github_calls_inline.await_count == 5
         mock_async_sleep.assert_not_awaited()
 
     @pytest.mark.asyncio

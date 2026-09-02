@@ -10,9 +10,7 @@ from typing import TYPE_CHECKING, Any
 from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from timeout_sampler import ExceptionsDict, TimeoutExpiredError, TimeoutSampler
-from urllib3.exceptions import MaxRetryError, ResponseError
+from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -1144,21 +1142,22 @@ For more information, please refer to the project documentation or contact the m
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            retryable_exceptions: ExceptionsDict = {
-                GithubException: [
-                    lambda exception: (
-                        isinstance(exception, GithubException) and exception.status in {500, 502, 503, 504}
+
+            def _refresh_mergeable() -> bool | None:
+                # This runs in the sampler's worker thread, which has no running
+                # event loop. Bridge to the async retry wrapper for each refresh.
+                return asyncio.run(
+                    github_api_call(
+                        lambda: self.github_webhook.repository.get_pull(pr_number).mergeable,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
                     )
-                ],
-                RequestsConnectionError: [],
-                MaxRetryError: [],
-                ResponseError: [],
-            }
+                )
+
             sampler = TimeoutSampler(
                 wait_timeout=30,
                 sleep=5,
-                func=lambda: self.github_webhook.repository.get_pull(pr_number).mergeable,
-                exceptions_dict=retryable_exceptions,
+                func=_refresh_mergeable,
             )
 
             def _run_sampler() -> bool | None:
