@@ -116,12 +116,9 @@ class TestPullRequestHandler:
 
     @pytest.fixture(autouse=True)
     def run_github_calls_inline(self) -> Generator[AsyncMock]:
-        """Run GitHub calls inline, but keep mergeable polling in a worker thread."""
-        real_to_thread = asyncio.to_thread
+        """Run GitHub calls inline."""
 
         async def _run_inline(function: Any, *args: Any, **kwargs: Any) -> Any:
-            if getattr(function, "__name__", None) == "_run_sampler":
-                return await real_to_thread(function, *args, **kwargs)
             return function(*args, **kwargs)
 
         with patch(
@@ -1021,12 +1018,14 @@ class TestPullRequestHandler:
     async def test_get_definitive_mergeable_reraises_cancellation(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        with patch(
-            "webhook_server.libs.handlers.pull_request_handler.github_api_call",
-            new=AsyncMock(side_effect=asyncio.CancelledError),
-        ):
+        mock_pull_request.mergeable = None
+        pull_request_handler.repository.get_pull.return_value = Mock(mergeable=None)
+
+        with patch("asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
             with pytest.raises(asyncio.CancelledError):
                 await pull_request_handler._get_definitive_mergeable(pull_request=mock_pull_request)
+
+        pull_request_handler.repository.get_pull.assert_called_once_with(mock_pull_request.number)
 
     @pytest.mark.asyncio
     async def test_pull_request_has_conflicts_polls_until_definitive(
@@ -1038,17 +1037,14 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = None
         pull_request_handler.repository.get_pull.side_effect = [Mock(mergeable=None), Mock(mergeable=False)]
 
-        with (
-            patch("asyncio.sleep", new_callable=AsyncMock) as mock_async_sleep,
-            patch("timeout_sampler.time.sleep"),
-        ):
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_async_sleep:
             result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
 
         assert result is True
         assert pull_request_handler.repository.get_pull.call_count == 2
         pull_request_handler.repository.get_pull.assert_called_with(mock_pull_request.number)
-        assert run_github_calls_inline.await_count == 5
-        mock_async_sleep.assert_not_awaited()
+        assert run_github_calls_inline.await_count == 4
+        mock_async_sleep.assert_awaited_once_with(5)
 
     @pytest.mark.asyncio
     async def test_get_definitive_mergeable_retries_transient_github_error(
@@ -1060,11 +1056,12 @@ class TestPullRequestHandler:
             Mock(mergeable=True),
         ]
 
-        with patch("timeout_sampler.time.sleep"):
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_async_sleep:
             result = await pull_request_handler._get_definitive_mergeable(pull_request=mock_pull_request)
 
         assert result is True
         assert pull_request_handler.repository.get_pull.call_count == 2
+        mock_async_sleep.assert_awaited_once_with(2)
 
     @pytest.mark.asyncio
     async def test_pull_request_has_conflicts_treats_bounded_polling_unknown_as_no_conflict(
@@ -1072,19 +1069,19 @@ class TestPullRequestHandler:
     ) -> None:
         mock_pull_request.mergeable = None
         pull_request_handler.repository.get_pull.return_value = Mock(mergeable=None)
-        timeout_watch = Mock()
-        timeout_watch.remaining_time.side_effect = [30, 30] * 6 + [0, 0]
+        loop = Mock()
+        loop.time.side_effect = [0, 0, 5, 10, 15, 20, 25, 30]
 
         with (
-            patch("timeout_sampler.TimeoutWatch", return_value=timeout_watch),
-            patch("timeout_sampler.time.sleep") as mock_sleep,
+            patch("asyncio.get_running_loop", return_value=loop),
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
             result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
 
         assert result is False
         assert pull_request_handler.repository.get_pull.call_count == 6
-        assert mock_sleep.call_count == 6
-        mock_sleep.assert_called_with(5)
+        assert mock_sleep.await_count == 6
+        mock_sleep.assert_awaited_with(5)
         pull_request_handler.logger.debug.assert_called_with(
             "[TEST] PR mergeable status still None after retries; allowing CI to proceed"
         )
