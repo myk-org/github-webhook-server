@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING, Any
 from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from timeout_sampler import ExceptionsDict, TimeoutExpiredError, TimeoutSampler
+from urllib3.exceptions import MaxRetryError, ResponseError
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -1141,20 +1144,34 @@ For more information, please refer to the project documentation or contact the m
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            loop = asyncio.get_event_loop()
-            deadline = loop.time() + 30
+            retryable_exceptions: ExceptionsDict = {
+                GithubException: [
+                    lambda exception: (
+                        isinstance(exception, GithubException) and exception.status in {500, 502, 503, 504}
+                    )
+                ],
+                RequestsConnectionError: [],
+                MaxRetryError: [],
+                ResponseError: [],
+            }
+            sampler = TimeoutSampler(
+                wait_timeout=30,
+                sleep=5,
+                func=lambda: self.github_webhook.repository.get_pull(pr_number).mergeable,
+                exceptions_dict=retryable_exceptions,
+            )
 
-            while loop.time() < deadline:
-                sample = await github_api_call(
-                    lambda: self.github_webhook.repository.get_pull(pr_number).mergeable,
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
-                if sample is not None:
-                    return sample
-                await asyncio.sleep(5)
+            def _run_sampler() -> bool | None:
+                try:
+                    for sample in sampler:
+                        if sample is not None:
+                            return sample
+                except TimeoutExpiredError:
+                    return None
+                return None
 
-            return None
+            mergeable = await asyncio.to_thread(_run_sampler)
+            return mergeable
         except asyncio.CancelledError:
             raise
 
@@ -1204,17 +1221,24 @@ For more information, please refer to the project documentation or contact the m
                     logger=self.logger,
                     log_prefix=self.log_prefix,
                 )
-                existing_comment_bodies = await asyncio.gather(
+                existing_comment_data = await asyncio.gather(
                     *(
                         github_api_call(
-                            lambda comment=comment: comment.body,
+                            lambda comment=comment: (comment.body, comment.user.login),
                             logger=self.logger,
                             log_prefix=self.log_prefix,
                         )
                         for comment in existing_comments
                     )
                 )
-                if not any(body is not None and CONFLICT_COMMENT_MARKER in body for body in existing_comment_bodies):
+                trusted = set(self.github_webhook.security_trusted_committers or [])
+                if self.github_webhook.app_bot_login:
+                    trusted.add(self.github_webhook.app_bot_login.strip().lower())
+                # An empty trusted set intentionally validates no markers, preventing user spoofing.
+                if not any(
+                    body is not None and CONFLICT_COMMENT_MARKER in body and author_login.lower() in trusted
+                    for body, author_login in existing_comment_data
+                ):
                     # Best-effort marker deduplication; concurrent deliveries are not serialized.
                     await github_api_call(
                         pull_request.create_issue_comment,

@@ -39,6 +39,10 @@ extra_checks = true
 warn_unused_configs = true
 warn_redundant_casts = true
 
+[[tool.mypy.overrides]]
+module = ["timeout_sampler"]
+ignore_missing_imports = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["webhook_server"]
 
