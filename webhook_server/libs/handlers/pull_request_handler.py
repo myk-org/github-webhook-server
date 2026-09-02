@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
-from timeout_sampler import TimeoutExpiredError, TimeoutSampler  # type: ignore[import-untyped]
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -53,6 +52,7 @@ if TYPE_CHECKING:
     from webhook_server.utils.context import WebhookContext
 
 _background_tasks: set[asyncio.Task[None]] = set()
+CONFLICT_COMMENT_MARKER = "<!-- webhook-server:ci-skipped-conflicts -->"
 
 
 class PullRequestHandler:
@@ -267,17 +267,19 @@ class PullRequestHandler:
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
+            workflow_result_index = len(tasks)
             tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+            skipped_due_to_conflicts = results[workflow_result_index] is True
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
 
-            if hook_action == "opened":
+            if hook_action == "opened" and not skipped_due_to_conflicts:
                 task = asyncio.create_task(
                     call_test_oracle(
                         github_webhook=self.github_webhook,
@@ -306,27 +308,31 @@ class PullRequestHandler:
                         pull_request=pull_request, is_clean_rebase=True, label_names=label_names
                     ),
                 ]
+                workflow_result_index = 1
             else:
                 sync_tasks = [
                     self.process_opened_or_synchronize_pull_request(pull_request=pull_request, is_clean_rebase=False),
                     self.remove_labels_when_pull_request_sync(pull_request=pull_request),
                 ]
+                workflow_result_index = 0
 
             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+            skipped_due_to_conflicts = results[workflow_result_index] is True
 
-            task = asyncio.create_task(
-                call_test_oracle(
-                    github_webhook=self.github_webhook,
-                    pull_request=pull_request,
-                    trigger="pr-synchronized",
+            if not skipped_due_to_conflicts:
+                task = asyncio.create_task(
+                    call_test_oracle(
+                        github_webhook=self.github_webhook,
+                        pull_request=pull_request,
+                        trigger="pr-synchronized",
+                    )
                 )
-            )
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
             if self.ctx:
                 self.ctx.complete_step("pr_handler", action=hook_action)
@@ -1118,78 +1124,111 @@ For more information, please refer to the project documentation or contact the m
         )
         await github_api_call(matching_issue.edit, state="closed", logger=self.logger, log_prefix=self.log_prefix)
 
+    async def _get_definitive_mergeable(self, pull_request: PullRequest) -> bool | None:
+        """Return GitHub's mergeable state, or ``None`` after a bounded wait."""
+        try:
+            mergeable = await github_api_call(
+                lambda: pull_request.mergeable,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            if mergeable is not None:
+                return mergeable
+
+            self.logger.debug(f"{self.log_prefix} PR mergeable status is None, polling until GitHub computes status")
+            pr_number = await github_api_call(
+                lambda: pull_request.number,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + 30
+
+            while loop.time() < deadline:
+                sample = await github_api_call(
+                    lambda: self.github_webhook.repository.get_pull(pr_number).mergeable,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                if sample is not None:
+                    return sample
+                await asyncio.sleep(5)
+
+            return None
+        except asyncio.CancelledError:
+            raise
+
     async def _pull_request_has_conflicts(self, pull_request: PullRequest) -> bool:
         """Return whether GitHub definitively reports merge conflicts.
 
-        Return ``True`` only when GitHub reports ``mergeable=False``. If the
-        status is ``None``, poll for up to 30 seconds for a definitive value.
-        An unknown status, timeout, or API failure returns ``False`` so CI can
-        proceed instead of blocking the workflow on an indeterminate GitHub
-        state. Thus, ``False`` intentionally means either no conflicts or that
-        the mergeable state could not be determined.
+        ``None`` after bounded polling and API failures fail open, returning
+        ``False`` so CI proceeds when GitHub's mergeable state is unknown.
         """
         try:
-            mergeable = await github_api_call(
-                lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix
-            )
-            if mergeable is not None:
-                return mergeable is False
-
-            self.logger.debug(f"{self.log_prefix} PR mergeable status is None, polling until GitHub computes status")
-            pr_number = pull_request.number
-            repository = self.github_webhook.repository
-
-            def _poll_mergeable() -> bool | None:
-                for sample in TimeoutSampler(
-                    wait_timeout=30,
-                    sleep=5,
-                    func=lambda: repository.get_pull(pr_number).mergeable,
-                ):
-                    if sample is not None:
-                        return sample
-                return None  # pragma: no cover
-
-            mergeable = await github_api_call(_poll_mergeable, logger=self.logger, log_prefix=self.log_prefix)
+            mergeable = await self._get_definitive_mergeable(pull_request=pull_request)
+            if mergeable is None:
+                self.logger.debug(
+                    f"{self.log_prefix} PR mergeable status still None after retries; allowing CI to proceed"
+                )
+            return mergeable is False
         except asyncio.CancelledError:
             raise
-        except TimeoutExpiredError:
-            self.logger.debug(f"{self.log_prefix} PR mergeable status still None after retries; allowing CI to proceed")
-            return False
         except Exception:
             self.logger.exception(f"{self.log_prefix} Failed to determine mergeable state; allowing CI to proceed")
             return False
 
-        if mergeable is None:
-            self.logger.debug(f"{self.log_prefix} PR mergeable status still None after retries; allowing CI to proceed")
-            return False
-
-        return mergeable is False
-
     async def process_opened_or_synchronize_pull_request(
         self, pull_request: PullRequest, is_clean_rebase: bool = False, label_names: list[str] | None = None
-    ) -> None:
+    ) -> bool:
+        """Run the pull request workflow and report whether conflicts skipped CI."""
         if self.ctx:
             self.ctx.start_step("pr_workflow_setup")
 
         has_conflicts = await self._pull_request_has_conflicts(pull_request=pull_request)
         if has_conflicts:
-            current_labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
-            conflicts_label_present = HAS_CONFLICTS_LABEL_STR in current_labels
+            label_status = "notification unavailable"
+            try:
+                current_labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
+                conflicts_label_present = HAS_CONFLICTS_LABEL_STR in current_labels
 
-            label_added = False
-            if not conflicts_label_present:
-                label_added = await self.labels_handler._add_label(
-                    pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR
+                if conflicts_label_present:
+                    label_status = "already present"
+                else:
+                    label_added = await self.labels_handler._add_label(
+                        pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR
+                    )
+                    label_status = "added" if label_added else "not added"
+
+                existing_comments = await github_api_call(
+                    lambda: list(pull_request.get_issue_comments()),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
-                if label_added:
+                existing_comment_bodies = await asyncio.gather(
+                    *(
+                        github_api_call(
+                            lambda comment=comment: comment.body,
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
+                        for comment in existing_comments
+                    )
+                )
+                if not any(body is not None and CONFLICT_COMMENT_MARKER in body for body in existing_comment_bodies):
+                    # Best-effort marker deduplication; concurrent deliveries are not serialized.
                     await github_api_call(
                         pull_request.create_issue_comment,
+                        body=f"{CONFLICT_COMMENT_MARKER}\n"
                         "⚠️ CI checks were skipped because this pull request has merge conflicts.\n\n"
                         "Please resolve the conflicts (rebase/merge) — checks will run "
                         "automatically on your next push.",
                         logger=self.logger,
                         log_prefix=self.log_prefix,
                     )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Failed to notify pull request about merge conflicts")
 
             # Conflicted PRs bypass the normal workflow below; clear stale review-attribution labels
             # (approved/commented/changes-requested/lgtm) as a normal new commit would. On non-clean
@@ -1197,16 +1236,12 @@ For more information, please refer to the project documentation or contact the m
             # idempotent.
             await self.remove_labels_when_pull_request_sync(pull_request=pull_request)
 
-            if conflicts_label_present:
-                label_status = "already present"
-            else:
-                label_status = "added" if label_added else "not added"
             self.logger.info(
                 f"{self.log_prefix} PR has merge conflicts; skipping all CI checks. has-conflicts label {label_status}."
             )
             if self.ctx:
                 self.ctx.complete_step("pr_workflow_setup", skipped_due_to_conflicts=True)
-            return
+            return True
 
         # Stage 1: Initial setup and check queue tasks
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
@@ -1310,6 +1345,8 @@ For more information, please refer to the project documentation or contact the m
 
         if self.ctx:
             self.ctx.complete_step("pr_cicd_execution")
+
+        return False
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
@@ -1563,39 +1600,16 @@ For more information, please refer to the project documentation or contact the m
             has_conflicts_label_exists = HAS_CONFLICTS_LABEL_STR in current_labels
             needs_rebase_label_exists = NEEDS_REBASE_LABEL_STR in current_labels
 
-            # Step 1: Check for conflicts first
-            # GitHub may return mergeable=None while computing - poll until definitive
-            mergeable = await github_api_call(
-                lambda: pull_request.mergeable, logger=self.logger, log_prefix=self.log_prefix
-            )
+            # Step 1: Check for conflicts first. GitHub may return mergeable=None
+            # while computing, so use the shared bounded poll for a definitive value.
+            mergeable = await self._get_definitive_mergeable(pull_request=pull_request)
 
             if mergeable is None:
-                self.logger.debug(
-                    f"{self.log_prefix} PR mergeable status is None, polling until GitHub computes status"
+                self.logger.warning(
+                    f"{self.log_prefix} PR mergeable status still None after retries, skipping label update"
                 )
-                pr_number = pull_request.number
-                repository = self.github_webhook.repository
-
-                def _poll_mergeable() -> bool | None:
-                    for sample in TimeoutSampler(
-                        wait_timeout=30,
-                        sleep=5,
-                        func=lambda: repository.get_pull(pr_number).mergeable,
-                    ):
-                        if sample is not None:
-                            return sample
-                    return None  # pragma: no cover
-
-                try:
-                    mergeable = await github_api_call(_poll_mergeable, logger=self.logger, log_prefix=self.log_prefix)
-                except asyncio.CancelledError:
-                    raise
-                except TimeoutExpiredError:
-                    self.logger.warning(
-                        f"{self.log_prefix} PR mergeable status still None after retries, skipping label update"
-                    )
-                    if self.ctx:
-                        self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
+                if self.ctx:
+                    self.ctx.complete_step("label_merge_state", mergeable_unknown=True)
 
             if mergeable is not None:
                 has_conflicts = mergeable is False
