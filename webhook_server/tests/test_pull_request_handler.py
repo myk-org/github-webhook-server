@@ -91,6 +91,8 @@ def _create_mock_github_webhook() -> Mock:
     mock_webhook.security_suspicious_paths = []
     mock_webhook.security_committer_identity_check = True
     mock_webhook.security_mandatory = True
+    mock_webhook.security_trusted_committers = ["github-webhook[bot]"]
+    mock_webhook.app_bot_login = "github-webhook[bot]"
     mock_webhook.last_committer = "test-user"
     mock_webhook.welcome_extra_info = ""
     mock_webhook.config = Mock()
@@ -780,10 +782,27 @@ class TestPullRequestHandler:
         pull_request_handler.owners_file_handler.assign_reviewers.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_process_opened_or_synchronize_pull_request_deduplicates_conflict_comment_by_marker(
-        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    @pytest.mark.parametrize(
+        ("trusted_committers", "app_bot_login"),
+        [
+            (["github-webhook[bot]"], ""),
+            ([], " GitHub-Webhook[bot] "),
+        ],
+        ids=["trusted-committer", "app-bot-fallback"],
+    )
+    async def test_process_opened_or_synchronize_pull_request_deduplicates_trusted_conflict_comment(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        trusted_committers: list[str],
+        app_bot_login: str,
     ) -> None:
-        existing_comment = Mock(body=f"Previously posted\n{CONFLICT_COMMENT_MARKER}")
+        pull_request_handler.github_webhook.security_trusted_committers = trusted_committers
+        pull_request_handler.github_webhook.app_bot_login = app_bot_login
+        existing_comment = Mock(
+            body=f"Previously posted\n{CONFLICT_COMMENT_MARKER}",
+            user=Mock(login="GitHub-Webhook[bot]"),
+        )
         mock_pull_request.get_issue_comments.return_value = [existing_comment]
 
         with (
@@ -807,10 +826,53 @@ class TestPullRequestHandler:
         mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("trusted_committers", "app_bot_login"),
+        [
+            (["github-webhook[bot]"], "github-webhook[bot]"),
+            ([], ""),
+        ],
+        ids=["configured-trusted-identities", "no-trusted-identities"],
+    )
+    async def test_untrusted_conflict_marker_does_not_suppress_authoritative_comment(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        trusted_committers: list[str],
+        app_bot_login: str,
+    ) -> None:
+        pull_request_handler.github_webhook.security_trusted_committers = trusted_committers
+        pull_request_handler.github_webhook.app_bot_login = app_bot_login
+        mock_pull_request.get_issue_comments.return_value = [
+            Mock(body=f"Spoofed marker\n{CONFLICT_COMMENT_MARKER}", user=Mock(login="untrusted-user"))
+        ]
+
+        with (
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()),
+        ):
+            skipped = await pull_request_handler.process_opened_or_synchronize_pull_request(
+                pull_request=mock_pull_request
+            )
+
+        assert skipped is True
+        comment_body = mock_pull_request.create_issue_comment.call_args.kwargs["body"]
+        assert CONFLICT_COMMENT_MARKER in comment_body
+
+    @pytest.mark.asyncio
     async def test_existing_conflict_label_without_marker_still_gets_comment(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        mock_pull_request.get_issue_comments.return_value = [Mock(body="A different bot comment")]
+        pull_request_handler.github_webhook.security_trusted_committers = ["github-webhook[bot]"]
+        pull_request_handler.github_webhook.app_bot_login = "github-webhook[bot]"
+        mock_pull_request.get_issue_comments.return_value = [
+            Mock(body="A different bot comment", user=Mock(login="github-webhook[bot]"))
+        ]
 
         with (
             patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
@@ -961,16 +1023,41 @@ class TestPullRequestHandler:
 
     @pytest.mark.asyncio
     async def test_pull_request_has_conflicts_polls_until_definitive(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        run_github_calls_inline: AsyncMock,
+    ) -> None:
+        mock_pull_request.mergeable = None
+        pull_request_handler.repository.get_pull.side_effect = [Mock(mergeable=None), Mock(mergeable=False)]
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_async_sleep,
+            patch("timeout_sampler.time.sleep"),
+        ):
+            result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
+
+        assert result is True
+        assert pull_request_handler.repository.get_pull.call_count == 2
+        pull_request_handler.repository.get_pull.assert_called_with(mock_pull_request.number)
+        assert run_github_calls_inline.await_count == 3
+        mock_async_sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_definitive_mergeable_retries_transient_github_error(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         mock_pull_request.mergeable = None
-        refreshed_pull_request = Mock(mergeable=False)
-        pull_request_handler.repository.get_pull = Mock(return_value=refreshed_pull_request)
+        pull_request_handler.repository.get_pull.side_effect = [
+            GithubException(status=503, data={"message": "Service unavailable"}),
+            Mock(mergeable=True),
+        ]
 
-        result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
+        with patch("timeout_sampler.time.sleep"):
+            result = await pull_request_handler._get_definitive_mergeable(pull_request=mock_pull_request)
 
         assert result is True
-        pull_request_handler.repository.get_pull.assert_called_once_with(mock_pull_request.number)
+        assert pull_request_handler.repository.get_pull.call_count == 2
 
     @pytest.mark.asyncio
     async def test_pull_request_has_conflicts_treats_bounded_polling_unknown_as_no_conflict(
@@ -978,19 +1065,19 @@ class TestPullRequestHandler:
     ) -> None:
         mock_pull_request.mergeable = None
         pull_request_handler.repository.get_pull.return_value = Mock(mergeable=None)
-        loop = Mock()
-        loop.time.side_effect = [0, 0, 5, 10, 15, 20, 25, 30]
+        timeout_watch = Mock()
+        timeout_watch.remaining_time.side_effect = [30, 30] * 6 + [0, 0]
 
         with (
-            patch("asyncio.get_event_loop", return_value=loop),
-            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("timeout_sampler.TimeoutWatch", return_value=timeout_watch),
+            patch("timeout_sampler.time.sleep") as mock_sleep,
         ):
             result = await pull_request_handler._pull_request_has_conflicts(pull_request=mock_pull_request)
 
         assert result is False
         assert pull_request_handler.repository.get_pull.call_count == 6
-        assert mock_sleep.await_count == 6
-        mock_sleep.assert_awaited_with(5)
+        assert mock_sleep.call_count == 6
+        mock_sleep.assert_called_with(5)
         pull_request_handler.logger.debug.assert_called_with(
             "[TEST] PR mergeable status still None after retries; allowing CI to proceed"
         )
