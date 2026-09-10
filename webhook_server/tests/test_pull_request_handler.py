@@ -874,6 +874,9 @@ class TestPullRequestHandler:
             return_value=({}, {"behind_by": 5, "status": "behind"})
         )
 
+        async def run_synchronously(func: Any, *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
         with (
             patch.object(
                 pull_request_handler.labels_handler,
@@ -882,6 +885,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
             patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch("asyncio.to_thread", new=AsyncMock(side_effect=run_synchronously)),
         ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
 
