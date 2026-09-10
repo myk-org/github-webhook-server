@@ -874,7 +874,7 @@ class TestPullRequestHandler:
             return_value=({}, {"behind_by": 5, "status": "behind"})
         )
 
-        async def run_synchronously(func: Any, *args: Any, **kwargs: Any) -> Any:
+        def run_synchronously(func: Any, *args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
 
         with (
