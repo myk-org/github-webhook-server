@@ -1535,6 +1535,11 @@ For more information, please refer to the project documentation or contact the m
             else:
                 self.logger.debug(f"{self.log_prefix} Mergeable status unknown, skipping has-conflicts label update")
 
+            if not self.labels_handler.is_label_enabled(NEEDS_REBASE_LABEL_STR):
+                if self.ctx:
+                    self.ctx.complete_step("label_merge_state", has_conflicts=False)
+                return
+
             # Step 3: Check if needs rebase via Compare API
             base_ref, head_user_login, head_ref = await asyncio.gather(
                 github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix),

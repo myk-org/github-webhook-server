@@ -270,6 +270,8 @@ properties:
         type: array
         description: |
           List of label categories to enable. If not set, all labels are enabled.
+          When specified, omitting needs-rebase disables automatic needs-rebase additions
+          and removals; if omitted, needs-rebase remains enabled by default.
           Categories: verified, hold, wip, needs-rebase, has-conflicts, can-be-merged,
           size, branch, cherry-pick, automerge.
           Note: reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
@@ -594,6 +596,8 @@ properties:
               type: array
               description: |
                 List of label categories to enable. If not set, all labels are enabled.
+                When specified, omitting needs-rebase disables automatic needs-rebase additions
+                and removals; if omitted, needs-rebase remains enabled by default.
                 Categories: verified, hold, wip, needs-rebase, has-conflicts, can-be-merged,
                 size, branch, cherry-pick, automerge.
                 Note: reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
