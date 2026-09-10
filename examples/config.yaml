@@ -55,6 +55,7 @@ cherry-pick-assign-to-pr-author: true # Default: true - assign cherry-pick PRs t
 labels:
   # Optional: List of label categories to enable
   # If not set, all labels are enabled. If set, only listed categories are enabled.
+  # Omitting needs-rebase here disables automatic needs-rebase additions and removals; it remains enabled by default when enabled-labels is omitted.
   # Note: reviewed-by labels (approved-*, lgtm-*, etc.) are always enabled and cannot be disabled
   enabled-labels:
     - verified
@@ -274,6 +275,7 @@ repositories:
       - build-and-push-container # Allow building containers on draft PRs
 
     # Repository-specific labels configuration (overrides global)
+    # Omitting needs-rebase from enabled-labels disables automatic needs-rebase additions and removals; omitting enabled-labels keeps it enabled by default.
     labels:
       enabled-labels:
         - verified

@@ -136,6 +136,7 @@ class TestPullRequestHandler:
         handler.labels_handler.add_size_label = AsyncMock()
         handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
         handler.labels_handler.wip_or_hold_labels_exists = Mock(return_value=False)
+        handler.labels_handler.is_label_enabled = Mock(return_value=True)
 
         handler.check_run_handler = Mock()
         handler.check_run_handler.set_check_queued = AsyncMock()
@@ -857,6 +858,39 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_skips_disabled_needs_rebase_label(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test needs-rebase is not changed when its label category is disabled."""
+        pull_request_handler.github_webhook.enabled_labels = {"has-conflicts"}
+        pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=False)
+        mock_pull_request.mergeable = True
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(
+            return_value=({}, {"behind_by": 5, "status": "behind"})
+        )
+
+        def run_synchronously(func: Any, *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+            patch("asyncio.to_thread", new=AsyncMock(side_effect=run_synchronously)),
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+
+        assert all(args.kwargs["label"] != NEEDS_REBASE_LABEL_STR for args in mock_add_label.await_args_list)
+        assert all(args.kwargs["label"] != NEEDS_REBASE_LABEL_STR for args in mock_remove_label.await_args_list)
 
     @pytest.mark.asyncio
     async def test_label_pull_request_by_merge_state_has_conflicts(
