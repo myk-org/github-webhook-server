@@ -1166,24 +1166,19 @@ For more information, please refer to the project documentation or contact the m
         except asyncio.CancelledError:
             raise
 
-    async def _pull_request_has_conflicts(self, pull_request: PullRequest) -> bool:
-        """Return whether GitHub definitively reports merge conflicts.
-
-        ``None`` after bounded polling and API failures fail open, returning
-        ``False`` so CI proceeds when GitHub's mergeable state is unknown.
-        """
+    async def _pull_request_has_conflicts(self, pull_request: PullRequest) -> bool | None:
+        """Return whether GitHub definitively reports merge conflicts, or ``None`` if unknown."""
         try:
             mergeable = await self._get_definitive_mergeable(pull_request=pull_request)
-            if mergeable is None:
-                self.logger.debug(
-                    f"{self.log_prefix} PR mergeable status still None after retries; allowing CI to proceed"
-                )
-            return mergeable is False
+            if not isinstance(mergeable, bool):
+                self.logger.debug(f"{self.log_prefix} PR mergeable status still None after retries; skipping CI")
+                return None
+            return not mergeable
         except asyncio.CancelledError:
             raise
         except Exception:
-            self.logger.exception(f"{self.log_prefix} Failed to determine mergeable state; allowing CI to proceed")
-            return False
+            self.logger.exception(f"{self.log_prefix} Failed to determine mergeable state; skipping CI")
+            return None
 
     async def _handle_conflicted_pull_request(self, pull_request: PullRequest, cleanup_labels: bool = True) -> None:
         label_status = "notification unavailable"
@@ -1213,7 +1208,12 @@ For more information, please refer to the project documentation or contact the m
             self.logger.exception(f"{self.log_prefix} Failed to notify pull request about merge conflicts")
 
         if cleanup_labels:
-            await self.remove_labels_when_pull_request_sync(pull_request=pull_request)
+            try:
+                await self.remove_labels_when_pull_request_sync(pull_request=pull_request)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Failed to clean up labels after merge conflicts")
 
         self.logger.info(
             f"{self.log_prefix} PR has merge conflicts; skipping all CI checks. has-conflicts label {label_status}."
@@ -1222,7 +1222,7 @@ For more information, please refer to the project documentation or contact the m
             self.ctx.complete_step("pr_workflow_setup", skipped_due_to_conflicts=True)
 
     async def _queue_pull_request_setup_tasks(
-        self, pull_request: PullRequest, is_clean_rebase: bool, label_names: list[str] | None
+        self, pull_request: PullRequest, is_clean_rebase: bool, label_names: list[str] | None, mergeable: bool
     ) -> None:
         # Stage 1: Initial setup and check queue tasks
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
@@ -1234,7 +1234,7 @@ For more information, please refer to the project documentation or contact the m
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
             )
         )
-        setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
+        setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request, mergeable=mergeable))
         setup_tasks.append(self.check_run_handler.set_check_queued(name=CAN_BE_MERGED_STR))
 
         # Only queue built-in checks when their corresponding feature is enabled
@@ -1339,14 +1339,24 @@ For more information, please refer to the project documentation or contact the m
         if self.ctx:
             self.ctx.start_step("pr_workflow_setup")
 
-        if await self._pull_request_has_conflicts(pull_request=pull_request):
+        has_conflicts = await self._pull_request_has_conflicts(pull_request=pull_request)
+        if has_conflicts is True:
             await self._handle_conflicted_pull_request(
                 pull_request=pull_request, cleanup_labels=cleanup_conflict_labels
             )
             return True
 
+        if has_conflicts is None:
+            self.logger.warning(f"{self.log_prefix} PR mergeable status is unknown; skipping setup and CI")
+            if self.ctx:
+                self.ctx.complete_step("pr_workflow_setup", mergeable_unknown=True)
+            return False
+
         await self._queue_pull_request_setup_tasks(
-            pull_request=pull_request, is_clean_rebase=is_clean_rebase, label_names=label_names
+            pull_request=pull_request,
+            is_clean_rebase=is_clean_rebase,
+            label_names=label_names,
+            mergeable=True,
         )
         await self._run_pull_request_ci_tasks(pull_request=pull_request)
         return False
@@ -1572,7 +1582,9 @@ For more information, please refer to the project documentation or contact the m
             self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
             return None
 
-    async def label_pull_request_by_merge_state(self, pull_request: PullRequest, add_only: bool = False) -> None:
+    async def label_pull_request_by_merge_state(
+        self, pull_request: PullRequest, add_only: bool = False, mergeable: bool | None = None
+    ) -> None:
         """Label pull request based on merge state.
 
         Flow:
@@ -1603,9 +1615,10 @@ For more information, please refer to the project documentation or contact the m
             has_conflicts_label_exists = HAS_CONFLICTS_LABEL_STR in current_labels
             needs_rebase_label_exists = NEEDS_REBASE_LABEL_STR in current_labels
 
-            # Step 1: Check for conflicts first. GitHub may return mergeable=None
-            # while computing, so use the shared bounded poll for a definitive value.
-            mergeable = await self._get_definitive_mergeable(pull_request=pull_request)
+            # Step 1: Check for conflicts first. Callers in the PR workflow pass
+            # their boundary snapshot; standalone callers obtain one here.
+            if mergeable is None:
+                mergeable = await self._get_definitive_mergeable(pull_request=pull_request)
 
             if mergeable is None:
                 self.logger.warning(
