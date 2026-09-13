@@ -288,7 +288,9 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels,
         ):
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-            mock_process.assert_called_once_with(pull_request=mock_pull_request, is_clean_rebase=False)
+            mock_process.assert_called_once_with(
+                pull_request=mock_pull_request, is_clean_rebase=False, cleanup_conflict_labels=False
+            )
             mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
@@ -787,28 +789,56 @@ class TestPullRequestHandler:
         pull_request_handler.owners_file_handler.assign_reviewers.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("trusted_committers", "app_bot_login"),
-        [
-            (["github-webhook[bot]"], ""),
-            ([], " GitHub-Webhook[bot] "),
-        ],
-        ids=["trusted-committer", "app-bot-fallback"],
-    )
-    async def test_process_opened_or_synchronize_pull_request_deduplicates_trusted_conflict_comment(
-        self,
-        pull_request_handler: PullRequestHandler,
-        mock_pull_request: Mock,
-        trusted_committers: list[str],
-        app_bot_login: str,
+    async def test_conflicted_workflow_posts_notification_despite_trusted_marker_without_listing_comments(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        pull_request_handler.github_webhook.security_trusted_committers = trusted_committers
-        pull_request_handler.github_webhook.app_bot_login = app_bot_login
-        existing_comment = Mock(
-            body=f"Previously posted\n{CONFLICT_COMMENT_MARKER}",
-            user=Mock(login="GitHub-Webhook[bot]"),
-        )
-        mock_pull_request.get_issue_comments.return_value = [existing_comment]
+        mock_pull_request.get_issue_comments.side_effect = AssertionError("comments must not be listed")
+
+        with (
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()),
+        ):
+            skipped = await pull_request_handler.process_opened_or_synchronize_pull_request(
+                pull_request=mock_pull_request
+            )
+
+        assert skipped is True
+        mock_pull_request.create_issue_comment.assert_called_once()
+        assert CONFLICT_COMMENT_MARKER in mock_pull_request.create_issue_comment.call_args.kwargs["body"]
+        mock_pull_request.get_issue_comments.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_conflicting_non_clean_synchronize_removes_review_labels_once(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        pull_request_handler.hook_data["action"] = "synchronize"
+
+        with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new=AsyncMock(return_value=False)),
+            patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR]),
+            ),
+            patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_review_labels,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+        mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_process_opened_or_synchronize_pull_request_posts_despite_trusted_conflict_comment(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        mock_pull_request.get_issue_comments.side_effect = AssertionError("comments must not be listed")
 
         with (
             patch.object(pull_request_handler, "_pull_request_has_conflicts", new=AsyncMock(return_value=True)),
@@ -827,7 +857,9 @@ class TestPullRequestHandler:
 
         assert skipped is True
         pull_request_handler.labels_handler._add_label.assert_not_awaited()
-        mock_pull_request.create_issue_comment.assert_not_called()
+        mock_pull_request.create_issue_comment.assert_called_once()
+        assert CONFLICT_COMMENT_MARKER in mock_pull_request.create_issue_comment.call_args.kwargs["body"]
+        mock_pull_request.get_issue_comments.assert_not_called()
         mock_remove_review_labels.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
