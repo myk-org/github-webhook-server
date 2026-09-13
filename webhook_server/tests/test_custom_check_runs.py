@@ -358,6 +358,7 @@ class TestCustomCheckMandatoryOption:
         mock_pull_request.number = 123
         mock_pull_request.base = Mock()
         mock_pull_request.base.ref = "main"
+        mock_pull_request.mergeable = True
 
         # Mock all the methods called in process_opened_or_synchronize_pull_request
         with (

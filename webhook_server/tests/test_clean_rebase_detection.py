@@ -631,7 +631,9 @@ class TestSynchronizeWithCleanRebase:
         ):
             await handler.process_pull_request_webhook_data(mock_pull_request)
 
-            mock_process.assert_called_once_with(pull_request=mock_pull_request, is_clean_rebase=False)
+            mock_process.assert_called_once_with(
+                pull_request=mock_pull_request, is_clean_rebase=False, cleanup_conflict_labels=False
+            )
             mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
