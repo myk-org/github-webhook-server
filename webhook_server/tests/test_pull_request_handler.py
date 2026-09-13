@@ -998,6 +998,53 @@ class TestPullRequestHandler:
         pull_request_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_unknown_mergeability_does_not_schedule_opened_test_oracle(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        pull_request_handler.hook_data["action"] = "opened"
+
+        with (
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "_get_definitive_mergeable", new=AsyncMock(return_value=None)),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ) as mock_test_oracle,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+        mock_test_oracle.assert_not_called()
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_mergeability_does_not_schedule_synchronize_test_oracle(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        pull_request_handler.hook_data.update({
+            "action": "synchronize",
+            "before": "aaa1111111111111111111111111111111111111",
+            "after": "bbb2222222222222222222222222222222222222",
+        })
+
+        with (
+            patch.object(pull_request_handler, "_is_clean_rebase", new=AsyncMock(return_value=False)),
+            patch.object(pull_request_handler, "_get_definitive_mergeable", new=AsyncMock(return_value=None)),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.call_test_oracle",
+                new_callable=AsyncMock,
+            ) as mock_test_oracle,
+            patch("asyncio.create_task") as mock_create_task,
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+        mock_test_oracle.assert_not_called()
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_conflict_cleanup_failure_preserves_skip_and_does_not_schedule_opened_test_oracle(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
@@ -1055,7 +1102,7 @@ class TestPullRequestHandler:
                 pull_request=mock_pull_request
             )
 
-        assert skipped is False
+        assert skipped is True
         mock_setup.assert_not_awaited()
         mock_ci.assert_not_awaited()
 
