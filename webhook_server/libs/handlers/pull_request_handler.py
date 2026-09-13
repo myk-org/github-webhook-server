@@ -274,7 +274,10 @@ class PullRequestHandler:
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
-            suppress_downstream_ci_processing = results[workflow_result_index] is True
+            workflow_result = results[workflow_result_index]
+            if isinstance(workflow_result, asyncio.CancelledError):
+                raise workflow_result
+            suppress_downstream_ci_processing = workflow_result is True
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
@@ -323,7 +326,10 @@ class PullRequestHandler:
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
-            suppress_downstream_ci_processing = results[workflow_result_index] is True
+            workflow_result = results[workflow_result_index]
+            if isinstance(workflow_result, asyncio.CancelledError):
+                raise workflow_result
+            suppress_downstream_ci_processing = workflow_result is True
 
             if not suppress_downstream_ci_processing:
                 task = asyncio.create_task(
