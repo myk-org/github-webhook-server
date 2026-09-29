@@ -7,17 +7,18 @@
 - Test: `uv run --group tests pytest -n auto`
 - Test + coverage: `uv run --group tests pytest -n auto --cov=webhook_server`
 - Schema tests: `uv run pytest webhook_server/tests/test_config_schema.py -v`
-- Lint fix + format: `uv run ruff check && uv run ruff format` (mutates files — use for development)
-- Type check: `uv run mypy webhook_server/`
-- Full verify (read-only): `uv run ruff check --no-fix && uv run ruff format --check && uv run mypy webhook_server/ && uv run --group tests pytest -n auto`
+- Lint + static checks: `uvx prek run --all-files` (covers ruff, ruff-format, mypy, flake8, gitleaks, detect-secrets, eslint — the only supported way to run them)
+- CI gate: `uvx tox` (runs the `unittests` and `unused-code` environments — this is what CI actually runs; `uvx` needs no install. Plain `tox` works if you have it globally)
+- Full verify: `uvx prek run --all-files && uvx tox`
+- Rebuild docs site: `uv run python scripts/generate_docs.py` (see [Documentation](#documentation))
 
 ## Definition of Done
 A task is complete when ALL pass:
-1. `uv run ruff check --no-fix` exits 0
-2. `uv run ruff format --check` exits 0
-3. `uv run mypy webhook_server/` exits 0
-4. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
-5. All imports at top of file, complete type hints on all functions
+1. `uvx prek run --all-files` exits 0 — the only lint/type/static gate
+2. `uvx tox` exits 0 — **this is the gate CI runs**, and it is not covered by anything else below. It runs `unittests` (pytest over `webhook_server/tests` and `scripts`) plus `unused-code`, which fails on dead code. Passing `prek` and pytest does NOT imply tox passes: dead code is invisible to both.
+3. All imports at top of file, complete type hints on all functions
+
+> **Why tox is separate:** `unused-code` has no local equivalent in `prek` or a bare `pytest` run. Code that is never called — a leftover function, an unused import — passes every other check and fails here. Do not treat a green `prek` + `pytest` as ready to push.
 
 ## When Blocked
 - Tests fail after 3 attempts → stop, report failing test with full output
@@ -29,7 +30,7 @@ A task is complete when ALL pass:
 ## Project
 FastAPI-based GitHub webhook server automating repository management and PR workflows.
 Handlers in `webhook_server/libs/handlers/` process events; config via YAML with schema validation.
-See `docs/` for generated architecture docs (regenerate with docsfy — **NEVER edit `docs/` manually**).
+See `docs/` for architecture and configuration reference docs.
 
 - Stack: Python 3.13, FastAPI, PyGithub, gql, aiohttp
 - Internal APIs — no backward compat; only `config.yaml`, `.github-webhook-server.yaml`, `.github-webhook-server-welcome-message.md`, and webhook payloads are stable
@@ -37,6 +38,22 @@ See `docs/` for generated architecture docs (regenerate with docsfy — **NEVER 
 - GitHub API: `webhook_server/libs/github_api.py` — PyGithub REST v3, multi-token failover
 - Log viewer: `webhook_server/web/log_viewer.py` — WebSocket streaming
 - Sidecar: `sidecar-helper/` — Node.js pi-sidecar bridge for AI features (see `entrypoint.sh`)
+
+## Documentation
+`docs/*.md` is the source of truth. `docs/*.html`, `docs/search-index.json`, `docs/llms.txt` and `docs/llms-full.txt` are **generated** — never edit them by hand.
+
+- Update or write the markdown: `docs/<slug>.md`
+- Rebuild the site: `uv run python scripts/generate_docs.py` (run from repo root; idempotent, so a clean second run produces no diff)
+- Preview: serve `docs/` over HTTP and open a page (e.g. `uv run python -m http.server -d docs 8000`) — do not open the `.html` via `file://`, the sidebar and search need HTTP
+- `scripts/docs_render/` is a vendored copy of the renderer from `myk-org/docsfy` (Jinja templates + Pygments highlighting). It is deliberately committed so docs can be rebuilt without that repo present.
+
+Markdown rules that the renderer depends on:
+- Every file starts with exactly one H1 — it becomes the page title and the sidebar label
+- Every file has balanced ``` fences. A file whose first code block is missing its opening fence shifts every later block and corrupts the whole page
+- Use `| tables |` for tabular data; tables inside a code fence render as raw text
+- Cross-link other pages by slug: `[label](other-page.html)`
+
+Adding a new page: create `docs/<slug>.md` with one H1, then add it to the navigation list in `scripts/generate_docs.py` — the sidebar is not auto-discovered, so a page missing from that list will not appear in navigation or search.
 
 ## When Writing Code
 
@@ -103,4 +120,4 @@ value = self.config.get_value("key")
 ## Boundaries
 - ✅ Always: run full verify before committing, type hints on all functions, wrap PyGithub in `github_api_call()`
 - ⚠️ Ask first: adding dependencies, modifying `entrypoint.sh`, changing schema structure
-- 🚫 Never: edit `docs/` manually (regenerate with docsfy), commit tokens/secrets, use `python`/`pip` directly (use `uv`)
+- 🚫 Never: commit tokens/secrets, use `python`/`pip` directly (use `uv`)

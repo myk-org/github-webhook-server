@@ -57,7 +57,7 @@ repos:
       - id: mypy
         exclude: (tests/)
         additional_dependencies:
-          [types-requests, types-PyYAML, types-colorama, types-aiofiles]
+          [types-requests, types-PyYAML, types-colorama, types-aiofiles, types-Markdown]
 
   - repo: https://github.com/pre-commit/mirrors-eslint
     rev: v10.11.0

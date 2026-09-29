@@ -1,11 +1,15 @@
 """Tests for webhook_server.utils.github_repository_settings module."""
 
 from concurrent.futures import Future
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import yaml
 from github.GithubException import GithubException, UnknownObjectException
 
+from webhook_server.libs.config import Config
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CONVENTIONAL_TITLE_STR,
@@ -13,6 +17,8 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
 )
 from webhook_server.utils.github_repository_settings import (
@@ -22,6 +28,7 @@ from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
     get_repository_github_app_token,
     get_required_status_checks,
+    get_security_status_checks,
     get_user_configures_status_checks,
     set_all_in_progress_check_runs_to_queued,
     set_branch_protection,
@@ -31,6 +38,51 @@ from webhook_server.utils.github_repository_settings import (
     set_repository_labels,
     set_repository_settings,
 )
+
+
+def _make_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Config:
+    """Build a real Config rooted in tmp_path."""
+    monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", str(tmp_path))
+    (tmp_path / "config.yaml").write_text(yaml.dump({"repositories": {"test-repo": {"name": "org/test-repo"}}}))
+    return Config(repository="test-repo")
+
+
+class TestRepositoryLocalData:
+    """A missing repo-local file is not an error, a failed read is."""
+
+    def test_missing_file_returns_empty_dict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """UnknownObjectException means the file is absent, so {} on both paths."""
+        config = _make_config(tmp_path, monkeypatch)
+        repo = Mock()
+        repo.get_contents.side_effect = UnknownObjectException(404, "Not Found", None)
+        github_api = Mock()
+        github_api.get_repo.return_value = repo
+
+        assert config.repository_local_data(github_api, "org/test-repo") == {}
+        assert config.repository_local_data(github_api, "org/test-repo", raise_on_error=True) == {}
+
+    def test_transient_failure_default_returns_empty_dict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """Webhook-time callers keep the lenient behaviour."""
+        config = _make_config(tmp_path, monkeypatch)
+        github_api = Mock()
+        github_api.get_repo.side_effect = GithubException(502, "Bad Gateway", None)
+
+        assert config.repository_local_data(github_api, "org/test-repo") == {}
+
+    def test_transient_failure_raises_when_strict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """Startup callers see the failure instead of a silent {}."""
+        config = _make_config(tmp_path, monkeypatch)
+        github_api = Mock()
+        github_api.get_repo.side_effect = GithubException(502, "Bad Gateway", None)
+
+        with pytest.raises(GithubException):
+            config.repository_local_data(github_api, "org/test-repo", raise_on_error=True)
 
 
 class TestGetGithubRepoApi:
@@ -139,6 +191,39 @@ class TestSetRepositorySettings:
         mock_logger.warning.assert_called_once()
 
 
+def _config(security_checks: dict[str, Any] | None = None) -> Mock:
+    """Return a Config mock whose security-checks value is `security_checks`."""
+    config = Mock()
+    config.get_value.side_effect = lambda value, return_on_none, extra_dict=None: (
+        security_checks if value == "security-checks" else return_on_none
+    )
+    config.repository_local_data.return_value = {}
+    return config
+
+
+class _FakeConfig:
+    """Minimal Config stand-in resolving values like the real Config.get_value."""
+
+    def __init__(self, repository_data: dict[str, Any], local_data: dict[str, Any]) -> None:
+        self.repository_data: dict[str, Any] = repository_data
+        self.root_data: dict[str, Any] = {}
+        self._local_data: dict[str, Any] = local_data
+        self.local_data_calls: list[str] = []
+
+    def repository_local_data(
+        self, github_api: Any, repository_full_name: str, *, raise_on_error: bool = False
+    ) -> dict[str, Any]:
+        self.local_data_calls.append(repository_full_name)
+        return self._local_data
+
+    def get_value(self, value: str, return_on_none: Any = None, extra_dict: dict[str, Any] | None = None) -> Any:
+        for scope in (extra_dict, self.repository_data, self.root_data):
+            if scope and value in scope:
+                return scope[value]
+
+        return return_on_none
+
+
 class TestGetRequiredStatusChecks:
     """Test suite for get_required_status_checks function."""
 
@@ -151,7 +236,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         # Should contain at least 'basic-check' and 'verified' (default)
         assert "basic-check" in result
@@ -167,7 +254,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "tox" in result
         assert "verified" in result
@@ -179,7 +268,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert BUILD_CONTAINER_STR in result
 
@@ -190,7 +281,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert PYTHON_MODULE_INSTALL_STR in result
 
@@ -201,7 +294,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert PRE_COMMIT_STR in result
 
@@ -212,7 +307,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert CONVENTIONAL_TITLE_STR in result
 
@@ -224,7 +321,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "pre-commit.ci - pr" in result
 
@@ -237,7 +336,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert result.count("tox") == 0
         assert "verified" in result
@@ -249,9 +350,137 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "verified" not in result
+
+    def test_get_required_status_checks_security_checks_default(self) -> None:
+        """Security checks are required by default when not configured."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config())
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_mandatory(self) -> None:
+        """Security checks are required when security-checks.mandatory is true."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"mandatory": True}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_not_mandatory(self) -> None:
+        """No security checks are required when security-checks.mandatory is false."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"mandatory": False}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+
+    def test_get_required_status_checks_security_checks_empty_suspicious_paths(self) -> None:
+        """No suspicious-paths check when suspicious-paths is empty, committer check still added."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"suspicious-paths": []}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_committer_disabled(self) -> None:
+        """No committer-identity check when committer-identity-check is false."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"committer-identity-check": False}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+
+    def test_get_required_status_checks_security_checks_excluded(self) -> None:
+        """exclude-runs drops ordinary checks but never the security checks."""
+        # Security checks stay required even when exclude-runs names them: the runtime does not apply
+        # exclude-runs to security contexts, so honouring it here would desynchronise branch protection
+        # from what is actually queued. security-checks.mandatory: false is the supported opt-out.
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo,
+            {},
+            [TOX_STR],
+            [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR, TOX_STR],
+            config=_config(),
+        )
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+        # exclude-runs still works normally for ordinary checks
+        assert TOX_STR not in result
+
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_get_required_status_checks_security_checks_malformed(self, mock_logger: Mock) -> None:
+        """Malformed security-checks values log a warning and fall back to defaults."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo, {}, [], [], config=_config({"mandatory": "yes", "committer-identity-check": "no"})
+        )
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+        assert mock_logger.warning.call_count == 2
+
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_get_security_status_checks_takes_repository_name_string(self, mock_logger: Mock) -> None:
+        """The helper takes a plain repository name, so warnings never touch a PyGithub Repository."""
+        # Malformed values on purpose, they are the only way to reach the warning messages
+        result = get_security_status_checks(repository_full_name="owner/repo", config=_config({"mandatory": "yes"}))
+
+        assert result == [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]
+        warnings = " ".join(str(call) for call in mock_logger.warning.call_args_list)
+        assert "owner/repo" in warnings
+        assert "owner/repo: security-checks.mandatory must be boolean" in warnings
+
+    def test_get_required_status_checks_security_checks_blank_suspicious_paths(self) -> None:
+        """Blank suspicious-paths entries are stripped, so no check is required (the runner never runs it)."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo, {"name": "owner/repo"}, [], [], config=_config({"suspicious-paths": [""]})
+        )
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    @pytest.mark.parametrize(
+        ("suspicious_paths", "expected"),
+        [(["  ", "x/"], True), (["  ", ""], False)],
+        ids=["blank-mixed-with-path", "blank-only"],
+    )
+    def test_get_required_status_checks_security_checks_strips_blank_paths(
+        self, suspicious_paths: list[str], expected: bool
+    ) -> None:
+        """Only blank entries are dropped, a real path next to a blank one still requires the check."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo, {"name": "owner/repo"}, [], [], config=_config({"suspicious-paths": suspicious_paths})
+        )
+
+        assert (SECURITY_SUSPICIOUS_PATHS_STR in result) is expected
 
 
 class TestGetUserConfiguresStatusChecks:
@@ -477,10 +706,11 @@ class TestSetRepository:
         mock_get_required_checks.return_value = ["tox", "verified"]
 
         mock_config = Mock()
-        mock_config.get_value.side_effect = lambda value, return_on_none: {
+        mock_config.get_value.side_effect = lambda value, return_on_none, extra_dict=None: {
             "protected-branches": {"main": {}},
             "default-status-checks": [],
         }.get(value, return_on_none)
+        mock_config.repository_local_data.return_value = {}
 
         # Call function
         result = set_repository(
@@ -502,6 +732,130 @@ class TestSetRepository:
         mock_get_branch.assert_called_once_with(repo=mock_repo, branch_name="main")
         mock_set_branch_protection.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("security_checks", "include_runs", "expected"),
+        [
+            ({}, ["custom-check"], [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]),
+            (
+                {},
+                [SECURITY_COMMITTER_IDENTITY_STR, "custom-check"],
+                [SECURITY_COMMITTER_IDENTITY_STR],
+            ),
+            ({"mandatory": False}, ["custom-check"], []),
+        ],
+        ids=["security-checks-added", "no-duplicates", "not-mandatory"],
+    )
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings.get_required_status_checks")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_include_runs_with_security_checks(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_get_required_checks: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+        security_checks: dict[str, Any],
+        include_runs: list[str],
+        expected: list[str],
+    ) -> None:
+        """include-runs path keeps the security checks governed by security-checks.mandatory, without duplicates."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        mock_config = Mock()
+        mock_config.get_value.side_effect = lambda value, return_on_none, extra_dict=None: {
+            "protected-branches": {"main": {"include-runs": include_runs}},
+            "default-status-checks": [],
+            "security-checks": security_checks,
+        }.get(value, return_on_none)
+        mock_config.repository_local_data.return_value = {}
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=mock_config,
+        )
+
+        assert result[0] is True
+        mock_get_required_checks.assert_not_called()
+        contexts = mock_set_branch_protection.call_args.kwargs["required_status_checks"]
+        assert contexts[: len(include_runs)] == include_runs
+        assert [check for check in contexts if check in expected] == expected
+        assert len(contexts) == len(set(contexts))
+
+    @pytest.mark.parametrize(
+        ("include_runs", "exclude_runs", "expected"),
+        [
+            (["a", "b"], ["b"], ["a", SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]),
+            # The runtime does not apply exclude-runs to security contexts, so honouring it here
+            # would desynchronise branch protection from what the runtime actually queues and what
+            # can-be-merged still requires. security-checks.mandatory: false is the supported way to
+            # turn the security checks off.
+            (
+                [SECURITY_COMMITTER_IDENTITY_STR, "custom-check"],
+                [SECURITY_COMMITTER_IDENTITY_STR],
+                [SECURITY_COMMITTER_IDENTITY_STR, "custom-check", SECURITY_SUSPICIOUS_PATHS_STR],
+            ),
+        ],
+        ids=["exclude-removes-include-entry", "exclude-does-not-remove-security-check"],
+    )
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings.get_required_status_checks")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_include_runs_applies_exclude_runs(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_get_required_checks: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+        include_runs: list[str],
+        exclude_runs: list[str],
+        expected: list[str],
+    ) -> None:
+        """exclude-runs is subtracted from include-runs, security checks included."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        mock_config = Mock()
+        mock_config.get_value.side_effect = lambda value, return_on_none, extra_dict=None: {
+            "protected-branches": {"main": {"include-runs": include_runs, "exclude-runs": exclude_runs}},
+            "default-status-checks": [],
+            "security-checks": {},
+        }.get(value, return_on_none)
+        mock_config.repository_local_data.return_value = {}
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=mock_config,
+        )
+
+        assert result[0] is True
+        mock_get_required_checks.assert_not_called()
+        assert mock_set_branch_protection.call_args.kwargs["required_status_checks"] == expected
+
     @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
     @patch("webhook_server.utils.github_repository_settings.LOGGER")
     def test_set_repository_no_github_api(self, mock_logger: Mock, mock_get_repo: Mock) -> None:
@@ -519,6 +873,161 @@ class TestSetRepository:
         assert result[0] is False
         assert "Failed to get github api" in result[1]
         assert result[2] == mock_logger.error
+
+    @pytest.mark.parametrize(
+        ("local_security_checks", "expected"),
+        [
+            ({"mandatory": False}, []),
+            ({"mandatory": True}, [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]),
+        ],
+        ids=["repo-local-not-mandatory", "repo-local-mandatory"],
+    )
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_reads_repo_local_security_checks(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+        local_security_checks: dict[str, Any],
+        expected: list[str],
+    ) -> None:
+        """The repo-local .github-webhook-server.yaml security-checks is read at startup and wins."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        config = _FakeConfig(
+            repository_data={
+                "protected-branches": {"main": {}},
+                "default-status-checks": [],
+                "security-checks": {"mandatory": True},
+            },
+            local_data={"security-checks": local_security_checks},
+        )
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=config,  # type: ignore[arg-type]
+        )
+
+        assert result[0] is True
+        assert config.local_data_calls == ["owner/test-repo"]
+        contexts = mock_set_branch_protection.call_args.kwargs["required_status_checks"]
+        assert [check for check in contexts if check in expected] == expected
+        assert (SECURITY_SUSPICIOUS_PATHS_STR in contexts) is bool(expected)
+
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_repo_local_read_failure_skips_branch_protection(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+    ) -> None:
+        """A transient read failure is not 'no local config': no protection is written for the repo."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        config = _FakeConfig(
+            repository_data={"protected-branches": {"main": {}}, "default-status-checks": []},
+            local_data={},
+        )
+        config.repository_local_data = Mock(  # type: ignore[method-assign]
+            side_effect=GithubException(502, "Bad Gateway", None), __name__="repository_local_data"
+        )
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=config,  # type: ignore[arg-type]
+        )
+
+        assert result[0] is True
+        assert result[2] == mock_logger.info
+        mock_logger.error.assert_called_once()
+        mock_set_branch_protection.assert_not_called()
+        mock_get_branch.assert_not_called()
+        mock_set_repo_labels.assert_called_once_with(repository=mock_repo, api_user="test-user")
+        mock_set_repo_settings.assert_called_once_with(repository=mock_repo, api_user="test-user")
+        # the strict opt-in is what makes the failure visible here
+        assert config.repository_local_data.call_args.kwargs["raise_on_error"] is True
+
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_invalid_repo_local_yaml_does_not_abort(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+    ) -> None:
+        """Invalid repo-local YAML is logged at ERROR, branch protection is skipped, startup does not abort."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        config = _FakeConfig(
+            repository_data={
+                "protected-branches": {"main": {}},
+                "default-status-checks": [],
+                "security-checks": {"mandatory": False},
+            },
+            local_data={},
+        )
+        config.repository_local_data = Mock(  # type: ignore[method-assign]
+            side_effect=yaml.YAMLError("bad yaml"), __name__="repository_local_data"
+        )
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=config,  # type: ignore[arg-type]
+        )
+
+        assert result[0] is True
+        # Branch protection must NOT be written from the config.yaml defaults: the runtime path
+        # (config.repository_local_data with raise_on_error=True) propagates this same YAML error, so a
+        # required status check written here could never be reported - every PR would be permanently
+        # unmergeable with no visible cause. Unparsable repo-local config means UNKNOWN, not "no config".
+        mock_set_branch_protection.assert_not_called()
+        mock_get_branch.assert_not_called()
+        mock_logger.exception.assert_called_once()
+        error_message = mock_logger.exception.call_args.args[0]
+        assert "owner/test-repo" in error_message
+        assert "skipping branch protection" in error_message
+        assert result[2] == mock_logger.info
 
     @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
     @patch("webhook_server.utils.github_repository_settings.LOGGER")

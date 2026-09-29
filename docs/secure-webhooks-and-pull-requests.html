@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -203,26 +203,28 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <h1 id="configyaml">config.yaml</h1>
-<p>webhook-secret: your-random-secret-string
-verify-github-ips: true
-mask-sensitive-data: true</p>
-<p>repositories:
-  my-repository:
-    name: my-org/my-repository
-    security-checks:
-      mandatory: true
-      committer-identity-check: true
-      trusted-committers:
-        - "pre-commit-ci[bot]"</p>
-<div class="highlight"><pre><span></span><code>This gives you the safest baseline for direct GitHub delivery: signed webhooks, GitHub source-IP filtering, masked logs, and blocking committer checks on pull requests. If you do not set `suspicious-paths`, the server already protects common sensitive locations such as `.claude/`, `.vscode/`, `.cursor/`, `.devcontainer/`, `.pi/`, `.github/workflows/`, and `.github/actions/`.
+                    <h1 id="secure-webhooks-and-pull-requests">Secure Webhooks and Pull Requests</h1>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-random-secret-string</span>
+<span class="nt">verify-github-ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
-## Step-by-step
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">trusted-committers</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit-ci[bot]"</span>
+</code></pre></div>
 
-1. Set a webhook secret on the server and in GitHub.
-
-```yaml
-webhook-secret: your-random-secret-string
+<p>This gives you the safest baseline for direct GitHub delivery: signed webhooks, GitHub source-IP filtering, masked logs, and blocking committer checks on pull requests. If you do not set <code>suspicious-paths</code>, the server already protects common sensitive locations such as <code>.claude/</code>, <code>.vscode/</code>, <code>.cursor/</code>, <code>.devcontainer/</code>, <code>.pi/</code>, <code>.github/workflows/</code>, and <code>.github/actions/</code>.</p>
+<h2 id="step-by-step">Step-by-step</h2>
+<ol>
+<li>Set a webhook secret on the server and in GitHub.</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-random-secret-string</span>
 </code></pre></div>
 
 <p>Use the same value in your GitHub webhook or GitHub App callback settings and in <code>config.yaml</code>. If the server manages webhooks for you, it includes that secret when it creates the hook.</p>
@@ -276,11 +278,11 @@ webhook-secret: your-random-secret-string
 <span class="w">    </span><span class="nt">security-checks</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">suspicious-paths</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/workflows/"</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/actions/"</span>
 <span class="w">      </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">trusted-committers</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit-ci[bot]&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit-ci[bot]"</span>
 </code></pre></div>
 
 <p>Use <code>suspicious-paths</code> for path prefixes that should trigger extra review, and keep <code>committer-identity-check: true</code> so the last committer must match the pull request author unless that committer is explicitly trusted.</p>
@@ -333,11 +335,11 @@ webhook-secret: your-random-secret-string
 <span class="nt">security-checks</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/workflows/&quot;</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.github/actions/&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/workflows/"</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/actions/"</span>
 <span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">trusted-committers</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit-ci[bot]&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit-ci[bot]"</span>
 </code></pre></div>
 
 <p>That is useful when one team needs a different rollout pace than the server-wide default. See <a href="configure-repositories.html">Configure Repositories</a> for when to keep a setting in central <code>config.yaml</code> versus the repository-local file.</p>
@@ -422,6 +424,7 @@ webhook-secret: your-random-secret-string
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
+<li><a href="#step-by-step">Step-by-step</a></li>
 <li><a href="#advanced-usage">Advanced Usage</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
 <li><a href="#related-pages">Related Pages</a></li>
@@ -435,9 +438,6 @@ webhook-secret: your-random-secret-string
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

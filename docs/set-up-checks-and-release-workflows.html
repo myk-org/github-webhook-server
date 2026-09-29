@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,341 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="set-up-checks-and-release-workflows">Set Up Checks and Release Workflows</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>Checks are the pull request gates this server runs itself. It does not call GitHub Actions for tests: it clones the PR, runs commands in a worktree, and writes the results back as GitHub check runs. Release workflows are the same machinery, but triggered by a tag push — a container image push and a PyPI publish.</p>
+<p>This page covers the two halves: what checks exist and how required-versus-advisory is decided, then how the container and PyPI release blocks work.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running webhook server with at least one repository configured. See <a href="quick-start.html">Start Automating a Repository</a> and <a href="configure-repositories.html">Configure Repositories</a>.</li>
+<li>Python <code>3.14</code>, <code>uv</code>, and <code>podman</code> on the server host — the built-in checks shell out to <code>uvx</code> and <code>podman</code>.</li>
+<li>A container registry account if you want <code>build-container</code>; a PyPI API token if you want PyPI publishing.</li>
+<li>Manage-repositories app access: branch protection, labels, and security settings are written at startup with the highest-rate-limit token, not with the webhook's app token.</li>
+</ul>
+<h2 id="part-1-checks">Part 1 — Checks</h2>
+<h3 id="how-a-check-run-gets-created-and-reported">How a check run gets created and reported</h3>
+<p>Every check follows the same lifecycle, implemented in <code>webhook_server/libs/handlers/runner_handler.py</code>:</p>
+<ol>
+<li><code>set_check_queued</code> when the PR event is received (only for checks whose feature is enabled).</li>
+<li><code>set_check_in_progress</code> when the runner starts.</li>
+<li>A git worktree is created from the shared clone and the base branch is merged into it.</li>
+<li>The command runs, stdout/stderr are stripped of ANSI codes and redacted, then posted to the check run output.</li>
+<li><code>set_check_success</code> or <code>set_check_failure</code>.</li>
+</ol>
+<p>All check runs are written to <code>last_commit.sha</code>. Output is truncated to 65534 characters to stay under GitHub's limit, keeping the head and the tail, and the full redacted output stays in the server log. Secrets from <code>pypi.token</code>, the container registry username and password, and the GitHub token are replaced with <code>*****</code> before anything is posted.</p>
+<p>Built-in and custom command checks share one code path, <code>RunnerHandler.run_check()</code>. Each one is described by a small <code>CheckConfig</code> record: the check-run name, the command (which may contain the <code>{worktree_path}</code> placeholder), a display title, and whether the command runs with <code>cwd</code> set to the worktree.</p>
+<p>The CI stage is driven by <code>PullRequestHandler._run_pull_request_ci_tasks()</code>. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. <code>conventional-title</code> is scheduled only when its config is present. The two security checks need no opt-in: with no <code>security-checks</code> block at all, <code>suspicious-paths</code> falls back to <code>DEFAULT_SUSPICIOUS_PATHS</code> and both <code>mandatory</code> and <code>committer-identity-check</code> default to <code>true</code>, so both run. Every validated custom check is scheduled unconditionally.</p>
+<h3 id="the-built-in-checks">The built-in checks</h3>
+<p>Check-run names are constants in <code>webhook_server/utils/constants.py</code>, so what the GitHub UI shows is exactly these strings.</p>
+<table>
+<thead>
+<tr>
+<th>Check run</th>
+<th>Config key</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tox</code></td>
+<td><code>tox</code></td>
+<td>Runs <code>uvx tox --workdir {worktree_path} --root {worktree_path} -c {worktree_path}</code>.</td>
+</tr>
+<tr>
+<td><code>pre-commit</code></td>
+<td><code>pre-commit</code></td>
+<td>Runs <code>uvx --directory {worktree_path} prek run --all-files</code>.</td>
+</tr>
+<tr>
+<td><code>build-container</code></td>
+<td><code>container</code></td>
+<td><code>podman build</code> of the repo Dockerfile. Also used for release pushes with no check run.</td>
+</tr>
+<tr>
+<td><code>python-module-install</code></td>
+<td><code>pypi</code></td>
+<td><code>uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}</code>.</td>
+</tr>
+<tr>
+<td><code>conventional-title</code></td>
+<td><code>conventional-title</code></td>
+<td>Validates the PR title against Conventional Commits v1.0.0.</td>
+</tr>
+<tr>
+<td><code>can-be-merged</code></td>
+<td>always on</td>
+<td>The rollup verdict. Never counted as a required check by the server.</td>
+</tr>
+<tr>
+<td><code>security-suspicious-paths</code></td>
+<td><code>security-checks.suspicious-paths</code></td>
+<td>Fails when a changed file is under a suspicious path prefix.</td>
+</tr>
+<tr>
+<td><code>security-committer-identity</code></td>
+<td><code>security-checks.committer-identity-check</code></td>
+<td>Fails when the last committer is not the PR author and not trusted.</td>
+</tr>
+<tr>
+<td><code>verified</code></td>
+<td><code>verified-job</code> (default <code>true</code>)</td>
+<td>Human-driven: a check run named after the <code>verified</code> label, set to success when the label is added.</td>
+</tr>
+</tbody>
+</table>
+<p>Notes per check:</p>
+<ul>
+<li>
+<p><strong><code>tox</code></strong> is a mapping from base branch name to either a string or a list of tox environments. Empty or <code>all</code> means every environment. <code>tox.args</code> is appended verbatim to the command; <code>tox.python-version</code> adds <code>--python=&lt;version&gt;</code> to the <code>uvx</code> invocation. <code>args</code> and <code>python-version</code> are nested keys of the <code>tox</code> block; <code>tox-python-version</code> still works as a deprecated top-level fallback. The selected value has its spaces stripped and is appended as a single <code>-e &lt;value&gt;</code> argument.</p>
+</li>
+<li>
+<p><strong><code>pre-commit</code></strong> is a boolean. The schema documents <code>default: true</code>, but the server treats an unset <code>pre-commit</code> as <strong>false</strong> — set it explicitly to turn the check on. Note this check is required through branch protection (see below), not through the server's own required list.</p>
+</li>
+<li>
+<p><strong><code>verified</code></strong> is not a command check. It is queued on PR events and set to success when the <code>verified</code> label is added, and back to queued when the label is removed. Because <code>verified-job</code> defaults to true, the string <code>verified</code> is in the server's required list unless you set <code>verified-job: false</code>.</p>
+</li>
+<li>
+<p><strong><code>can-be-merged</code></strong> is the aggregate. <code>PullRequestHandler.check_if_can_be_merged()</code> sets it in progress, then accumulates failure reasons: GitHub mergeable state, required checks still in progress, required checks failed or not started, <code>wip</code>/<code>hold</code> labels, <code>can-be-merged-required-labels</code>, unresolved review threads when <code>branch-protection.required_conversation_resolution</code> is on, and approval/verification requirements. Empty failure output means success and the <code>can-be-merged</code> label is added. It is explicitly skipped when the server evaluates required checks, so it can never deadlock itself.</p>
+</li>
+<li>
+<p><strong><code>security-suspicious-paths</code></strong> compares <code>owners_file_handler.changed_files</code> against the configured prefixes. Default prefixes (<code>DEFAULT_SUSPICIOUS_PATHS</code>): <code>.claude/</code>, <code>.vscode/</code>, <code>.cursor/</code>, <code>.devcontainer/</code>, <code>.pi/</code>, <code>.github/workflows/</code>, <code>.github/actions/</code>. An empty list disables the check entirely.</p>
+</li>
+<li>
+<p><strong><code>security-committer-identity</code></strong> compares the PR author (parent committer) with the last commit's committer. An unresolvable committer always fails. A mismatch fails unless the committer is in the trusted list, which is <code>security-checks.trusted-committers</code> plus the GitHub App bot, <code>web-flow</code>, and API users. A <code>web-flow</code> login with the wrong immutable user ID fails as a suspected impersonation. Maintainers can clear a security failure with <code>/security-override</code>, which forces the check runs to success.</p>
+</li>
+</ul>
+<h3 id="how-required-versus-advisory-is-decided">How required versus advisory is decided</h3>
+<p>There are two separate lists, and they are not the same list.</p>
+<p><strong>1. The runtime required list</strong> — <code>CheckRunHandler.all_required_status_checks()</code>. This is what the server consults on every webhook to decide whether <code>can-be-merged</code> should fail. It is assembled, in order, from:</p>
+<ul>
+<li>branch protection required status check contexts read from the PR's base branch (<code>get_branch_required_status_checks()</code>),</li>
+<li><code>tox</code> if configured,</li>
+<li><code>verified</code> if <code>verified-job</code> is on,</li>
+<li><code>build-container</code> if <code>container</code> is configured,</li>
+<li><code>python-module-install</code> if <code>pypi</code> is configured,</li>
+<li><code>conventional-title</code> if configured,</li>
+<li>every custom check whose <code>mandatory</code> is <code>true</code>,</li>
+<li>the security checks, when <code>security-checks.mandatory</code> is true (default): <code>security-suspicious-paths</code> if a suspicious-paths list is configured, and <code>security-committer-identity</code> if <code>committer-identity-check</code> is on.</li>
+</ul>
+<p>The result is deduplicated while preserving order and cached for the lifetime of the handler instance. Note that <code>pre-commit</code>, <code>can-be-merged</code>, and non-mandatory custom checks are <strong>not</strong> in this list — they never block <code>can-be-merged</code> through the server's own logic. Blocking them is a GitHub branch-protection job, covered next.</p>
+<p>Branch protection contexts are only read for public repositories; for private repositories <code>get_branch_required_status_checks()</code> returns an empty list and the server relies solely on its config-derived list.</p>
+<p><strong>2. GitHub branch protection</strong> — applied at server startup, not per webhook. <code>repository_and_webhook_settings()</code> runs on boot and calls <code>set_repositories_settings()</code>, which for each repository calls <code>set_repository()</code>, which for each branch under <code>protected-branches</code> calls <code>set_branch_protection()</code>. This is the only place branch protection is written. Nothing in the webhook path re-derives or re-applies it, so a change to <code>protected-branches</code> takes effect on the next server start, not on the next PR.</p>
+<p><code>set_repository()</code> also creates the static labels with their configured colors, enables <code>delete_branch_on_merge</code>, <code>allow_auto_merge</code>, and <code>allow_update_branch</code>, and — for public repositories only — enables secret scanning and secret scanning push protection. Private repositories skip branch protection and security settings entirely.</p>
+<p>The required check list written to a branch is:</p>
+<ul>
+<li>the repository's <code>default-status-checks</code> list, always plus <code>can-be-merged</code>, taken from a deep copy so per-branch exclusions cannot mutate the shared list;</li>
+<li>then, depending on <code>protected-branches.&lt;branch&gt;</code>:</li>
+</ul>
+<p><strong>When <code>include-runs</code> is non-empty</strong>, it <em>is</em> the branch's required-check list. Nothing is derived from config — no <code>tox</code>, no <code>container</code>, no <code>default-status-checks</code>, no <code>pre-commit</code>. The only thing appended is the security checks, again gated on <code>security-checks.mandatory</code>, deduplicated while keeping <code>include-runs</code> order. <code>exclude-runs</code> is then subtracted from the assembled list, so the two are a filter pair on this path too.</p>
+<p><strong>When <code>include-runs</code> is empty or absent</strong>, the list is derived by <code>get_required_status_checks()</code>: <code>tox</code> if configured, <code>verified</code> if <code>verified-job</code> is not false, <code>build-container</code> if <code>container</code> is configured, <code>python-module-install</code> if <code>pypi</code> is configured, <code>pre-commit</code> if <code>pre-commit</code> is true, <code>conventional-title</code> if configured, and <code>pre-commit.ci - pr</code> if <code>.pre-commit-config.yaml</code> exists in the repository. Then the security checks are appended under the same <code>mandatory</code> gate, the result is deduplicated, and finally <code>exclude-runs</code> entries are removed.</p>
+<p><code>exclude-runs</code> applies to both paths: it filters the automatically derived list <em>and</em> the explicit <code>include-runs</code> list, and it wins — an explicit <code>exclude-runs</code> entry is honoured for any check, including the appended security checks. Removing a security check this way is therefore possible, but if you do not want the security checks required at all, the switch is <code>security-checks.mandatory: false</code>.</p>
+<p>Branch protection rules themselves come from <code>branch-protection</code> (global or per-repository), merged over <code>DEFAULT_BRANCH_PROTECTION</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p>The API user that writes the settings is added to the users, teams, and apps bypass lists so the server can still operate on protected branches.</p>
+<p><code>protected-branches</code> accepts either a plain list or a mapping:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">default-status-checks</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="c1"># Derived from config, minus `build-container`</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-container</span>
+<span class="w">      </span><span class="c1"># Explicit list — only security checks are added</span>
+<span class="w">      </span><span class="nt">release/2.0</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tox</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
+</code></pre></div>
+
+<p>A branch value given as a bare list is accepted by the schema, but it carries no <code>include-runs</code>/<code>exclude-runs</code>, so it takes the derived path.</p>
+<h3 id="custom-check-runs">Custom check runs</h3>
+<p><code>custom-check-runs</code> adds your own commands to the same lifecycle as the built-ins. <code>GithubWebhook._validate_custom_check_runs()</code> filters the list at load time; invalid entries are dropped with a warning, and only validated checks run.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">custom-check-runs</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<span class="w">        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uv tool run --from ruff ruff check</span>
+<span class="w">        </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-scan</span>
+<span class="w">        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BANDIT_CONFIG=ci uv tool run --from bandit bandit -r .</span>
+<span class="w">        </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unit</span>
+<span class="w">        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">          </span><span class="no">uv run pytest tests -q</span>
+</code></pre></div>
+
+<p>Validation rules, all enforced at startup:</p>
+<ul>
+<li><code>name</code> is required and must be a string.</li>
+<li><code>name</code> must match <code>^[a-zA-Z0-9._-]{1,64}$</code>.</li>
+<li><code>name</code> must <strong>not</strong> be in <code>BUILTIN_CHECK_NAMES</code> — a collision is logged and the entry skipped. <code>BUILTIN_CHECK_NAMES</code> is exactly <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>python-module-install</code>, <code>conventional-title</code>, <code>can-be-merged</code>, <code>security-suspicious-paths</code>, <code>security-committer-identity</code>. (<code>verified</code> is a check run but is not in that set, so a custom check may take that name.)</li>
+<li><code>name</code> must be unique within the repository's list.</li>
+<li><code>command</code> is required, must be a non-empty string after stripping, and must parse with <code>shlex</code>.</li>
+<li>The first token that is not a <code>VAR=value</code> environment assignment must resolve with <code>shutil.which()</code> on the server. If the executable is not installed, the check is skipped with a warning rather than failing later at run time.</li>
+</ul>
+<p>Custom commands run through <code>/bin/sh -c</code> with the worktree as the working directory, so pipes, subshells, and inline environment variables work. <code>{worktree_path}</code> is not needed for custom checks, though it is substituted if present. The check run title is <code>Custom Check: &lt;name&gt;</code>.</p>
+<p><code>mandatory</code> defaults to <code>true</code>. A mandatory custom check is added to <code>all_required_status_checks()</code> and therefore blocks <code>can-be-merged</code>; a non-mandatory one still runs and is still retestable, it just never blocks.</p>
+<h3 id="retesting">Retesting</h3>
+<p><code>/retest &lt;check&gt;</code> re-runs a single check, and <code>/retest all</code> re-runs everything available. The allowed names come from <code>GithubWebhook._current_pull_request_supported_retest</code>: <code>tox</code> (if configured), <code>build-container</code> (if configured), <code>python-module-install</code> (if configured), <code>pre-commit</code> (if configured), <code>conventional-title</code> (if configured), every custom check name — mandatory or not — and both security checks when they are enabled. <code>can-be-merged</code> and <code>verified</code> are not retestable. An unknown name is logged and skipped. The welcome comment lists the supported retests for the repository.</p>
+<p>On startup, <code>set_all_in_progress_check_runs_to_queued()</code> walks open pull requests and resets any check run in <code>BUILTIN_CHECK_NAMES</code> that is stuck in <code>in_progress</code> back to <code>queued</code>, so a server restart during a run does not leave a gate hanging. Custom checks and <code>verified</code> are not covered by that sweep.</p>
+<h3 id="related-repository-keys">Related repository keys</h3>
+<ul>
+<li><code>set-auto-merge-prs</code> — list of base branches where GitHub auto-merge is enabled. Auto-merge is blocked when the PR touches a suspicious path, and an already-enabled auto-merge is disabled; a maintainer <code>/security-override</code> re-enables it. Cherry-picks whose conflicts were resolved by AI are never auto-merged.</li>
+<li><code>create-issue-for-new-pr</code> — boolean, default <code>true</code>. Creates a tracking issue per PR. Set it globally and per repository; the repository value wins.</li>
+<li><code>cherry-pick-assign-to-pr-author</code> — boolean, default <code>true</code>. Assigns cherry-pick PRs to the author of the original PR. Also global-with-repository-override.</li>
+</ul>
+<h2 id="part-2-release-workflows">Part 2 — Release workflows</h2>
+<p>Both release paths run on a <strong>tag push</strong>. <code>PushHandler.process_push_webhook_data()</code> matches <code>refs/tags/(.+)</code>; if the ref is a branch, nothing release-related happens. When it is a tag, PyPI publishing runs first, then the container release.</p>
+<h3 id="container-builds-and-pushes">Container builds and pushes</h3>
+<p>Enable the <code>container</code> block. A check run named <code>build-container</code> appears on every PR.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">container</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-registry-user</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-registry-token</span>
+<span class="w">      </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.com/your-org/your-repo</span>
+<span class="w">      </span><span class="nt">dockerfile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Dockerfile</span>
+<span class="w">      </span><span class="nt">context</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<span class="w">      </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">latest</span>
+<span class="w">      </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">build-args</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PYTHON_VERSION=3.14</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--log-level=debug</span>
+<span class="w">      </span><span class="nt">oci-annotations</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">        </span><span class="nt">static</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">org.opencontainers.image.vendor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org</span>
+<span class="w">        </span><span class="nt">auto</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">          </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">          </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">          </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">          </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p>Keys, exactly as the server reads them:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>username</code>, <code>password</code></td>
+<td>required</td>
+<td>Registry credentials; used for <code>podman push --creds</code> and redacted from output.</td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>required</td>
+<td>Image repository, without a tag.</td>
+</tr>
+<tr>
+<td><code>dockerfile</code></td>
+<td><code>Dockerfile</code></td>
+<td>Dockerfile path relative to the worktree.</td>
+</tr>
+<tr>
+<td><code>context</code></td>
+<td><code>""</code> (repo root)</td>
+<td>Build context subdirectory. Schema restricts it to <code>[a-zA-Z0-9._/-]*</code>.</td>
+</tr>
+<tr>
+<td><code>tag</code></td>
+<td><code>latest</code></td>
+<td>Tag for post-merge builds on the main branches.</td>
+</tr>
+<tr>
+<td><code>release</code></td>
+<td><code>false</code></td>
+<td>Build and push an image when a tag is pushed.</td>
+</tr>
+<tr>
+<td><code>build-args</code></td>
+<td><code>[]</code></td>
+<td>Each entry becomes a <code>--build-arg</code> flag.</td>
+</tr>
+<tr>
+<td><code>args</code></td>
+<td><code>[]</code></td>
+<td>Extra flags prepended to the <code>podman build</code> command.</td>
+</tr>
+<tr>
+<td><code>oci-annotations</code></td>
+<td>disabled</td>
+<td>See below.</td>
+</tr>
+</tbody>
+</table>
+<p><code>build-args</code> and <code>args</code> also accept a single string, which is split with <code>shlex</code>; anything that is neither a string nor a list is ignored. <code>username</code>, <code>password</code>, and <code>repository</code> are read as required keys — a <code>container</code> block missing any of them raises on load, so it is all-or-nothing. <code>dockerfile</code> is read by the server even though the schema does not list it, so set it there and it will be honoured.</p>
+<p>Tag selection, from <code>container_repository_and_tag()</code>:</p>
+<ul>
+<li>On a PR: <code>pr-&lt;number&gt;</code>.</li>
+<li>After merge: the base branch name, unless the base branch is <code>main</code> or <code>master</code>, in which case the configured <code>tag</code> (<code>latest</code> by default).</li>
+<li>On a release tag push: the tag name, as pushed.</li>
+</ul>
+<p>The build context is resolved with <code>os.path.realpath</code> and rejected with a failed check run if it escapes the worktree — <code>context</code> cannot be used to reach files outside the repository. Merged and release builds add <code>--no-cache</code>; PR builds do not. <code>podman build</code> runs with <code>--network=host</code>. A known podman reboot-cache bug is detected and retried after clearing the stale storage directory.</p>
+<p>Pushing happens only for a successful build, using <code>podman push --creds &lt;user&gt;:&lt;password&gt; &lt;repo&gt;:&lt;tag&gt;</code>. On success the PR gets a comment and, if <code>slack-webhook-url</code> is set, a Slack message; on failure a comment says the push failed. The <code>/build-and-push-container</code> comment command triggers the same path on demand and is gated on the commenter's permission to run commands.</p>
+<h4 id="oci-annotations">OCI annotations</h4>
+<p><code>oci-annotations.enabled</code> defaults to <code>false</code>; nothing is added when it is off. When on, each annotation becomes a <code>--annotation key=value</code> flag on <code>podman build</code>. The <code>auto</code> block populates annotations from webhook context, and every auto entry defaults to <code>true</code> when <code>oci-annotations</code> is enabled:</p>
+<ul>
+<li><code>org.opencontainers.image.created</code> — build timestamp, UTC, <code>YYYY-MM-DDTHH:MM:SSZ</code></li>
+<li><code>org.opencontainers.image.source</code> — <code>https://github.com/&lt;repo&gt;</code></li>
+<li><code>org.opencontainers.image.revision</code> — PR head SHA, or the pushed commit for a tag build</li>
+<li><code>org.opencontainers.image.version</code> — the image tag, only when there is one</li>
+<li><code>org.opencontainers.image.title</code> — the repository name</li>
+</ul>
+<p><code>static</code> entries are free-form key-value pairs; use reverse-domain notation. Static annotations are applied last and override auto-populated ones with the same key.</p>
+<h3 id="pypi-publishing">PyPI publishing</h3>
+<p>The <code>pypi</code> block is both a PR check and a release job.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">your-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-org/your-repo</span>
+<span class="w">    </span><span class="nt">pypi</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pypi-AgEIcHlwaS5vcmc...</span>
+</code></pre></div>
+
+<p>On pull requests, the <code>python-module-install</code> check runs <code>uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}</code> — the package must build and its dependencies must resolve.</p>
+<p>On a tag push, <code>PushHandler.upload_to_pypi()</code>:</p>
+<ol>
+<li>Checks out the tag into a worktree.</li>
+<li>Runs <code>uv build --sdist --out-dir &lt;worktree&gt;/pypi-dist</code>.</li>
+<li>Lists the dist directory and takes the resulting <code>.tar.gz</code> filename.</li>
+<li>Runs <code>twine check</code> on the sdist.</li>
+<li>Runs <code>twine upload --username __token__ --password &lt;token&gt; &lt;sdist&gt; --skip-existing</code>.</li>
+</ol>
+<p>The token is redacted from all captured output. Any failure — checkout, build, listing, check, or upload — opens a GitHub issue titled with the first line of the error, body <code>Publish to PYPI failed: ...</code>, and stops the tag handling (the container release is skipped for that push). On success a Slack message is sent when <code>slack-webhook-url</code> is set. <code>--skip-existing</code> means re-pushing an existing version succeeds without republishing.</p>
+<h2 id="verify-it-worked">Verify it worked</h2>
+<p>After restarting the server with the new configuration:</p>
+<ul>
+<li>The startup log lists each repository's branches and the checks it enabled, for example <code>Set branch main setting for your-org/your-repo. enabled checks: ['can-be-merged', 'tox', 'pre-commit', 'verified']</code>. Compare that against what you expect.</li>
+<li><code>Loaded N custom check(s): [...]</code> and <code>Skipped N invalid custom check(s)</code> appear if you configured custom checks; resolve any skipped names.</li>
+<li>In GitHub, open the protected branch's settings and confirm the required status checks match your <code>include-runs</code>/<code>exclude-runs</code> intent.</li>
+<li>Open a test PR and confirm the expected check runs appear as queued and then complete, and that <code>can-be-merged</code> fails with a readable reason if something is still running.</li>
+</ul>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="configuration-reference.html">Configuration Reference</a> — every key in <code>config.yaml</code> and repository-local overrides</li>
+<li><a href="configure-repositories.html">Configure Repositories</a> — rollout patterns across repositories</li>
+<li><a href="run-pull-request-commands.html">Run Pull Request Commands</a> — <code>/retest</code>, <code>/security-override</code>, <code>/build-and-push-container</code></li>
+<li><a href="manage-pull-requests.html">Manage Pull Requests</a> — labels, reviewers, and the merge flow</li>
+<li><a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> — the security checks in depth</li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +560,25 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#part-1-checks">Part 1 — Checks</a><ul>
+<li><a href="#how-a-check-run-gets-created-and-reported">How a check run gets created and reported</a></li>
+<li><a href="#the-built-in-checks">The built-in checks</a></li>
+<li><a href="#how-required-versus-advisory-is-decided">How required versus advisory is decided</a></li>
+<li><a href="#custom-check-runs">Custom check runs</a></li>
+<li><a href="#retesting">Retesting</a></li>
+<li><a href="#related-repository-keys">Related repository keys</a></li>
+</ul>
+</li>
+<li><a href="#part-2-release-workflows">Part 2 — Release workflows</a><ul>
+<li><a href="#container-builds-and-pushes">Container builds and pushes</a></li>
+<li><a href="#pypi-publishing">PyPI publishing</a></li>
+</ul>
+</li>
+<li><a href="#verify-it-worked">Verify it worked</a></li>
+<li><a href="#related-pages">Related pages</a></li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +588,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

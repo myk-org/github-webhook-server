@@ -24,5 +24,6 @@ commands = [
     "-n",
     "auto",
     "webhook_server/tests",
+    "scripts",
   ],
 ]

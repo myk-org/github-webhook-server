@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,826 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="log-viewer-and-mcp-api">Log Viewer and MCP API</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>Reference for the debugging and AI surfaces of the server: the log viewer HTML page, the <code>/logs/api/*</code> JSON routes, the <code>/logs/ws</code> live stream, and the <code>/mcp</code> Model Context Protocol endpoint.</p>
+<blockquote>
+<p><strong>⚠️ Security warning — these endpoints are unauthenticated</strong>
+</p>
+<p><code>GET /logs</code>, every <code>/logs/api/*</code> route, the <code>/logs/ws</code> WebSocket, and <code>/mcp</code> have <strong>no authentication of any kind</strong>. There is no auth middleware, no API key, no bearer token, and no session check anywhere in <code>webhook_server/app.py</code>. Anyone who can reach the port can read your webhook logs, which contain repository names, PR numbers, GitHub usernames, delivery IDs, error text, and stack traces.
+</p>
+<ul>
+<li><strong>Never expose these paths to the public internet.</strong> No port-forwarding them to a public host, no public load balancer in front of them, no tunnelling service.</li>
+<li>Deploy on a <strong>trusted network only</strong> — localhost, an internal network, or a VPN.</li>
+<li>If remote access is required, front the server with a <strong>reverse proxy that adds authentication</strong> (Basic auth, mTLS, oauth2-proxy, an identity-aware proxy) and only allow it to reach <code>/logs*</code> and <code>/mcp</code>.</li>
+<li>This is the same rule the project's own <code>AGENTS.md</code> states: <em>"NEVER expose log viewer (<code>/logs/*</code>) to public internet — endpoints are unauthenticated; deploy on trusted networks only."</em></li>
+</ul>
+</blockquote>
+<p>One route, <code>GET /logs/api/step-logs/{hook_id}/{step_name}</code>, additionally requires a <strong>private, loopback, or link-local client IP</strong> via <code>require_trusted_network</code>. That is a network-range check on <code>request.client.host</code>, not authentication, and it is trivially bypassed by a misconfigured reverse proxy that does not preserve the client address. It is a speed bump, not a control.</p>
+<h2 id="route-summary">Route summary</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>Registered when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs</code></td>
+<td>Log viewer HTML page</td>
+<td><code>ENABLE_LOG_SERVER=true</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/entries</code></td>
+<td>Filtered, paginated log search</td>
+<td>Always; returns <code>404</code> if disabled</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/export</code></td>
+<td>Streamed JSON download of filtered logs</td>
+<td>Always; returns <code>404</code> if disabled</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/pr-flow/{hook_id}</code></td>
+<td>Stage-by-stage PR flow for one delivery</td>
+<td>Always; returns <code>404</code> if disabled</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/workflow-steps/{hook_id}</code></td>
+<td>Step timeline for one delivery</td>
+<td>Always; returns <code>404</code> if disabled</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/step-logs/{hook_id}/{step_name}</code></td>
+<td>Log lines emitted during one step</td>
+<td>Always; <code>404</code> if disabled, <code>403</code> from a non-private IP</td>
+</tr>
+<tr>
+<td><code>WS</code></td>
+<td><code>/logs/ws</code></td>
+<td>Real-time log stream</td>
+<td>Endpoint always; closes <code>1008</code> if disabled</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST</code>/<code>DELETE</code></td>
+<td><code>/mcp</code></td>
+<td>MCP streamable HTTP transport</td>
+<td><code>ENABLE_MCP_SERVER=true</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/static/*</code></td>
+<td>CSS/JS for the viewer page</td>
+<td>Always (mounted directory)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>http://127.0.0.1:5001/tools/run</code></td>
+<td>Loopback tool server for the AI sidecar</td>
+<td>Always (started by <code>entrypoint.py</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>The two flags are read once at import time and the routes are then either registered or not:</p>
+<div class="highlight"><pre><span></span><code><span class="n">LOG_SERVER_ENABLED</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ENABLE_LOG_SERVER"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"true"</span>
+<span class="n">MCP_SERVER_ENABLED</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ENABLE_MCP_SERVER"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"true"</span>
+</code></pre></div>
+
+<p>The value must be the exact lowercase string <code>true</code>. <code>TRUE</code>, <code>1</code>, <code>yes</code>, and an unset variable all leave the feature off.</p>
+<h2 id="enabling-the-log-viewer">Enabling the log viewer</h2>
+<p>Set the flag and restart the server:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">ENABLE_LOG_SERVER</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span>/path/to/data<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<p>For the container, add <code>ENABLE_LOG_SERVER=true</code> to the container environment and restart it.</p>
+<p>Then browse to <code>http://127.0.0.1:5000/logs</code> (the default bind is <code>0.0.0.0:5000</code> from <code>ip-bind</code>/<code>port</code> in <code>config.yaml</code>; change the port in the URL if you configured a different one).</p>
+<p><code>GET /logs</code> only exists inside the feature-flag block, so with the flag off the path is a plain <code>404</code> from the router. The <code>/logs/api/*</code> routes are always registered but are wrapped in <code>require_log_server_enabled</code>, so they answer:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Log server is disabled. Set ENABLE_LOG_SERVER=true to enable."</span><span class="p">}</span>
+</code></pre></div>
+
+<p>with status <code>404</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">require_log_server_enabled</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Dependency to ensure log server is enabled before accessing log viewer APIs."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">LOG_SERVER_ENABLED</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span>
+            <span class="n">status_code</span><span class="o">=</span><span class="n">status</span><span class="o">.</span><span class="n">HTTP_404_NOT_FOUND</span><span class="p">,</span>
+            <span class="n">detail</span><span class="o">=</span><span class="s2">"Log server is disabled. Set ENABLE_LOG_SERVER=true to enable."</span><span class="p">,</span>
+        <span class="p">)</span>
+</code></pre></div>
+
+<h3 id="what-the-page-serves">What the page serves</h3>
+<p><code>LogViewerController.get_log_page()</code> reads <code>webhook_server/web/templates/log_viewer.html</code> and returns it as <code>HTMLResponse</code>. If the template cannot be read, the controller returns an inline fallback error page instead of crashing — you get a <code>200</code> page that says <em>"Log Viewer Template Error"</em>, not a stack trace. Any other failure becomes <code>500 Internal server error</code>.</p>
+<p>The controller is a process-wide singleton (<code>get_log_viewer_controller()</code>), created on first use with a logger writing to the file named by <code>logs-server-log-file</code> (default <code>logs_server.log</code>).</p>
+<h3 id="where-the-data-comes-from">Where the data comes from</h3>
+<p>Everything is read from disk, under <code>&lt;data-dir&gt;/logs</code>:</p>
+<ul>
+<li><code>webhooks_YYYY-MM-DD.json</code> — JSONL, one object per line: either <code>type: "webhook_summary"</code> (the complete <code>WebhookContext</code> for one delivery) or <code>type: "log_entry"</code> (an individual log line). Written by <code>write_webhook_log()</code> in <code>webhook_server/utils/structured_logger.py</code>.</li>
+<li><code>*.log</code> and rotated <code>*.log.*</code> — the human-readable text logs produced by <code>get_logger_with_params()</code>.</li>
+</ul>
+<p>Reads are streamed, never slurped: <code>_stream_log_entries()</code> reads at most 25 files (JSON webhook files first, then by mtime newest-first) and caps at 20 000 entries for unfiltered queries or 50 000 when any filter is set. Infrastructure loggers — <code>mcp.server.streamable_http</code>, <code>logs_server.log</code>, <code>log_parser</code>, <code>mcp_server.log</code> — are skipped, because they carry no <code>hook_id</code> or <code>event_type</code> and would flood unfiltered results.</p>
+<h2 id="get-logsapientries"><code>GET /logs/api/entries</code></h2>
+<p>Filtered, paginated search over historical logs. Operation ID <code>get_log_entries</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/entries?repository=owner/repo&amp;level=ERROR&amp;limit=100&amp;offset=0</span>
+</code></pre></div>
+
+<h3 id="query-parameters">Query parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hook_id</code></td>
+<td>str</td>
+<td>—</td>
+<td>GitHub delivery ID (<code>X-GitHub-Delivery</code>)</td>
+</tr>
+<tr>
+<td><code>pr_number</code></td>
+<td>int</td>
+<td>—</td>
+<td>Pull request number</td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>str</td>
+<td>—</td>
+<td><code>owner/repo</code></td>
+</tr>
+<tr>
+<td><code>event_type</code></td>
+<td>str</td>
+<td>—</td>
+<td>e.g. <code>pull_request</code>, <code>push</code>, <code>issues</code>, <code>issue_comment</code></td>
+</tr>
+<tr>
+<td><code>github_user</code></td>
+<td>str</td>
+<td>—</td>
+<td>Username who triggered the event</td>
+</tr>
+<tr>
+<td><code>level</code></td>
+<td>str</td>
+<td>—</td>
+<td>Exact, case-sensitive match on the entry level: <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, or <code>COMPLETED</code> for JSON summary entries. Not validated — a typo matches nothing.</td>
+</tr>
+<tr>
+<td><code>start_time</code></td>
+<td>str</td>
+<td>—</td>
+<td>ISO 8601, e.g. <code>2024-01-15T10:00:00Z</code></td>
+</tr>
+<tr>
+<td><code>end_time</code></td>
+<td>str</td>
+<td>—</td>
+<td>ISO 8601</td>
+</tr>
+<tr>
+<td><code>search</code></td>
+<td>str</td>
+<td>—</td>
+<td>Case-insensitive substring of the log message</td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td><code>100</code></td>
+<td><code>1</code>–<code>10000</code> (FastAPI <code>Query</code>, rejects out-of-range with <code>422</code>)</td>
+</tr>
+<tr>
+<td><code>offset</code></td>
+<td>int</td>
+<td><code>0</code></td>
+<td><code>&gt;= 0</code></td>
+</tr>
+</tbody>
+</table>
+<p>All filters are ANDed and matched exactly against the parsed entry fields; <code>search</code> is a case-insensitive substring of <code>message</code>. Time filters compare against the entry timestamp — <code>start_time</code> keeps entries at or after it, <code>end_time</code> keeps entries at or before it. <code>Z</code> suffixes are accepted (<code>parse_datetime_string()</code> rewrites a trailing <code>Z</code> to <code>+00:00</code> before calling <code>datetime.fromisoformat</code>); an unparseable value is a <code>400</code> with <code>Invalid start_time format: ...</code>.</p>
+<h3 id="response">Response</h3>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"entries"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.123456+00:00"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"INFO"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"logger_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"GithubWebhook"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"owner/repo [pull_request][72d3162e-cc78-11e3-81ab-4c9367dc0958][alice][PR 42]: Processing webhook"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"hook_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"72d3162e-cc78-11e3-81ab-4c9367dc0958"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"event_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pull_request"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"owner/repo"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"pr_number"</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"github_user"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alice"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"task_id"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"task_type"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"task_status"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"token_spend"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"entries_processed"</span><span class="p">:</span><span class="w"> </span><span class="mi">1542</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"filtered_count_min"</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"total_log_count_estimate"</span><span class="p">:</span><span class="w"> </span><span class="s2">"48210"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"limit"</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"offset"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"is_partial_scan"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Read the counters before you trust the result set:</p>
+<ul>
+<li><code>entries_processed</code> — entries actually examined. A <code>"50000+"</code> string means the streaming cap was hit and more entries exist.</li>
+<li><code>is_partial_scan</code> — <code>true</code> when the scan stopped at the cap rather than reading everything.</li>
+<li><code>filtered_count_min</code> — <code>len(entries) + offset</code>, the <strong>lower bound</strong> of matches. There is no exact total count; paging with <code>offset</code> is the way to walk a large result set.</li>
+<li><code>total_log_count_estimate</code> — string, sampled from file sizes across the first 10 <code>.log</code> files (~200 bytes per line assumed). It is a size for the stats bar, not a count you can page against.</li>
+</ul>
+<p>Errors: <code>400</code> for an unparseable timestamp or a limit outside 1–10000 reaching the controller, <code>422</code> from FastAPI for a <code>limit</code>/<code>offset</code> outside the declared <code>Query</code> bounds. Damaged log data is not an error: a log file that cannot be read is logged at <code>WARNING</code> and skipped by the streamer, and a JSONL line that is not valid JSON is dropped by <code>get_raw_json_entry()</code>. A corrupt file therefore yields fewer entries, not a <code>500</code>.</p>
+<h2 id="get-logsapiexport"><code>GET /logs/api/export</code></h2>
+<p>The same filters, streamed to a file download. Operation ID <code>export_logs</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/export?format_type=json&amp;level=ERROR&amp;start_time=2024-01-01T00:00:00Z&amp;limit=10000</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>format_type</code></td>
+<td>str</td>
+<td><code>json</code></td>
+<td>Constrained by the pattern <code>^json$</code>; anything else is <code>422</code></td>
+</tr>
+<tr>
+<td><code>hook_id</code>, <code>pr_number</code>, <code>repository</code>, <code>event_type</code>, <code>github_user</code>, <code>level</code>, <code>start_time</code>, <code>end_time</code>, <code>search</code></td>
+<td>—</td>
+<td>—</td>
+<td>Identical to <code>/logs/api/entries</code></td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td><code>10000</code></td>
+<td><code>1</code>–<code>100000</code> at the query layer</td>
+</tr>
+</tbody>
+</table>
+<p>The controller rejects <code>limit &gt; 50000</code> with <code>413</code> ("Result set too large"), even though the query parameter accepts up to 100 000.</p>
+<p>Response headers:</p>
+<div class="highlight"><pre><span></span><code>content-type: application/json
+content-disposition: attachment; filename=webhook_logs_20240115_143025.json
+</code></pre></div>
+
+<p>Note the filename pattern: <code>webhook_logs_%Y%m%d_%H%M%S.json</code>.</p>
+<p>Body:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"export_metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"generated_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.123456+00:00"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"filters_applied"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"owner/repo"</span><span class="p">,</span><span class="w"> </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ERROR"</span><span class="p">,</span><span class="w"> </span><span class="nt">"limit"</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">"total_entries"</span><span class="p">:</span><span class="w"> </span><span class="mi">156</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"export_format"</span><span class="p">:</span><span class="w"> </span><span class="s2">"json"</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"log_entries"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"...LogEntry objects, same shape as /logs/api/entries..."</span><span class="w"> </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>filters_applied</code> omits keys you did not set. The body is built in memory and yielded as a single chunk through a <code>StreamingResponse</code>; it is not incrementally streamed to the client.</p>
+<p>Errors: <code>400</code> for a non-<code>json</code> <code>format_type</code> reaching the controller or a bad timestamp, <code>413</code> for <code>limit &gt; 50000</code>, <code>422</code> for a <code>format_type</code> that fails the pattern or a <code>limit</code> outside <code>1</code>–<code>100000</code>, <code>500</code> on generation failure.</p>
+<h2 id="get-logsapipr-flowhook_id"><code>GET /logs/api/pr-flow/{hook_id}</code></h2>
+<p>Stage-level flow analysis for one delivery or PR. Operation ID <code>get_pr_flow_data</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/pr-flow/72d3162e-cc78-11e3-81ab-4c9367dc0958</span>
+</code></pre></div>
+
+<p><code>hook_id</code> is the only parameter, and it is flexible — the controller branches on the value:</p>
+<table>
+<thead>
+<tr>
+<th>Form</th>
+<th>Interpreted as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hook-&lt;id&gt;</code></td>
+<td>Delivery ID, with the <code>hook-</code> prefix stripped</td>
+</tr>
+<tr>
+<td><code>pr-42</code></td>
+<td>PR number <code>42</code></td>
+</tr>
+<tr>
+<td><code>42</code></td>
+<td>PR number <code>42</code> (bare digits)</td>
+</tr>
+<tr>
+<td>anything else</td>
+<td>Delivery ID as given</td>
+</tr>
+</tbody>
+</table>
+<p>Entries are streamed from at most 15 files / 10 000 entries and filtered by whichever identifier was recognised. Stages are then matched by regex over the log messages (<code>WORKFLOW_STAGE_PATTERNS</code>): Webhook Received, Validation Complete, Reviewers Assigned, Labels Applied, Checks Started, Checks Complete, Processing Complete.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"identifier"</span><span class="p">:</span><span class="w"> </span><span class="s2">"72d3162e-cc78-11e3-81ab-4c9367dc0958"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"stages"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Webhook Received"</span><span class="p">,</span><span class="w"> </span><span class="nt">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.123456+00:00"</span><span class="p">,</span><span class="w"> </span><span class="nt">"duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Checks Complete"</span><span class="p">,</span><span class="w"> </span><span class="nt">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:31:02.500000+00:00"</span><span class="p">,</span><span class="w"> </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="s2">"build failed"</span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"total_duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">37376</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"success"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="s2">"build failed"</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Each stage carries <code>name</code>, <code>timestamp</code>, <code>duration_ms</code> (time since the previous matched stage; <code>null</code> on the first stage), and <code>error</code> when the matched entry was at <code>ERROR</code> level. <code>error</code> at the top level is the first error message found.</p>
+<p>Errors: <code>404</code> when no log entries match, <code>400</code> when <code>pr-&lt;x&gt;</code> is not a valid integer, <code>500</code> on parse failure.</p>
+<h2 id="get-logsapiworkflow-stepshook_id"><code>GET /logs/api/workflow-steps/{hook_id}</code></h2>
+<p>The step timeline behind the viewer's flow modal. Operation ID <code>get_workflow_steps</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/workflow-steps/72d3162e-cc78-11e3-81ab-4c9367dc0958</span>
+</code></pre></div>
+
+<p>Only parameter: <code>hook_id</code>, the delivery ID.</p>
+<p>Data source, in order:</p>
+<ol>
+<li><strong>JSON summaries first.</strong> <code>_stream_json_log_entries()</code> scans <code>webhooks_*.json</code> for a <code>type: "webhook_summary"</code> entry whose <code>hook_id</code> matches. That entry is the serialized <code>WebhookContext</code> (see <a href="#hook-id-and-the-workflow-context">context</a>), and <code>_transform_json_entry_to_timeline()</code> reshapes it.</li>
+<li><strong>Text log fallback.</strong> If no JSON entry matches — or the JSON path raises <strong>any</strong> <code>HTTPException</code>, including <code>500 Malformed log entry</code> — <code>get_workflow_steps()</code> re-reads the text <code>.log</code> files and reconstructs the timeline from <code>logger.step</code> lines. This path also recovers <code>token_spend</code>, falling back to parsing it out of the message text.</li>
+</ol>
+<p>Response from the JSON path:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"hook_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"72d3162e-cc78-11e3-81ab-4c9367dc0958"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"start_time"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.123456+00:00"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"total_duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">45230</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"step_count"</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"steps"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"step_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"webhook_routing"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.156789+00:00"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">25001</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"completed"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"token_spend"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"event_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"check_run"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"action"</span><span class="p">:</span><span class="w"> </span><span class="s2">"created"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"owner/repo"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"sender"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alice"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"pr"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"number"</span><span class="p">:</span><span class="w"> </span><span class="mi">225</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"success"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>pr</code> is <code>null</code> when the delivery had no pull request. <code>token_spend</code> is only present when the delivery recorded one.</p>
+<p>A broken summary never yields partial data here — but it also never surfaces as a <code>500</code>. Three cases, and they are not the same:</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>JSON path</th>
+<th>What the endpoint returns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The summary line is not valid JSON</td>
+<td><code>get_raw_json_entry()</code> catches <code>json.JSONDecodeError</code> and returns <code>None</code>; the line is dropped silently, no error raised</td>
+<td>Behaves exactly as if no summary existed: <code>404</code> from the JSON path, then the text fallback</td>
+</tr>
+<tr>
+<td>No <code>webhook_summary</code> entry for the <code>hook_id</code> inside the scanned window</td>
+<td><code>404 No JSON log entry found for hook ID: ...</code></td>
+<td>Text fallback</td>
+</tr>
+<tr>
+<td>The summary parses but fails structural validation — missing <code>timing</code>, missing <code>timing.started_at</code> or <code>timing.duration_ms</code>, missing <code>workflow_steps</code>, a non-dict <code>pr</code>, or a step without a <code>timestamp</code></td>
+<td><code>_transform_json_entry_to_timeline()</code> raises <code>ValueError</code>; <code>get_workflow_steps_json()</code> converts it to <code>500 Malformed log entry</code></td>
+<td>That <code>500</code> is <strong>swallowed</strong> and the request falls through to the text logs. You get a reconstructed <code>200</code> timeline in the text-fallback shape, or <code>404 No data found for hook ID: ...</code> / <code>404 No workflow steps found for hook ID: ...</code> if the text logs do not cover the delivery</td>
+</tr>
+</tbody>
+</table>
+<p>The swallow is the backward-compatibility path, and it is unconditional — it does not distinguish a missing summary from a corrupt one:</p>
+<div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="c1"># First try JSON logs (more efficient and complete)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_workflow_steps_json</span><span class="p">(</span><span class="n">hook_id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">HTTPException</span><span class="p">:</span>
+        <span class="c1"># Fall back to text log parsing for backward compatibility</span>
+        <span class="k">pass</span>
+</code></pre></div>
+
+<p>So <code>500 Malformed log entry</code> is <strong>not</strong> a response this endpoint can produce. It belongs to <code>get_workflow_steps_json()</code> and is only reachable through <code>/logs/api/step-logs/{hook_id}/{step_name}</code>, which calls that method directly. To diagnose a corrupt summary, look for <code>Malformed log entry for hook ID: ...</code> in <code>logs_server.log</code> — the <code>logger.exception()</code> fires even though the request does not fail.</p>
+<p>The text-fallback shape differs: steps carry <code>message</code>, <code>level</code>, <code>relative_time_ms</code>, <code>repository</code>, <code>event_type</code>, <code>pr_number</code>, <code>task_id</code>, <code>task_type</code>, <code>task_status</code> instead of the JSON-path fields, and the top level has only <code>hook_id</code>, <code>start_time</code>, <code>total_duration_ms</code>, <code>step_count</code>, <code>steps</code> (plus <code>token_spend</code> when found).</p>
+<p>Errors: <code>404</code> when neither path finds data for the ID — <code>No data found for hook ID: ...</code> when the text logs hold nothing for it, <code>No workflow steps found for hook ID: ...</code> when they hold entries but no <code>logger.step</code> lines; <code>400</code> for an unusable identifier; <code>500 Internal server error</code> for an unexpected failure. A malformed JSON summary does <strong>not</strong> produce a <code>500</code> here — see the table above.</p>
+<h2 id="get-logsapistep-logshook_idstep_name"><code>GET /logs/api/step-logs/{hook_id}/{step_name}</code></h2>
+<p>The log lines written while one workflow step ran. Operation ID <code>get_step_logs</code>. This is the one route with a network restriction.</p>
+<div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/step-logs/72d3162e-cc78-11e3-81ab-4c9367dc0958/webhook_routing</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>In</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hook_id</code></td>
+<td>path</td>
+<td>1–100 characters</td>
+</tr>
+<tr>
+<td><code>step_name</code></td>
+<td>path</td>
+<td>1–100 characters — must equal a <code>step_name</code> from the timeline above, e.g. <code>webhook_routing</code>, <code>clone_repository</code></td>
+</tr>
+</tbody>
+</table>
+<p>The step is located in the workflow timeline, then a time window is computed: <code>step.timestamp</code> to <code>step.timestamp + duration_ms</code>, or a 60 000 ms default window when the step has no recorded duration. Text <code>.log</code> entries with the same <code>hook_id</code> inside that window are collected, capped at <strong>500 entries</strong> (<code>_MAX_STEP_LOGS</code>).</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"step"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"webhook_routing"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"completed"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-01-15T14:30:25.156789+00:00"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">25001</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"logs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"...LogEntry objects..."</span><span class="w"> </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"log_count"</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>This route reads the JSON summaries only. It calls <code>get_workflow_steps_json()</code> directly, with no text-log fallback, which makes it the one endpoint that can actually return <code>500 Malformed log entry</code>: a matching summary that fails structural validation propagates the error instead of being abandoned. A <code>hook_id</code> with no summary at all gets <code>404 No JSON log entry found for hook ID: ...</code> — note that is <em>not</em> the same message the workflow-steps route returns, and that route may still serve the delivery from text logs.</p>
+<p>Errors: <code>404</code> if no JSON summary matches the hook ID or the step name is not in the timeline, <code>403</code> when the client IP is not private/loopback/link-local or cannot be determined, <code>500 Malformed log entry</code> for a summary that parses but fails validation, <code>500</code> if the step has no usable timestamp or its timestamp is unparseable.</p>
+<h3 id="the-trusted-network-check">The trusted-network check</h3>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">require_trusted_network</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span>
+    <span class="n">is_trusted</span> <span class="o">=</span> <span class="n">client_ip</span><span class="o">.</span><span class="n">is_private</span> <span class="ow">or</span> <span class="n">client_ip</span><span class="o">.</span><span class="n">is_loopback</span> <span class="ow">or</span> <span class="n">client_ip</span><span class="o">.</span><span class="n">is_link_local</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">is_trusted</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="n">status</span><span class="o">.</span><span class="n">HTTP_403_FORBIDDEN</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="s2">"Access denied: ..."</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The code's own docstring says it plainly: this check <em>"can be bypassed if the server is behind a reverse proxy that doesn't properly set X-Forwarded-For headers."</em> Treat it as defence in depth, not as the reason you can expose the server.</p>
+<h2 id="ws-logsws"><code>WS /logs/ws</code></h2>
+<p>Real-time streaming of new log lines as they are written.</p>
+<div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">ws</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">WebSocket</span><span class="p">(</span><span class="sb">`ws://</span><span class="si">${</span><span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">host</span><span class="si">}</span><span class="sb">/logs/ws?hook_id=72d3162e-cc78-11e3-81ab-4c9367dc0958&amp;level=ERROR`</span><span class="p">);</span>
+<span class="nx">ws</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">data</span><span class="p">));</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hook_id</code></td>
+<td>str</td>
+<td>Delivery ID</td>
+</tr>
+<tr>
+<td><code>pr_number</code></td>
+<td>int</td>
+<td>PR number</td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>str</td>
+<td><code>owner/repo</code></td>
+</tr>
+<tr>
+<td><code>event_type</code></td>
+<td>str</td>
+<td>GitHub event type</td>
+</tr>
+<tr>
+<td><code>github_user</code></td>
+<td>str</td>
+<td>Triggering username</td>
+</tr>
+<tr>
+<td><code>level</code></td>
+<td>str</td>
+<td>Log level</td>
+</tr>
+</tbody>
+</table>
+<p>These are query parameters, not message frames. There is no <code>start_time</code>, <code>end_time</code>, or <code>search</code> on the socket — the live stream only supports the six filters above, unlike the REST search.</p>
+<p>Behaviour:</p>
+<ul>
+<li>The handler checks <code>LOG_SERVER_ENABLED</code> itself, because WebSocket routes do not take FastAPI dependencies. If disabled, the connection is closed with code <strong>1008</strong> and reason <code>"Log server is disabled"</code>.</li>
+<li>Otherwise the socket is accepted, added to the controller's connection set, and <code>LogParser.monitor_log_directory()</code> tails the log directory.</li>
+<li>Each new entry is pushed as a single JSON object with the same <code>LogEntry.to_dict()</code> shape used by the REST routes.</li>
+<li>With no filters, every entry is sent. With any filter set, <code>LogFilter.filter_entries()</code> decides per entry.</li>
+<li>If the log directory does not exist, the server sends <code>{"error": "Log directory not found"}</code> and returns.</li>
+<li>On an internal error the server closes with code <strong>1011</strong>. On shutdown the controller closes all open sockets with <strong>1001</strong> (<code>Server shutdown</code>) via <code>LogViewerController.shutdown()</code>.</li>
+<li>Client disconnects (<code>WebSocketDisconnect</code>) are normal and logged at <code>INFO</code>; the socket is removed from the connection set in a <code>finally</code> block.</li>
+</ul>
+<h2 id="mcp-server">MCP server</h2>
+<p>Enabled with <code>ENABLE_MCP_SERVER=true</code>. One route, registered by hand:</p>
+<div class="highlight"><pre><span></span><code><span class="n">FASTAPI_APP</span><span class="o">.</span><span class="n">add_api_route</span><span class="p">(</span>
+    <span class="s2">"/mcp"</span><span class="p">,</span>
+    <span class="n">handle_mcp_streamable_http</span><span class="p">,</span>
+    <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">"GET"</span><span class="p">,</span> <span class="s2">"POST"</span><span class="p">,</span> <span class="s2">"DELETE"</span><span class="p">],</span>
+    <span class="n">include_in_schema</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">operation_id</span><span class="o">=</span><span class="s2">"mcp_http"</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p><code>include_in_schema=False</code> keeps the endpoint out of <code>/openapi.json</code>, <code>/docs</code>, and the MCP tool list.</p>
+<h3 id="setup-sequence">Setup sequence</h3>
+<ol>
+<li><code>_initialize_mcp(FASTAPI_APP)</code> runs at import time, but every import is lazy — <code>fastapi_mcp</code>, <code>fastapi_mcp.transport.http</code>, and <code>mcp.server.streamable_http_manager</code>. A missing dependency logs <code>Failed to initialize MCP server; continuing without MCP</code> and leaves the globals as <code>None</code>; webhook processing is never blocked by a broken MCP install.</li>
+<li><code>FastApiMCP(app, exclude_tags=["mcp_exclude"])</code> wraps the FastAPI app. Because this runs at the end of <code>app.py</code>, the routes registered above it are the ones that get wrapped.</li>
+<li>The HTTP transport is <code>FastApiHttpSessionManager(mcp_server=mcp.server, event_store=None, json_response=True)</code> — <strong>stateless</strong>, no event store, JSON responses. There is no session handshake.</li>
+<li>The <code>/mcp</code> route is registered <strong>even if the above failed</strong>, so a broken MCP install answers <code>500</code> (<code>MCP server not initialized</code>) rather than a misleading <code>404</code>.</li>
+<li>The real <code>StreamableHTTPSessionManager</code> is created during the FastAPI lifespan, with <code>stateless=True</code>, and run as a background task tracked in <code>_background_tasks</code>. A failure there logs, tears the manager down, and leaves the rest of the app running.</li>
+</ol>
+<h3 id="exposed-tools">Exposed tools</h3>
+<p><code>FastApiMCP</code> converts every OpenAPI operation into a tool named after its <code>operation_id</code>, then drops anything tagged <code>mcp_exclude</code>. With both flags on, the tool list is:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Backing route</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>healthcheck</code></td>
+<td><code>GET /webhook_server/healthcheck</code></td>
+</tr>
+<tr>
+<td><code>get_log_viewer_page</code></td>
+<td><code>GET /logs</code> (present only when <code>ENABLE_LOG_SERVER=true</code>)</td>
+</tr>
+<tr>
+<td><code>get_log_entries</code></td>
+<td><code>GET /logs/api/entries</code></td>
+</tr>
+<tr>
+<td><code>export_logs</code></td>
+<td><code>GET /logs/api/export</code></td>
+</tr>
+<tr>
+<td><code>get_pr_flow_data</code></td>
+<td><code>GET /logs/api/pr-flow/{hook_id}</code></td>
+</tr>
+<tr>
+<td><code>get_workflow_steps</code></td>
+<td><code>GET /logs/api/workflow-steps/{hook_id}</code></td>
+</tr>
+<tr>
+<td><code>get_step_logs</code></td>
+<td><code>GET /logs/api/step-logs/{hook_id}/{step_name}</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>POST /webhook_server</code> carries <code>tags=["mcp_exclude"]</code> and is therefore <strong>not</strong> exposed as a tool — an AI client cannot post webhooks through MCP. <code>/mcp</code> itself is excluded by <code>include_in_schema=False</code>. The <code>/static</code> mount and the WebSocket are not OpenAPI operations and are not tools either.</p>
+<h3 id="client-configuration">Client configuration</h3>
+<p>Because the transport is stateless and JSON-only, point a Streamable HTTP MCP client at the base URL:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"github-webhook-server"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"http"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"http://127.0.0.1:5000/mcp"</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>GET</code> and <code>DELETE</code> are accepted for the session-management verbs, but with <code>stateless=True</code> no session state is kept between requests.</p>
+<blockquote>
+<p><strong>⚠️ No authentication.</strong> <code>app.py</code> says so at the registration site: <em>"MCP server runs without auth — deploy only on trusted networks (VPN, internal), never expose to public internet - use reverse proxy with auth for external access."</em> Any MCP client that can reach the port gets the log-reading tools listed above. Same rule as <code>/logs</code>: trusted network, or an authenticating reverse proxy.</p>
+</blockquote>
+<h3 id="logging">Logging</h3>
+<p>When MCP is enabled, log lines from <code>mcp.server.streamable_http</code> are routed to the file named by <code>mcp-log-file</code> (default <code>mcp_server.log</code>) instead of the main webhook log, by attaching a handler and setting <code>propagate = False</code>. A <code>logging.Filter</code> suppresses the <code>ClosedResourceError</code> "Error in message router" noise that appears when clients disconnect mid-stream.</p>
+<h2 id="loopback-tool-server-not-fastapi">Loopback tool server (not FastAPI)</h2>
+<p><code>webhook_server/web/tool_server.py</code> is a separate <code>aiohttp</code> app started by <code>entrypoint.py</code> on its own daemon thread and event loop, bound to <strong><code>127.0.0.1</code> only</strong>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">TOOL_SERVER_PORT</span> <span class="o">=</span> <span class="mi">5001</span>
+<span class="o">...</span>
+<span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_post</span><span class="p">(</span><span class="s2">"/tools/run"</span><span class="p">,</span> <span class="n">handle_tool_request</span><span class="p">)</span>
+<span class="n">site</span> <span class="o">=</span> <span class="n">web</span><span class="o">.</span><span class="n">TCPSite</span><span class="p">(</span><span class="n">runner</span><span class="p">,</span> <span class="s2">"127.0.0.1"</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+</code></pre></div>
+
+<p>It is the git-tool bridge for AI-assisted conflict resolution (<code>runner_handler.py</code> builds <code>http://127.0.0.1:5001/tools/run</code> per tool). It is unreachable from other hosts by design; do not change the bind address.</p>
+<h3 id="post-1270015001toolsrun"><code>POST 127.0.0.1:5001/tools/run</code></h3>
+<p>JSON body:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>Registry key; unknown key returns <code>404</code> listing the valid ones</td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>Repository working directory, substituted into <code>{cwd}</code> in the command prefix</td>
+</tr>
+<tr>
+<td><code>args</code></td>
+<td>str</td>
+<td>No</td>
+<td>Argument string, <code>shlex.split</code>; empty is fine</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>int | null</td>
+<td>No</td>
+<td>Clamped to 1–300 s; falls back to the tool default (<code>30</code>) when unparseable</td>
+</tr>
+</tbody>
+</table>
+<p>Response: <code>{"success": bool, "output": "..."}</code> — stdout, or stderr when stdout is empty, truncated to 50 000 characters. A timeout returns <code>{"success": false, "output": "Command timed out after Ns"}</code>.</p>
+<h3 id="tool-registry">Tool registry</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Command</th>
+<th>Blocked flags</th>
+<th>Success exit codes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>git_diff</code></td>
+<td><code>git -C {cwd} diff</code></td>
+<td><code>--no-index</code>, <code>--output</code>, <code>--raw</code></td>
+<td><code>0</code>, <code>1</code></td>
+</tr>
+<tr>
+<td><code>git_log</code></td>
+<td><code>git -C {cwd} log</code></td>
+<td>—</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>git_show</code></td>
+<td><code>git -C {cwd} show</code></td>
+<td>—</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>git_status</code></td>
+<td><code>git -C {cwd} status</code></td>
+<td>—</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>git_rm</code></td>
+<td><code>git -C {cwd} rm</code></td>
+<td><code>--cached</code>, <code>-r</code>, <code>-f</code>, <code>--force</code>, <code>--pathspec-from-file</code></td>
+<td><code>0</code></td>
+</tr>
+</tbody>
+</table>
+<p>Blocked flags are rejected with <code>403</code>, including combined short options: <code>-rf</code> is caught by expanding it into <code>-r -f</code> and checking each character against the blocked short flags. This is what keeps the AI conflict-resolution path read-only apart from scoped <code>git rm</code> and file edits — no <code>bash</code>, no recursive delete.</p>
+<p>Status codes: <code>400</code> for a non-JSON body, a missing <code>tool</code>/<code>cwd</code>, or a non-string <code>cwd</code>/<code>args</code>; <code>403</code> for a blocked flag or a disallowed subcommand; <code>404</code> for an unknown tool name; <code>200</code> for anything the subprocess produced.</p>
+<h2 id="hook_id-and-the-workflow-context"><code>hook_id</code> and the workflow context</h2>
+<p>Everything under <code>/logs/api/*</code> that takes a <code>hook_id</code> is keyed by the GitHub delivery ID — the <code>X-GitHub-Delivery</code> header of the original webhook. Per request the server builds a <code>WebhookContext</code> (<code>webhook_server/utils/context.py</code>) and, at the end of processing, writes it as one <code>type: "webhook_summary"</code> line to <code>webhooks_YYYY-MM-DD.json</code>. That summary is what the pr-flow and workflow-steps routes read.</p>
+<p>The fields the viewer surfaces:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hook_id</code></td>
+<td>Delivery ID</td>
+</tr>
+<tr>
+<td><code>event_type</code>, <code>action</code></td>
+<td>GitHub event and action</td>
+</tr>
+<tr>
+<td><code>repository</code>, <code>repository_full_name</code></td>
+<td>Target repository</td>
+</tr>
+<tr>
+<td><code>sender</code>, <code>api_user</code></td>
+<td>Who triggered it; which API identity acted</td>
+</tr>
+<tr>
+<td><code>pr</code></td>
+<td><code>{number, title, author}</code> or <code>null</code></td>
+</tr>
+<tr>
+<td><code>timing.started_at</code>, <code>timing.completed_at</code>, <code>timing.duration_ms</code></td>
+<td>Wall-clock timing</td>
+</tr>
+<tr>
+<td><code>workflow_steps</code></td>
+<td>Map of step name → <code>{timestamp, status, error, duration_ms}</code></td>
+</tr>
+<tr>
+<td><code>token_spend</code></td>
+<td>GitHub API calls consumed by this delivery</td>
+</tr>
+<tr>
+<td><code>initial_rate_limit</code>, <code>final_rate_limit</code></td>
+<td>Rate limit before and after</td>
+</tr>
+<tr>
+<td><code>success</code>, <code>error</code></td>
+<td>Overall outcome and top-level error with traceback</td>
+</tr>
+<tr>
+<td><code>summary</code></td>
+<td>One-line human-readable result</td>
+</tr>
+</tbody>
+</table>
+<p>Steps are recorded through <code>start_step()</code> / <code>complete_step()</code> / <code>fail_step()</code>. A step that started but never completed is marked <code>status: "started"</code> with <code>duration_ms: null</code> in the summary line, which the timeline reads as "incomplete".</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/logs</code> is <code>404</code></td>
+<td><code>ENABLE_LOG_SERVER</code> is not exactly <code>true</code>, or the server was not restarted after setting it</td>
+</tr>
+<tr>
+<td><code>/logs/api/*</code> returns <code>{"detail": "Log server is disabled..."}</code></td>
+<td>Flag off — the routes exist but the dependency rejects them</td>
+</tr>
+<tr>
+<td><code>/logs/api/step-logs/...</code> returns <code>403</code></td>
+<td>Client IP is not private/loopback/link-local, or the proxy is rewriting the client address</td>
+</tr>
+<tr>
+<td>The viewer page renders "Log Viewer Template Error"</td>
+<td><code>templates/log_viewer.html</code> could not be read; a built-in fallback page is served</td>
+</tr>
+<tr>
+<td>The page loads but shows no entries</td>
+<td><code>&lt;data-dir&gt;/logs</code> is empty or missing. Startup fails if <code>webhook_server/web/static/</code> is missing, not the logs directory — check <code>WEBHOOK_SERVER_DATA_DIR</code>.</td>
+</tr>
+<tr>
+<td><code>is_partial_scan: true</code> or a <code>"...+"</code> count</td>
+<td>The 20 000 / 50 000 entry streaming cap was hit. Add <code>hook_id</code>, <code>repository</code>, or a time range.</td>
+</tr>
+<tr>
+<td><code>404</code> from <code>workflow-steps</code> for a delivery you can see in <code>/logs/api/entries</code></td>
+<td>The JSON summary has not been written yet (it is written at the end of processing), the delivery fell outside the 25-file / 50 000-entry window, or the summary is corrupt and the text logs have no <code>logger.step</code> lines to replace it — all three end in the same <code>404</code></td>
+</tr>
+<tr>
+<td><code>500 Malformed log entry</code> from <code>step-logs</code> but a <code>200</code> (or <code>404</code>) from <code>workflow-steps</code> for the same ID</td>
+<td>The two routes disagree by design: <code>step-logs</code> reads the JSON summary directly and surfaces the validation error, <code>workflow-steps</code> falls back to text logs. Check <code>logs_server.log</code> for <code>Malformed log entry for hook ID: ...</code></td>
+</tr>
+<tr>
+<td><code>/mcp</code> returns <code>500</code> "MCP server not initialized"</td>
+<td><code>fastapi_mcp</code> failed to import or the session manager failed to start. Check <code>mcp_server.log</code> and the startup logs.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="see-also">See also</h2>
+<ul>
+<li><a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a> — task walkthrough for the UI.</li>
+<li><a href="webhook-and-health-api.html">Webhook and Health API</a> — the always-on public surface and the IP allowlist.</li>
+<li><a href="environment-variables.html">Environment Variables</a> — the full flag list.</li>
+<li><a href="configuration-reference.html">Configuration Reference</a> — <code>logs-server-log-file</code>, <code>mcp-log-file</code>, <code>mask-sensitive-data</code>.</li>
+<li><a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> — deployment and hardening guidance.</li>
+</ul>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +1045,42 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#route-summary">Route summary</a></li>
+<li><a href="#enabling-the-log-viewer">Enabling the log viewer</a><ul>
+<li><a href="#what-the-page-serves">What the page serves</a></li>
+<li><a href="#where-the-data-comes-from">Where the data comes from</a></li>
+</ul>
+</li>
+<li><a href="#get-logsapientries">GET /logs/api/entries</a><ul>
+<li><a href="#query-parameters">Query parameters</a></li>
+<li><a href="#response">Response</a></li>
+</ul>
+</li>
+<li><a href="#get-logsapiexport">GET /logs/api/export</a></li>
+<li><a href="#get-logsapipr-flowhook_id">GET /logs/api/pr-flow/{hook_id}</a></li>
+<li><a href="#get-logsapiworkflow-stepshook_id">GET /logs/api/workflow-steps/{hook_id}</a></li>
+<li><a href="#get-logsapistep-logshook_idstep_name">GET /logs/api/step-logs/{hook_id}/{step_name}</a><ul>
+<li><a href="#the-trusted-network-check">The trusted-network check</a></li>
+</ul>
+</li>
+<li><a href="#ws-logsws">WS /logs/ws</a></li>
+<li><a href="#mcp-server">MCP server</a><ul>
+<li><a href="#setup-sequence">Setup sequence</a></li>
+<li><a href="#exposed-tools">Exposed tools</a></li>
+<li><a href="#client-configuration">Client configuration</a></li>
+<li><a href="#logging">Logging</a></li>
+</ul>
+</li>
+<li><a href="#loopback-tool-server-not-fastapi">Loopback tool server (not FastAPI)</a><ul>
+<li><a href="#post-1270015001toolsrun">POST 127.0.0.1:5001/tools/run</a></li>
+<li><a href="#tool-registry">Tool registry</a></li>
+</ul>
+</li>
+<li><a href="#hook_id-and-the-workflow-context">hook_id and the workflow context</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#see-also">See also</a></li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +1090,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -203,36 +203,41 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <h1 id="configyaml">config.yaml</h1>
-<p>github-app-id: 123456
-github-tokens:
-  - <GITHUB TOKEN1>
-  - <GITHUB TOKEN2></p>
-<p>webhook-ip: https://your-domain.com/webhook_server</p>
-<p>default-status-checks:
-  - "WIP"
-  - "can-be-merged"</p>
-<p>repositories:
-  my-repository:
-    name: my-org/my-repository
-    events:
-      - pull_request
-      - issue_comment
-      - check_run
-      - status
-    tox:
-      main: all
-    pre-commit: true
-    protected-branches:
-      main:
-        include-runs:
-          - "pre-commit.ci - pr"
-          - "WIP"</p>
-<div class="highlight"><pre><span></span><code>```yaml
-# .github-webhook-server.yaml
-conventional-title: &quot;feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert&quot;
-minimum-lgtm: 2
-create-issue-for-new-pr: true
+                    <h1 id="configure-repositories">Configure Repositories</h1>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHUB TOKEN1&gt;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;GITHUB TOKEN2&gt;</span>
+
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.com/webhook_server</span>
+
+<span class="nt">default-status-checks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"WIP"</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"can-be-merged"</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
+<span class="w">    </span><span class="nt">tox</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
+<span class="w">    </span><span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">main</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr"</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"WIP"</span>
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml</span>
+<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"</span>
+<span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div>
 
 <p>The first file gives the server everything it needs to bootstrap and manage the repository. The second file lets repository maintainers tune day-to-day behavior without editing the server.</p>
@@ -251,9 +256,9 @@ create-issue-for-new-pr: true
 <span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://your-domain.com/webhook_server</span>
 
 <span class="nt">default-status-checks</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;dpulls&quot;</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;can-be-merged&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"WIP"</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"dpulls"</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"can-be-merged"</span>
 
 <span class="nt">branch-protection</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -312,10 +317,10 @@ create-issue-for-new-pr: true
 <span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">main</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr&quot;</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr"</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"WIP"</span>
 <span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis&quot;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis"</span>
 </code></pre></div>
 
 <p>This is the right place for:</p>
@@ -329,7 +334,7 @@ create-issue-for-new-pr: true
 <p>If you want the repository to receive all events, omit <code>events</code> entirely instead of listing everything.</p>
 <h3 id="4-let-repository-maintainers-self-serve-safe-settings">4. Let repository maintainers self-serve safe settings</h3>
 <p>Add a <code>.github-webhook-server.yaml</code> file at the repository root when maintainers should be able to adjust behavior without editing the server.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"</span>
 <span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
@@ -493,13 +498,13 @@ create-issue-for-new-pr: true
 <span class="w">  </span><span class="nt">dev</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
 <span class="w">  </span><span class="nt">main</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">include-runs</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr&quot;</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;WIP&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"pre-commit.ci</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">pr"</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"WIP"</span>
 <span class="w">    </span><span class="nt">exclude-runs</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis"</span>
 </code></pre></div>
 
-<p>Use an empty list when you want the default required checks for that branch. Use <code>include-runs</code> and <code>exclude-runs</code> when one branch needs a different requirement set.</p>
+<p>Use an empty list when you want the default required checks for that branch. Use <code>include-runs</code> and <code>exclude-runs</code> when one branch needs a different requirement set. <code>exclude-runs</code> is subtracted from the final list in both cases, so it also removes an entry that <code>include-runs</code> added.</p>
 <h3 id="hand-off-specialized-settings-to-the-right-pages">Hand off specialized settings to the right pages</h3>
 <p>Keep this page focused on where configuration lives and how it overrides. For the actual knobs in those feature areas, use the dedicated pages:</p>
 <ul>
@@ -601,9 +606,6 @@ create-issue-for-new-pr: true
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

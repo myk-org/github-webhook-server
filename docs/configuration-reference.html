@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -203,37 +203,158 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <h1 id="configyaml">config.yaml</h1>
-<p>github-app-id: 123456
-github-tokens:
-  - ghp_admin_token
-webhook-ip: https://hooks.example.com/webhook_server</p>
-<p>repositories:
-  github-webhook-server:
-    name: my-org/github-webhook-server
-    pre-commit: true
-    conventional-title: "feat,fix,docs"</p>
-<h1 id="github-webhook-serveryaml">.github-webhook-server.yaml</h1>
-<p>pre-commit: false
-conventional-title: "feat,fix,docs,refactor"</p>
-<div class="highlight"><pre><span></span><code>## Global Keys
+                    <h1 id="configuration-reference">Configuration Reference</h1>
+<p>Reference for <code>config.yaml</code>, repository entries under <code>repositories.&lt;repo-id&gt;</code>, and repository-local <code>.github-webhook-server.yaml</code> overrides. See <a href="configure-repositories.html">Configure Repositories</a> for rollout patterns, <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a> for workflow examples, <a href="enable-ai-features.html">Enable AI Features</a> for AI setup, <a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> for hardening, <a href="supported-github-events.html">Supported GitHub Events</a> for event coverage, and <a href="environment-variables.html">Environment Variables</a> for non-YAML settings.</p>
+<h2 id="files-and-resolution">Files and Resolution</h2>
+<table>
+<thead>
+<tr>
+<th>Scope label</th>
+<th>Location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Global</code></td>
+<td>Root of <code>config.yaml</code></td>
+</tr>
+<tr>
+<td><code>Repo</code></td>
+<td><code>config.yaml</code> under <code>repositories.&lt;repo-id&gt;</code></td>
+</tr>
+<tr>
+<td><code>Local</code></td>
+<td>Root of <code>.github-webhook-server.yaml</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config.yaml</code></td>
+<td>Server-wide settings and per-repository registration</td>
+<td>Required. Defines global defaults, managed repositories, webhook subscriptions, branch settings, and runtime behavior.</td>
+</tr>
+<tr>
+<td><code>.github-webhook-server.yaml</code></td>
+<td>Repository-local runtime overrides</td>
+<td>Optional. Overrides only the keys the webhook runtime reads from the repository after startup.</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Resolution rule</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scalar and array values</td>
+<td>First defined value wins: <code>Local</code> -&gt; <code>Repo</code> -&gt; <code>Global</code>.</td>
+</tr>
+<tr>
+<td><code>branch-protection</code></td>
+<td>Repo values overlay global values property by property.</td>
+</tr>
+<tr>
+<td><code>labels</code></td>
+<td>Repo/local values overlay global values; <code>labels.colors</code> entries merge by key.</td>
+</tr>
+<tr>
+<td><code>welcome-extra-info</code></td>
+<td>Empty string clears an inherited value. A repo file named <code>.github-webhook-server-welcome-message.md</code> overrides configured text entirely.</td>
+</tr>
+<tr>
+<td><code>ai-features</code>, <code>security-checks</code>, <code>test-oracle</code>, <code>pr-size-thresholds</code></td>
+<td>A repo-scoped block replaces the global block instead of deep-merging it. Repeat required subkeys when overriding.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Warning:</strong> <code>.github-webhook-server.yaml</code> is not consulted for <code>name</code>, <code>log-level</code>, <code>log-file</code>, <code>mask-sensitive-data</code>, <code>github-tokens</code>, <code>events</code>, <code>default-status-checks</code>, <code>protected-branches</code>, <code>allow-commands-on-draft-prs</code>, <code>test-oracle</code>, or <code>pr-size-thresholds</code>. Put those keys in <code>config.yaml</code>.</p>
+<p><strong>Note:</strong> A repo-local <code>branch-protection</code> block only affects webhook-time <code>required_conversation_resolution</code> handling. GitHub branch protection updates at startup still come from <code>config.yaml</code>.</p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
+<span class="nt">github-tokens</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_admin_token</span>
+<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://hooks.example.com/webhook_server</span>
 
-### Logging
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
+<span class="w">    </span><span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,docs"</span>
 
-| Key | Type | Default | Description | Effect |
-|---|---|---|---|---|
-| `log-level` | `string` | `INFO` | Main application log level. Allowed values: `INFO`, `DEBUG`. | Controls webhook server log verbosity. |
-| `log-file` | `string` | unset | Main application log file path. Relative paths resolve under `&lt;data-dir&gt;/logs/`. | Writes main server logs to this file; omit for console-only main logs. |
-| `mcp-log-file` | `string` | `mcp_server.log` | MCP server log file path. Relative paths resolve under `&lt;data-dir&gt;/logs/`. | Writes `/mcp` server logs when MCP is enabled. |
-| `logs-server-log-file` | `string` | `logs_server.log` | Log viewer server log file path. Relative paths resolve under `&lt;data-dir&gt;/logs/`. | Writes `/logs` server logs when the log viewer is enabled. |
-| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. |
+<span class="c1"># .github-webhook-server.yaml</span>
+<span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,docs,refactor"</span>
+</code></pre></div>
 
-```yaml
-log-level: INFO
-log-file: webhook-server.log
-mcp-log-file: mcp_server.log
-logs-server-log-file: logs_server.log
-mask-sensitive-data: true
+<h2 id="global-keys">Global Keys</h2>
+<h3 id="logging">Logging</h3>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>log-level</code></td>
+<td><code>string</code></td>
+<td><code>INFO</code></td>
+<td>Main application log level. Allowed values: <code>INFO</code>, <code>DEBUG</code>.</td>
+<td>Controls webhook server log verbosity.</td>
+</tr>
+<tr>
+<td><code>log-file</code></td>
+<td><code>string</code></td>
+<td>unset</td>
+<td>Main application log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
+<td>Writes main server logs to this file; omit for console-only main logs.</td>
+</tr>
+<tr>
+<td><code>mcp-log-file</code></td>
+<td><code>string</code></td>
+<td><code>mcp_server.log</code></td>
+<td>MCP server log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
+<td>Writes <code>/mcp</code> server logs when MCP is enabled.</td>
+</tr>
+<tr>
+<td><code>logs-server-log-file</code></td>
+<td><code>string</code></td>
+<td><code>logs_server.log</code></td>
+<td>Log viewer server log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
+<td>Writes <code>/logs</code> server logs when the log viewer is enabled.</td>
+</tr>
+<tr>
+<td><code>mask-sensitive-data</code></td>
+<td><code>boolean</code></td>
+<td><code>true</code></td>
+<td>Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs.</td>
+<td>Applies log masking across the server unless a repo-level <code>config.yaml</code> override is present.</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook-server.log</span>
+<span class="nt">mcp-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_server.log</span>
+<span class="nt">logs-server-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logs_server.log</span>
+<span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div>
 
 <h3 id="github-access-and-network">GitHub Access and Network</h3>
@@ -307,7 +428,7 @@ mask-sensitive-data: true
 <tr>
 <td><code>port</code></td>
 <td><code>integer</code></td>
-<td><code>500</code></td>
+<td><code>5000</code></td>
 <td>HTTP server port.</td>
 <td>Controls the listening port for webhook and API endpoints.</td>
 </tr>
@@ -333,7 +454,7 @@ mask-sensitive-data: true
 <span class="nt">verify-cloudflare-ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">disable-ssl-warnings</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="nt">ip-bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
-<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
 <span class="nt">max-workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 </code></pre></div>
 
@@ -680,7 +801,7 @@ mask-sensitive-data: true
 <span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://hooks.slack.com/services/TEAM/CHANNEL/TOKEN</span>
 <span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,docs,refactor&quot;</span>
+<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,docs,refactor"</span>
 <span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="nt">set-auto-merge-prs</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
@@ -1045,7 +1166,7 @@ mask-sensitive-data: true
 <p><strong>Warning:</strong> Repo <code>test-oracle</code> replaces the global block. <code>.github-webhook-server.yaml</code> does not override this block.</p>
 </blockquote>
 <div class="highlight"><pre><span></span><code><span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://test-oracle.internal:800</span>
+<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://test-oracle.internal:8000</span>
 <span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude</span>
 <span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
 <span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
@@ -1151,8 +1272,8 @@ mask-sensitive-data: true
 <div class="highlight"><pre><span></span><code><span class="nt">tox</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
 <span class="w">  </span><span class="nt">develop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unit,lint</span>
-<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;-p</span><span class="nv"> </span><span class="s">-v&quot;</span>
-<span class="w">  </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;3.11&quot;</span>
+<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="s">"-p</span><span class="nv"> </span><span class="s">-v"</span>
+<span class="w">  </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">"3.11"</span>
 </code></pre></div>
 
 <h3 id="protected-branches"><code>protected-branches</code></h3>
@@ -1180,14 +1301,14 @@ mask-sensitive-data: true
 <td><code>array&lt;string&gt;</code></td>
 <td><code>[]</code></td>
 <td>Explicit required status checks.</td>
-<td>If non-empty, this becomes the branch’s full required-check list.</td>
+<td>If non-empty, this becomes the branch’s required-check list, and the security checks governed by <code>security-checks.mandatory</code> (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) are added on top of it.</td>
 </tr>
 <tr>
 <td><code>protected-branches.&lt;branch&gt;.exclude-runs</code></td>
 <td><code>array&lt;string&gt;</code></td>
 <td><code>[]</code></td>
-<td>Status checks to remove from the automatic required-check list.</td>
-<td>Applied only when <code>include-runs</code> is empty.</td>
+<td>Status checks to remove.</td>
+<td>Subtracted from the branch’s required-check list in both paths, removing any entry it names — including the security checks.</td>
 </tr>
 </tbody>
 </table>
@@ -1456,1330 +1577,6 @@ mask-sensitive-data: true
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-scan</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TOKEN=value uv tool run --from bandit bandit -r .</span>
 <span class="w">    </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="err">```</span><span class="c1"># Configuration Reference</span>
-
-<span class="l l-Scalar l-Scalar-Plain">Reference for `config.yaml`, repository entries under `repositories.&lt;repo-id&gt;`, and repository-local `.github-webhook-server.yaml` overrides. See [Configure Repositories](configure-repositories.html) for rollout patterns, [Set Up Checks and Release Workflows](set-up-checks-and-release-workflows.html) for workflow examples, [Enable AI Features](enable-ai-features.html) for AI setup, [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.html) for hardening, [Supported GitHub Events](supported-github-events.html) for event coverage, and [Environment Variables](environment-variables.html) for non-YAML settings.</span>
-
-<span class="c1">## Files and Resolution</span>
-
-<span class="p p-Indicator">|</span><span class="err"> Scope label | Location |</span>
-<span class="p p-Indicator">|</span><span class="err">---|---|</span>
-<span class="p p-Indicator">|</span><span class="err"> `Global` | Root of `config.yaml` |</span>
-<span class="p p-Indicator">|</span><span class="err"> `Repo` | `config.yaml` under `repositories.&lt;repo-id&gt;` |</span>
-<span class="p p-Indicator">|</span><span class="err"> `Local` | Root of `.github-webhook-server.yaml` |</span>
-
-<span class="p p-Indicator">|</span><span class="err"> File | Purpose | Effect |</span>
-<span class="p p-Indicator">|</span><span class="err">---|---|---|</span>
-<span class="p p-Indicator">|</span><span class="err"> `config.yaml` | Server-wide settings and per-repository registration | Required. Defines global defaults, managed repositories, webhook subscriptions, branch settings, and runtime behavior. |</span>
-<span class="p p-Indicator">|</span><span class="err"> `.github-webhook-server.yaml` | Repository-local runtime overrides | Optional. Overrides only the keys the webhook runtime reads from the repository after startup. |</span>
-
-<span class="p p-Indicator">|</span><span class="err"> Resolution rule | Effect |</span>
-<span class="p p-Indicator">|</span><span class="err">---|---|</span>
-<span class="nt">| Scalar and array values | First defined value wins</span><span class="p">:</span><span class="w"> </span><span class="err">`</span><span class="l l-Scalar l-Scalar-Plain">Local` -&gt; `Repo` -&gt; `Global`. |</span>
-<span class="p p-Indicator">|</span><span class="err"> `branch-protection` | Repo values overlay global values property by property. |</span>
-<span class="p p-Indicator">|</span><span class="err"> `labels` | Repo/local values overlay global values; `labels.colors` entries merge by key. |</span>
-<span class="p p-Indicator">|</span><span class="err"> `welcome-extra-info` | Empty string clears an inherited value. A repo file named `.github-webhook-server-welcome-message.md` overrides configured text entirely. |</span>
-<span class="p p-Indicator">|</span><span class="err"> `ai-features`, `security-checks`, `test-oracle`, `pr-size-thresholds` | A repo-scoped block replaces the global block instead of deep-merging it. Repeat required subkeys when overriding. |</span>
-
-<span class="p p-Indicator">&gt;</span><span class="err"> **Warning:** `.github-webhook-server.yaml` is not consulted for `name`, `log-level`, `log-file`, `mask-sensitive-data`, `github-tokens`, `events`, `default-status-checks`, `protected-branches`, `allow-commands-on-draft-prs`, `test-oracle`, or `pr-size-thresholds`. Put those keys in `config.yaml`.</span>
-
-<span class="p p-Indicator">&gt;</span><span class="err"> **Note:** A repo-local `branch-protection` block only affects webhook-time `required_conversation_resolution` handling. GitHub branch protection updates at startup still come from `config.yaml`.</span>
-
-<span class="err">```</span><span class="l l-Scalar l-Scalar-Plain">yaml</span>
-<span class="c1"># config.yaml</span>
-<span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
-<span class="nt">github-tokens</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_admin_token</span>
-<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://hooks.example.com/webhook_server</span>
-
-<span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
-<span class="w">    </span><span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,docs&quot;</span>
-
-<span class="c1"># .github-webhook-server.yaml</span>
-<span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,docs,refactor&quot;</span>
-</code></pre></div>
-
-<h2 id="global-keys">Global Keys</h2>
-<h3 id="logging">Logging</h3>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>log-level</code></td>
-<td><code>string</code></td>
-<td><code>INFO</code></td>
-<td>Main application log level. Allowed values: <code>INFO</code>, <code>DEBUG</code>.</td>
-<td>Controls webhook server log verbosity.</td>
-</tr>
-<tr>
-<td><code>log-file</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Main application log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
-<td>Writes main server logs to this file; omit for console-only main logs.</td>
-</tr>
-<tr>
-<td><code>mcp-log-file</code></td>
-<td><code>string</code></td>
-<td><code>mcp_server.log</code></td>
-<td>MCP server log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
-<td>Writes <code>/mcp</code> server logs when MCP is enabled.</td>
-</tr>
-<tr>
-<td><code>logs-server-log-file</code></td>
-<td><code>string</code></td>
-<td><code>logs_server.log</code></td>
-<td>Log viewer server log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
-<td>Writes <code>/logs</code> server logs when the log viewer is enabled.</td>
-</tr>
-<tr>
-<td><code>mask-sensitive-data</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs.</td>
-<td>Applies log masking across the server unless a repo-level <code>config.yaml</code> override is present.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook-server.log</span>
-<span class="nt">mcp-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_server.log</span>
-<span class="nt">logs-server-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logs_server.log</span>
-<span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</code></pre></div>
-
-<h3 id="github-access-and-network_1">GitHub Access and Network</h3>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>github-app-id</code></td>
-<td><code>integer</code></td>
-<td>unset</td>
-<td>GitHub App ID used by the server.</td>
-<td>Identifies the GitHub App when the server looks up app metadata and manages repositories.</td>
-</tr>
-<tr>
-<td><code>github-tokens</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>unset</td>
-<td>Personal access tokens the server can use for repository API calls.</td>
-<td>The server picks the token with the highest remaining rate limit.</td>
-</tr>
-<tr>
-<td><code>webhook-ip</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Full webhook callback URL, including path.</td>
-<td>Registered on managed repositories as the webhook target URL.</td>
-</tr>
-<tr>
-<td><code>webhook-secret</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Shared webhook secret.</td>
-<td>Enables HMAC-SHA256 validation of incoming GitHub webhook payloads.</td>
-</tr>
-<tr>
-<td><code>verify-github-ips</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Restrict incoming requests to GitHub’s published webhook IP ranges.</td>
-<td>Loads GitHub CIDRs at startup and rejects requests outside the allowlist.</td>
-</tr>
-<tr>
-<td><code>verify-cloudflare-ips</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Restrict incoming requests to Cloudflare’s published IP ranges.</td>
-<td>Loads Cloudflare CIDRs at startup and rejects requests outside the allowlist.</td>
-</tr>
-<tr>
-<td><code>disable-ssl-warnings</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Disable urllib3 SSL warnings.</td>
-<td>Suppresses SSL warning noise in logs.</td>
-</tr>
-<tr>
-<td><code>ip-bind</code></td>
-<td><code>string</code></td>
-<td><code>0.0.0.0</code></td>
-<td>Interface address for the HTTP server.</td>
-<td>Controls which network interface the server listens on.</td>
-</tr>
-<tr>
-<td><code>port</code></td>
-<td><code>integer</code></td>
-<td><code>5000</code></td>
-<td>HTTP server port.</td>
-<td>Controls the listening port for webhook and API endpoints.</td>
-</tr>
-<tr>
-<td><code>max-workers</code></td>
-<td><code>integer</code></td>
-<td><code>10</code></td>
-<td>Maximum Uvicorn worker count.</td>
-<td>Used in production mode; ignored when dev reload mode is enabled.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> If <code>verify-github-ips</code> or <code>verify-cloudflare-ips</code> is enabled and no allowlist loads successfully, the server fails closed and does not start.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">github-app-id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span>
-<span class="nt">github-tokens</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_primary_token</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_fallback_token</span>
-<span class="nt">webhook-ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://hooks.example.com/webhook_server</span>
-<span class="nt">webhook-secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;webhook-secret&gt;</span>
-<span class="nt">verify-github-ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">verify-cloudflare-ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">disable-ssl-warnings</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="nt">ip-bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
-<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
-<span class="nt">max-workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-</code></pre></div>
-
-<h3 id="global-repository-defaults_1">Global Repository Defaults</h3>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>default-status-checks</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Seed list of required status checks for protected branches.</td>
-<td>When a branch is listed under <code>protected-branches</code>, the server starts with this list, always adds <code>can-be-merged</code>, then appends built-in checks implied by repo settings.</td>
-</tr>
-<tr>
-<td><code>auto-verified-and-merged-users</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Users whose PRs are treated as auto-verified.</td>
-<td>Applies as the global fallback user list; API users from <code>github-tokens</code> are added at runtime.</td>
-</tr>
-<tr>
-<td><code>auto-verify-cherry-picked-prs</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Global default for cherry-picked PR auto-verification.</td>
-<td>Repo-level value can disable or re-enable automatic verification of cherry-picked PRs.</td>
-</tr>
-<tr>
-<td><code>create-issue-for-new-pr</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Global default for PR issue creation.</td>
-<td>Controls whether new PRs create a tracking issue by default.</td>
-</tr>
-<tr>
-<td><code>cherry-pick-assign-to-pr-author</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Global default for cherry-pick assignee behavior.</td>
-<td>Controls whether cherry-pick PRs are assigned to the original PR author by default.</td>
-</tr>
-<tr>
-<td><code>allow-commands-on-draft-prs</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>unset</td>
-<td>Global draft-PR command allowlist. Use slash-command names without <code>/</code>.</td>
-<td>Omitted blocks draft-PR commands, <code>[]</code> allows all, and a non-empty list allows only the listed commands.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">default-status-checks</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ci/external</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy/manual-approval</span>
-<span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
-<span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-and-push-container</span>
-</code></pre></div>
-
-<h3 id="docker_1"><code>docker</code></h3>
-<p>Where: <code>Global</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>docker.username</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Docker Hub username. Required when the <code>docker</code> block is present.</td>
-<td>Used for startup <code>docker.io</code> login.</td>
-</tr>
-<tr>
-<td><code>docker.password</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Docker Hub password or token. Required when the <code>docker</code> block is present.</td>
-<td>Used for startup <code>docker.io</code> login.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">docker</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dockerhub-user</span>
-<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;dockerhub-token&gt;</span>
-</code></pre></div>
-
-<h2 id="repository-registration_1">Repository Registration</h2>
-<h3 id="repositories_1"><code>repositories</code></h3>
-<p>Where: <code>Global</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>repositories</code></td>
-<td><code>object</code></td>
-<td>none</td>
-<td>Non-empty map of managed repositories.</td>
-<td>Required. Registers the repositories the server manages.</td>
-</tr>
-<tr>
-<td><code>repositories.&lt;repo-id&gt;</code></td>
-<td><code>object</code></td>
-<td>none</td>
-<td>Per-repository configuration block. <code>&lt;repo-id&gt;</code> must match the GitHub repository name from the webhook payload, not <code>owner/repo</code>.</td>
-<td>Selects the correct repo config at webhook time.</td>
-</tr>
-<tr>
-<td><code>repositories.&lt;repo-id&gt;.name</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Full repository name in <code>owner/repo</code> format.</td>
-<td>Used for GitHub API access, webhook registration, and repo setup.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
-<span class="w">  </span><span class="nt">docsfy</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/docsfy</span>
-</code></pre></div>
-
-<h2 id="repository-keys_1">Repository Keys</h2>
-<h3 id="repo-keys-read-from-configyaml-only_1">Repo Keys Read From <code>config.yaml</code> Only</h3>
-<p>Where: <code>Repo</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>log-level</code></td>
-<td><code>string</code></td>
-<td>inherits global; else <code>INFO</code></td>
-<td>Per-repo log level. Allowed values: <code>INFO</code>, <code>DEBUG</code>.</td>
-<td>Overrides global log verbosity for this repository.</td>
-</tr>
-<tr>
-<td><code>log-file</code></td>
-<td><code>string</code></td>
-<td>inherits global</td>
-<td>Per-repo log file path. Relative paths resolve under <code>&lt;data-dir&gt;/logs/</code>.</td>
-<td>Overrides the main log destination for this repository.</td>
-</tr>
-<tr>
-<td><code>mask-sensitive-data</code></td>
-<td><code>boolean</code></td>
-<td>inherits global; else <code>true</code></td>
-<td>Per-repo log masking override.</td>
-<td>Enables or disables secret redaction for this repository’s logs.</td>
-</tr>
-<tr>
-<td><code>github-tokens</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>inherits global</td>
-<td>Per-repo token list.</td>
-<td>Replaces the global token list for this repository’s API selection.</td>
-</tr>
-<tr>
-<td><code>events</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>["*"]</code></td>
-<td>GitHub webhook event names to subscribe to for this repository.</td>
-<td>Controls the repository webhook subscription created or updated at startup.</td>
-</tr>
-<tr>
-<td><code>default-status-checks</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>inherits global; else <code>[]</code></td>
-<td>Per-repo replacement for the global seed list.</td>
-<td>Used when protected branches are configured for this repository.</td>
-</tr>
-<tr>
-<td><code>allow-commands-on-draft-prs</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>inherits global; else unset</td>
-<td>Per-repo draft-PR command allowlist. Use slash-command names without <code>/</code>.</td>
-<td>Omitted blocks draft-PR commands, <code>[]</code> allows all, non-empty list allows only the listed commands.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> For event behavior after delivery, see <a href="supported-github-events.html">Supported GitHub Events</a>.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
-<span class="w">    </span><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span>
-<span class="w">    </span><span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github-webhook-server.log</span>
-<span class="w">    </span><span class="nt">mask-sensitive-data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">github-tokens</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghp_repo_specific_token</span>
-<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">push</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
-<span class="w">    </span><span class="nt">default-status-checks</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ci/external</span>
-<span class="w">    </span><span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-and-push-container</span>
-</code></pre></div>
-
-<h3 id="repo-keys-read-from-configyaml-or-github-webhook-serveryaml_1">Repo Keys Read From <code>config.yaml</code> or <code>.github-webhook-server.yaml</code></h3>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>slack-webhook-url</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Slack incoming webhook URL.</td>
-<td>Sends Slack notifications for container and PyPI publish results and failures.</td>
-</tr>
-<tr>
-<td><code>verified-job</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Enable the <code>verified</code> workflow.</td>
-<td>Adds the <code>verified</code> check to merge logic and required-check generation.</td>
-</tr>
-<tr>
-<td><code>pre-commit</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Enable pre-commit execution for PR checks.</td>
-<td>Adds the <code>pre-commit</code> check run for this repository.</td>
-</tr>
-<tr>
-<td><code>tox-python-version</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Legacy tox Python version key.</td>
-<td>Used only when <code>tox.python-version</code> is absent; emits a deprecation warning.</td>
-</tr>
-<tr>
-<td><code>auto-verified-and-merged-users</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>inherits global; else <code>[]</code></td>
-<td>Per-repo replacement for the auto-verified user list.</td>
-<td>Limits auto-verification to the listed users for this repository.</td>
-</tr>
-<tr>
-<td><code>auto-verify-cherry-picked-prs</code></td>
-<td><code>boolean</code></td>
-<td>inherits global; else <code>true</code></td>
-<td>Per-repo cherry-pick auto-verification setting.</td>
-<td>Controls whether eligible cherry-picked PRs are auto-verified.</td>
-</tr>
-<tr>
-<td><code>set-auto-merge-prs</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Exact base branch names that should have auto-merge enabled.</td>
-<td>If a PR targets a listed branch and becomes mergeable, the server enables GitHub auto-merge.</td>
-</tr>
-<tr>
-<td><code>can-be-merged-required-labels</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Labels that must be present before a PR can be marked mergeable.</td>
-<td>Adds extra label gates to the <code>can-be-merged</code> workflow.</td>
-</tr>
-<tr>
-<td><code>conventional-title</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Comma-separated allowed Conventional Commit types, or <code>*</code> for any valid type.</td>
-<td>Enables the <code>conventional-title</code> check run for this repository.</td>
-</tr>
-<tr>
-<td><code>minimum-lgtm</code></td>
-<td><code>integer</code></td>
-<td><code>0</code></td>
-<td>Minimum LGTM count.</td>
-<td>Requires this many LGTM approvals before the PR can satisfy merge rules.</td>
-</tr>
-<tr>
-<td><code>create-issue-for-new-pr</code></td>
-<td><code>boolean</code></td>
-<td>inherits global; else <code>true</code></td>
-<td>Per-repo tracking-issue setting.</td>
-<td>Overrides the global issue-creation behavior for new PRs.</td>
-</tr>
-<tr>
-<td><code>cherry-pick-assign-to-pr-author</code></td>
-<td><code>boolean</code></td>
-<td>inherits global; else <code>true</code></td>
-<td>Per-repo cherry-pick assignee setting.</td>
-<td>Overrides whether cherry-pick PRs are assigned to the original PR author.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> <code>pre-commit</code> is runtime-disabled until you set it to <code>true</code>, even though the schema advertises a <code>true</code> default.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="c1"># Either under repositories.&lt;repo-id&gt; in config.yaml</span>
-<span class="c1"># or at the root of .github-webhook-server.yaml</span>
-<span class="nt">slack-webhook-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://hooks.slack.com/services/TEAM/CHANNEL/TOKEN</span>
-<span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feat,fix,docs,refactor&quot;</span>
-<span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="nt">set-auto-merge-prs</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
-<span class="nt">can-be-merged-required-labels</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-reviewed</span>
-<span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</code></pre></div>
-
-<h2 id="shared-blocks_1">Shared Blocks</h2>
-<h3 id="branch-protection_1"><code>branch-protection</code></h3>
-<p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>branch-protection.strict</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Use strict status checks.</td>
-<td>GitHub requires the branch to be up to date before merging.</td>
-</tr>
-<tr>
-<td><code>branch-protection.require_code_owner_reviews</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Require code owner reviews.</td>
-<td>GitHub enforces code owner review approval before merge.</td>
-</tr>
-<tr>
-<td><code>branch-protection.dismiss_stale_reviews</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Dismiss stale reviews after new commits.</td>
-<td>GitHub invalidates earlier approvals on newer commits.</td>
-</tr>
-<tr>
-<td><code>branch-protection.required_approving_review_count</code></td>
-<td><code>integer</code></td>
-<td><code>0</code></td>
-<td>Required GitHub approval count.</td>
-<td>GitHub enforces the numeric approval threshold.</td>
-</tr>
-<tr>
-<td><code>branch-protection.required_linear_history</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Require linear commit history.</td>
-<td>GitHub blocks non-linear merge history.</td>
-</tr>
-<tr>
-<td><code>branch-protection.required_conversation_resolution</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Require resolved review conversations.</td>
-<td>GitHub enforces conversation resolution, and the webhook runtime listens to review-thread events only when this is enabled.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> Repo <code>branch-protection</code> values overlay global values field by field.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="nt">dismiss_stale_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">  </span><span class="nt">required_linear_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">required_conversation_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-
-<span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
-<span class="w">    </span><span class="nt">branch-protection</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">require_code_owner_reviews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">required_approving_review_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-</code></pre></div>
-
-<h3 id="labels_1"><code>labels</code></h3>
-<p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>labels.enabled-labels</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>all configurable categories enabled</td>
-<td>Enabled label categories. Valid values: <code>verified</code>, <code>hold</code>, <code>wip</code>, <code>needs-rebase</code>, <code>has-conflicts</code>, <code>can-be-merged</code>, <code>size</code>, <code>branch</code>, <code>cherry-pick</code>, <code>automerge</code>.</td>
-<td>Restricts which auto-managed label families the server creates and updates.</td>
-</tr>
-<tr>
-<td><code>labels.colors</code></td>
-<td><code>object&lt;string,string&gt;</code></td>
-<td><code>{}</code></td>
-<td>Color overrides using CSS3 color names.</td>
-<td>Overrides default label colors.</td>
-</tr>
-<tr>
-<td><code>labels.colors.&lt;label-or-prefix&gt;</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Exact label name such as <code>hold</code>, or a dynamic label prefix ending in <code>-</code> such as <code>approved-</code> or <code>branch-</code>.</td>
-<td>Applies the configured color when matching labels are created or updated.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> Reviewed-by labels such as <code>approved-*</code>, <code>lgtm-*</code>, <code>commented-*</code>, and <code>changes-requested-*</code> are always enabled.</p>
-<p><strong>Tip:</strong> Use <code>pr-size-thresholds</code> to control <code>size/*</code> label names and colors.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">labels</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">enabled-labels</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hold</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">size</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">branch</span>
-<span class="w">  </span><span class="nt">colors</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">hold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">red</span>
-<span class="w">    </span><span class="nt">verified</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">green</span>
-<span class="w">    </span><span class="nt">approved-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">blue</span>
-<span class="w">    </span><span class="nt">branch-</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkorange</span>
-</code></pre></div>
-
-<h3 id="welcome-extra-info_1"><code>welcome-extra-info</code></h3>
-<p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>welcome-extra-info</code></td>
-<td><code>string</code></td>
-<td>inherits outer scope; else empty string</td>
-<td>Markdown appended to the PR welcome comment. Maximum runtime size is 10 KB UTF-8. An empty string explicitly clears an inherited value.</td>
-<td>Adds extra guidance to the welcome comment unless a repo file overrides it.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> If <code>.github-webhook-server-welcome-message.md</code> exists in the repository, its contents replace <code>welcome-extra-info</code>. An empty file suppresses configured welcome text.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">welcome-extra-info</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<span class="w">  </span><span class="no">Please link the tracking issue.</span>
-<span class="w">  </span><span class="no">Review the release checklist before merging.</span>
-</code></pre></div>
-
-<h3 id="security-checks_1"><code>security-checks</code></h3>
-<p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>security-checks.mandatory</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Make security checks blocking instead of advisory.</td>
-<td>When <code>true</code>, security checks join required merge checks.</td>
-</tr>
-<tr>
-<td><code>security-checks.suspicious-paths</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>built-in sensitive-path set</td>
-<td>Path prefixes treated as sensitive.</td>
-<td>PRs that modify matching paths fail the <code>security-suspicious-paths</code> check.</td>
-</tr>
-<tr>
-<td><code>security-checks.committer-identity-check</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Compare the PR author with the last commit committer.</td>
-<td>Fails the <code>security-committer-identity</code> check when the identities do not match and no trust exception applies.</td>
-</tr>
-<tr>
-<td><code>security-checks.trusted-committers</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Additional trusted committer logins.</td>
-<td>Allows listed committers to pass the identity check; entries are normalized to lowercase.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> Built-in <code>suspicious-paths</code> defaults are <code>.claude/</code>, <code>.vscode/</code>, <code>.cursor/</code>, <code>.devcontainer/</code>, <code>.pi/</code>, <code>.github/workflows/</code>, and <code>.github/actions/</code>.</p>
-<p><strong>Note:</strong> The server automatically trusts the GitHub App bot login, <code>web-flow</code>, and the API users behind <code>github-tokens</code>.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github/workflows/</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github/actions/</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Dockerfile</span>
-<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">trusted-committers</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pre-commit-ci[bot]</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">release-bot</span>
-</code></pre></div>
-
-<h3 id="ai-features_1"><code>ai-features</code></h3>
-<p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ai-features.ai-provider</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>AI provider. Allowed values: <code>claude</code>, <code>gemini</code>, <code>cursor</code>. Required when the block is present.</td>
-<td>Selects the provider for all AI features in the block.</td>
-</tr>
-<tr>
-<td><code>ai-features.ai-model</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Model identifier. Required when the block is present.</td>
-<td>Selects the model for all AI features in the block.</td>
-</tr>
-<tr>
-<td><code>ai-features.conventional-title.enabled</code></td>
-<td><code>boolean</code></td>
-<td>none</td>
-<td>Enable AI assistance for the <code>conventional-title</code> check. Required when the sub-block is present.</td>
-<td>Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures.</td>
-</tr>
-<tr>
-<td><code>ai-features.conventional-title.mode</code></td>
-<td><code>string</code></td>
-<td><code>suggest</code></td>
-<td>Allowed values: <code>suggest</code>, <code>fix</code>.</td>
-<td><code>suggest</code> writes a suggestion into the check run; <code>fix</code> updates the PR title automatically.</td>
-</tr>
-<tr>
-<td><code>ai-features.conventional-title.timeout-minutes</code></td>
-<td><code>integer</code></td>
-<td><code>10</code></td>
-<td>AI CLI timeout in minutes. Minimum <code>1</code>.</td>
-<td>Limits how long the AI title step can run.</td>
-</tr>
-<tr>
-<td><code>ai-features.resolve-cherry-pick-conflicts-with-ai.enabled</code></td>
-<td><code>boolean</code></td>
-<td>none</td>
-<td>Enable AI cherry-pick conflict resolution. Required when the sub-block is present.</td>
-<td>Lets the server attempt AI conflict resolution for cherry-pick failures.</td>
-</tr>
-<tr>
-<td><code>ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes</code></td>
-<td><code>integer</code></td>
-<td><code>10</code></td>
-<td>AI CLI timeout in minutes. Minimum <code>1</code>.</td>
-<td>Limits how long the AI cherry-pick resolution step can run.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> Repo/local <code>ai-features</code> replaces the global block. Repeat <code>ai-provider</code> and <code>ai-model</code> in every override.</p>
-<p><strong>Note:</strong> Cherry-picks resolved with AI are never auto-verified.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
-<span class="w">  </span><span class="nt">conventional-title</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<span class="w">  </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-</code></pre></div>
-
-<h3 id="test-oracle_1"><code>test-oracle</code></h3>
-<p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>test-oracle.server-url</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Base URL of the test oracle service. Required when the block is present.</td>
-<td>The webhook server calls this service for recommendations.</td>
-</tr>
-<tr>
-<td><code>test-oracle.ai-provider</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Provider name. Allowed values: <code>claude</code>, <code>gemini</code>, <code>cursor</code>. Required when the block is present.</td>
-<td>Sent to the oracle service for model selection.</td>
-</tr>
-<tr>
-<td><code>test-oracle.ai-model</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Model identifier. Required when the block is present.</td>
-<td>Sent to the oracle service for model selection.</td>
-</tr>
-<tr>
-<td><code>test-oracle.test-patterns</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td>service defaults</td>
-<td>Test file globs.</td>
-<td>Restricts which test paths the oracle recommends from.</td>
-</tr>
-<tr>
-<td><code>test-oracle.triggers</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>["approved"]</code></td>
-<td>Automatic trigger names. Allowed values: <code>approved</code>, <code>pr-opened</code>, <code>pr-synchronized</code>.</td>
-<td>Controls when the server runs automatic oracle analysis.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> <code>approved</code> refers to the <code>/approve</code> command path used by this server. The <code>/test-oracle</code> command works whenever the block is configured.</p>
-<p><strong>Warning:</strong> Repo <code>test-oracle</code> replaces the global block. <code>.github-webhook-server.yaml</code> does not override this block.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://test-oracle.internal:8000</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
-<span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tests/**/*.py</span>
-<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pr-opened</span>
-</code></pre></div>
-
-<h3 id="pr-size-thresholds_1"><code>pr-size-thresholds</code></h3>
-<p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pr-size-thresholds.&lt;label&gt;.threshold</code></td>
-<td><code>integer</code> or <code>string</code></td>
-<td>none</td>
-<td>Exclusive upper bound for the bucket. Use a positive integer or the string <code>inf</code>.</td>
-<td>The first threshold greater than total additions plus deletions wins.</td>
-</tr>
-<tr>
-<td><code>pr-size-thresholds.&lt;label&gt;.color</code></td>
-<td><code>string</code></td>
-<td><code>lightgray</code></td>
-<td>CSS3 color name for <code>size/&lt;label&gt;</code>.</td>
-<td>Sets the label color for the bucket.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> Built-in thresholds are <code>size/XS</code> for <code>&lt;20</code>, <code>size/S</code> for <code>&lt;50</code>, <code>size/M</code> for <code>&lt;100</code>, <code>size/L</code> for <code>&lt;300</code>, <code>size/XL</code> for <code>&lt;500</code>, and <code>size/XXL</code> otherwise.</p>
-<p><strong>Warning:</strong> Repo <code>pr-size-thresholds</code> replaces the global block. <code>.github-webhook-server.yaml</code> does not override this block.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">pr-size-thresholds</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">XS</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
-<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lightgray</span>
-<span class="w">  </span><span class="nt">M</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
-<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orange</span>
-<span class="w">  </span><span class="nt">XXL</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inf</span>
-<span class="w">    </span><span class="nt">color</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">darkred</span>
-</code></pre></div>
-
-<h2 id="repository-only-blocks_1">Repository-Only Blocks</h2>
-<h3 id="tox_1"><code>tox</code></h3>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>tox.&lt;base-branch&gt;</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Exact PR base branch name mapped to a tox env list, or the literal value <code>all</code>.</td>
-<td>If the PR base branch matches exactly, the value becomes the <code>tox -e</code> selection; <code>all</code> runs tox without <code>-e</code>.</td>
-</tr>
-<tr>
-<td><code>tox.args</code></td>
-<td><code>string</code></td>
-<td>empty string</td>
-<td>Extra CLI arguments appended to the generated tox command.</td>
-<td>Modifies the tox invocation for every PR in this repository.</td>
-</tr>
-<tr>
-<td><code>tox.python-version</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Python version passed to <code>uvx</code> as <code>--python=&lt;version&gt;</code>.</td>
-<td>Selects the Python runtime used to launch tox.</td>
-</tr>
-<tr>
-<td><code>tox-python-version</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Deprecated legacy form of <code>tox.python-version</code>.</td>
-<td>Used only when <code>tox.python-version</code> is absent.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> Use exact branch names and string env lists. The runtime does not expand branch globs, and array branch values are not normalized before execution.</p>
-<p><strong>Note:</strong> If a <code>tox</code> block exists but no branch key matches the PR base branch, tox still runs with the repository’s default tox configuration.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">tox</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
-<span class="w">  </span><span class="nt">develop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unit,lint</span>
-<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;-p</span><span class="nv"> </span><span class="s">-v&quot;</span>
-<span class="w">  </span><span class="nt">python-version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;3.11&quot;</span>
-</code></pre></div>
-
-<h3 id="protected-branches_1"><code>protected-branches</code></h3>
-<p>Where: <code>Repo</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>protected-branches.&lt;branch&gt;</code></td>
-<td><code>object</code></td>
-<td>unset</td>
-<td>Exact branch name to configure at startup. Use <code>{}</code> for automatic required checks.</td>
-<td>The startup repository setup applies GitHub branch protection to this branch.</td>
-</tr>
-<tr>
-<td><code>protected-branches.&lt;branch&gt;.include-runs</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Explicit required status checks.</td>
-<td>If non-empty, this becomes the branch’s full required-check list.</td>
-</tr>
-<tr>
-<td><code>protected-branches.&lt;branch&gt;.exclude-runs</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Status checks to remove from the automatic required-check list.</td>
-<td>Applied only when <code>include-runs</code> is empty.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> Use exact branch names and the object form shown below. The schema accepts array shorthand, but the startup branch-settings path reads the object form.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
-<span class="w">    </span><span class="nt">protected-branches</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
-<span class="w">      </span><span class="nt">develop</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">include-runs</span><span class="p">:</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">can-be-merged</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verified</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tox</span>
-<span class="w">        </span><span class="nt">exclude-runs</span><span class="p">:</span>
-<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pre-commit.ci - pr</span>
-</code></pre></div>
-
-<h3 id="pypi_1"><code>pypi</code></h3>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pypi.token</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>PyPI token. Required when the <code>pypi</code> block is present.</td>
-<td>Enables package publishing on the repository’s release/tag workflow.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">pypi</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;pypi-token&gt;</span>
-</code></pre></div>
-
-<h3 id="container_1"><code>container</code></h3>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>container.username</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Registry username. Required when the <code>container</code> block is present.</td>
-<td>Used for image push credentials.</td>
-</tr>
-<tr>
-<td><code>container.password</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Registry password or token. Required when the <code>container</code> block is present.</td>
-<td>Used for image push credentials.</td>
-</tr>
-<tr>
-<td><code>container.repository</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Full image repository name. Required when the <code>container</code> block is present.</td>
-<td>Target image repository for builds and pushes.</td>
-</tr>
-<tr>
-<td><code>container.tag</code></td>
-<td><code>string</code></td>
-<td><code>latest</code></td>
-<td>Default main/master release tag.</td>
-<td>Used for merged PRs targeting <code>main</code> or <code>master</code>; PR builds use <code>pr-&lt;number&gt;</code>.</td>
-</tr>
-<tr>
-<td><code>container.release</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Push images on release/tag workflows.</td>
-<td>Enables publish behavior in release flows.</td>
-</tr>
-<tr>
-<td><code>container.build-args</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Build arguments passed to the container build command.</td>
-<td>Adds <code>--build-arg</code> inputs to the build.</td>
-</tr>
-<tr>
-<td><code>container.args</code></td>
-<td><code>array&lt;string&gt;</code></td>
-<td><code>[]</code></td>
-<td>Extra build command arguments.</td>
-<td>Appends additional arguments such as <code>--platform</code> or <code>--pull</code>.</td>
-</tr>
-<tr>
-<td><code>container.context</code></td>
-<td><code>string</code></td>
-<td>empty string</td>
-<td>Build context subdirectory, relative to repo root. Allowed characters: letters, numbers, <code>.</code>, <code>_</code>, <code>-</code>, <code>/</code>.</td>
-<td>Uses the given subdirectory as the build context.</td>
-</tr>
-<tr>
-<td><code>container.dockerfile</code></td>
-<td><code>string</code></td>
-<td><code>Dockerfile</code></td>
-<td>Dockerfile path. Supported by the runtime even though it is not declared in the schema.</td>
-<td>Selects the Dockerfile used for the build.</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nt">container</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay-user</span>
-<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;quay-token&gt;</span>
-<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/example/my-image</span>
-<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">latest</span>
-<span class="w">  </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">build-args</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VERSION=1.2.3</span>
-<span class="w">  </span><span class="nt">args</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--platform=linux/amd64</span>
-<span class="w">  </span><span class="nt">context</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">src/app</span>
-<span class="w">  </span><span class="nt">dockerfile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Dockerfile</span>
-</code></pre></div>
-
-<h4 id="containeroci-annotations_1"><code>container.oci-annotations</code></h4>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>container.oci-annotations.enabled</code></td>
-<td><code>boolean</code></td>
-<td><code>false</code></td>
-<td>Turn OCI annotations on.</td>
-<td>Adds OCI annotations to built images.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.static.&lt;key&gt;</code></td>
-<td><code>string</code></td>
-<td>unset</td>
-<td>Static annotation value. Use reverse-domain keys such as <code>org.opencontainers.image.vendor</code>.</td>
-<td>Adds fixed annotations to every built image.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.auto.created</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Auto-populate <code>org.opencontainers.image.created</code>.</td>
-<td>Adds the build timestamp annotation.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.auto.source</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Auto-populate <code>org.opencontainers.image.source</code>.</td>
-<td>Adds the source repository URL annotation.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.auto.revision</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Auto-populate <code>org.opencontainers.image.revision</code>.</td>
-<td>Adds the commit SHA annotation.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.auto.version</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Auto-populate <code>org.opencontainers.image.version</code>.</td>
-<td>Adds the pushed tag on release builds.</td>
-</tr>
-<tr>
-<td><code>container.oci-annotations.auto.title</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Auto-populate <code>org.opencontainers.image.title</code>.</td>
-<td>Adds the repository name annotation.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> <code>container.context</code> must stay under the repository root. Path traversal is rejected at runtime.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">container</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay-user</span>
-<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;quay-token&gt;</span>
-<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/example/my-image</span>
-<span class="w">  </span><span class="nt">oci-annotations</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">static</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">org.opencontainers.image.vendor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Example Corp</span>
-<span class="w">    </span><span class="nt">auto</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</code></pre></div>
-
-<h3 id="custom-check-runs_1"><code>custom-check-runs</code></h3>
-<p>Where: <code>Repo/local</code></p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>custom-check-runs[].name</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Check run name. Required. Use only <code>A-Z</code>, <code>a-z</code>, <code>0-9</code>, <code>.</code>, <code>_</code>, <code>-</code>, maximum length <code>64</code>.</td>
-<td>Creates a GitHub check run with this exact name and exposes <code>/retest &lt;name&gt;</code>.</td>
-</tr>
-<tr>
-<td><code>custom-check-runs[].command</code></td>
-<td><code>string</code></td>
-<td>none</td>
-<td>Shell command to run in the repository worktree. Required. Leading <code>VAR=value</code> assignments are allowed.</td>
-<td>Executes the custom check command for PR workflows.</td>
-</tr>
-<tr>
-<td><code>custom-check-runs[].mandatory</code></td>
-<td><code>boolean</code></td>
-<td><code>true</code></td>
-<td>Whether this custom check is required for merge.</td>
-<td>Mandatory checks join the required-check list; optional checks still run but do not block merge.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Warning:</strong> Custom check names must be unique and cannot collide with built-in check names: <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>python-module-install</code>, <code>conventional-title</code>, <code>can-be-merged</code>, <code>security-suspicious-paths</code>, and <code>security-committer-identity</code>.</p>
-<p><strong>Note:</strong> The server validates that the command has an executable after any leading environment assignments, and that the executable exists on the server.</p>
-</blockquote>
-<div class="highlight"><pre><span></span><code><span class="nt">custom-check-runs</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
-<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uv tool run --from ruff ruff check</span>
-<span class="w">    </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-scan</span>
-<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TOKEN=value uv tool run --from bandit bandit -r .</span>
-<span class="w">    </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </code></pre></div>
 
 <h2 id="related-pages">Related Pages</h2>
@@ -2796,7 +1593,7 @@ mask-sensitive-data: true
 
                 <a href="automation-recipes.html" class="page-nav-link page-nav-prev">
                     <span class="page-nav-label">Previous</span>
-                    <span class="page-nav-title">Automate Common Maintainer Tasks</span>
+                    <span class="page-nav-title">Automation Recipes</span>
                 </a>
 
 
@@ -2812,9 +1609,14 @@ mask-sensitive-data: true
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
+<li><a href="#files-and-resolution">Files and Resolution</a></li>
+<li><a href="#global-keys">Global Keys</a><ul>
+<li><a href="#logging">Logging</a></li>
 <li><a href="#github-access-and-network">GitHub Access and Network</a></li>
 <li><a href="#global-repository-defaults">Global Repository Defaults</a></li>
 <li><a href="#docker">docker</a></li>
+</ul>
+</li>
 <li><a href="#repository-registration">Repository Registration</a><ul>
 <li><a href="#repositories">repositories</a></li>
 </ul>
@@ -2842,40 +1644,6 @@ mask-sensitive-data: true
 <li><a href="#custom-check-runs">custom-check-runs</a></li>
 </ul>
 </li>
-<li><a href="#global-keys">Global Keys</a><ul>
-<li><a href="#logging">Logging</a></li>
-<li><a href="#github-access-and-network_1">GitHub Access and Network</a></li>
-<li><a href="#global-repository-defaults_1">Global Repository Defaults</a></li>
-<li><a href="#docker_1">docker</a></li>
-</ul>
-</li>
-<li><a href="#repository-registration_1">Repository Registration</a><ul>
-<li><a href="#repositories_1">repositories</a></li>
-</ul>
-</li>
-<li><a href="#repository-keys_1">Repository Keys</a><ul>
-<li><a href="#repo-keys-read-from-configyaml-only_1">Repo Keys Read From config.yaml Only</a></li>
-<li><a href="#repo-keys-read-from-configyaml-or-github-webhook-serveryaml_1">Repo Keys Read From config.yaml or .github-webhook-server.yaml</a></li>
-</ul>
-</li>
-<li><a href="#shared-blocks_1">Shared Blocks</a><ul>
-<li><a href="#branch-protection_1">branch-protection</a></li>
-<li><a href="#labels_1">labels</a></li>
-<li><a href="#welcome-extra-info_1">welcome-extra-info</a></li>
-<li><a href="#security-checks_1">security-checks</a></li>
-<li><a href="#ai-features_1">ai-features</a></li>
-<li><a href="#test-oracle_1">test-oracle</a></li>
-<li><a href="#pr-size-thresholds_1">pr-size-thresholds</a></li>
-</ul>
-</li>
-<li><a href="#repository-only-blocks_1">Repository-Only Blocks</a><ul>
-<li><a href="#tox_1">tox</a></li>
-<li><a href="#protected-branches_1">protected-branches</a></li>
-<li><a href="#pypi_1">pypi</a></li>
-<li><a href="#container_1">container</a></li>
-<li><a href="#custom-check-runs_1">custom-check-runs</a></li>
-</ul>
-</li>
 <li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
@@ -2887,9 +1655,6 @@ mask-sensitive-data: true
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

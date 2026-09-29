@@ -254,7 +254,10 @@ class IssueCommentHandler:
                 )
                 return
 
-            await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
+            if remove:
+                await self.labels_handler._remove_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
+            else:
+                await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
 
         await self.create_comment_reaction(
             pull_request=pull_request, issue_comment_id=issue_comment_id, reaction=REACTIONS.ok

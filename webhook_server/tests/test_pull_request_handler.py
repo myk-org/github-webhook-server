@@ -493,6 +493,10 @@ class TestPullRequestHandler:
         result = pull_request_handler._prepare_welcome_comment()
         assert "auto-verified user" in result
         assert "Issue Creation" in result
+        assert (
+            "* `/automerge` - Enable automatic merging when all requirements are met (maintainers and approvers only)"
+        ) in result
+        assert "* `/automerge cancel` - Remove automerge label (maintainers and approvers only)" in result
 
     def test_prepare_welcome_comment_non_auto_verified_user(self, pull_request_handler: PullRequestHandler) -> None:
         """Test preparing welcome comment for non-auto-verified user."""

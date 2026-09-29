@@ -381,7 +381,7 @@ async def process_webhook(request: Request) -> JSONResponse:
     Raises:
         HTTPException 400: Missing required fields (X-GitHub-Event, repository.name,
             repository.full_name) or invalid JSON payload
-        HTTPException 401: Signature verification failed (if webhook-secret configured)
+        HTTPException 403: Signature verification failed (if webhook-secret configured)
         HTTPException 500: Configuration errors during signature verification setup
 
     Note:

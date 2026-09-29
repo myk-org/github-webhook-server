@@ -4,16 +4,27 @@
 
 ## Getting Started
 
-- [Start Automating a Repository](quick-start.md): Set up the server, add the minimal data directory and config, connect one repository, and verify the webhook is live in minutes.
+- [Start Automating a Repository](quick-start.md)
 
 ## User Guides
 
-- [Configure Repositories](configure-repositories.md): Add repositories, choose global defaults, apply per-repo overrides, and let repository maintainers customize behavior safely.
-- [Manage Pull Requests](manage-pull-requests.md): Learn what the server does automatically on PR open, review, sync, and merge so contributors understand labels, checks, approvals, and merge readiness.
-- [Enable AI Features](enable-ai-features.md): Turn on conventional title suggestions, AI-assisted cherry-pick conflict resolution, and test-oracle recommendations with the sidecar and provider settings.
-- [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.md): Protect incoming webhooks and PR automation with secrets, IP allowlists, suspicious-path detection, committer identity checks, and trusted-network-only access.
-- [Debug with the Log Viewer](debug-with-the-log-viewer.md): Open live and historical webhook logs, trace PR flow by delivery ID, and inspect step-level failures when automation does not behave as expected.
+- [Configure Repositories](configure-repositories.md)
+- [Set Up OWNERS and Review Rules](set-up-owners-and-reviewers.md)
+- [Manage Pull Requests](manage-pull-requests.md)
+- [Run Pull Request Commands](run-pull-request-commands.md)
+- [Set Up Checks and Release Workflows](set-up-checks-and-release-workflows.md)
+- [Enable AI Features](enable-ai-features.md)
+- [Secure Webhooks and Pull Requests](secure-webhooks-and-pull-requests.md)
+- [Debug with the Log Viewer](debug-with-the-log-viewer.md)
+
+## Explore
+
+- [Automation Recipes](automation-recipes.md)
 
 ## Reference
 
-- [Configuration Reference](configuration-reference.md): Look up every supported `config.yaml` and `.github-webhook-server.yaml` key, including defaults, repository overrides, and validation rules.
+- [Configuration Reference](configuration-reference.md)
+- [Environment Variables](environment-variables.md)
+- [Webhook and Health API](webhook-and-health-api.md)
+- [Log Viewer and MCP API](log-viewer-and-mcp-api.md)
+- [Supported GitHub Events](supported-github-events.md)
