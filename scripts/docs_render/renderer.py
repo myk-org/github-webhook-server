@@ -12,8 +12,8 @@ which keeps working via the ``docsfy_repo_url`` template variable.
 
 It is a vendored copy, so local modifications are expected. The local
 deviations are ``_indent_fenced_blocks`` (see its docstring, ``llms-full.txt``
-only), script closing-tag hardening, and the ``<base>`` strip in
-``_sanitize_html`` (local hardening, see there); everything else is
+only) and the parser-based ``_sanitize_html`` allowlist (upstream ships a
+regex stripper that had four separate bypasses); everything else is
 byte-identical to upstream.
 """
 
@@ -23,6 +23,7 @@ import html as _html_mod
 import logging
 import re
 import urllib.parse
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -74,81 +75,204 @@ def _get_jinja_env() -> Environment:
     return _jinja_env
 
 
+# Sanitizer allowlist. Anything not listed is dropped. Upstream docsfy strips
+# dangerous tags with regexes, which four separate bypasses walked straight through
+# (``<base href=...>``, ``<script src=...></script >``, an unclosed
+# ``<iframe srcdoc="&lt;script&gt;...">``, and a ``<script>`` body surviving as
+# visible text). Patching regexes does not converge, so the mechanism is a real
+# tokenizer: parse, then re-serialise only what is allowed.
+_ALLOWED_TAGS = frozenset(
+    """
+    p br hr h1 h2 h3 h4 h5 h6 ul ol li a code pre blockquote strong em b i del
+    ins table thead tbody tfoot tr th td img span div details summary kbd sub
+    sup dl dt dd
+    """.split()
+)
+
+# Void elements have no closing tag, so a dropped one drops only the tag itself
+# (``<base>``, ``<embed>``) rather than swallowing the rest of the document.
+_VOID_TAGS = frozenset("area base br col embed hr img input link meta param source track wbr".split())
+
+# Known active or navigational void elements. Dropped outright instead of being
+# escaped, because they are attack surface, never documentation placeholders:
+# ``<base href>`` re-points every relative link on the page, ``<meta
+# http-equiv=refresh>`` and ``<link>`` navigate, ``<embed>``/``<input>``/``<source>``
+# load active content. Printing them as literal text in a published page would
+# serve no reader - it just puts a meta-refresh or an embed tag in front of them
+# as prose. Anything else unknown stays escaped, see ``_DROP_CONTENT_TAGS``.
+_DROP_TAGS = frozenset("area base col embed input link meta param source track".split())
+
+# Only these drop their CONTENTS along with the tag. Every one of them holds
+# code, markup or a nested document rather than prose, so keeping the contents
+# would either leak a script body as visible text or re-emit foreign markup.
+#
+# Everything else that is not on the allowlist and is not in ``_DROP_TAGS``
+# keeps its text and has its tag re-emitted as escaped, inert text. That matters
+# because python-markdown
+# passes raw HTML through, and prose like ``No <name> configured for this
+# repository`` is an unrecognised start tag: dropping an unknown tag outright
+# deleted the placeholder, and dropping its contents swallowed the rest of the
+# sentence and every following element until the next tag, deleting real
+# documentation (a whole table on ``run-pull-request-commands``).
+_DROP_CONTENT_TAGS = frozenset(
+    """
+    script style iframe object form noscript template svg math applet
+    frameset
+    """.split()
+)
+
+# Allowed on any allowed element: Pygments emits ``<span class="k">`` inside
+# ``<pre><code>`` and python-markdown's toc extension emits heading ``id``s, so
+# ``class`` and ``id`` are load-bearing, not decoration. Deny-by-default
+# covers the ``on*`` handlers plus ``style``/``srcdoc``/``formaction`` without
+# listing them.
+_ALLOWED_ATTRS = frozenset("id class colspan rowspan title start type open".split())
+_TAG_ATTRS: dict[str, frozenset[str]] = {
+    "a": frozenset({"href"}),
+    "img": frozenset({"src", "alt"}),
+}
+
+# Browsers ignore TAB/LF/CR and NULs inside a URL before resolving its scheme,
+# so "java\tscript:" is a live javascript: URL. Strip them before checking.
+_URL_NOISE_RE = re.compile(r"[\s\x00-\x20\x7f]")
+
+
+def _is_safe_url(url: str) -> bool:
+    """Return True if ``url`` is safe to keep in an href/src.
+
+    Allows http/https/mailto, fragments, absolute paths, and scheme-less
+    relative paths (the docs pages link each other as ``quick-start.html`` and
+    reference repo files as ``../README.md``). Everything else - javascript:,
+    data:, vbscript:, and protocol-relative ``//host`` - is rejected.
+    """
+    decoded = _html_mod.unescape(url).strip()
+    decoded = _URL_NOISE_RE.sub("", decoded)
+    lowered = decoded.lower()
+    if lowered.startswith(("http://", "https://", "mailto:")):
+        return True
+    if decoded.startswith("#"):
+        return True
+    if decoded.startswith("//"):
+        return False  # protocol-relative: re-points the request at another host
+    if decoded.startswith("/"):
+        return True
+    # No scheme = relative URL, which can only ever resolve against this site.
+    return not urllib.parse.urlsplit(decoded).scheme
+
+
+class _HTMLAllowlistSanitizer(HTMLParser):
+    """Re-serialise HTML, emitting only allowlisted tags and attributes.
+
+    Text is escaped on the way out, so nothing that failed to parse as markup -
+    a bare ``&``, a stray ``<``, an unterminated tag - can leak through
+    unescaped. Never raises on unbalanced or malformed input.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._out: list[str] = []
+        self._open: list[str] = []
+        # While dropping, ``_drop_tag``/``_drop_depth`` track the nesting so an
+        # inner ``</script>`` cannot end the drop early.
+        self._drop_tag: str | None = None
+        self._drop_depth = 0
+
+    def _attrs(self, tag: str, attrs: list[tuple[str, str | None]]) -> str:
+        allowed = _ALLOWED_ATTRS | _TAG_ATTRS.get(tag, frozenset())
+        parts: list[str] = []
+        for name, value in attrs:
+            name = name.lower()
+            if name not in allowed:
+                continue
+            if value is None:
+                parts.append(f" {name}")
+                continue
+            if name in ("href", "src") and not _is_safe_url(value):
+                value = "#"
+            parts.append(f' {name}="{_html_mod.escape(value, quote=True)}"')
+        return "".join(parts)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if self._drop_tag is not None:
+            if tag == self._drop_tag:
+                self._drop_depth += 1
+            return
+        if tag not in _ALLOWED_TAGS:
+            # Void tags never open a subtree, so only the real
+            # code-or-markup carriers can swallow a drop region.
+            if tag in _DROP_CONTENT_TAGS and tag not in _VOID_TAGS:
+                self._drop_tag, self._drop_depth = tag, 1
+                return
+            # Known dangerous void elements are dropped silently: there are no
+            # contents to keep and printing them as literal text helps nobody.
+            if tag in _DROP_TAGS:
+                return
+            # Unknown markup in prose is almost always a placeholder or a typo
+            # the author meant to display (``No <name> configured``), so re-emit
+            # the original tag source as escaped text instead of deleting it.
+            # Re-emitting verbatim keeps attributes and spacing exactly; the
+            # text stays as bare text, so nothing here can become live markup.
+            self._out.append(_html_mod.escape(self.get_starttag_text() or f"<{tag}>", quote=False))
+            return
+        rendered = f"<{tag}{self._attrs(tag, attrs)}>"
+        self._out.append(rendered)
+        if tag not in _VOID_TAGS:
+            self._open.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # HTMLParser routes ``<x/>`` here; treat it as a start tag. Void elements
+        # emit no closing tag, and ``<div/>`` is emitted unclosed, which HTML5
+        # parsing tolerates. Never matching this by regex was bypass #3.
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._drop_tag is not None:
+            if tag == self._drop_tag:
+                self._drop_depth -= 1
+                if self._drop_depth == 0:
+                    self._drop_tag = None
+            return
+        if tag in _VOID_TAGS or tag not in self._open:
+            return
+        # Close anything the input left dangling inside, so output stays balanced.
+        while self._open:
+            open_tag = self._open.pop()
+            self._out.append(f"</{open_tag}>")
+            if open_tag == tag:
+                break
+
+    def handle_data(self, data: str) -> None:
+        if self._drop_tag is not None:
+            return
+        self._out.append(_html_mod.escape(data, quote=False))
+
+    # Comments, CDATA, doctypes and processing instructions carry no content.
+    def handle_comment(self, data: str) -> None:
+        pass
+
+    def handle_decl(self, decl: str) -> None:
+        pass
+
+    def handle_pi(self, data: str) -> None:
+        pass
+
+    def unknown_decl(self, data: str) -> None:
+        pass
+
+    def result(self) -> str:
+        self.close()
+        while self._open:
+            self._out.append(f"</{self._open.pop()}>")
+        return "".join(self._out)
+
+
 def _sanitize_html(html: str) -> str:
-    """Remove dangerous HTML elements from AI-generated content."""
-    # LOCAL HARDENING, not present upstream: tolerate valid closing-tag
-    # whitespace and self-closing syntax so scripts cannot bypass sanitization.
-    html = re.sub(r"<script[^>]*>.*?</script\s*/?>", "", html, flags=re.DOTALL | re.IGNORECASE)
-    # Remove iframe, object, embed, form tags
-    for tag in ["iframe", "object", "embed", "form"]:
-        html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        html = re.sub(rf"<{tag}[^>]*/>", "", html, flags=re.IGNORECASE)
-        html = re.sub(rf"<{tag}\b[^>]*>", "", html, flags=re.IGNORECASE)
-    # LOCAL HARDENING, not present upstream: strip <base>. It is a void element,
-    # so the paired/self-closing loop above misses it, and a markdown-supplied
-    # <base href="https://attacker.example/"> re-points every relative asset URL
-    # in templates/page.html (assets/style.css, assets/search.js, ...) at an
-    # attacker-controlled host whose responses then execute in the docs page.
-    html = re.sub(r"<base\b[^>]*>", "", html, flags=re.IGNORECASE)
-    # Remove event handler attributes
-    html = re.sub(r'\s+on\w+\s*=\s*["\'][^"\']*["\']', "", html, flags=re.IGNORECASE)
-    html = re.sub(r"\s+on\w+\s*=\s*\S+", "", html, flags=re.IGNORECASE)
-
-    # Sanitize href/src: allowlist-based URL validation.
-    # Safe schemes that pass through unchanged: http://, https://, #, /, mailto:
-    # This preserves valid markdown-generated HTML like <a href="https://...">,
-    # anchor links (#section), relative paths (/page), and mailto: links.
-    # All other schemes (javascript:, data:, vbscript:, etc.) are blocked
-    # by replacing the URL with "#".
-    def _is_safe_url(url: str) -> bool:
-        """Check if a URL is safe to keep (not a dangerous scheme)."""
-        decoded = _html_mod.unescape(url).strip()
-        decoded_lower = decoded.lower()
-        if decoded_lower.startswith(("http://", "https://", "#", "mailto:")):
-            return True
-        # Allow absolute paths but reject protocol-relative URLs (//evil.com)
-        if decoded.startswith("/") and not decoded.startswith("//"):
-            return True
-        # Reject protocol-relative URLs (//evil.com)
-        if decoded.startswith("//"):
-            return False
-        # Allow relative URLs (no scheme) - e.g., "page-slug.html", "page.html#section:details"
-        # Use urlsplit to check for a scheme — it correctly handles
-        # colons in fragments/paths vs actual schemes
-        parsed = urllib.parse.urlsplit(decoded)
-        return not parsed.scheme  # No scheme = relative URL, safe
-
-    def _sanitize_url_attr(match: re.Match) -> str:  # type: ignore[type-arg]
-        attr = match.group(1)  # href or src
-        quote = match.group(2)  # " or '
-        url = match.group(3)  # the URL value
-        if _is_safe_url(url):
-            return match.group(0)
-        return f"{attr}={quote}#{quote}"
-
-    html = re.sub(
-        r"(href|src)\s*=\s*([\"'])(.*?)\2",
-        _sanitize_url_attr,
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    # Also handle unquoted URLs
-    def _sanitize_unquoted_url(match: re.Match) -> str:  # type: ignore[type-arg]
-        attr = match.group(1)
-        url = match.group(2)
-        if _is_safe_url(url):
-            return match.group(0)
-        return f'{attr}="#"'
-
-    html = re.sub(
-        r"(href|src)\s*=\s*([^\s\"'>=]+)",
-        _sanitize_unquoted_url,
-        html,
-        flags=re.IGNORECASE,
-    )
-
-    return html
+    """Reduce HTML to an allowlist of safe elements, attributes and URL schemes."""
+    parser = _HTMLAllowlistSanitizer()
+    parser.feed(html)
+    return parser.result()
 
 
 # A fence opens with 3+ backticks or 3+ tildes; the two never close each other.
@@ -388,7 +512,10 @@ def _md_to_html(md_text: str) -> tuple[str, str]:
     md_text = _clean_code_fence_annotations(md_text)
     md_text = _ensure_blank_lines(md_text)
     content_html = _sanitize_html(md.convert(md_text))
-    toc_html = getattr(md, "toc", "")
+    # The TOC is separately generated and reaches the page through ``|safe``,
+    # so it needs the same allowlist as the body. Its ``<a href="#id">`` links
+    # and the body heading ``id``s they point at both survive the allowlist.
+    toc_html = _sanitize_html(getattr(md, "toc", ""))
     return content_html, toc_html
 
 
