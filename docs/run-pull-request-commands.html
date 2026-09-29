@@ -401,14 +401,19 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </tbody>
 </table>
 <h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
-<p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list
-(per repository, with a repository-level override of the global default):</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml</span>
-<span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-and-push-container</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
+<p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list.
+Set it in <code>config.yaml</code>, either globally or under <code>repositories.&lt;repo&gt;</code> to override the global default for a single
+repository:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">owner/repo-name</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-and-push-container</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
 </code></pre></div>
 
+<p>This key is read from <code>config.yaml</code> only. Unlike most other settings, it is <strong>not</strong> read from a repository-local
+<code>.github-webhook-server.yaml</code> — placing it there has no effect and draft PRs stay blocked.</p>
 <table>
 <thead>
 <tr>

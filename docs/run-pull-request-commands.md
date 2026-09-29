@@ -63,15 +63,21 @@ Example — one comment, three commands:
 
 ## Commands on draft pull requests
 
-Draft PRs are blocked by default. The `allow-commands-on-draft-prs` configuration key controls the exception list
-(per repository, with a repository-level override of the global default):
+Draft PRs are blocked by default. The `allow-commands-on-draft-prs` configuration key controls the exception list.
+Set it in `config.yaml`, either globally or under `repositories.<repo>` to override the global default for a single
+repository:
 
 ```yaml
-# .github-webhook-server.yaml
-allow-commands-on-draft-prs:
-  - build-and-push-container
-  - retest
+# config.yaml
+repositories:
+  owner/repo-name:
+    allow-commands-on-draft-prs:
+      - build-and-push-container
+      - retest
 ```
+
+This key is read from `config.yaml` only. Unlike most other settings, it is **not** read from a repository-local
+`.github-webhook-server.yaml` — placing it there has no effect and draft PRs stay blocked.
 
 | Value | Behaviour |
 | --- | --- |
