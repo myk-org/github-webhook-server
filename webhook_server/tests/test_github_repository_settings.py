@@ -407,20 +407,25 @@ class TestGetRequiredStatusChecks:
         assert SECURITY_COMMITTER_IDENTITY_STR not in result
 
     def test_get_required_status_checks_security_checks_excluded(self) -> None:
-        """Security checks can be removed by exclude-runs."""
+        """exclude-runs drops ordinary checks but never the security checks."""
+        # Security checks stay required even when exclude-runs names them: the runtime does not apply
+        # exclude-runs to security contexts, so honouring it here would desynchronise branch protection
+        # from what is actually queued. security-checks.mandatory: false is the supported opt-out.
         mock_repo = Mock()
         mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
 
         result = get_required_status_checks(
             mock_repo,
             {},
-            [],
-            [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR],
+            [TOX_STR],
+            [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR, TOX_STR],
             config=_config(),
         )
 
-        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
-        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+        # exclude-runs still works normally for ordinary checks
+        assert TOX_STR not in result
 
     @patch("webhook_server.utils.github_repository_settings.LOGGER")
     def test_get_required_status_checks_security_checks_malformed(self, mock_logger: Mock) -> None:
@@ -793,13 +798,17 @@ class TestSetRepository:
         ("include_runs", "exclude_runs", "expected"),
         [
             (["a", "b"], ["b"], ["a", SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]),
+            # The runtime does not apply exclude-runs to security contexts, so honouring it here
+            # would desynchronise branch protection from what the runtime actually queues and what
+            # can-be-merged still requires. security-checks.mandatory: false is the supported way to
+            # turn the security checks off.
             (
                 [SECURITY_COMMITTER_IDENTITY_STR, "custom-check"],
                 [SECURITY_COMMITTER_IDENTITY_STR],
-                ["custom-check", SECURITY_SUSPICIOUS_PATHS_STR],
+                [SECURITY_COMMITTER_IDENTITY_STR, "custom-check", SECURITY_SUSPICIOUS_PATHS_STR],
             ),
         ],
-        ids=["exclude-removes-include-entry", "exclude-removes-security-check"],
+        ids=["exclude-removes-include-entry", "exclude-does-not-remove-security-check"],
     )
     @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
     @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
@@ -1014,8 +1023,8 @@ class TestSetRepository:
         # unmergeable with no visible cause. Unparsable repo-local config means UNKNOWN, not "no config".
         mock_set_branch_protection.assert_not_called()
         mock_get_branch.assert_not_called()
-        mock_logger.error.assert_called_once()
-        error_message = mock_logger.error.call_args.args[0]
+        mock_logger.exception.assert_called_once()
+        error_message = mock_logger.exception.call_args.args[0]
         assert "owner/test-repo" in error_message
         assert "skipping branch protection" in error_message
         assert result[2] == mock_logger.info

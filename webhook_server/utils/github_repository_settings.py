@@ -223,12 +223,10 @@ def get_required_status_checks(
         # Handle other GitHub API errors (rate limits, permissions, etc.)
         LOGGER.warning(f"Failed to check .pre-commit-config.yaml for {repo.name}: {ex}")
 
-    default_status_checks.extend(
-        get_security_status_checks(
-            repository_full_name=data.get("name", ""),
-            config=config,
-            repository_config=repository_config,
-        )
+    security_status_checks: list[str] = get_security_status_checks(
+        repository_full_name=data.get("name", ""),
+        config=config,
+        repository_config=repository_config,
     )
 
     # Deduplicate status checks while preserving order
@@ -239,7 +237,10 @@ def get_required_status_checks(
         while status_check in deduplicated:
             deduplicated.remove(status_check)
 
-    return deduplicated
+    # exclude-runs never removes security checks: the runtime (github_api) does not apply exclude-runs
+    # to security contexts, so dropping them here would make branch protection stop requiring a check
+    # that is still queued. Use security-checks.mandatory: false to turn them off.
+    return list(dict.fromkeys([*deduplicated, *security_status_checks]))
 
 
 def get_user_configures_status_checks(status_checks: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -347,14 +348,14 @@ def set_repository(
         repository_config: dict[str, Any] = config.repository_local_data(
             github_api=github_api, repository_full_name=full_repository_name, raise_on_error=True
         )
-    except yaml.YAMLError as ex:
+    except yaml.YAMLError:
         # Never abort startup on a broken repo-local file, but do not fall back to the defaults either:
         # the runtime path (config.repository_local_data, raise_on_error=True) propagates this same error, so
         # no security status check is ever reported for this repository. Requiring checks that can never run
         # makes every PR permanently unmergeable with no visible cause, and a default we cannot trust is not
         # "no config" - it is UNKNOWN. Startup and runtime must agree here: leave branch protection untouched.
-        LOGGER.error(
-            f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, ex: {ex}, "
+        LOGGER.exception(
+            f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, "
             "skipping branch protection"
         )
         repository_config = {}
@@ -410,19 +411,22 @@ def set_repository(
 
                 if include_status_checks:
                     # security-checks.mandatory governs this path too, dedup keeping include-runs order
-                    required_status_checks: list[str] = list(
-                        dict.fromkeys([
-                            *include_status_checks,
-                            *get_security_status_checks(
-                                repository_full_name=full_repository_name,
-                                config=config,
-                                repository_config=repository_config,
-                            ),
-                        ])
+                    security_status_checks: list[str] = get_security_status_checks(
+                        repository_full_name=full_repository_name,
+                        config=config,
+                        repository_config=repository_config,
                     )
-                    # exclude-runs wins over include-runs, security checks included
+                    required_status_checks: list[str] = list(
+                        dict.fromkeys([*include_status_checks, *security_status_checks])
+                    )
+                    # exclude-runs wins over include-runs, but never over security checks: the runtime
+                    # (github_api) does not apply exclude-runs to security contexts, so dropping them here
+                    # would make branch protection stop requiring a check that is still queued and still
+                    # required by can-be-merged. Use security-checks.mandatory: false to turn them off.
                     required_status_checks = [
-                        check for check in required_status_checks if check not in exclude_status_checks
+                        check
+                        for check in required_status_checks
+                        if check not in exclude_status_checks or check in security_status_checks
                     ]
                 else:
                     required_status_checks = get_required_status_checks(
