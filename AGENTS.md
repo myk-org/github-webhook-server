@@ -44,7 +44,7 @@ See `docs/` for architecture and configuration reference docs.
 
 - Update or write the markdown: `docs/<slug>.md`
 - Rebuild the site: `uv run python scripts/generate_docs.py` (run from repo root; idempotent, so a clean second run produces no diff)
-- Preview: serve `docs/` over HTTP and open a page (e.g. `python3 -m http.server -d docs 8000`) — do not open the `.html` via `file://`, the sidebar and search need HTTP
+- Preview: serve `docs/` over HTTP and open a page (e.g. `uv run python -m http.server -d docs 8000`) — do not open the `.html` via `file://`, the sidebar and search need HTTP
 - `scripts/docs_render/` is a vendored copy of the renderer from `myk-org/docsfy` (Jinja templates + Pygments highlighting). It is deliberately committed so docs can be rebuilt without that repo present.
 
 Markdown rules that the renderer depends on:

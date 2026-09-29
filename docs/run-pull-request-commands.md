@@ -79,7 +79,9 @@ allow-commands-on-draft-prs:
 | `[]` (empty list) | All commands are allowed on draft PRs |
 | `["retest", "wip"]` | Only the listed commands are allowed; any other command is rejected with a comment naming the allowed ones |
 
-`/test-oracle` is the one exception to this rule — it always runs, even on a draft PR.
+`/test-oracle` is the one exception to the per-command allowlist — it runs on a draft PR even when it is not listed in
+`allow-commands-on-draft-prs`. That exception only applies when the key is set, even to an empty list. If the key is
+absent, the draft pull request is dropped before any command is evaluated, so `/test-oracle` does not run either.
 
 ## Command details
 

@@ -431,7 +431,9 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </tr>
 </tbody>
 </table>
-<p><code>/test-oracle</code> is the one exception to this rule — it always runs, even on a draft PR.</p>
+<p><code>/test-oracle</code> is the one exception to the per-command allowlist — it runs on a draft PR even when it is not listed in
+<code>allow-commands-on-draft-prs</code>. That exception only applies when the key is set, even to an empty list. If the key is
+absent, the draft pull request is dropped before any command is evaluated, so <code>/test-oracle</code> does not run either.</p>
 <h2 id="command-details">Command details</h2>
 <h3 id="pr-status">PR status</h3>
 <h4 id="wip-and-wip-cancel"><code>/wip</code> and <code>/wip cancel</code></h4>
