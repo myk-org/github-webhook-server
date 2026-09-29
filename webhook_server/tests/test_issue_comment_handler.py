@@ -7,6 +7,7 @@ import pytest
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
     APPROVE_STR,
+    AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -637,6 +638,110 @@ class TestIssueCommentHandler:
             )
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
             mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_authorized_user_add(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /automerge by a maintainer adds the automerge label."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
+            return_value=["maintainer1"]
+        )
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_remove_label",
+                new_callable=AsyncMock,
+            ) as mock_remove_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=AUTOMERGE_LABEL_STR,
+                reviewed_user="maintainer1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_remove_label.assert_not_called()
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_authorized_user_remove(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /automerge cancel by a maintainer removes the automerge label."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
+            return_value=["maintainer1"]
+        )
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_remove_label",
+                new_callable=AsyncMock,
+            ) as mock_remove_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{AUTOMERGE_LABEL_STR} cancel",
+                reviewed_user="maintainer1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_add_label.assert_not_called()
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /automerge cancel by a non-maintainer changes nothing."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
+            return_value=["maintainer1"]
+        )
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch("webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_remove_label",
+                new_callable=AsyncMock,
+            ) as mock_remove_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{AUTOMERGE_LABEL_STR} cancel",
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_not_called()
+            mock_remove_label.assert_not_called()
+            mock_reaction.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author(self, issue_comment_handler: IssueCommentHandler) -> None:
