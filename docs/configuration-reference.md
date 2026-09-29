@@ -465,7 +465,7 @@ Where: `Repo`
 |---|---|---|---|---|
 | `protected-branches.<branch>` | `object` | unset | Exact branch name to configure at startup. Use `{}` for automatic required checks. | The startup repository setup applies GitHub branch protection to this branch. |
 | `protected-branches.<branch>.include-runs` | `array<string>` | `[]` | Explicit required status checks. | If non-empty, this becomes the branch’s required-check list, and the security checks governed by `security-checks.mandatory` (`security-suspicious-paths`, `security-committer-identity`) are added on top of it. |
-| `protected-branches.<branch>.exclude-runs` | `array<string>` | `[]` | Status checks to remove from the automatic required-check list. | Applied only when `include-runs` is empty. |
+| `protected-branches.<branch>.exclude-runs` | `array<string>` | `[]` | Status checks to remove. | Subtracted from the branch’s required-check list in both paths, removing any entry it names — including the security checks. |
 
 > **Warning:** Use exact branch names and the object form shown below. The schema accepts array shorthand, but the startup branch-settings path reads the object form.
 

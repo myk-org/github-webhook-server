@@ -271,7 +271,7 @@ protected-branches:
       - "SonarCloud Code Analysis"
 ```
 
-Use an empty list when you want the default required checks for that branch. Use `include-runs` and `exclude-runs` when one branch needs a different requirement set.
+Use an empty list when you want the default required checks for that branch. Use `include-runs` and `exclude-runs` when one branch needs a different requirement set. `exclude-runs` is subtracted from the final list in both cases, so it also removes an entry that `include-runs` added.
 
 ### Hand off specialized settings to the right pages
 

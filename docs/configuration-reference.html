@@ -1307,8 +1307,8 @@
 <td><code>protected-branches.&lt;branch&gt;.exclude-runs</code></td>
 <td><code>array&lt;string&gt;</code></td>
 <td><code>[]</code></td>
-<td>Status checks to remove from the automatic required-check list.</td>
-<td>Applied only when <code>include-runs</code> is empty.</td>
+<td>Status checks to remove.</td>
+<td>Subtracted from the branch’s required-check list in both paths, removing any entry it names — including the security checks.</td>
 </tr>
 </tbody>
 </table>

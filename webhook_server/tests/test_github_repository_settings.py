@@ -673,6 +673,63 @@ class TestSetRepository:
         assert [check for check in contexts if check in expected] == expected
         assert len(contexts) == len(set(contexts))
 
+    @pytest.mark.parametrize(
+        ("include_runs", "exclude_runs", "expected"),
+        [
+            (["a", "b"], ["b"], ["a", SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR]),
+            (
+                [SECURITY_COMMITTER_IDENTITY_STR, "custom-check"],
+                [SECURITY_COMMITTER_IDENTITY_STR],
+                ["custom-check", SECURITY_SUSPICIOUS_PATHS_STR],
+            ),
+        ],
+        ids=["exclude-removes-include-entry", "exclude-removes-security-check"],
+    )
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings.get_required_status_checks")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_include_runs_applies_exclude_runs(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_get_required_checks: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+        include_runs: list[str],
+        exclude_runs: list[str],
+        expected: list[str],
+    ) -> None:
+        """exclude-runs is subtracted from include-runs, security checks included."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        mock_config = Mock()
+        mock_config.get_value.side_effect = lambda value, return_on_none: {
+            "protected-branches": {"main": {"include-runs": include_runs, "exclude-runs": exclude_runs}},
+            "default-status-checks": [],
+            "security-checks": {},
+        }.get(value, return_on_none)
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=mock_config,
+        )
+
+        assert result[0] is True
+        mock_get_required_checks.assert_not_called()
+        assert mock_set_branch_protection.call_args.kwargs["required_status_checks"] == expected
+
     @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
     @patch("webhook_server.utils.github_repository_settings.LOGGER")
     def test_set_repository_no_github_api(self, mock_logger: Mock, mock_get_repo: Mock) -> None:

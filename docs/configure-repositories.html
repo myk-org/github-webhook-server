@@ -504,7 +504,7 @@
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"SonarCloud</span><span class="nv"> </span><span class="s">Code</span><span class="nv"> </span><span class="s">Analysis"</span>
 </code></pre></div>
 
-<p>Use an empty list when you want the default required checks for that branch. Use <code>include-runs</code> and <code>exclude-runs</code> when one branch needs a different requirement set.</p>
+<p>Use an empty list when you want the default required checks for that branch. Use <code>include-runs</code> and <code>exclude-runs</code> when one branch needs a different requirement set. <code>exclude-runs</code> is subtracted from the final list in both cases, so it also removes an entry that <code>include-runs</code> added.</p>
 <h3 id="hand-off-specialized-settings-to-the-right-pages">Hand off specialized settings to the right pages</h3>
 <p>Keep this page focused on where configuration lives and how it overrides. For the actual knobs in those feature areas, use the dedicated pages:</p>
 <ul>

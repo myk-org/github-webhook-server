@@ -195,7 +195,7 @@ repositories:
         include-runs:
           - "pre-commit.ci - pr"
           - "WIP"
-        exclude-runs:
+        exclude-runs: # subtracted from the list above as well
           - "SonarCloud Code Analysis"
     container:
       username: <registry username>

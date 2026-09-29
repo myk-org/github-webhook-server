@@ -363,6 +363,10 @@ def set_repository(
                             *get_security_status_checks(repo=repo, config=config),
                         ])
                     )
+                    # exclude-runs wins over include-runs, security checks included
+                    required_status_checks = [
+                        check for check in required_status_checks if check not in exclude_status_checks
+                    ]
                 else:
                     required_status_checks = get_required_status_checks(
                         repo=repo,
