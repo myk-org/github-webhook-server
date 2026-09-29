@@ -36,6 +36,14 @@ def test_cleans_script_with_variant_closing_tag() -> None:
     assert _sanitize_html(html) == "\n<p>body</p>"
 
 
+@pytest.mark.parametrize("tag", ["iframe", "object", "embed", "form"])
+def test_cleans_unclosed_dangerous_tag_with_encoded_srcdoc(tag: str) -> None:
+    html = f'<{tag} srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;">'
+    cleaned = _sanitize_html(html)
+    assert f"<{tag}" not in cleaned
+    assert "srcdoc" not in cleaned
+
+
 def test_logger_falls_back_only_when_config_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(renderer, "get_logger_with_params", Mock(side_effect=FileNotFoundError))
     assert renderer._make_logger() is logging.getLogger(renderer.__name__)

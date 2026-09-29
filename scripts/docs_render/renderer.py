@@ -91,6 +91,7 @@ def _sanitize_html(html: str) -> str:
     for tag in ["iframe", "object", "embed", "form"]:
         html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.DOTALL | re.IGNORECASE)
         html = re.sub(rf"<{tag}[^>]*/>", "", html, flags=re.IGNORECASE)
+        html = re.sub(rf"<{tag}\b[^>]*>", "", html, flags=re.IGNORECASE)
     # LOCAL HARDENING, not present upstream: strip <base>. It is a void element,
     # so the paired/self-closing loop above misses it, and a markdown-supplied
     # <base href="https://attacker.example/"> re-points every relative asset URL

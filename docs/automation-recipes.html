@@ -204,7 +204,7 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="automation-recipes">Automation Recipes</h1>
-<p>Short, copy-pasteable walkthroughs of common maintainer tasks. Every key here is defined in the configuration schema; for full key listings see <a href="configuration-reference.md">Configuration Reference</a>.</p>
+<p>Short, copy-pasteable walkthroughs of common maintainer tasks. Every key here is defined in the configuration schema; for full key listings see <a href="configuration-reference.html">Configuration Reference</a>.</p>
 <h2 id="restrict-a-repository-to-specific-webhook-events">Restrict a repository to specific webhook events</h2>
 <p><strong>When you'd want this:</strong> a docs-only or dependency repo doesn't need <code>push</code> and <code>issue_comment</code> traffic, and a smaller event set means less webhook noise and fewer API calls.</p>
 <p>Set <code>repositories.&lt;repo-id&gt;.events</code> in <code>config.yaml</code>. The server creates or edits the repository webhook at startup to match exactly this list. Omit the key to get the default of <code>["*"]</code> (all events).</p>

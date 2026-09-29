@@ -1,6 +1,6 @@
 # Automation Recipes
 
-Short, copy-pasteable walkthroughs of common maintainer tasks. Every key here is defined in the configuration schema; for full key listings see [Configuration Reference](configuration-reference.md).
+Short, copy-pasteable walkthroughs of common maintainer tasks. Every key here is defined in the configuration schema; for full key listings see [Configuration Reference](configuration-reference.html).
 
 ## Restrict a repository to specific webhook events
 

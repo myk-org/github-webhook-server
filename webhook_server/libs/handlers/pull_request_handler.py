@@ -850,6 +850,7 @@ For more information, please refer to the project documentation or contact the m
             return (
                 "* `/automerge` - Enable automatic merging when all requirements are met "
                 "(maintainers and approvers only)\n"
+                "* `/automerge cancel` - Remove automerge label (maintainers and approvers only)\n"
             )
         return ""
 
