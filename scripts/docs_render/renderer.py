@@ -144,9 +144,21 @@ def _is_safe_url(url: str) -> bool:
     relative paths (the docs pages link each other as ``quick-start.html`` and
     reference repo files as ``../README.md``). Everything else - javascript:,
     data:, vbscript:, and protocol-relative ``//host`` - is rejected.
+
+    Normalisation order matters and is deliberately fixed: HTML-entity
+    unescape first (so ``&sol;&sol;host`` and ``&#47;&#47;host`` are judged as
+    the ``//host`` they are), then noise stripping (so ``java\\tscript:`` and
+    ``//\\x00host`` are judged as the scheme they are), then backslash
+    folding, and only then the policy checks. Doing it in any other order lets
+    a value change what it looks like *after* the check that should have
+    rejected it.
     """
     decoded = _html_mod.unescape(url).strip()
     decoded = _URL_NOISE_RE.sub("", decoded)
+    # Browsers fold "\" to "/" while parsing an authority, so "\\host",
+    # "/\host" and "/\/host" navigate exactly like "//host" - off-site. Fold
+    # before the checks so the protocol-relative rule covers all of them.
+    decoded = decoded.replace("\\", "/")
     lowered = decoded.lower()
     if lowered.startswith(("http://", "https://", "mailto:")):
         return True
@@ -157,7 +169,12 @@ def _is_safe_url(url: str) -> bool:
     if decoded.startswith("/"):
         return True
     # No scheme = relative URL, which can only ever resolve against this site.
-    return not urllib.parse.urlsplit(decoded).scheme
+    # urlsplit raises ValueError on a malformed IPv6 authority ("x://["), which
+    # would take the whole docs build down; treat it as unsafe instead.
+    try:
+        return not urllib.parse.urlsplit(decoded).scheme
+    except ValueError:
+        return False
 
 
 class _HTMLAllowlistSanitizer(HTMLParser):

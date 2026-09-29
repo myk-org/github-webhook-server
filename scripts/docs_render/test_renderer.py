@@ -261,6 +261,81 @@ def test_tab_obfuscated_javascript_url_is_neutralised() -> None:
     assert _sanitize_html('<a href="java\tscript:alert(1)">x</a>') == '<a href="#">x</a>'
 
 
+# --- Backslash authority: browsers fold "\" to "/", so "\host" navigates -----
+_BACKSLASH_AUTHORITY_URLS = [
+    "\\\\evil.example",  # \\evil.example
+    "/\\evil.example",  # /\evil.example
+    "\\/evil.example",  # \/evil.example
+    "/\\/evil.example",  # /\evil.example
+    "\\\\\\evil.example",  # \\\evil.example
+    "\\\\evil.example/p",  # \\evil.example/p
+    "\\\\evil.example\\p",  # \\evil.example\p
+]
+
+
+@pytest.mark.parametrize("url", _BACKSLASH_AUTHORITY_URLS)
+def test_backslash_authority_is_rejected_in_href(url: str) -> None:
+    assert _sanitize_html(f'<a href="{url}">x</a>') == '<a href="#">x</a>'
+
+
+@pytest.mark.parametrize("url", _BACKSLASH_AUTHORITY_URLS)
+def test_backslash_authority_is_rejected_in_src(url: str) -> None:
+    assert _sanitize_html(f'<img src="{url}">') == '<img src="#">'
+
+
+@pytest.mark.parametrize("url", _BACKSLASH_AUTHORITY_URLS)
+def test_backslash_authority_stays_rejected_behind_html_entities(url: str) -> None:
+    # &bsol; is a real HTML5 named ref for "\" and &#47; for "/", so entity
+    # encoding must not be a way around the fold.
+    encoded = url.replace("\\", "&bsol;").replace("/", "&#47;")
+    assert _sanitize_html(f'<a href="{encoded}">x</a>') == '<a href="#">x</a>'
+    assert _sanitize_html(f'<img src="{encoded}">') == '<img src="#">'
+
+
+@pytest.mark.parametrize("url", _BACKSLASH_AUTHORITY_URLS)
+def test_backslash_authority_stays_rejected_behind_noise(url: str) -> None:
+    # TAB/LF/CR/NUL are dropped by the browser before the authority is parsed.
+    assert _sanitize_html(f'<a href=" \t{url}\n ">x</a>') == '<a href="#">x</a>'
+
+
+def test_legitimate_relative_links_are_unaffected_by_the_fold() -> None:
+    # The docs link each other and the repo, so these must keep resolving.
+    html = (
+        '<a href="quick-start.html">next</a>'
+        '<a href="../README.md">readme</a>'
+        '<a href="/assets/x.css">css</a>'
+        '<a href="assets/style.css">rel</a>'
+        '<a href="guide/webhooks.html#events">deep</a>'
+    )
+    assert _sanitize_html(html) == html
+
+
+def test_legitimate_relative_links_survive_markdown_rendering() -> None:
+    content_html, _toc_html = _md_to_html("See [next](quick-start.html) and [repo](../README.md).\n")
+    assert 'href="quick-start.html"' in content_html
+    assert 'href="../README.md"' in content_html
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://example.com/x", "https://example.com/x", "mailto:someone@example.com", "#section", "#"],
+)
+def test_allowed_url_shapes_still_pass(url: str) -> None:
+    assert _sanitize_html(f'<a href="{url}">x</a>') == f'<a href="{url}">x</a>'
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "data:text/html;base64,PHNjcmlwdD4=", "vbscript:msgbox"])
+def test_dangerous_schemes_are_still_rejected(url: str) -> None:
+    assert _sanitize_html(f'<a href="{url}">x</a>') == '<a href="#">x</a>'
+    assert _sanitize_html(f'<img src="{url}">') == '<img src="#">'
+
+
+def test_malformed_ipv6_authority_does_not_break_the_render() -> None:
+    # urlsplit() raises ValueError on "x://["; the sanitizer must not take the
+    # whole docs build down over it.
+    assert _sanitize_html('<a href="x://[">x</a><p>after</p>') == '<a href="#">x</a><p>after</p>'
+
+
 # --- THE REGRESSION: Pygments + TOC markup must survive ----------------------
 def test_pygments_span_classes_inside_pre_code_survive() -> None:
     html = '<pre><code><span class="k">def</span> <span class="nf">f</span><span class="p">():</span></code></pre>'
