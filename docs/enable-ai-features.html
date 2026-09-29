@@ -204,250 +204,6 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="enable-ai-features">Enable AI Features</h1>
-<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
-<span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"</span>
-<span class="w">    </span><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">      </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">      </span><span class="nt">conventional-title</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span>
-<span class="w">      </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:800"</span>
-<span class="w">      </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">      </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">      </span><span class="nt">triggers</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
-</code></pre></div>
-
-<div class="highlight"><pre><span></span><code><span class="c1"># docker-compose.yaml</span>
-<span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ANTHROPIC_API_KEY=sk-ant-xxx</span>
-</code></pre></div>
-
-<p>Save the config, then restart only if you changed environment variables or mounts. On the next PR event, the title check can show an AI suggestion, the next conflicted cherry-pick can attempt AI resolution, and users allowed to run comment commands can trigger <code>/test-oracle</code> on demand.</p>
-<h2 id="step-by-step">Step-by-Step</h2>
-<ol>
-<li>Put shared defaults and repo rules in the right place</li>
-</ol>
-<div class="highlight"><pre><span></span><code><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-
-<span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:800"</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-
-<span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"</span>
-</code></pre></div>
-
-<p>Use top-level <code>ai-features</code> and <code>test-oracle</code> when several repos should share the same defaults. Keep <code>conventional-title</code> on each repo that should enforce it, and use repo-level or <code>.github-webhook-server.yaml</code> values when one repo needs different AI behavior.</p>
-<p>Both <code>ai-features</code> and <code>test-oracle</code> need <code>ai-provider</code> and <code>ai-model</code>. <code>test-oracle</code> also needs <code>server-url</code>.</p>
-<p>See <a href="configuration-reference.html">Configuration Reference</a> for every supported key.</p>
-<ol>
-<li>Add provider credentials and check that the sidecar is healthy</li>
-</ol>
-<div class="highlight"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ANTHROPIC_API_KEY=sk-ant-xxx</span>
-<span class="w">      </span><span class="c1"># - GEMINI_API_KEY=xxx</span>
-<span class="w">      </span><span class="c1"># - CURSOR_API_KEY=xxx</span>
-<span class="w">      </span><span class="c1"># - ACPX_AGENTS=cursor</span>
-</code></pre></div>
-
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:5000/webhook_server/healthcheck
-curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:910/health
-</code></pre></div>
-
-<p>Use the credential that matches your <code>ai-provider</code> value. The first command checks the webhook server, and the second checks the local AI sidecar; replace <code>910</code> if you set <code>SIDECAR_PORT</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Provider</th>
-<th>What to add</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>claude</code></td>
-<td><code>ANTHROPIC_API_KEY</code></td>
-</tr>
-<tr>
-<td><code>gemini</code></td>
-<td><code>GEMINI_API_KEY</code></td>
-</tr>
-<tr>
-<td><code>cursor</code></td>
-<td><code>CURSOR_API_KEY</code></td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Tip:</strong> Add <code>ACPX_AGENTS=cursor</code> when you want Cursor model discovery. The example deployment also supports <code>docker exec -it github-webhook-server agent</code> if you prefer Cursor interactive login instead of <code>CURSOR_API_KEY</code>.</p>
-</blockquote>
-<p>See <a href="environment-variables.html">Environment Variables</a> for the full sidecar and credential list, and <a href="webhook-and-health-api.html">Webhook and Health API</a> for the main server health endpoint.</p>
-<ol>
-<li>Enable conventional title suggestions or auto-fixes</li>
-</ol>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">conventional-title</span><span class="p">:</span><span class="w"> </span><span class="s">"feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"</span>
-<span class="w">    </span><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">      </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">      </span><span class="nt">conventional-title</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span>
-<span class="w">        </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-</code></pre></div>
-
-<table>
-<thead>
-<tr>
-<th>Mode</th>
-<th>Result</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>suggest</code></td>
-<td>A failed <code>conventional-title</code> check includes an <code>AI-Suggested Title</code> block.</td>
-</tr>
-<tr>
-<td><code>fix</code></td>
-<td>The server edits the PR title and turns the check green if the suggestion validates.</td>
-</tr>
-</tbody>
-</table>
-<p>Open a PR with a non-matching title, or retitle an existing PR, to test the feature. If the repo does not have a <code>conventional-title</code> rule, this AI feature stays idle even if <code>ai-features</code> is present.</p>
-<blockquote>
-<p><strong>Tip:</strong> Start with <code>suggest</code> so humans can review the wording before you move to <code>fix</code>.</p>
-</blockquote>
-<ol>
-<li>Enable AI cherry-pick conflict resolution</li>
-</ol>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">      </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">      </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">        </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-</code></pre></div>
-
-<p>When the server performs a cherry-pick and Git reports a real <code>CONFLICT</code>, it can ask the sidecar to resolve the files and finish the cherry-pick automatically. If that succeeds, the new PR gets the <code>ai-resolved-conflicts</code> label and both PRs receive comments telling the assignee to verify the result manually.</p>
-<blockquote>
-<p><strong>Warning:</strong> AI-resolved cherry-picks are never auto-verified, even if <code>auto-verify-cherry-picked-prs</code> is <code>true</code>.</p>
-</blockquote>
-<p>If AI cannot resolve the conflict, or the cherry-pick failed for a non-conflict reason, the server falls back to the normal manual cherry-pick instructions.</p>
-<ol>
-<li>Enable test-oracle recommendations</li>
-</ol>
-<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
-<span class="w">    </span><span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:800"</span>
-<span class="w">      </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">      </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">      </span><span class="nt">test-patterns</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"tests/**/*.py"</span>
-<span class="w">      </span><span class="nt">triggers</span><span class="p">:</span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
-<span class="w">        </span><span class="c1"># - pr-opened</span>
-<span class="w">        </span><span class="c1"># - pr-synchronized</span>
-</code></pre></div>
-
-<p>This block is separate from <code>ai-features</code>. Conventional-title suggestions and cherry-pick AI use the local sidecar, but <code>test-oracle</code> calls the external service at <code>server-url</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Trigger</th>
-<th>When it runs</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>approved</code></td>
-<td>When an approver uses <code>/approve</code> in a PR comment or a submitted review</td>
-</tr>
-<tr>
-<td><code>pr-opened</code></td>
-<td>When a PR is opened</td>
-</tr>
-<tr>
-<td><code>pr-synchronized</code></td>
-<td>When new commits are pushed to a PR</td>
-</tr>
-</tbody>
-</table>
-<p><code>/test-oracle</code> always works on demand when the feature is configured, regardless of the trigger list.</p>
-<blockquote>
-<p><strong>Note:</strong> The automatic <code>approved</code> trigger means the project's <code>/approve</code> command, not a plain GitHub review approval.</p>
-<p><strong>Tip:</strong> The webhook server checks <code>GET /health</code> on the oracle before each analysis, so <code>/test-oracle</code> is the fastest end-to-end setup check.</p>
-</blockquote>
-<ol>
-<li>
-<p>Verify the result on a real PR</p>
-</li>
-<li>
-<p>Open a new PR and check its welcome comment; enabled AI features are listed there with the provider and model in use.</p>
-</li>
-<li>Give the PR a non-conventional title and inspect the <code>conventional-title</code> check for <code>AI-Suggested Title</code> or <code>AI Auto-Fix Applied</code>.</li>
-<li>From an account allowed to run comment commands, comment <code>/test-oracle</code>. If you enabled automatic triggers, also try <code>/approve</code> or push a new commit to exercise <code>approved</code> or <code>pr-synchronized</code>.</li>
-<li>On the next cherry-pick that produces a merge conflict, confirm that the created PR gets <code>ai-resolved-conflicts</code> and a manual verification comment.</li>
-</ol>
-<h2 id="advanced-usage">Advanced Usage</h2>
-<div class="highlight"><pre><span></span><code><span class="nt">ai-features</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
-<span class="w">  </span><span class="nt">conventional-title</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">suggest</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<span class="w">  </span><span class="nt">resolve-cherry-pick-conflicts-with-ai</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
-</code></pre></div>
-
-<p>Raise <code>timeout-minutes</code> when repos are large or conflicts are complicated. Title suggestions are usually quick, while cherry-pick resolution often benefits from a longer timeout.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CURSOR_API_KEY=xxx</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ACPX_AGENTS=cursor</span>
-<span class="w">      </span><span class="c1"># - VERTEX_CLAUDE_1M=true</span>
-<span class="w">      </span><span class="c1"># - SIDECAR_PORT=920</span>
-<span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$HOME/.config/gcloud:/home/podman/.config/gcloud:ro</span>
-</code></pre></div>
-
-<p>Use <code>ACPX_AGENTS=cursor</code> when you want Cursor model discovery. Add <code>VERTEX_CLAUDE_1M=true</code> plus a Google Cloud credential mount when you want Vertex-hosted 1M Claude models, and set <code>SIDECAR_PORT</code> if <code>910</code> conflicts with another service.</p>
-<blockquote>
-<p><strong>Tip:</strong> <code>/test-oracle</code> can still run on draft PRs, and it does not depend on the automatic trigger list. If you reopen a PR and want fresh recommendations, run <code>/test-oracle</code> manually.</p>
-</blockquote>
-<h2 id="troubleshooting">Troubleshooting</h2>
-<ul>
-<li><strong>No AI suggestion appears in the title check.</strong> Make sure the repo still has <code>conventional-title:</code> configured and <code>ai-features.conventional-title.enabled: true</code>. If <code>fix</code> mode does not rename the PR, open the failed check and look for <code>AI Auto-Fix Failed</code> or <code>AI Auto-Fix Skipped</code>.</li>
-<li><strong>The sidecar never becomes healthy.</strong> If startup logs show <code>[sidecar] ERROR: sidecar failed to become healthy within 15s</code>, verify your provider credentials, any Google Cloud mount for Vertex, and that nothing else is using <code>SIDECAR_PORT</code>. If the sidecar is unavailable, local AI features will not run.</li>
-<li><strong>The oracle says it is not responding.</strong> Make sure <code>server-url</code> is reachable from the webhook server and that <code>GET /health</code> returns <code>200</code>. Health-check failures are posted back to the PR; later analyze failures are logged on the server instead of commented back.</li>
-<li><strong>Cherry-picks still fall back to manual steps.</strong> AI resolution only runs for real merge conflicts. Other cherry-pick errors still produce the normal manual instructions, and even successful AI resolutions must be reviewed by a human before merge.# Enable AI Features</li>
-</ul>
 <p>Turn on AI help when you want pull requests to spend less maintainer time on bad titles, conflicted cherry-picks, and test selection. With the right settings, the server can suggest or fix PR titles, try to resolve cherry-pick conflicts, and ask a separate oracle service for test recommendations.</p>
 <h2 id="prerequisites">Prerequisites</h2>
 <ul>
@@ -487,7 +243,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:910/healt
 </code></pre></div>
 
 <p>Save the config, then restart only if you changed environment variables or mounts. On the next PR event, the title check can show an AI suggestion, the next conflicted cherry-pick can attempt AI resolution, and users allowed to run comment commands can trigger <code>/test-oracle</code> on demand.</p>
-<h2 id="step-by-step_1">Step-by-Step</h2>
+<h2 id="step-by-step">Step-by-Step</h2>
 <ol>
 <li>Put shared defaults and repo rules in the right place</li>
 </ol>
@@ -666,7 +422,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <li>From an account allowed to run comment commands, comment <code>/test-oracle</code>. If you enabled automatic triggers, also try <code>/approve</code> or push a new commit to exercise <code>approved</code> or <code>pr-synchronized</code>.</li>
 <li>On the next cherry-pick that produces a merge conflict, confirm that the created PR gets <code>ai-resolved-conflicts</code> and a manual verification comment.</li>
 </ol>
-<h2 id="advanced-usage_1">Advanced Usage</h2>
+<h2 id="advanced-usage">Advanced Usage</h2>
 <div class="highlight"><pre><span></span><code><span class="nt">ai-features</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
 <span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"sonnet"</span>
@@ -695,7 +451,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <blockquote>
 <p><strong>Tip:</strong> <code>/test-oracle</code> can still run on draft PRs, and it does not depend on the automatic trigger list. If you reopen a PR and want fresh recommendations, run <code>/test-oracle</code> manually.</p>
 </blockquote>
-<h2 id="troubleshooting_1">Troubleshooting</h2>
+<h2 id="troubleshooting">Troubleshooting</h2>
 <ul>
 <li><strong>No AI suggestion appears in the title check.</strong> Make sure the repo still has <code>conventional-title:</code> configured and <code>ai-features.conventional-title.enabled: true</code>. If <code>fix</code> mode does not rename the PR, open the failed check and look for <code>AI Auto-Fix Failed</code> or <code>AI Auto-Fix Skipped</code>.</li>
 <li><strong>The sidecar never becomes healthy.</strong> If startup logs show <code>[sidecar] ERROR: sidecar failed to become healthy within 15s</code>, verify your provider credentials, any Google Cloud mount for Vertex, and that nothing else is using <code>SIDECAR_PORT</code>. If the sidecar is unavailable, local AI features will not run.</li>
@@ -732,14 +488,11 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
 <li><a href="#step-by-step">Step-by-Step</a></li>
 <li><a href="#advanced-usage">Advanced Usage</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
-<li><a href="#prerequisites">Prerequisites</a></li>
-<li><a href="#quick-example">Quick Example</a></li>
-<li><a href="#step-by-step_1">Step-by-Step</a></li>
-<li><a href="#advanced-usage_1">Advanced Usage</a></li>
-<li><a href="#troubleshooting_1">Troubleshooting</a></li>
 <li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>

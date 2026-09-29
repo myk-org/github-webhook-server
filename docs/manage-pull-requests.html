@@ -204,6 +204,14 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="manage-pull-requests">Manage Pull Requests</h1>
+<p>You want contributors to open a pull request and immediately understand what the server will do next: who gets assigned, which labels and checks appear, and what has to turn green before the PR is ready to merge. This page walks through the default PR lifecycle so authors and reviewers can work with the automation instead of guessing at it.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>The server is already connected to the repository. See <a href="quick-start.html">Start Automating a Repository</a>.</li>
+<li>An <code>OWNERS</code> file defines approvers and reviewers. See <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a>.</li>
+<li>Any CI checks you expect on PRs are already configured. See <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a>.</li>
+</ul>
+<h2 id="quick-example">Quick Example</h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml</span>
 <span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -366,209 +374,6 @@
 </ul>
 <p>Optional PR automation can fire on lifecycle events too.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">test-oracle</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:800"</span>
-<span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
-<span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"claude-opus-4-6[1m]"</span>
-<span class="w">  </span><span class="nt">test-patterns</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"tests/**/*.py"</span>
-<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approved</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pr-opened</span>
-</code></pre></div>
-
-<ul>
-<li><code>pr-opened</code> starts test recommendation analysis when the PR is first opened.</li>
-<li><code>approved</code> starts it when an approver explicitly uses <code>/approve</code>.</li>
-<li>See <a href="supported-github-events.html">Supported GitHub Events</a> for the full event matrix.</li>
-<li>See <a href="configuration-reference.html">Configuration Reference</a> for the exact PR-related keys and defaults.</li>
-</ul>
-<h2 id="troubleshooting">Troubleshooting</h2>
-<p><strong><code>can-be-merged</code> is failing</strong></p>
-<ul>
-<li>Open the <code>can-be-merged</code> check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, or merge conflicts.</li>
-</ul>
-<p><strong>The PR lost <code>verified</code> after a push</strong></p>
-<ul>
-<li>That is normal for a new code revision when <code>verified-job</code> is enabled. The server re-queues verification on new commits and only preserves it automatically for clean rebases or trusted auto-verified authors.</li>
-</ul>
-<p><strong>A normal GitHub approval did not satisfy the approver requirement</strong></p>
-<ul>
-<li>Use <code>/approve</code> from an approver. In this workflow, GitHub review approval and approver sign-off are separate signals.</li>
-</ul>
-<p><strong>Auto-merge did not turn on</strong></p>
-<ul>
-<li>Check whether the base branch is listed in <code>set-auto-merge-prs</code>, whether the author is in <code>auto-verified-and-merged-users</code>, and whether the PR touches a suspicious path that keeps auto-merge off until security checks pass.# Manage Pull Requests</li>
-</ul>
-<p>You want contributors to open a pull request and immediately understand what the server will do next: who gets assigned, which labels and checks appear, and what has to turn green before the PR is ready to merge. This page walks through the default PR lifecycle so authors and reviewers can work with the automation instead of guessing at it.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<ul>
-<li>The server is already connected to the repository. See <a href="quick-start.html">Start Automating a Repository</a>.</li>
-<li>An <code>OWNERS</code> file defines approvers and reviewers. See <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a>.</li>
-<li>Any CI checks you expect on PRs are already configured. See <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a>.</li>
-</ul>
-<h2 id="quick-example">Quick Example</h2>
-<div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml</span>
-<span class="nt">verified-job</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="nt">set-auto-merge-prs</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
-<span class="nt">can-be-merged-required-labels</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-reviewed</span>
-</code></pre></div>
-
-<div class="highlight"><pre><span></span><code><span class="c1"># OWNERS</span>
-<span class="nt">approvers</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rnetser</span>
-<span class="nt">reviewers</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rnetser</span>
-</code></pre></div>
-
-<p>Open a PR to <code>main</code>, then have an approver submit a GitHub review with state <code>Approved</code> and this review body:</p>
-<div class="highlight"><pre><span></span><code>/approve
-</code></pre></div>
-
-<p>With that setup, the server will:</p>
-<ul>
-<li>assign reviewers from <code>OWNERS</code></li>
-<li>add a branch label such as <code>branch-main</code></li>
-<li>add a size label such as <code>size/M</code></li>
-<li>queue <code>can-be-merged</code> and <code>verified</code>, plus any enabled checks</li>
-<li>mark the PR merge-ready only after required checks, required labels, approval, and LGTM requirements are satisfied</li>
-</ul>
-<h2 id="step-by-step_1">Step-by-Step</h2>
-<h3 id="1-open-the-pr-or-mark-it-ready-for-review_1">1. Open the PR or mark it ready for review</h3>
-<p>On <code>opened</code> and <code>ready_for_review</code>, the server posts a welcome comment that lists the available PR actions and the current merge requirements. It also assigns reviewers from the matching <code>OWNERS</code> rules, adds the PR author as an assignee when possible, and creates a tracking issue if <code>create-issue-for-new-pr: true</code>.</p>
-<p>At the same time, the server applies the first round of state labels and queues check runs.</p>
-<table>
-<thead>
-<tr>
-<th>What appears automatically</th>
-<th>What it means</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>branch-&lt;base&gt;</code></td>
-<td>Shows the target branch, such as <code>branch-main</code>.</td>
-</tr>
-<tr>
-<td><code>size/&lt;bucket&gt;</code></td>
-<td>Buckets the PR by total additions plus deletions, such as <code>size/M</code>.</td>
-</tr>
-<tr>
-<td><code>needs-rebase</code></td>
-<td>The PR is behind or diverged from its base branch.</td>
-</tr>
-<tr>
-<td><code>has-conflicts</code></td>
-<td>GitHub reports the PR is not mergeable.</td>
-</tr>
-<tr>
-<td><code>verified</code></td>
-<td>The PR is currently verified. This matters only when <code>verified-job</code> is enabled.</td>
-</tr>
-<tr>
-<td><code>can-be-merged</code></td>
-<td>The PR currently meets all merge requirements.</td>
-</tr>
-</tbody>
-</table>
-<p>Any enabled built-in or custom checks are queued at the same time. Common examples are <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>conventional-title</code>, and security checks.</p>
-<h3 id="2-review-the-pr_1">2. Review the PR</h3>
-<p>GitHub review state and explicit approver sign-off are tracked separately. A normal GitHub <code>Approved</code> review counts as reviewer LGTM feedback, while the explicit approver signal is <code>/approve</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Reviewer action</th>
-<th>What the server records</th>
-<th>Where it matters</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>GitHub review with state <code>Approved</code></td>
-<td><code>lgtm-&lt;reviewer&gt;</code></td>
-<td>Counts toward <code>minimum-lgtm</code>.</td>
-</tr>
-<tr>
-<td>Review body or PR comment containing <code>/approve</code></td>
-<td><code>approved-&lt;approver&gt;</code></td>
-<td>Satisfies the approver requirement from <code>OWNERS</code>.</td>
-</tr>
-<tr>
-<td>Required fixed label, such as <code>security-reviewed</code></td>
-<td>Exact label match</td>
-<td>Satisfies <code>can-be-merged-required-labels</code>.</td>
-</tr>
-</tbody>
-</table>
-<blockquote>
-<p><strong>Note:</strong> The PR author does not count toward LGTM counting for their own PR.</p>
-</blockquote>
-<h3 id="3-wait-for-merge-readiness_1">3. Wait for merge readiness</h3>
-<p>The <code>can-be-merged</code> check is recalculated from the current head commit. It passes only when every active requirement is satisfied.</p>
-<p>A PR becomes merge-ready when these checks all pass:</p>
-<ul>
-<li>required status checks are green</li>
-<li>the PR is mergeable and has no conflict label</li>
-<li>required approver sign-off is present</li>
-<li>the configured <code>minimum-lgtm</code> count is satisfied</li>
-<li>every label in <code>can-be-merged-required-labels</code> is present</li>
-<li>the <code>verified</code> state is present if <code>verified-job</code> is enabled</li>
-<li>unresolved review conversations are cleared if branch protection requires conversation resolution</li>
-</ul>
-<h3 id="4-push-more-commits_1">4. Push more commits</h3>
-<p>On <code>synchronize</code>, the server rechecks merge state and reruns the PR workflow for the new head commit. Review-state labels are cleared so the new revision is evaluated fresh.</p>
-<p>If the update is only a clean rebase, the server keeps verification aligned with the new head instead of forcing a full manual re-verify.</p>
-<table>
-<thead>
-<tr>
-<th>Push result</th>
-<th>What usually changes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>New code commit</td>
-<td>review-state labels are cleared, <code>verified</code> is re-queued, and merge readiness is recalculated</td>
-</tr>
-<tr>
-<td>Clean rebase</td>
-<td>merge state is refreshed, but existing verification can be carried forward to the new head</td>
-</tr>
-</tbody>
-</table>
-<h3 id="5-merge-the-pr_1">5. Merge the PR</h3>
-<p>On merge, the server closes the tracking issue it created for the PR. If cherry-pick labels were already attached, the server starts those follow-up cherry-picks after merge.</p>
-<p>It also refreshes merge-state labels on other open PRs so stale <code>needs-rebase</code> or conflict states get revisited after the branch moves forward.</p>
-<blockquote>
-<p><strong>Tip:</strong> If the PR targets a branch listed in <code>set-auto-merge-prs</code>, or if the author is in <code>auto-verified-and-merged-users</code>, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.</p>
-</blockquote>
-<h2 id="advanced-usage_1">Advanced Usage</h2>
-<p>Trusted authors and branch-based auto-merge change the PR lifecycle in important ways.</p>
-<ul>
-<li><code>auto-verified-and-merged-users</code> makes PRs from those authors auto-verified on open and on later updates.</li>
-<li>Those same trusted authors can also get GitHub auto-merge enabled automatically.</li>
-<li>If <code>create-issue-for-new-pr</code> is enabled, trusted auto-verified authors skip tracking-issue creation.</li>
-</ul>
-<p>Security-sensitive file paths can also override auto-merge behavior.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">suspicious-paths</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/workflows/"</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">".github/actions/"</span>
-<span class="w">  </span><span class="nt">committer-identity-check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</code></pre></div>
-
-<ul>
-<li>If a PR touches a configured suspicious path, native auto-merge is not enabled until the suspicious-paths check passes.</li>
-<li>Security checks and committer-identity checks appear as normal check runs, so contributors can see the block directly on the PR.</li>
-</ul>
-<p>Optional PR automation can fire on lifecycle events too.</p>
-<div class="highlight"><pre><span></span><code><span class="nt">test-oracle</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">server-url</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:8000"</span>
 <span class="w">  </span><span class="nt">ai-provider</span><span class="p">:</span><span class="w"> </span><span class="s">"claude"</span>
 <span class="w">  </span><span class="nt">ai-model</span><span class="p">:</span><span class="w"> </span><span class="s">"claude-opus-4-6[1m]"</span>
@@ -585,7 +390,7 @@
 <li>See <a href="supported-github-events.html">Supported GitHub Events</a> for the full event matrix.</li>
 <li>See <a href="configuration-reference.html">Configuration Reference</a> for the exact PR-related keys and defaults.</li>
 </ul>
-<h2 id="troubleshooting_1">Troubleshooting</h2>
+<h2 id="troubleshooting">Troubleshooting</h2>
 <p><strong><code>can-be-merged</code> is failing</strong></p>
 <ul>
 <li>Open the <code>can-be-merged</code> check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, or merge conflicts.</li>
@@ -632,6 +437,8 @@
                     <h3>On this page</h3>
                     <div class="toc">
 <ul>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#quick-example">Quick Example</a></li>
 <li><a href="#step-by-step">Step-by-Step</a><ul>
 <li><a href="#1-open-the-pr-or-mark-it-ready-for-review">1. Open the PR or mark it ready for review</a></li>
 <li><a href="#2-review-the-pr">2. Review the PR</a></li>
@@ -642,18 +449,6 @@
 </li>
 <li><a href="#advanced-usage">Advanced Usage</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
-<li><a href="#prerequisites">Prerequisites</a></li>
-<li><a href="#quick-example">Quick Example</a></li>
-<li><a href="#step-by-step_1">Step-by-Step</a><ul>
-<li><a href="#1-open-the-pr-or-mark-it-ready-for-review_1">1. Open the PR or mark it ready for review</a></li>
-<li><a href="#2-review-the-pr_1">2. Review the PR</a></li>
-<li><a href="#3-wait-for-merge-readiness_1">3. Wait for merge readiness</a></li>
-<li><a href="#4-push-more-commits_1">4. Push more commits</a></li>
-<li><a href="#5-merge-the-pr_1">5. Merge the PR</a></li>
-</ul>
-</li>
-<li><a href="#advanced-usage_1">Advanced Usage</a></li>
-<li><a href="#troubleshooting_1">Troubleshooting</a></li>
 <li><a href="#related-pages">Related Pages</a></li>
 </ul>
 </div>
