@@ -107,6 +107,16 @@ value = self.config.get_value("key")
 2. Run: `uv run pytest webhook_server/tests/test_config_schema.py -v`
 3. Update `examples/config.yaml`
 
+## When Bumping the Sidecar
+
+`@myk-org/pi-sidecar` (npm) and `pi-sidecar-client` (PyPI) are released together and share one version number.
+
+- **Bump both in the same change** — `sidecar-helper/package.json` and `pyproject.toml` — and regenerate both lockfiles. A half-applied bump leaves two runtimes disagreeing with nothing reporting the error.
+- **Never pin either with an exact version.** Use a range (`>=X.Y.Z`). An exact pin never moves, so no upstream fix can ever reach it — a repo pinned at `4.6.2` stayed exposed to five CVEs that a range would have picked up.
+- **Delete `package-lock.json` before reinstalling** — `rm -f package-lock.json && rm -rf node_modules && npm install`. Do not just re-run `npm install`: npm preserves existing lock entries that still satisfy their ranges, so the lock reports the new sidecar version at the top while the pre-bump tree survives underneath. That result reads like a successful bump and scans clean of nothing. A stale tree looks *more* trustworthy than an obviously stale pin.
+- **Verify the resolved tree, not the version string.** `npm ls adm-zip sharp` for `invalid`/`extraneous`, and confirm every copy in the lock is at or above the fixed version. The dependency declaration can be correct while the installed artifact is not — pi-sidecar 4.6.4 fixed its `package.json` but kept shipping a root-level `npm-shrinkwrap.json` that overrode it.
+- **Verify against the packed artifact, not the workspace:** `npm pack @myk-org/pi-sidecar@X.Y.Z` and confirm the expected file set. A local workspace symlinks the package, so a broken published tarball never shows up locally.
+
 ## When Testing
 - Mock PyGithub: patch `asyncio.to_thread` since `github_api_call` delegates to it
 - Test tokens: `TEST_GITHUB_TOKEN = "ghp_test1234..."  # pragma: allowlist secret`
@@ -120,4 +130,4 @@ value = self.config.get_value("key")
 ## Boundaries
 - ✅ Always: run full verify before committing, type hints on all functions, wrap PyGithub in `github_api_call()`
 - ⚠️ Ask first: adding dependencies, modifying `entrypoint.sh`, changing schema structure
-- 🚫 Never: commit tokens/secrets, use `python`/`pip` directly (use `uv`)
+- 🚫 Never: commit tokens/secrets, use `python`/`pip` directly (use `uv`), pin the sidecar to an exact version, bump one sidecar package without the other
