@@ -287,9 +287,25 @@ path breaks both. The container image creates <code>/home/podman/data</code>, wh
 is the default.</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
 mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
+
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml"</span><span class="w"> </span><span class="s">&lt;&lt;'YAML'</span>
+<span class="s">github-app-id: 123456</span>
+<span class="s">github-tokens:</span>
+<span class="s">  - ghp_your_token_here</span>
+
+<span class="s">webhook-ip: https://your-domain.example/webhook_server</span>
+
+<span class="s">repositories:</span>
+<span class="s">  your-repo:</span>
+<span class="s">    name: your-org/your-repo</span>
+<span class="s">YAML</span>
+
 <span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
+<p>Without <code>config.yaml</code> the startup call to <code>Config.exists()</code> raises <code>FileNotFoundError</code>, so the
+directory alone is not enough. See <a href="quick-start.html">Quick Start</a> for the full setup,
+including the GitHub App private key.</p>
 <h2 id="enable_log_server"><code>ENABLE_LOG_SERVER</code></h2>
 <p>Checked as an exact string match against <code>"true"</code>, so <code>1</code>, <code>TRUE</code>, and <code>yes</code> all count as
 disabled. When it is off, the log viewer routes are never registered and the log WebSocket

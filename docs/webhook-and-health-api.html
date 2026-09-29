@@ -204,7 +204,7 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="webhook-and-health-api">Webhook and Health API</h1>
-<p>The server exposes exactly two routes on the public surface: a health probe and the GitHub webhook receiver. Everything else (<code>/logs</code>, <code>/logs/api/*</code>, <code>/mcp</code>, <code>/static</code>) is optional or internal and is only registered when the matching feature flag is enabled.</p>
+<p>The always-available surface is small: a health probe, the GitHub webhook receiver, the <code>/static</code> assets used by the log viewer UI, and FastAPI's own <code>/docs</code> and <code>/redoc</code>. The log viewer API and WebSocket routes are always <em>registered</em> too — <code>ENABLE_LOG_SERVER</code> gates <em>access</em> at request time rather than registration, so with the flag off <code>/logs/api/*</code> answers <code>404</code> and <code>/logs/ws</code> closes the connection. The log viewer HTML page and <code>/mcp</code> are the two routes that are only registered when their feature flag is set.</p>
 <table>
 <thead>
 <tr>
@@ -235,15 +235,27 @@
 </tr>
 <tr>
 <td><code>GET</code></td>
-<td><code>/logs</code>, <code>/logs/api/*</code></td>
-<td>Log viewer UI and API</td>
+<td><code>/logs</code></td>
+<td>Log viewer UI page</td>
 <td><code>ENABLE_LOG_SERVER=true</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/logs/api/*</code></td>
+<td>Log viewer API</td>
+<td>Always (access gated at request time by <code>ENABLE_LOG_SERVER</code>)</td>
 </tr>
 <tr>
 <td><code>WS</code></td>
 <td><code>/logs/ws</code></td>
 <td>Real-time log stream</td>
-<td><code>ENABLE_LOG_SERVER=true</code></td>
+<td>Always (closes the connection unless <code>ENABLE_LOG_SERVER=true</code>)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/docs</code>, <code>/redoc</code></td>
+<td>FastAPI-generated interactive API docs</td>
+<td>Always</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>POST</code>/<code>DELETE</code></td>

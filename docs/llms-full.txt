@@ -604,7 +604,7 @@ your repository and uses them to decide who must review a pull request, who coun
 
 | Key | Effect |
 | --- | --- |
-| `approvers` | Members of this scope who can `/approve`. At least one is required for the `can-be-merged` check. |
+| `approvers` | Members of this scope who can `/approve`. An approval from this list is required for the `can-be-merged` check only when the scope has at least one approver; a path with no approvers listed imposes no approval requirement. |
 | `reviewers` | Members of this scope who are eligible for reviewer auto-assignment; `/lgtm` is not gated by membership. |
 | `allowed-users` | Users (in addition to collaborators and contributors) who may run commands such as `/retest`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewers`. |
 | `root-approvers` | Optional boolean. Set to `false` to opt out of requiring an approval from the root `OWNERS` approvers. |
@@ -1432,7 +1432,7 @@ All check runs are written to `last_commit.sha`. Output is truncated to 65534 ch
 
 Built-in and custom command checks share one code path, `RunnerHandler.run_check()`. Each one is described by a small `CheckConfig` record: the check-run name, the command (which may contain the `{worktree_path}` placeholder), a display title, and whether the command runs with `cwd` set to the worktree.
 
-The CI stage is driven by `PullRequestHandler._run_pull_request_ci_tasks()`. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. Conventional-title and the two security checks are scheduled only when their config is present, and every validated custom check is scheduled unconditionally.
+The CI stage is driven by `PullRequestHandler._run_pull_request_ci_tasks()`. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. `conventional-title` is scheduled only when its config is present. The two security checks need no opt-in: with no `security-checks` block at all, `suspicious-paths` falls back to `DEFAULT_SUSPICIOUS_PATHS` and both `mandatory` and `committer-identity-check` default to `true`, so both run. Every validated custom check is scheduled unconditionally.
 
 ### The built-in checks
 
@@ -3134,8 +3134,25 @@ is the default.
 ```bash
     export WEBHOOK_SERVER_DATA_DIR="$HOME/webhook-server-data"
     mkdir -p "$WEBHOOK_SERVER_DATA_DIR"
+
+    cat > "$WEBHOOK_SERVER_DATA_DIR/config.yaml" <<'YAML'
+    github-app-id: 123456
+    github-tokens:
+      - ghp_your_token_here
+
+    webhook-ip: https://your-domain.example/webhook_server
+
+    repositories:
+      your-repo:
+        name: your-org/your-repo
+    YAML
+
     WEBHOOK_SERVER_DATA_DIR="$WEBHOOK_SERVER_DATA_DIR" uv run entrypoint.py
 ```
+
+Without `config.yaml` the startup call to `Config.exists()` raises `FileNotFoundError`, so the
+directory alone is not enough. See [Quick Start](quick-start.html) for the full setup,
+including the GitHub App private key.
 
 ## `ENABLE_LOG_SERVER`
 
@@ -3204,15 +3221,17 @@ Source: webhook-and-health-api.md
 
 # Webhook and Health API
 
-The server exposes exactly two routes on the public surface: a health probe and the GitHub webhook receiver. Everything else (`/logs`, `/logs/api/*`, `/mcp`, `/static`) is optional or internal and is only registered when the matching feature flag is enabled.
+The always-available surface is small: a health probe, the GitHub webhook receiver, the `/static` assets used by the log viewer UI, and FastAPI's own `/docs` and `/redoc`. The log viewer API and WebSocket routes are always *registered* too — `ENABLE_LOG_SERVER` gates *access* at request time rather than registration, so with the flag off `/logs/api/*` answers `404` and `/logs/ws` closes the connection. The log viewer HTML page and `/mcp` are the two routes that are only registered when their feature flag is set.
 
 | Method | Path | Purpose | Registered when |
 | --- | --- | --- | --- |
 | `GET` | `/webhook_server/healthcheck` | Liveness probe | Always |
 | `POST` | `/webhook_server` | GitHub webhook receiver | Always |
 | `GET` | `/static/*` | CSS/JS assets for the log viewer UI | Always (mounted directory) |
-| `GET` | `/logs`, `/logs/api/*` | Log viewer UI and API | `ENABLE_LOG_SERVER=true` |
-| `WS` | `/logs/ws` | Real-time log stream | `ENABLE_LOG_SERVER=true` |
+| `GET` | `/logs` | Log viewer UI page | `ENABLE_LOG_SERVER=true` |
+| `GET` | `/logs/api/*` | Log viewer API | Always (access gated at request time by `ENABLE_LOG_SERVER`) |
+| `WS` | `/logs/ws` | Real-time log stream | Always (closes the connection unless `ENABLE_LOG_SERVER=true`) |
+| `GET` | `/docs`, `/redoc` | FastAPI-generated interactive API docs | Always |
 | `GET`/`POST`/`DELETE` | `/mcp` | MCP streamable HTTP transport | `ENABLE_MCP_SERVER=true` |
 
 The base path is not configurable. In `webhook_server/app.py`:
