@@ -15,15 +15,12 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
+from docs_render import renderer
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-from docs_render import renderer  # noqa: E402
-
 DOCS_DIR = REPO_ROOT / "docs"
 PROJECT_NAME = "github-webhook-server"
 REPO_URL = "https://github.com/myk-org/github-webhook-server"
@@ -169,8 +166,20 @@ def main() -> int:
     _write("llms.txt", renderer._build_llms_txt(plan))  # noqa: SLF001
     _write("llms-full.txt", renderer._build_llms_full_txt(plan, pages))  # noqa: SLF001
 
+    # Drop HTML for pages that are no longer in the navigation (renamed or
+    # removed markdown). glob() is non-recursive, so docs/assets/ is untouched,
+    # and only *.html is considered -- .md sources and .nojekyll are safe.
+    nav_slugs = {page["slug"] for page in order}
+    stale: list[str] = []
+    for html_file in sorted(DOCS_DIR.glob("*.html")):
+        if html_file.stem not in nav_slugs and html_file.stem != "index":
+            html_file.unlink()
+            stale.append(html_file.name)
+
     for name, size in written:
         print(f"{size:>8} B  {name}")
+    for name in stale:
+        print(f"   removed  {name}")
     print(f"{len(order)} pages, {len(written)} files, {sum(s for _, s in written)} B total")
     return 0
 

