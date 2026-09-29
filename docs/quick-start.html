@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -216,10 +216,10 @@
 <li>A public URL GitHub can reach, or a <code>smee.io</code> channel for local testing</li>
 </ul>
 <h2 id="quick-example">Quick example</h2>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
 
-cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml&quot;</span><span class="w"> </span><span class="s">&lt;&lt;&#39;YAML&#39;</span>
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml"</span><span class="w"> </span><span class="s">&lt;&lt;'YAML'</span>
 <span class="s">github-app-id: 123456</span>
 <span class="s">github-tokens:</span>
 <span class="s">  - ghp_your_token_here</span>
@@ -232,23 +232,23 @@ cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</
 <span class="s">YAML</span>
 
 cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem"</span>
 
 uv<span class="w"> </span>sync
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:500/webhook_server/healthcheck
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
 </code></pre></div>
 
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"status"</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">"message"</span><span class="p">:</span><span class="s2">"Alive"</span><span class="p">}</span>
 </code></pre></div>
 
 <p>Once the server starts, it bootstraps the repository you listed: it creates or updates the webhook and prepares the built-in automation. The health check proves the process is running; the steps below confirm GitHub can actually reach it.</p>
 <h2 id="step-by-step">Step-by-step</h2>
 <h3 id="1-create-the-data-directory">1. Create the data directory</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
 </code></pre></div>
 
 <p>Your minimal layout should look like this:</p>
@@ -311,14 +311,14 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 </blockquote>
 <h3 id="3-add-the-github-app-private-key">3. Add the GitHub App private key</h3>
 <div class="highlight"><pre><span></span><code>cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem"</span>
 </code></pre></div>
 
 <p>The filename matters. The server looks for that exact name in the data directory.</p>
 <p>Install the GitHub App on <code>your-org/your-repo</code> before you start the server. You need both the private key and at least one GitHub token for a working setup.</p>
 <h3 id="4-install-dependencies-and-start-the-server">4. Install dependencies and start the server</h3>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
 <p>By default, the server listens on <code>0.0.0.0:500</code>. On startup it creates or updates the repository webhook and prepares the repository for automation.</p>
@@ -326,11 +326,11 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 <p><strong>Tip:</strong> If you only need one repository working quickly, omit optional keys like <code>events</code>, <code>pre-commit</code>, <code>tox</code>, <code>container</code>, and <code>pypi</code> until the webhook is live.</p>
 </blockquote>
 <h3 id="5-verify-the-server-is-healthy">5. Verify the server is healthy</h3>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:500/webhook_server/healthcheck
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
 </code></pre></div>
 
 <p>You should get:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"status"</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">"message"</span><span class="p">:</span><span class="s2">"Alive"</span><span class="p">}</span>
 </code></pre></div>
 
 <p>A healthy response means the web process is running and listening on the webhook route.</p>
@@ -387,7 +387,7 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 </code></pre></div>
 
 <div class="highlight"><pre><span></span><code>smee<span class="w"> </span>-u<span class="w"> </span>https://smee.io/your-channel<span class="w"> </span>-p<span class="w"> </span><span class="m">500</span><span class="w"> </span>-P<span class="w"> </span>/webhook_server
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
 <p>This is the fastest way to test from a laptop when GitHub cannot reach your machine directly.</p>
@@ -454,10 +454,10 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 <li>A public URL GitHub can reach, or a <code>smee.io</code> channel for local testing</li>
 </ul>
 <h2 id="quick-example_1">Quick example</h2>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
 
-cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml&quot;</span><span class="w"> </span><span class="s">&lt;&lt;&#39;YAML&#39;</span>
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/config.yaml"</span><span class="w"> </span><span class="s">&lt;&lt;'YAML'</span>
 <span class="s">github-app-id: 123456</span>
 <span class="s">github-tokens:</span>
 <span class="s">  - ghp_your_token_here</span>
@@ -470,23 +470,23 @@ cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">&quot;</
 <span class="s">YAML</span>
 
 cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem"</span>
 
 uv<span class="w"> </span>sync
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://127.0.0.1:5000/webhook_server/healthcheck
 </code></pre></div>
 
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"status"</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">"message"</span><span class="p">:</span><span class="s2">"Alive"</span><span class="p">}</span>
 </code></pre></div>
 
 <p>Once the server starts, it bootstraps the repository you listed: it creates or updates the webhook and prepares the built-in automation. The health check proves the process is running; the steps below confirm GitHub can actually reach it.</p>
 <h2 id="step-by-step_1">Step-by-step</h2>
 <h3 id="1-create-the-data-directory_1">1. Create the data directory</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data&quot;</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
 </code></pre></div>
 
 <p>Your minimal layout should look like this:</p>
@@ -549,14 +549,14 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 </blockquote>
 <h3 id="3-add-the-github-app-private-key_1">3. Add the GitHub App private key</h3>
 <div class="highlight"><pre><span></span><code>cp<span class="w"> </span>/path/to/your/github-app-private-key.pem<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">/webhook-server.private-key.pem"</span>
 </code></pre></div>
 
 <p>The filename matters. The server looks for that exact name in the data directory.</p>
 <p>Install the GitHub App on <code>your-org/your-repo</code> before you start the server. You need both the private key and at least one GitHub token for a working setup.</p>
 <h3 id="4-install-dependencies-and-start-the-server_1">4. Install dependencies and start the server</h3>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
 <p>By default, the server listens on <code>0.0.0.0:5000</code>. On startup it creates or updates the repository webhook and prepares the repository for automation.</p>
@@ -568,7 +568,7 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 </code></pre></div>
 
 <p>You should get:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;Alive&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"status"</span><span class="p">:</span><span class="mi">200</span><span class="p">,</span><span class="nt">"message"</span><span class="p">:</span><span class="s2">"Alive"</span><span class="p">}</span>
 </code></pre></div>
 
 <p>A healthy response means the web process is running and listening on the webhook route.</p>
@@ -625,7 +625,7 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
 </code></pre></div>
 
 <div class="highlight"><pre><span></span><code>smee<span class="w"> </span>-u<span class="w"> </span>https://smee.io/your-channel<span class="w"> </span>-p<span class="w"> </span><span class="m">5000</span><span class="w"> </span>-P<span class="w"> </span>/webhook_server
-<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">&quot;</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
 </code></pre></div>
 
 <p>This is the fastest way to test from a laptop when GitHub cannot reach your machine directly.</p>
@@ -760,9 +760,6 @@ mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

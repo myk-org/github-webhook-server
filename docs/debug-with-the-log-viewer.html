@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -217,7 +217,7 @@
 </code></pre></div>
 
 <ol>
-<li>Open <code>http://127.0.0.1:500/logs</code>.</li>
+<li>Open <code>http://127.0.0.1:5000/logs</code>.</li>
 <li>Paste the GitHub delivery ID into <code>Hook ID</code>.</li>
 <li>Click the hook ID in the results to open the workflow timeline.</li>
 <li>Click the failed step to see its status, duration, error, and matching log lines.</li>
@@ -356,11 +356,11 @@
 </blockquote>
 <h3 id="export-a-filtered-snapshot-from-the-shell">Export a filtered snapshot from the shell</h3>
 <p>If you want the same filtered data without using the button, download it directly.</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-OJ<span class="w"> </span><span class="s2">&quot;http://127.0.0.1:500/logs/api/export?format_type=json&amp;hook_id=&lt;delivery-id&gt;&amp;level=ERROR&amp;limit=500&quot;</span>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-OJ<span class="w"> </span><span class="s2">"http://127.0.0.1:5000/logs/api/export?format_type=json&amp;hook_id=&lt;delivery-id&gt;&amp;level=ERROR&amp;limit=500"</span>
 </code></pre></div>
 
 <p>If you want the step timeline directly, fetch it by delivery ID.</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span><span class="s2">&quot;http://127.0.0.1:500/logs/api/workflow-steps/&lt;delivery-id&gt;&quot;</span>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span><span class="s2">"http://127.0.0.1:5000/logs/api/workflow-steps/&lt;delivery-id&gt;"</span>
 </code></pre></div>
 
 <p>See <a href="log-viewer-and-mcp-api.html">Log Viewer and MCP API</a> for the full set of routes and query parameters.</p>
@@ -555,11 +555,11 @@
 </blockquote>
 <h3 id="export-a-filtered-snapshot-from-the-shell_1">Export a filtered snapshot from the shell</h3>
 <p>If you want the same filtered data without using the button, download it directly.</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-OJ<span class="w"> </span><span class="s2">&quot;http://127.0.0.1:5000/logs/api/export?format_type=json&amp;hook_id=&lt;delivery-id&gt;&amp;level=ERROR&amp;limit=5000&quot;</span>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-OJ<span class="w"> </span><span class="s2">"http://127.0.0.1:5000/logs/api/export?format_type=json&amp;hook_id=&lt;delivery-id&gt;&amp;level=ERROR&amp;limit=5000"</span>
 </code></pre></div>
 
 <p>If you want the step timeline directly, fetch it by delivery ID.</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span><span class="s2">&quot;http://127.0.0.1:5000/logs/api/workflow-steps/&lt;delivery-id&gt;&quot;</span>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span><span class="s2">"http://127.0.0.1:5000/logs/api/workflow-steps/&lt;delivery-id&gt;"</span>
 </code></pre></div>
 
 <p>See <a href="log-viewer-and-mcp-api.html">Log Viewer and MCP API</a> for the full set of routes and query parameters.</p>
@@ -622,7 +622,7 @@
 
                 <a href="automation-recipes.html" class="page-nav-link page-nav-next">
                     <span class="page-nav-label">Next</span>
-                    <span class="page-nav-title">Automate Common Maintainer Tasks</span>
+                    <span class="page-nav-title">Automation Recipes</span>
                 </a>
 
             </nav>
@@ -679,9 +679,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

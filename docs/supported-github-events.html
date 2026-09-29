@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,83 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="supported-github-events">Supported GitHub Events</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>The server routes eight GitHub webhook event types in <code>webhook_server/libs/github_api.py</code> (<code>GitHubWebHook.process()</code>). Which of them actually arrive depends on the <code>repositories.&lt;repo-id&gt;.events</code> subscription configured in <code>config.yaml</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ping</code></td>
+<td>Logged and acknowledged. Token usage is recorded; no further processing.</td>
+</tr>
+<tr>
+<td><code>push</code></td>
+<td>Only tag pushes are processed: the repository is cloned at the tag ref and the push handler runs (PyPI upload, container build). Branch pushes and branch/tag deletions are logged and skipped.</td>
+</tr>
+<tr>
+<td><code>pull_request</code></td>
+<td>Clones the repository, initializes the OWNERS-file handler, and hands off to the pull request handler (labels, merge eligibility, welcome message on <code>opened</code>/<code>ready_for_review</code>, CI/CD runs).</td>
+</tr>
+<tr>
+<td><code>issue_comment</code></td>
+<td>Clones the repository, initializes the OWNERS-file handler, and hands off to the issue-comment handler (slash commands, reviewer selection).</td>
+</tr>
+<tr>
+<td><code>pull_request_review</code></td>
+<td>Clones the repository, initializes the OWNERS-file handler, and hands off to the pull request review handler.</td>
+</tr>
+<tr>
+<td><code>check_run</code></td>
+<td>Processed only for <code>action: completed</code>, skipping the <code>can-be-merged</code> check itself when its conclusion is not <code>success</code> and skipping check runs whose <code>head_sha</code> no longer matches the PR head. Otherwise clones the repository and hands off to the check run handler, then debounces a merge-eligibility recheck.</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>Processed only for terminal commit states that match the current PR head. Re-evaluates can-be-merged (debounced).</td>
+</tr>
+<tr>
+<td><code>pull_request_review_thread</code></td>
+<td>Processed only for the <code>resolved</code>/<code>unresolved</code> actions, and only when <code>required_conversation_resolution</code> is enabled. Re-evaluates can-be-merged (debounced).</td>
+</tr>
+</tbody>
+</table>
+<p>Any other event type, or an event for which no pull request can be resolved, is logged and skipped without further processing.</p>
+<h2 id="restricting-events-per-repository">Restricting events per repository</h2>
+<p><code>config.yaml</code> accepts an <code>events</code> array on each repository entry:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-org/my-repo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
+</code></pre></div>
+
+<p>The schema types it as an array of strings with no enum, so the value is passed to GitHub as-is when the hook is created or updated.</p>
+<p>Default when the key is omitted: <code>["*"]</code> — <code>webhook_server/utils/webhook.py</code> reads <code>data.get("events", ["*"])</code>, which subscribes to every event GitHub supports.</p>
+<p>The subscription is reconciled at startup by <code>create_webhook()</code>:</p>
+<ul>
+<li>If no hook with a matching URL exists, the hook is created with the configured events.</li>
+<li>If a matching hook exists and its event list differs from the configured list, the hook is edited in place (<code>Updating webhook events: &lt;old&gt; -&gt; &lt;new&gt;</code> in the log).</li>
+<li>If it already matches, nothing changes (<code>Hook already exists</code>).</li>
+<li>If the webhook URL matches but secret presence differs, the old hook is deleted and a new one created.</li>
+</ul>
+<p>To verify the live subscription:</p>
+<ol>
+<li>Check the startup log. It reports creation, update (with both event lists), or an already-correct hook for every managed repository.</li>
+<li>Inspect the hook on GitHub itself — repository <strong>Settings → Webhooks → Add Webhook → Configure</strong>, or the hooks API endpoint for the repository, where the <code>events</code> array must match the config exactly.</li>
+</ol>
+<p>Because the default is <code>["*"]</code>, a repository that only needs pull request processing will still receive every other event type; the server then skips each one at routing time.</p>
+<h2 id="events-skipped-early">Events skipped early</h2>
+<p>Two filters run at the very top of <code>process()</code>, before <code>get_api_users()</code>, so skipped deliveries cost no <code>get_user()</code> API calls:</p>
+<ul>
+<li><code>pull_request_review_thread</code> — skipped unless the payload <code>action</code> is <code>resolved</code> or <code>unresolved</code> <strong>and</strong> <code>required_conversation_resolution</code> is enabled. The log line reports either <code>action=&lt;action&gt;, skipped</code> or <code>required_conversation_resolution disabled</code>.</li>
+<li><code>status</code> — skipped when the payload <code>state</code> is <code>pending</code>; only terminal states continue. Log: <code>status (state=pending, skipped)</code>.</li>
+</ul>
+<p>Further per-event skips happen later, after the PR is resolved: stale <code>synchronize</code> / <code>check_run</code> / <code>status</code> payloads whose SHA is no longer the PR head, non-<code>completed</code> <code>check_run</code> actions, non-success <code>can-be-merged</code> conclusions, and <code>push</code> deletions and branch pushes.</p>
                 </div>
             </article>
             <nav class="page-nav">
@@ -223,7 +299,10 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#restricting-events-per-repository">Restricting events per repository</a></li>
+<li><a href="#events-skipped-early">Events skipped early</a></li>
+</ul>
 </div>
 
                 </div>
@@ -233,9 +312,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,474 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="run-pull-request-commands">Run Pull Request Commands</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>The webhook server reacts to slash commands posted as pull request comments. Comment <code>/wip</code> on a PR and the server
+adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</p>
+<h2 id="how-commands-are-recognized">How commands are recognized</h2>
+<ul>
+<li>Only comments <strong>created</strong> on a PR are processed. Editing or deleting a comment does nothing.</li>
+<li>
+<p>Every <strong>line</strong> of the comment that starts with <code>/</code> is treated as a command. The leading <code>/</code> is stripped, the first
+  word is the command, and the rest is the argument.</p>
+</li>
+<li>
+<p>Several commands can be posted in a single comment — each line is one command, and they run concurrently.</p>
+</li>
+<li>A command argument of exactly <code>cancel</code> turns the command into a removal (<code>/wip cancel</code>).</li>
+<li>The server reacts with a 👍 to the comment once a command is accepted.</li>
+<li>Comments containing the server's own welcome-message URL are ignored, so the bot never processes its own output.</li>
+<li>Unknown commands are silently ignored (logged only).</li>
+</ul>
+<p>Example — one comment, three commands:</p>
+<div class="highlight"><pre><span></span><code>/wip
+/assign-reviewers
+/retest tox
+</code></pre></div>
+
+<h2 id="who-can-run-what">Who can run what</h2>
+<table>
+<thead>
+<tr>
+<th>Who</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Author</strong></td>
+<td>The user who opened the pull request</td>
+</tr>
+<tr>
+<td><strong>Approver</strong></td>
+<td>A repository collaborator/contributor, an approver listed in <code>OWNERS</code>, a maintainer, <strong>or</strong> anyone a maintainer/approver has granted with <code>/add-allowed-user @user</code></td>
+</tr>
+<tr>
+<td><strong>Maintainer</strong></td>
+<td>Listed in the <code>root-approvers</code> configuration, or otherwise resolved as a repository maintainer</td>
+</tr>
+<tr>
+<td><strong>Anyone</strong></td>
+<td>Any user who can comment, no permission check</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+<th>Who can run it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/wip</code></td>
+<td>Adds the <code>wip</code> label and prefixes the title with <code>WIP:</code></td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/wip cancel</code></td>
+<td>Removes the <code>wip</code> label and strips the <code>WIP:</code> prefix from the title</td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/verified</code></td>
+<td>Adds the <code>verified</code> label and sets the <code>verified</code> check run to success</td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/verified cancel</code></td>
+<td>Removes the <code>verified</code> label and re-queues the <code>verified</code> check run</td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/hold</code></td>
+<td>Adds the <code>hold</code> label, blocking the merge</td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/hold cancel</code></td>
+<td>Removes the <code>hold</code> label</td>
+<td>Author, Approver</td>
+</tr>
+<tr>
+<td><code>/lgtm</code></td>
+<td>Adds the <code>lgtm-&lt;user&gt;</code> label and removes that user's <code>changes-requested-&lt;user&gt;</code></td>
+<td>Anyone (ignored on your own PR)</td>
+</tr>
+<tr>
+<td><code>/lgtm cancel</code></td>
+<td>Removes the <code>lgtm-&lt;user&gt;</code> label</td>
+<td>Anyone (ignored on your own PR)</td>
+</tr>
+<tr>
+<td><code>/approve</code></td>
+<td>Adds <code>approved-&lt;user&gt;</code>, removes <code>changes-requested-&lt;user&gt;</code>, and triggers the AI test oracle</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/approve cancel</code></td>
+<td>Removes <code>approved-&lt;user&gt;</code></td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/automerge</code></td>
+<td>Adds the <code>automerge</code> label; the PR merges automatically once all requirements are met</td>
+<td>Maintainer, Approver</td>
+</tr>
+<tr>
+<td><code>/retest &lt;test&gt;</code></td>
+<td>Re-runs one or more configured checks</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/retest all</code></td>
+<td>Re-runs every check configured for the repository</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/reprocess</code></td>
+<td>Re-runs the complete PR processing workflow from scratch</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/rebase</code></td>
+<td>Rebases the PR branch onto its base branch and force-pushes</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/assign-reviewers</code></td>
+<td>Assigns reviewers according to the repository <code>OWNERS</code> file</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/assign-reviewer @user</code></td>
+<td>Requests a review from a specific collaborator</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/add-allowed-user @user</code></td>
+<td>Grants an arbitrary commenter permission to run approver commands</td>
+<td>Maintainer, Approver</td>
+</tr>
+<tr>
+<td><code>/check-can-merge</code></td>
+<td>Runs the <code>can-be-merged</code> check and reports the merge blockers</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/build-and-push-container</code></td>
+<td>Builds and pushes the container image for the PR</td>
+<td>Anyone</td>
+</tr>
+<tr>
+<td><code>/cherry-pick &lt;branch&gt; [branch...]</code></td>
+<td>Cherry-picks the PR to one or more target branches</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/cherry-pick-retry &lt;branch&gt;</code></td>
+<td>Retries a failed cherry-pick on a merged PR</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/regenerate-welcome</code></td>
+<td>Re-renders the welcome comment with the current configuration</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/test-oracle</code></td>
+<td>Sends the PR to the configured PR Test Oracle service</td>
+<td>Approver</td>
+</tr>
+<tr>
+<td><code>/security-override</code></td>
+<td>Sets the security check runs to success</td>
+<td>Maintainer</td>
+</tr>
+<tr>
+<td><code>/security-override cancel</code></td>
+<td>Re-runs the security checks to re-evaluate them</td>
+<td>Maintainer</td>
+</tr>
+</tbody>
+</table>
+<h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
+<p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list
+(per repository, with a repository-level override of the global default):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml</span>
+<span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-and-push-container</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Not set (default)</td>
+<td>All commands are blocked on draft PRs</td>
+</tr>
+<tr>
+<td><code>[]</code> (empty list)</td>
+<td>All commands are allowed on draft PRs</td>
+</tr>
+<tr>
+<td><code>["retest", "wip"]</code></td>
+<td>Only the listed commands are allowed; any other command is rejected with a comment naming the allowed ones</td>
+</tr>
+</tbody>
+</table>
+<p><code>/test-oracle</code> is the one exception to this rule — it always runs, even on a draft PR.</p>
+<h2 id="command-details">Command details</h2>
+<h3 id="pr-status">PR status</h3>
+<h4 id="wip-and-wip-cancel"><code>/wip</code> and <code>/wip cancel</code></h4>
+<p>Marks the PR as work in progress. <code>/wip</code> adds the <code>wip</code> label and prepends <code>WIP:</code> to the title if the prefix is not
+already there. <code>/wip cancel</code> removes the label and strips the prefix (both <code>WIP:</code> and <code>WIP:</code> are handled).</p>
+<div class="highlight"><pre><span></span><code>/wip
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/wip cancel
+</code></pre></div>
+
+<p>Available to the PR author and approvers. A user who is neither is ignored.</p>
+<h4 id="verified-and-verified-cancel"><code>/verified</code> and <code>/verified cancel</code></h4>
+<p>Marks the change as reviewed and verified. <code>/verified</code> also sets the <code>verified</code> check run to <strong>success</strong>;
+<code>/verified cancel</code> removes the label and puts the <code>verified</code> check run back to <strong>queued</strong> so it runs again.</p>
+<div class="highlight"><pre><span></span><code>/verified
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/verified cancel
+</code></pre></div>
+
+<p>Available to the PR author and approvers.</p>
+<h4 id="hold-and-hold-cancel"><code>/hold</code> and <code>/hold cancel</code></h4>
+<p><code>hold</code> blocks the pull request from merging until it is removed. Because it is merge-blocking, it is narrower than
+<code>/wip</code> and <code>/verified</code>: only the PR author and pull request approvers can set or clear it. Anyone else gets a comment
+explaining that only the author or approvers may manage the label.</p>
+<div class="highlight"><pre><span></span><code>/hold
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/hold cancel
+</code></pre></div>
+
+<h3 id="review-and-approval">Review and approval</h3>
+<h4 id="lgtm-and-lgtm-cancel"><code>/lgtm</code> and <code>/lgtm cancel</code></h4>
+<p>Records "looks good to me" for the commenting user by adding the <code>lgtm-&lt;user&gt;</code> label and removing that user's
+<code>changes-requested-&lt;user&gt;</code> label. Any commenter may use it; if the commenter is the PR author, the command is ignored
+so you cannot lgtm your own pull request.</p>
+<div class="highlight"><pre><span></span><code>/lgtm
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/lgtm cancel
+</code></pre></div>
+
+<h4 id="approve-and-approve-cancel"><code>/approve</code> and <code>/approve cancel</code></h4>
+<p>Records a formal approval by adding <code>approved-&lt;user&gt;</code> and removing <code>changes-requested-&lt;user&gt;</code>. Only users in the
+<code>OWNERS</code> approver list (or root approvers) are accepted; a non-approver's <code>/approve</code> is silently ignored.</p>
+<p>A successful <code>/approve</code> also kicks off the PR Test Oracle in the background, if it is configured.</p>
+<div class="highlight"><pre><span></span><code>/approve
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/approve cancel
+</code></pre></div>
+
+<h4 id="automerge"><code>/automerge</code></h4>
+<p>Adds the <code>automerge</code> label. Once the label is present and every merge requirement is satisfied, the server merges the
+PR on its own.</p>
+<div class="highlight"><pre><span></span><code>/automerge
+</code></pre></div>
+
+<p>Restricted to maintainers and approvers; anyone else gets the comment
+<em>"Only maintainers or approvers can set pull request to auto-merge"</em>. Note that <code>cancel</code> is not honoured for this
+command — the label is added either way, and there is no <code>/automerge cancel</code>. Remove the label through the GitHub
+UI instead.</p>
+<h4 id="assign-reviewers"><code>/assign-reviewers</code></h4>
+<p>Assigns reviewers to the pull request based on the <code>OWNERS</code> file in the repository.</p>
+<div class="highlight"><pre><span></span><code>/assign-reviewers
+</code></pre></div>
+
+<h4 id="assign-reviewer-username"><code>/assign-reviewer @username</code></h4>
+<p>Requests a review from one specific user. The target must be a repository collaborator, otherwise the server comments
+that the user is not a collaborator.</p>
+<div class="highlight"><pre><span></span><code>/assign-reviewer @octocat
+</code></pre></div>
+
+<h4 id="check-can-merge"><code>/check-can-merge</code></h4>
+<p>Evaluates the merge requirements and reports which ones are still blocking the merge.</p>
+<div class="highlight"><pre><span></span><code>/check-can-merge
+</code></pre></div>
+
+<h4 id="add-allowed-user-username"><code>/add-allowed-user @username</code></h4>
+<p>Lets a maintainer or approver grant command permission to someone who is not otherwise a collaborator — for example an
+external contributor working on a PR. The grant is per pull request: the server looks for a comment containing
+<code>/add-allowed-user @username</code> posted by a maintainer or approver.</p>
+<div class="highlight"><pre><span></span><code>/add-allowed-user @external-contributor
+</code></pre></div>
+
+<p>The user can then run approver-level commands such as <code>/retest</code> or <code>/reprocess</code> on that PR.</p>
+<h3 id="testing-and-validation">Testing and validation</h3>
+<h4 id="retest-test-test-and-retest-all"><code>/retest &lt;test&gt; [test...]</code> and <code>/retest all</code></h4>
+<p>Re-runs one or more checks. The test name is required — <code>/retest</code> with no argument gets a
+<em>"retest requires an argument"</em> comment. Unknown names get a <em>"No <name> configured for this repository"</em> comment; the
+valid ones still run.</p>
+<p>Supported names depend on the repository configuration:</p>
+<table>
+<thead>
+<tr>
+<th>Test name</th>
+<th>Runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tox</code></td>
+<td>The Python test suite</td>
+</tr>
+<tr>
+<td><code>build-container</code></td>
+<td>Rebuilds and tests the container image</td>
+</tr>
+<tr>
+<td><code>python-module-install</code></td>
+<td>Tests installing the Python package</td>
+</tr>
+<tr>
+<td><code>pre-commit</code></td>
+<td>Runs pre-commit hooks and checks</td>
+</tr>
+<tr>
+<td><code>conventional-title</code></td>
+<td>Validates the commit message format</td>
+</tr>
+<tr>
+<td><em>custom check-run names</em></td>
+<td>Any check run defined in <code>custom-check-runs</code></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code>/retest tox
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/retest tox pre-commit
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/retest all
+</code></pre></div>
+
+<p><code>all</code> cannot be combined with other names — <code>/retest all tox</code> is rejected with
+<em>"Invalid command. <code>all</code> cannot be used with other tests"</em>.</p>
+<h4 id="build-and-push-container"><code>/build-and-push-container</code></h4>
+<p>Builds the container image for the PR and pushes it, tagged with the PR number. Extra build arguments are supported:</p>
+<div class="highlight"><pre><span></span><code>/build-and-push-container
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/build-and-push-container --build-arg KEY=value
+</code></pre></div>
+
+<p>If the repository has no container build configured, the server replies
+<em>"No build-and-push-container configured for this repository"</em>. No permission check is applied.</p>
+<h4 id="test-oracle"><code>/test-oracle</code></h4>
+<p>Sends the pull request data to the external PR Test Oracle service, which analyses the diff and recommends tests.
+Requires <code>test-oracle</code> to be configured with a <code>server-url</code>. Runs in the background, so the command returns
+immediately.</p>
+<div class="highlight"><pre><span></span><code>/test-oracle
+</code></pre></div>
+
+<p>This command is also the only one that bypasses the draft-PR block.</p>
+<h3 id="branch-management-and-cherry-picks">Branch management and cherry-picks</h3>
+<h4 id="rebase"><code>/rebase</code></h4>
+<p>Rebases the PR head branch onto its base branch and force-pushes the result.</p>
+<div class="highlight"><pre><span></span><code>/rebase
+</code></pre></div>
+
+<p>Restrictions enforced by the server:</p>
+<ul>
+<li>The PR must be open.</li>
+<li>Fork PRs are rejected — the head branch lives in another repository, so the force-push cannot be scoped to this repo.</li>
+<li>For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or a
+  maintainer.</li>
+</ul>
+<h4 id="cherry-pick-branch-branch"><code>/cherry-pick &lt;branch&gt; [branch...]</code></h4>
+<p>Cherry-picks the change to one or more target branches. Each branch that exists gets a <code>cherry-pick-&lt;branch&gt;</code> label.</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick v1.0
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/cherry-pick v1.0 v2.0
+</code></pre></div>
+
+<p>Behaviour depends on the PR state:</p>
+<ul>
+<li>
+<p><strong>Unmerged PR</strong> — the labels are added as a to-do list. When the PR is merged, the server sees them and runs the
+  cherry-picks.</p>
+</li>
+<li>
+<p><strong>Merged PR</strong> — the cherry-picks run immediately, one per target branch, and the labels act as an audit record of
+  what was back-ported.</p>
+</li>
+</ul>
+<p>Branches that do not exist are reported in a comment and skipped. If a <code>cherry-pick-&lt;branch&gt;</code> label is already
+present, that branch is skipped with a note to remove the label and run the command again to re-trigger it.</p>
+<h4 id="cherry-pick-retry-branch"><code>/cherry-pick-retry &lt;branch&gt;</code></h4>
+<p>Retries a cherry-pick that failed. Exactly one branch name is accepted. The command validates that:</p>
+<ol>
+<li>the PR is merged,</li>
+<li>the <code>cherry-pick-&lt;branch&gt;</code> label already exists (otherwise it points you at <code>/cherry-pick</code>),</li>
+<li>any existing cherry-pick PR created by the bot for that branch is closed, and</li>
+</ol>
+<p>then re-runs the cherry-pick.</p>
+<div class="highlight"><pre><span></span><code>/cherry-pick-retry v1.0
+</code></pre></div>
+
+<h3 id="workflow-control">Workflow control</h3>
+<h4 id="reprocess"><code>/reprocess</code></h4>
+<p>Re-runs the complete pull request processing workflow from scratch: labels, checks, reviewers, and so on. Merged PRs
+are skipped.</p>
+<div class="highlight"><pre><span></span><code>/reprocess
+</code></pre></div>
+
+<h4 id="regenerate-welcome"><code>/regenerate-welcome</code></h4>
+<p>Re-renders the welcome comment using the current server and repository configuration, editing the existing welcome
+comment if there is one and creating it if there is not. Useful after changing the configuration — the welcome message
+documents exactly which commands are active for the repository.</p>
+<div class="highlight"><pre><span></span><code>/regenerate-welcome
+</code></pre></div>
+
+<h3 id="security">Security</h3>
+<h4 id="security-override-and-security-override-cancel"><code>/security-override</code> and <code>/security-override cancel</code></h4>
+<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, a maintainer can:</p>
+<ul>
+<li>
+<p><code>/security-override</code> — set the security check runs to <strong>success</strong>, annotated with the maintainer's name and a
+  reminder to use <code>cancel</code> to undo it.</p>
+</li>
+<li>
+<p><code>/security-override cancel</code> — re-run both security checks so they are evaluated again from scratch.</p>
+</li>
+</ul>
+<div class="highlight"><pre><span></span><code>/security-override
+</code></pre></div>
+
+<div class="highlight"><pre><span></span><code>/security-override cancel
+</code></pre></div>
+
+<p>Only maintainers may use these; anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
+check is enabled for the repository, the server replies <em>"No security checks are enabled — nothing to override."</em></p>
+<h3 id="generic-label-commands">Generic label commands</h3>
+<p>In addition to the commands above, the server's user-facing labels can be set and cleared directly:</p>
+<div class="highlight"><pre><span></span><code>/verified
+/verified cancel
+</code></pre></div>
+
+<p>Adding <code>cancel</code> removes the label instead of adding it. This is the same mechanism that powers <code>/wip</code>, <code>/hold</code>,
+<code>/verified</code>, <code>/lgtm</code>, <code>/approve</code>, and <code>/automerge</code> — their permission rules are described in the tables above. Any
+other label name, including <code>needs-rebase</code>, <code>has-conflicts</code>, <code>can-be-merged</code>, and <code>size/*</code>, is not accepted as a
+command; those labels are managed by the server itself.</p>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +693,21 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#how-commands-are-recognized">How commands are recognized</a></li>
+<li><a href="#who-can-run-what">Who can run what</a></li>
+<li><a href="#commands-on-draft-pull-requests">Commands on draft pull requests</a></li>
+<li><a href="#command-details">Command details</a><ul>
+<li><a href="#pr-status">PR status</a></li>
+<li><a href="#review-and-approval">Review and approval</a></li>
+<li><a href="#testing-and-validation">Testing and validation</a></li>
+<li><a href="#branch-management-and-cherry-picks">Branch management and cherry-picks</a></li>
+<li><a href="#workflow-control">Workflow control</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#generic-label-commands">Generic label commands</a></li>
+</ul>
+</li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +717,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

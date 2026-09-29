@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,144 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="environment-variables">Environment Variables</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>The server reads the variables below at startup. Anything not listed here comes from
+<code>config.yaml</code> in the data directory, not from the process environment.</p>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required?</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WEBHOOK_SERVER_DATA_DIR</code></td>
+<td>Recommended</td>
+<td><code>/home/podman/data</code></td>
+<td>Directory holding <code>config.yaml</code>, logs, and the webhook key.</td>
+</tr>
+<tr>
+<td><code>ENABLE_LOG_SERVER</code></td>
+<td>No</td>
+<td><code>false</code></td>
+<td>Serve the log viewer UI, log API, and log WebSocket.</td>
+</tr>
+<tr>
+<td><code>ENABLE_MCP_SERVER</code></td>
+<td>No</td>
+<td><code>false</code></td>
+<td>Mount the MCP endpoint at <code>/mcp</code>.</td>
+</tr>
+<tr>
+<td><code>WEBHOOK_SERVER_DEV_MODE</code></td>
+<td>No</td>
+<td>unset (production)</td>
+<td>Run uvicorn with reload and a single worker.</td>
+</tr>
+<tr>
+<td><code>SIDECAR_PORT</code></td>
+<td>No</td>
+<td><code>9100</code></td>
+<td>Port for the Pi SDK sidecar started by <code>entrypoint.sh</code>.</td>
+</tr>
+<tr>
+<td><code>SERVER_PORT</code></td>
+<td>Test-only</td>
+<td>none</td>
+<td>Local port the E2E smee client forwards webhooks to.</td>
+</tr>
+<tr>
+<td><code>SMEE_URL</code></td>
+<td>Test-only</td>
+<td>none</td>
+<td>Smee.io channel URL used to receive GitHub webhooks in E2E tests.</td>
+</tr>
+<tr>
+<td><code>TEST_REPO</code></td>
+<td>Test-only</td>
+<td>none</td>
+<td><code>owner/repo-name</code> that E2E tests clone and open PRs against.</td>
+</tr>
+<tr>
+<td><code>DOCKER_COMPOSE_FILE</code></td>
+<td>Test-only</td>
+<td>none</td>
+<td>Compose file E2E tests bring the server up with.</td>
+</tr>
+<tr>
+<td><code>PYTEST_TIMEOUT</code></td>
+<td>Test-only</td>
+<td><code>60</code> (seconds)</td>
+<td>Timeout baseline for the test session.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="webhook_server_data_dir"><code>WEBHOOK_SERVER_DATA_DIR</code></h2>
+<p>Read once in <code>webhook_server/libs/config.py</code>. The directory must contain <code>config.yaml</code>;
+if the file is missing, <code>Config</code> raises <code>FileNotFoundError</code> on startup. The log viewer and
+the MCP log file are written under the same directory, so pointing this at a read-only
+path breaks both. The container image creates <code>/home/podman/data</code>, which is why that path
+is the default.</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span>
+<span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$WEBHOOK_SERVER_DATA_DIR</span><span class="s2">"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<h2 id="enable_log_server"><code>ENABLE_LOG_SERVER</code></h2>
+<p>Checked as an exact string match against <code>"true"</code>, so <code>1</code>, <code>TRUE</code>, and <code>yes</code> all count as
+disabled. When it is off, the log viewer routes are never registered and the log WebSocket
+closes with a policy-violation code. When it is on, <code>/logs</code> and the log API endpoints are
+added, including the endpoints that also require the caller to be on a trusted network.</p>
+<div class="highlight"><pre><span></span><code><span class="nv">ENABLE_LOG_SERVER</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="nv">WEBHOOK_SERVER_DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/webhook-server-data"</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>entrypoint.py
+</code></pre></div>
+
+<h2 id="enable_mcp_server"><code>ENABLE_MCP_SERVER</code></h2>
+<p>Same exact <code>"true"</code> comparison as <code>ENABLE_LOG_SERVER</code>. When enabled, the app initializes
+FastApiMCP and mounts the streamable-HTTP handler at <code>/mcp</code>, and MCP log lines are routed to
+the file named by <code>mcp-log-file</code> in <code>config.yaml</code> (default <code>mcp_server.log</code>) instead of the
+main webhook log. If FastApiMCP fails to import, <code>/mcp</code> is still registered and answers
+with a 500 rather than a 404, so the failure is visible.</p>
+<h2 id="webhook_server_dev_mode"><code>WEBHOOK_SERVER_DEV_MODE</code></h2>
+<p>Accepted values are <code>1</code>, <code>true</code>, and <code>yes</code>, case-insensitive (<code>entrypoint.py</code>). It sets
+uvicorn <code>reload=True</code> and omits <code>workers</code>, so the process stays single-worker with the
+reloader in front. In production mode the app starts with <code>workers=10</code> instead.</p>
+<h2 id="sidecar_port"><code>SIDECAR_PORT</code></h2>
+<p><code>entrypoint.sh</code> exports <code>9100</code> unless the value is already set, then waits up to 15 seconds
+for <code>http://127.0.0.1:$SIDECAR_PORT/health</code> before starting the app. The container health
+check probes the same URL, so overriding the port without updating the health check will
+report the container unhealthy.</p>
+<h2 id="test-only-variables">Test-only variables</h2>
+<p>These four are consumed by the end-to-end fixtures in <code>webhook_server/tests/e2e/conftest.py</code>.
+The fixture first looks for <code>.dev/.env</code>; if the file is missing the run aborts, and each
+missing variable raises <code>E2EInfrastructureError</code> with the line to add. They have no effect
+on the running server.</p>
+<ul>
+<li>
+<p><code>SERVER_PORT</code> — port the local smee client forwards to; must match the host-side port
+  published by the compose file.</p>
+</li>
+<li>
+<p><code>SMEE_URL</code> — the smee.io channel URL, for example <code>https://smee.io/abc123def456</code>. Tests
+  also use it to find and delete the GitHub webhook at teardown.</p>
+</li>
+<li>
+<p><code>TEST_REPO</code> — <code>owner/repo-name</code>. Cloned over SSH, so the clone key must have access.</p>
+</li>
+<li><code>DOCKER_COMPOSE_FILE</code> — path to the compose file, absolute or relative to the project root.
+  A relative path that does not exist fails the fixture before any container starts.</li>
+</ul>
+<p><code>PYTEST_TIMEOUT</code> is also test-only. The autouse fixture in
+<code>webhook_server/tests/conftest.py</code> reads the current value (falling back to <code>60</code>), sets it to
+<code>30</code> for the duration of each test, and restores the original value afterwards.</p>
+<p>Example <code>.dev/.env</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">SERVER_PORT</span><span class="o">=</span><span class="m">19876</span>
+<span class="nv">SMEE_URL</span><span class="o">=</span>https://smee.io/abc123def456
+<span class="nv">TEST_REPO</span><span class="o">=</span>owner/repo-name
+<span class="nv">DOCKER_COMPOSE_FILE</span><span class="o">=</span>.dev/docker-compose.yaml
+</code></pre></div>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +363,15 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#reference">Reference</a></li>
+<li><a href="#webhook_server_data_dir">WEBHOOK_SERVER_DATA_DIR</a></li>
+<li><a href="#enable_log_server">ENABLE_LOG_SERVER</a></li>
+<li><a href="#enable_mcp_server">ENABLE_MCP_SERVER</a></li>
+<li><a href="#webhook_server_dev_mode">WEBHOOK_SERVER_DEV_MODE</a></li>
+<li><a href="#sidecar_port">SIDECAR_PORT</a></li>
+<li><a href="#test-only-variables">Test-only variables</a></li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +381,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Automate Common Maintainer Tasks - github-webhook-server</title>
+    <title>Automation Recipes - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
     <link rel="stylesheet" href="assets/style.css">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link active" aria-current="page">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -203,8 +203,146 @@
                          converted to HTML server-side by the markdown library, not
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
-                    <h1 id="automate-common-maintainer-tasks">Automate Common Maintainer Tasks</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+                    <h1 id="automation-recipes">Automation Recipes</h1>
+<p>Short, copy-pasteable walkthroughs of common maintainer tasks. Every key here is defined in the configuration schema; for full key listings see <a href="configuration-reference.md">Configuration Reference</a>.</p>
+<h2 id="restrict-a-repository-to-specific-webhook-events">Restrict a repository to specific webhook events</h2>
+<p><strong>When you'd want this:</strong> a docs-only or dependency repo doesn't need <code>push</code> and <code>issue_comment</code> traffic, and a smaller event set means less webhook noise and fewer API calls.</p>
+<p>Set <code>repositories.&lt;repo-id&gt;.events</code> in <code>config.yaml</code>. The server creates or edits the repository webhook at startup to match exactly this list. Omit the key to get the default of <code>["*"]</code> (all events).</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-docs-site</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">issue_comment</span>
+</code></pre></div>
+
+<p>Verify what was registered:</p>
+<div class="highlight"><pre><span></span><code>gh<span class="w"> </span>api<span class="w"> </span>repos/org/repo/hooks<span class="w"> </span>--jq<span class="w"> </span><span class="s1">'.[] | select(.config.url | contains("hooks")) | .events'</span>
+</code></pre></div>
+
+<blockquote>
+<p><strong>Note:</strong> <code>events</code> is read from <code>config.yaml</code> only. A repo-local <code>.github-webhook-server.yaml</code> is not consulted for it, and the change takes effect on the next server start.</p>
+</blockquote>
+<h2 id="enable-auto-merge-for-chosen-branches">Enable auto-merge for chosen branches</h2>
+<p><strong>When you'd want this:</strong> your release branch should merge on green without a human pressing the button.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="nt">set-auto-merge-prs</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">release</span>
+</code></pre></div>
+
+<p>Branch names are matched exactly against the PR base branch. Auto-merge is set with <code>SQUASH</code> as the merge method.</p>
+<h3 id="the-security-interaction">The security interaction</h3>
+<p>A PR that touches a <code>security-checks.suspicious-paths</code> prefix does <strong>not</strong> get auto-merge, even on a configured branch. When a match is found the server:</p>
+<ol>
+<li>comments <code>Auto-merge blocked: PR modifies security-sensitive paths: ...</code> on the PR,</li>
+<li>disables auto-merge if it was already enabled on the PR.</li>
+</ol>
+<p>Default prefixes: <code>.claude/</code>, <code>.vscode/</code>, <code>.cursor/</code>, <code>.devcontainer/</code>, <code>.pi/</code>, <code>.github/workflows/</code>, <code>.github/actions/</code>.</p>
+<p>A maintainer can clear the block with a PR comment:</p>
+<div class="highlight"><pre><span></span><code>/security-override
+</code></pre></div>
+
+<p>That sets the <code>security-suspicious-paths</code> check run to success, and <code>set_pull_request_automerge()</code> then allows auto-merge through. <code>/security-override cancel</code> re-runs the security checks. Only maintainers can use the command.</p>
+<p>Narrow the prefixes per repository when a repo legitimately owns these paths:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-monorepo</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="nt">security-checks</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">suspicious-paths</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github/workflows/release-only/</span>
+</code></pre></div>
+
+<p>Cherry-pick PRs whose conflicts were resolved by AI are never auto-merged, even on a configured branch.</p>
+<h2 id="add-custom-check-runs">Add custom check runs</h2>
+<p><strong>When you'd want this:</strong> you want one more gate in the PR pipeline — a linter, a security scan — without writing a new check into the server.</p>
+<p><code>custom-check-runs</code> is a repository-scoped list. Each entry needs <code>name</code> and <code>command</code>; <code>mandatory</code> defaults to <code>true</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="nt">custom-check-runs</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<span class="w">        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">uv tool run --from ruff ruff check</span>
+<span class="w">        </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-scan</span>
+<span class="w">        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .</span>
+<span class="w">        </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+
+<ul>
+<li>The command runs in the repository worktree. Leading <code>VAR=value</code> assignments are allowed and skipped when the executable is resolved.</li>
+<li>The server resolves the executable with <code>shutil.which()</code> at startup. If it is not on the server, the check is skipped with a warning — the check silently does not exist.</li>
+<li><code>mandatory: true</code> puts the check in the required-check list so it blocks merge. <code>mandatory: false</code> runs it and reports the result without blocking.</li>
+<li>Names must match <code>^[a-zA-Z0-9._-]{1,64}$</code> and be unique.</li>
+<li>Names must not collide with <code>BUILTIN_CHECK_NAMES</code> in <code>webhook_server/utils/constants.py</code>: <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>python-module-install</code>, <code>conventional-title</code>, <code>can-be-merged</code>, <code>security-suspicious-paths</code>, <code>security-committer-identity</code>. A colliding check is skipped with a warning.</li>
+<li>Valid custom names work with <code>/retest &lt;name&gt;</code>.</li>
+</ul>
+<p>Re-run a check on an open PR:</p>
+<div class="highlight"><pre><span></span><code>/retest lint
+</code></pre></div>
+
+<h2 id="require-labels-before-a-pr-can-be-merged">Require labels before a PR can be merged</h2>
+<p><strong>When you'd want this:</strong> a PR must carry a <code>security-reviewed</code> (or similar) label before <code>can-be-merged</code> passes.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="nt">can-be-merged-required-labels</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">security-reviewed</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ready</span>
+</code></pre></div>
+
+<p>Every listed label must be present on the PR. Missing ones are reported in the <code>can-be-merged</code> check output as <code>Missing required labels: ...</code>.</p>
+<h2 id="pre-verify-trusted-users-so-their-prs-merge-automatically">Pre-verify trusted users so their PRs merge automatically</h2>
+<p><strong>When you'd want this:</strong> bots and senior maintainers should not need a second approval on every PR.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
+<span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org-release-bot</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">org/repo</span>
+<span class="w">    </span><span class="c1"># optional per-repo replacement</span>
+<span class="w">    </span><span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">    </span><span class="c1"># cherry-picked PRs are auto-verified by default</span>
+<span class="w">    </span><span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+
+<p>Behavior:</p>
+<ul>
+<li>When the PR's parent committer is in the list, the <code>verified</code> label is added, the <code>verified</code> check run is set to success, and auto-merge is enabled regardless of branch.</li>
+<li>A new commit pushed to the PR resets the <code>verified</code> label to queued.</li>
+<li>Users from <code>github-tokens</code> (the API users) are added to the list at runtime, so those PRs are auto-verified too.</li>
+<li><code>auto-verify-cherry-picked-prs: false</code> removes the <code>verified</code> label from cherry-picked PRs and forces the manual path. The default is <code>true</code>.</li>
+</ul>
+<h2 id="override-a-repositorys-configuration-locally">Override a repository's configuration locally</h2>
+<p><strong>When you'd want this:</strong> a repository wants to turn off a check for itself without a server-side config change.</p>
+<p>Precedence is first-value-wins: repo-local <code>.github-webhook-server.yaml</code> → <code>config.yaml</code> <code>repositories.&lt;repo-id&gt;</code> → <code>config.yaml</code> root.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># .github-webhook-server.yaml (in org/repo, at the repository root)</span>
+<span class="nt">pre-commit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="nt">set-auto-merge-prs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
+</code></pre></div>
+
+<p>Arrays and scalars are replaced wholesale, not merged. Two exceptions:</p>
+<ul>
+<li><code>branch-protection</code> overlays property by property.</li>
+<li><code>labels</code> overlays global, and <code>labels.colors</code> merges by key.</li>
+</ul>
+<p>Blocks <code>ai-features</code>, <code>security-checks</code>, <code>test-oracle</code>, and <code>pr-size-thresholds</code> replace the global block entirely rather than deep-merging — repeat required subkeys when overriding.</p>
+<p><code>events</code>, <code>name</code>, <code>log-level</code>, <code>log-file</code>, <code>mask-sensitive-data</code>, <code>github-tokens</code>, <code>default-status-checks</code>, <code>protected-branches</code>, <code>allow-commands-on-draft-prs</code>, and <code>pr-size-thresholds</code> are never read from <code>.github-webhook-server.yaml</code>. They belong in <code>config.yaml</code>.</p>
+<p>An empty string in <code>welcome-extra-info</code> clears the inherited value, and a <code>.github-webhook-server-welcome-message.md</code> file in the repository overrides the configured text entirely.</p>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +364,17 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#restrict-a-repository-to-specific-webhook-events">Restrict a repository to specific webhook events</a></li>
+<li><a href="#enable-auto-merge-for-chosen-branches">Enable auto-merge for chosen branches</a><ul>
+<li><a href="#the-security-interaction">The security interaction</a></li>
+</ul>
+</li>
+<li><a href="#add-custom-check-runs">Add custom check runs</a></li>
+<li><a href="#require-labels-before-a-pr-can-be-merged">Require labels before a PR can be merged</a></li>
+<li><a href="#pre-verify-trusted-users-so-their-prs-merge-automatically">Pre-verify trusted users so their PRs merge automatically</a></li>
+<li><a href="#override-a-repositorys-configuration-locally">Override a repository's configuration locally</a></li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +384,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>

@@ -102,13 +102,13 @@
             </div>
 
             <div class="nav-group">
-                <h3 class="nav-group-title">Recipes</h3>
+                <h3 class="nav-group-title">Explore</h3>
                 <ul class="nav-group-pages">
 
                     <li>
                         <a href="automation-recipes.html"
                            class="nav-link">
-                            Automate Common Maintainer Tasks
+                            Automation Recipes
                         </a>
                     </li>
 
@@ -204,7 +204,275 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="set-up-owners-and-review-rules">Set Up OWNERS and Review Rules</h1>
-<p><em>Documentation generation failed. Please re-run.</em></p>
+<p>The webhook server does not use GitHub's CODEOWNERS. It reads its own <code>OWNERS</code> files from
+your repository and uses them to decide who must review a pull request, who counts as an
+<em>approver</em>, who can run commands, and which reviewers get auto-assigned.</p>
+<h2 id="what-owners-controls">What <code>OWNERS</code> controls</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>approvers</code></td>
+<td>Members of this scope who can <code>/approve</code>. At least one is required for the <code>can-be-merged</code> check.</td>
+</tr>
+<tr>
+<td><code>reviewers</code></td>
+<td>Members of this scope who can <code>/lgtm</code> and who get auto-assigned as PR reviewers.</td>
+</tr>
+<tr>
+<td><code>allowed-users</code></td>
+<td>Users (in addition to collaborators and contributors) who may run commands such as <code>/retest</code>, <code>/cherry-pick</code>, <code>/rebase</code>, <code>/check-can-merge</code>, <code>/assign-reviewers</code>.</td>
+</tr>
+<tr>
+<td><code>root-approvers</code></td>
+<td>Optional boolean. Set to <code>false</code> to opt out of requiring an approval from the root <code>OWNERS</code> approvers.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="file-discovery-rules">File discovery rules</h2>
+<p>These are exact — the parser is strict.</p>
+<ul>
+<li>
+<p>The filename must be exactly <code>OWNERS</code> (uppercase, no extension). <code>OWNERS.yaml</code>, <code>owners</code>,
+  <code>.github/CODEOWNERS</code>, and <code>OWNERS_ALIASES</code> are <strong>not</strong> read.</p>
+</li>
+<li>
+<p>Files are found recursively in the cloned repository, which is checked out at the <strong>base
+  branch</strong> of the PR. An <code>OWNERS</code> file added only in the PR branch is ignored until merged.</p>
+</li>
+<li>
+<p>Any path with a dot-prefixed directory component (<code>.git</code>, <code>.venv</code>, <code>.github</code>, ...) is skipped.</p>
+</li>
+<li>At most 1000 <code>OWNERS</code> files are processed per PR.</li>
+<li>Each file is keyed by its <strong>parent directory</strong>, not by file path. <code>webhook_server/OWNERS</code>
+  is stored under <code>webhook_server</code>; the repo-root <code>OWNERS</code> is stored under <code>.</code>.</li>
+</ul>
+<h2 id="supported-syntax">Supported syntax</h2>
+<p>Each <code>OWNERS</code> file is a YAML <strong>mapping</strong>. If it is not a mapping, or if <code>approvers</code>,
+<code>reviewers</code>, or <code>allowed-users</code> is present but is not a list of strings, the file is rejected
+(logged as <code>Invalid OWNERS file &lt;path&gt;</code>) and contributes nothing. Unknown keys are allowed
+and ignored by the validator, with the exception of <code>root-approvers</code>, which is meaningful.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dave</span>
+</code></pre></div>
+
+<p>A real example — this repository's own root <code>OWNERS</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rnetser</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rnetser</span>
+</code></pre></div>
+
+<p>A subdirectory file with the opt-out flag:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">root-approvers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docs-team</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writer1</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writer2</span>
+<span class="nt">allowed-users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"@contractor"</span>
+</code></pre></div>
+
+<p>Notes on values:</p>
+<ul>
+<li>
+<p>Usernames are <strong>GitHub logins</strong>, matched case-sensitively against labels such as
+  <code>approved-alice</code>. Write them exactly as the login.</p>
+</li>
+<li>
+<p><code>allowed-users</code> accepts a leading <code>@</code> (it is stripped), and is read <strong>only from the repo-root
+  <code>OWNERS</code></strong> — an <code>allowed-users</code> list in a subdirectory is ignored.</p>
+</li>
+<li>
+<p><code>root-approvers</code> only affects a subdirectory file. Setting it in the root <code>OWNERS</code> has no
+  effect, because the root entry is always included anyway.</p>
+</li>
+</ul>
+<h2 id="how-owners-are-resolved-for-a-pr">How owners are resolved for a PR</h2>
+<ol>
+<li>
+<p>The webhook server clones the repo and runs
+   <code>git diff --name-only &lt;base_sha&gt;...&lt;head_sha&gt;</code> to get the changed files. (It falls back to
+   two-dot <code>..</code> if there is no merge base.)</p>
+</li>
+<li>
+<p>It takes the parent directory of every changed file as the set of <em>changed folders</em>.</p>
+</li>
+<li>
+<p>Every <code>OWNERS</code> file whose directory is equal to, or an ancestor of, a changed folder is
+   matched. So <code>webhook_server/OWNERS</code> matches a change to <code>webhook_server/libs/config.py</code>, and
+   also matches a change to <code>webhook_server/libs/OWNERS</code>'s subdirectories.</p>
+</li>
+<li>
+<p>The root <code>OWNERS</code> (key <code>.</code>) is added unless a matched subdirectory file opts out with
+   <code>root-approvers: false</code>. When several files match, the <strong>first match processed</strong> decides the
+   opt-out, so don't mix opting-out and non-opting-out files in one PR.</p>
+</li>
+<li>
+<p><code>all_pull_request_approvers</code> / <code>all_pull_request_reviewers</code> are the de-duplicated unions of
+   the approvers/reviewers from those matched files.</p>
+</li>
+</ol>
+<p>Separately, <code>all_repository_approvers</code> is the union of approvers from <strong>every</strong> <code>OWNERS</code> file in
+the repository, regardless of what the PR touches. That repo-wide list is what makes a user
+eligible to run commands; it is not what gates <code>/approve</code>.</p>
+<h2 id="review-commands">Review commands</h2>
+<h3 id="approve"><code>/approve</code></h3>
+<ul>
+<li>
+<p>Only works if the commenter is in <code>all_pull_request_approvers</code> (matched by the changed files)
+  <strong>or</strong> in the root <code>OWNERS</code> approvers. Anyone else is silently ignored.</p>
+</li>
+<li>
+<p>Adds the label <code>approved-&lt;login&gt;</code> and removes <code>changes-requested-&lt;login&gt;</code>.</p>
+</li>
+<li><code>/approve cancel</code> removes it.</li>
+<li>A <code>/approve</code> line anywhere in a submitted pull-request review body does the same thing.</li>
+<li>Any <code>/approve</code> triggers the test oracle with <code>trigger="approved"</code>.</li>
+</ul>
+<h3 id="lgtm"><code>/lgtm</code></h3>
+<ul>
+<li>Adds <code>lgtm-&lt;login&gt;</code> and removes <code>changes-requested-&lt;login&gt;</code>.</li>
+<li>
+<p>Available to <strong>any</strong> commenter except the PR author — it is not restricted to OWNERS
+  reviewers. Whether the LGTM <em>counts</em> toward <code>minimum-lgtm</code> is a separate check.</p>
+</li>
+<li>
+<p>A GitHub review with state <code>approved</code> or <code>commented</code> also produces the <code>lgtm-&lt;login&gt;</code> label.</p>
+</li>
+<li>A GitHub review with state <code>changes_requested</code> produces <code>changes-requested-&lt;login&gt;</code>, which
+  blocks the merge check if that user is a matched approver.</li>
+</ul>
+<h3 id="who-may-run-other-commands">Who may run other commands</h3>
+<p><code>/retest</code>, <code>/reprocess</code>, <code>/cherry-pick</code>, <code>/rebase</code>, <code>/check-can-merge</code>, <code>/assign-reviewer(s)</code>,
+<code>/add-allowed-user</code>, <code>/regenerate-welcome</code>, <code>/build-and-push-container</code>, <code>/security-override</code>
+require the commenter to be in the union of:</p>
+<ul>
+<li>repository collaborators,</li>
+<li>repository contributors,</li>
+<li>every approver in the repository (<code>all_repository_approvers</code>),</li>
+<li>the matched PR reviewers (<code>all_pull_request_reviewers</code>),</li>
+<li>root <code>OWNERS</code> <code>allowed-users</code>.</li>
+</ul>
+<p>Otherwise a maintainer or approver can grant access per-PR by commenting
+<code>/add-allowed-user @someone</code>. A <code>/hold</code> label is managed with a narrower maintainers-only gate.</p>
+<p><code>/assign-reviewers</code> adds every matched reviewer as a review request (the PR author is skipped).</p>
+<h2 id="configuration">Configuration</h2>
+<p>These are <strong>repository-level</strong> settings under <code>repositories.&lt;key&gt;</code> in <code>config.yaml</code>.</p>
+<h3 id="minimum-lgtm"><code>minimum-lgtm</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">minimum-lgtm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</code></pre></div>
+
+<p>Default <code>0</code> (no LGTM requirement). Type: integer. When greater than zero, the welcome comment
+adds a "LGTM Count" line to the merge requirements.</p>
+<p>How the count works in <code>check_if_can_be_merged</code> → <code>_check_if_pr_approved</code>:</p>
+<ul>
+<li>
+<p>Eligible LGTM authors = matched PR reviewers + root approvers + root reviewers, <strong>minus the
+  PR committer</strong>.</p>
+</li>
+<li>
+<p><code>lgtm_count</code> counts <code>lgtm-&lt;login&gt;</code> labels whose login is in that eligible set. An <code>lgtm</code> from
+  someone outside it is ignored.</p>
+</li>
+<li>
+<p>A PR <strong>passes</strong> if <code>lgtm_count &gt;= minimum-lgtm</code>, <strong>or</strong> if <code>lgtm_count</code> equals the total number
+  of eligible reviewers (i.e. everyone who could have LGTM'd already has). So a repo with two
+  eligible reviewers and <code>minimum-lgtm: 2</code> is satisfied by two LGTMs even if one is below the
+  threshold in other configurations, and <code>minimum-lgtm</code> larger than the reviewer count is never
+  an impossible requirement.</p>
+</li>
+<li>
+<p>On failure the check-run reports:
+  <code>Missing lgtm from reviewers. Minimum N required, (M given). Reviewers: a, b.</code></p>
+</li>
+</ul>
+<h3 id="can-be-merged-required-labels"><code>can-be-merged-required-labels</code></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">can-be-merged-required-labels</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">signed-off</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ci/green</span>
+</code></pre></div>
+
+<p>Default <code>[]</code>. Type: array of strings. Every listed label must be present on the PR, otherwise
+the <code>can-be-merged</code> check run fails with <code>Missing required labels: &lt;label&gt;</code>. Unlike OWNERS
+approvals, these labels can be added by anyone who can label the PR.</p>
+<h3 id="auto-verified-and-merged-users"><code>auto-verified-and-merged-users</code></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Global default, applies to all repositories</span>
+<span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">release-bot</span>
+
+<span class="nt">repositories</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repository</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repository</span>
+<span class="w">    </span><span class="nt">auto-verified-and-merged-users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+</code></pre></div>
+
+<p>Array of strings; the repository value overrides the global one. The logins of every configured
+API token are appended automatically, so the bot accounts used by the webhook server are always
+auto-verified.</p>
+<p>If the PR committer is in this list:</p>
+<ul>
+<li>
+<p>the <code>verified</code> label and a passing <code>verified</code> check run are applied automatically (on
+  <code>opened</code>/<code>synchronize</code>, and reset when the PR is re-processed);</p>
+</li>
+<li>
+<p>the welcome comment carries an auto-verified note;</p>
+</li>
+<li>no tracking issue is created for the PR;</li>
+<li>
+<p>auto-merge is enabled for the PR regardless of the base branch — unless the PR touches
+  <code>security-checks.suspicious-paths</code>, in which case auto-merge is blocked and any already-enabled
+  auto-merge is disabled;</p>
+</li>
+<li>
+<p><code>auto-verify-cherry-picked-prs: false</code> disables auto-verification for cherry-picked PRs even
+  for these users.</p>
+</li>
+</ul>
+<p><code>auto-verified-and-merged-users</code> bypasses the <em>verified</em> step only. The <code>can-be-merged</code> check —
+approvers, <code>minimum-lgtm</code>, required labels, status checks — still applies.</p>
+<h2 id="merge-decision-summary">Merge decision summary</h2>
+<p><code>check_if_can_be_merged</code> runs these and adds the <code>can-be-merged</code> label when all pass:</p>
+<ol>
+<li>PR is mergeable (no conflicts).</li>
+<li>No required status check or check run is in progress.</li>
+<li>No <code>wip</code> / <code>hold</code> / <code>has-conflicts</code> labels (for enabled labels).</li>
+<li>No failed or missing required status checks.</li>
+<li>
+<p>No <code>changes-requested-&lt;login&gt;</code> label from a matched approver, and all
+   <code>can-be-merged-required-labels</code> present.</p>
+</li>
+<li>
+<p>No unresolved conversation threads when <code>required_conversation_resolution</code> is enabled.</p>
+</li>
+<li><code>_check_if_pr_approved</code>:</li>
+<li><strong>Approvers</strong>: for every matched <code>OWNERS</code> file, one of its <code>approvers</code> must be in the
+     <code>approved-&lt;login&gt;</code> labels — except that an approval from any root approver clears the
+     requirement for all files at once.</li>
+<li><strong>LGTM</strong>: the <code>minimum-lgtm</code> rule described above.</li>
+</ol>
+<p>Failure output is written to the <code>can-be-merged</code> check run, e.g.
+<code>Missing approved from approvers: alice, bob</code>.</p>
                 </div>
             </article>
             <nav class="page-nav">
@@ -226,7 +494,25 @@
                 <div class="toc-container">
                     <h3>On this page</h3>
                     <div class="toc">
-<ul></ul>
+<ul>
+<li><a href="#what-owners-controls">What OWNERS controls</a></li>
+<li><a href="#file-discovery-rules">File discovery rules</a></li>
+<li><a href="#supported-syntax">Supported syntax</a></li>
+<li><a href="#how-owners-are-resolved-for-a-pr">How owners are resolved for a PR</a></li>
+<li><a href="#review-commands">Review commands</a><ul>
+<li><a href="#approve">/approve</a></li>
+<li><a href="#lgtm">/lgtm</a></li>
+<li><a href="#who-may-run-other-commands">Who may run other commands</a></li>
+</ul>
+</li>
+<li><a href="#configuration">Configuration</a><ul>
+<li><a href="#minimum-lgtm">minimum-lgtm</a></li>
+<li><a href="#can-be-merged-required-labels">can-be-merged-required-labels</a></li>
+<li><a href="#auto-verified-and-merged-users">auto-verified-and-merged-users</a></li>
+</ul>
+</li>
+<li><a href="#merge-decision-summary">Merge decision summary</a></li>
+</ul>
 </div>
 
                 </div>
@@ -236,9 +522,6 @@
         </main>
 
         <footer class="page-footer">
-
-            <span class="footer-version">Generated from version 4.1.0</span>
-            <span class="footer-sep">&middot;</span>
 
             Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
             <span class="footer-sep">&middot;</span>
