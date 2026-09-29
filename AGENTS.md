@@ -7,17 +7,14 @@
 - Test: `uv run --group tests pytest -n auto`
 - Test + coverage: `uv run --group tests pytest -n auto --cov=webhook_server`
 - Schema tests: `uv run pytest webhook_server/tests/test_config_schema.py -v`
-- Lint fix + format: `uv run ruff check && uv run ruff format` (mutates files — use for development)
-- Type check: `uv run mypy webhook_server/`
-- Full verify (read-only): `uv run ruff check --no-fix && uv run ruff format --check && uv run mypy webhook_server/ && uv run --group tests pytest -n auto`
+- Lint + static checks: `prek run --all-files` (covers ruff, ruff-format, mypy, flake8, gitleaks, detect-secrets, eslint — the only supported way to run them)
+- Full verify: `prek run --all-files && uv run --group tests pytest -n auto`
 
 ## Definition of Done
 A task is complete when ALL pass:
-1. `uv run ruff check --no-fix` exits 0
-2. `uv run ruff format --check` exits 0
-3. `uv run mypy webhook_server/` exits 0
-4. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
-5. All imports at top of file, complete type hints on all functions
+1. `prek run --all-files` exits 0 — this is the only lint/type/static gate
+2. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
+3. All imports at top of file, complete type hints on all functions
 
 ## When Blocked
 - Tests fail after 3 attempts → stop, report failing test with full output
