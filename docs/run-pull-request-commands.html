@@ -319,6 +319,11 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <td>Maintainer, Approver</td>
 </tr>
 <tr>
+<td><code>/automerge cancel</code></td>
+<td>Removes the <code>automerge</code> label</td>
+<td>Maintainer, Approver</td>
+</tr>
+<tr>
 <td><code>/retest &lt;test&gt;</code></td>
 <td>Re-runs one or more configured checks</td>
 <td>Approver</td>
@@ -480,16 +485,17 @@ so you cannot lgtm your own pull request.</p>
 <div class="highlight"><pre><span></span><code>/approve cancel
 </code></pre></div>
 
-<h4 id="automerge"><code>/automerge</code></h4>
-<p>Adds the <code>automerge</code> label. Once the label is present and every merge requirement is satisfied, the server merges the
-PR on its own.</p>
+<h4 id="automerge-and-automerge-cancel"><code>/automerge</code> and <code>/automerge cancel</code></h4>
+<p><code>/automerge</code> adds the <code>automerge</code> label. Once the label is present and every merge requirement is satisfied, the server
+merges the PR on its own. <code>/automerge cancel</code> removes the label.</p>
 <div class="highlight"><pre><span></span><code>/automerge
 </code></pre></div>
 
-<p>Restricted to maintainers and approvers; anyone else gets the comment
-<em>"Only maintainers or approvers can set pull request to auto-merge"</em>. Note that <code>cancel</code> is not honoured for this
-command — the label is added either way, and there is no <code>/automerge cancel</code>. Remove the label through the GitHub
-UI instead.</p>
+<div class="highlight"><pre><span></span><code>/automerge cancel
+</code></pre></div>
+
+<p>Both are restricted to maintainers and approvers; anyone else gets the comment
+<em>"Only maintainers or approvers can set pull request to auto-merge"</em>.</p>
 <h4 id="assign-reviewers"><code>/assign-reviewers</code></h4>
 <p>Assigns reviewers to the pull request based on the <code>OWNERS</code> file in the repository.</p>
 <div class="highlight"><pre><span></span><code>/assign-reviewers

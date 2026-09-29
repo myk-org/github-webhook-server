@@ -204,7 +204,7 @@
                          user-supplied input. XSS risk is minimal and accepted since
                          the AI generates the content, not end users. -->
                     <h1 id="supported-github-events">Supported GitHub Events</h1>
-<p>The server routes eight GitHub webhook event types in <code>webhook_server/libs/github_api.py</code> (<code>GitHubWebHook.process()</code>). Which of them actually arrive depends on the <code>repositories.&lt;repo-id&gt;.events</code> subscription configured in <code>config.yaml</code>.</p>
+<p>The server routes eight GitHub webhook event types in <code>webhook_server/libs/github_api.py</code> (<code>GitHubWebHook.process()</code>). Which of them actually arrive depends on the <code>repositories.&lt;short-repo-name&gt;.events</code> subscription configured in <code>config.yaml</code>.</p>
 <table>
 <thead>
 <tr>
@@ -251,7 +251,7 @@
 <h2 id="restricting-events-per-repository">Restricting events per repository</h2>
 <p><code>config.yaml</code> accepts an <code>events</code> array on each repository entry:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">my-org/my-repo</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-repo</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/my-repo</span>
 <span class="w">    </span><span class="nt">events</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pull_request</span>
@@ -259,6 +259,7 @@
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">check_run</span>
 </code></pre></div>
 
+<p>The mapping key is the repository's <strong>short</strong> name (<code>my-repo</code>) — that is what webhook-time configuration looks up — while <code>name</code> carries the full <code>owner/repo</code> GitHub name.</p>
 <p>The schema types it as an array of strings with no enum, so the value is passed to GitHub as-is when the hook is created or updated.</p>
 <p>Default when the key is omitted: <code>["*"]</code> — <code>webhook_server/utils/webhook.py</code> reads <code>data.get("events", ["*"])</code>, which subscribes to every event GitHub supports.</p>
 <p>The subscription is reconciled at startup by <code>create_webhook()</code>:</p>

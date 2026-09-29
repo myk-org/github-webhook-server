@@ -44,6 +44,7 @@ Example — one comment, three commands:
 | `/approve` | Adds `approved-<user>`, removes `changes-requested-<user>`, and triggers the AI test oracle | Approver |
 | `/approve cancel` | Removes `approved-<user>` | Approver |
 | `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver |
+| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver |
 | `/retest <test>` | Re-runs one or more configured checks | Approver |
 | `/retest all` | Re-runs every check configured for the repository | Approver |
 | `/reprocess` | Re-runs the complete PR processing workflow from scratch | Approver |
@@ -159,19 +160,21 @@ A successful `/approve` also kicks off the PR Test Oracle in the background, if 
 /approve cancel
 ```
 
-#### `/automerge`
+#### `/automerge` and `/automerge cancel`
 
-Adds the `automerge` label. Once the label is present and every merge requirement is satisfied, the server merges the
-PR on its own.
+`/automerge` adds the `automerge` label. Once the label is present and every merge requirement is satisfied, the server
+merges the PR on its own. `/automerge cancel` removes the label.
 
 ```text
 /automerge
 ```
 
-Restricted to maintainers and approvers; anyone else gets the comment
-*"Only maintainers or approvers can set pull request to auto-merge"*. Note that `cancel` is not honoured for this
-command — the label is added either way, and there is no `/automerge cancel`. Remove the label through the GitHub
-UI instead.
+```text
+/automerge cancel
+```
+
+Both are restricted to maintainers and approvers; anyone else gets the comment
+*"Only maintainers or approvers can set pull request to auto-merge"*.
 
 #### `/assign-reviewers`
 

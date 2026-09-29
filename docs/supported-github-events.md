@@ -1,6 +1,6 @@
 # Supported GitHub Events
 
-The server routes eight GitHub webhook event types in `webhook_server/libs/github_api.py` (`GitHubWebHook.process()`). Which of them actually arrive depends on the `repositories.<repo-id>.events` subscription configured in `config.yaml`.
+The server routes eight GitHub webhook event types in `webhook_server/libs/github_api.py` (`GitHubWebHook.process()`). Which of them actually arrive depends on the `repositories.<short-repo-name>.events` subscription configured in `config.yaml`.
 
 | Event | What it does |
 | --- | --- |
@@ -21,13 +21,15 @@ Any other event type, or an event for which no pull request can be resolved, is 
 
 ```yaml
 repositories:
-  my-org/my-repo:
+  my-repo:
     name: my-org/my-repo
     events:
       - pull_request
       - issue_comment
       - check_run
 ```
+
+The mapping key is the repository's **short** name (`my-repo`) — that is what webhook-time configuration looks up — while `name` carries the full `owner/repo` GitHub name.
 
 The schema types it as an array of strings with no enum, so the value is passed to GitHub as-is when the hook is created or updated.
 

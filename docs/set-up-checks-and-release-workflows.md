@@ -87,11 +87,11 @@ The required check list written to a branch is:
 - the repository's `default-status-checks` list, always plus `can-be-merged`, taken from a deep copy so per-branch exclusions cannot mutate the shared list;
 - then, depending on `protected-branches.<branch>`:
 
-**When `include-runs` is non-empty**, it *is* the branch's required-check list. Nothing is derived from config — no `tox`, no `container`, no `default-status-checks`, no `pre-commit`. The only thing appended is the security checks, again gated on `security-checks.mandatory`, deduplicated while keeping `include-runs` order.
+**When `include-runs` is non-empty**, it *is* the branch's required-check list. Nothing is derived from config — no `tox`, no `container`, no `default-status-checks`, no `pre-commit`. The only thing appended is the security checks, again gated on `security-checks.mandatory`, deduplicated while keeping `include-runs` order. `exclude-runs` is then subtracted from the assembled list, so the two are a filter pair on this path too.
 
 **When `include-runs` is empty or absent**, the list is derived by `get_required_status_checks()`: `tox` if configured, `verified` if `verified-job` is not false, `build-container` if `container` is configured, `python-module-install` if `pypi` is configured, `pre-commit` if `pre-commit` is true, `conventional-title` if configured, and `pre-commit.ci - pr` if `.pre-commit-config.yaml` exists in the repository. Then the security checks are appended under the same `mandatory` gate, the result is deduplicated, and finally `exclude-runs` entries are removed.
 
-`exclude-runs` is only consulted on that second path. If you set `include-runs`, `exclude-runs` is ignored — the two settings are alternatives, not a filter pair.
+`exclude-runs` applies to both paths: it filters the automatically derived list *and* the explicit `include-runs` list, and it wins — an explicit `exclude-runs` entry is honoured for any check, including the appended security checks. Removing a security check this way is therefore possible, but if you do not want the security checks required at all, the switch is `security-checks.mandatory: false`.
 
 Branch protection rules themselves come from `branch-protection` (global or per-repository), merged over `DEFAULT_BRANCH_PROTECTION`:
 

@@ -1471,6 +1471,7 @@ Example — one comment, three commands:
 | `/approve` | Adds `approved-<user>`, removes `changes-requested-<user>`, and triggers the AI test oracle | Approver |
 | `/approve cancel` | Removes `approved-<user>` | Approver |
 | `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver |
+| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver |
 | `/retest <test>` | Re-runs one or more configured checks | Approver |
 | `/retest all` | Re-runs every check configured for the repository | Approver |
 | `/reprocess` | Re-runs the complete PR processing workflow from scratch | Approver |
@@ -1586,19 +1587,21 @@ A successful `/approve` also kicks off the PR Test Oracle in the background, if 
     /approve cancel
 ```
 
-#### `/automerge`
+#### `/automerge` and `/automerge cancel`
 
-Adds the `automerge` label. Once the label is present and every merge requirement is satisfied, the server merges the
-PR on its own.
+`/automerge` adds the `automerge` label. Once the label is present and every merge requirement is satisfied, the server
+merges the PR on its own. `/automerge cancel` removes the label.
 
 ```text
     /automerge
 ```
 
-Restricted to maintainers and approvers; anyone else gets the comment
-*"Only maintainers or approvers can set pull request to auto-merge"*. Note that `cancel` is not honoured for this
-command — the label is added either way, and there is no `/automerge cancel`. Remove the label through the GitHub
-UI instead.
+```text
+    /automerge cancel
+```
+
+Both are restricted to maintainers and approvers; anyone else gets the comment
+*"Only maintainers or approvers can set pull request to auto-merge"*.
 
 #### `/assign-reviewers`
 
@@ -1901,11 +1904,11 @@ The required check list written to a branch is:
 - the repository's `default-status-checks` list, always plus `can-be-merged`, taken from a deep copy so per-branch exclusions cannot mutate the shared list;
 - then, depending on `protected-branches.<branch>`:
 
-**When `include-runs` is non-empty**, it *is* the branch's required-check list. Nothing is derived from config — no `tox`, no `container`, no `default-status-checks`, no `pre-commit`. The only thing appended is the security checks, again gated on `security-checks.mandatory`, deduplicated while keeping `include-runs` order.
+**When `include-runs` is non-empty**, it *is* the branch's required-check list. Nothing is derived from config — no `tox`, no `container`, no `default-status-checks`, no `pre-commit`. The only thing appended is the security checks, again gated on `security-checks.mandatory`, deduplicated while keeping `include-runs` order. `exclude-runs` is then subtracted from the assembled list, so the two are a filter pair on this path too.
 
 **When `include-runs` is empty or absent**, the list is derived by `get_required_status_checks()`: `tox` if configured, `verified` if `verified-job` is not false, `build-container` if `container` is configured, `python-module-install` if `pypi` is configured, `pre-commit` if `pre-commit` is true, `conventional-title` if configured, and `pre-commit.ci - pr` if `.pre-commit-config.yaml` exists in the repository. Then the security checks are appended under the same `mandatory` gate, the result is deduplicated, and finally `exclude-runs` entries are removed.
 
-`exclude-runs` is only consulted on that second path. If you set `include-runs`, `exclude-runs` is ignored — the two settings are alternatives, not a filter pair.
+`exclude-runs` applies to both paths: it filters the automatically derived list *and* the explicit `include-runs` list, and it wins — an explicit `exclude-runs` entry is honoured for any check, including the appended security checks. Removing a security check this way is therefore possible, but if you do not want the security checks required at all, the switch is `security-checks.mandatory: false`.
 
 Branch protection rules themselves come from `branch-protection` (global or per-repository), merged over `DEFAULT_BRANCH_PROTECTION`:
 
@@ -4810,7 +4813,7 @@ Source: supported-github-events.md
 
 # Supported GitHub Events
 
-The server routes eight GitHub webhook event types in `webhook_server/libs/github_api.py` (`GitHubWebHook.process()`). Which of them actually arrive depends on the `repositories.<repo-id>.events` subscription configured in `config.yaml`.
+The server routes eight GitHub webhook event types in `webhook_server/libs/github_api.py` (`GitHubWebHook.process()`). Which of them actually arrive depends on the `repositories.<short-repo-name>.events` subscription configured in `config.yaml`.
 
 | Event | What it does |
 | --- | --- |
@@ -4831,13 +4834,15 @@ Any other event type, or an event for which no pull request can be resolved, is 
 
 ```yaml
     repositories:
-      my-org/my-repo:
+      my-repo:
         name: my-org/my-repo
         events:
           - pull_request
           - issue_comment
           - check_run
 ```
+
+The mapping key is the repository's **short** name (`my-repo`) — that is what webhook-time configuration looks up — while `name` carries the full `owner/repo` GitHub name.
 
 The schema types it as an array of strings with no enum, so the value is passed to GitHub as-is when the hook is created or updated.
 
