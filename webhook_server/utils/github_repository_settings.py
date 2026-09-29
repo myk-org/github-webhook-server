@@ -122,6 +122,58 @@ def set_repository_settings(repository: Repository, api_user: str) -> None:
     )
 
 
+def get_security_status_checks(repo: Repository, config: Config) -> list[str]:
+    """Security check names to require, gated on the repository-scoped security-checks config.
+
+    security-checks is read from the repository-scoped Config so repo-local
+    .github-webhook-server.yaml overrides win over repository config.yaml
+    """
+    _security_checks: Any = config.get_value(value="security-checks", return_on_none={})
+    if not isinstance(_security_checks, dict):
+        LOGGER.warning(
+            f"{repo.name}: security-checks must be a mapping, got {type(_security_checks).__name__}. "
+            "Using security checks defaults."
+        )
+        _security_checks = {}
+
+    _mandatory: Any = _security_checks.get("mandatory", True)
+    if not isinstance(_mandatory, bool):
+        LOGGER.warning(
+            f"{repo.name}: security-checks.mandatory must be boolean, got {type(_mandatory).__name__}. "
+            "Defaulting to true."
+        )
+        _mandatory = True
+
+    if not _mandatory:
+        return []
+
+    security_status_checks: list[str] = []
+
+    _suspicious_paths: Any = _security_checks.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
+    if not isinstance(_suspicious_paths, list):
+        LOGGER.warning(
+            f"{repo.name}: security-checks.suspicious-paths must be a list, "
+            f"got {type(_suspicious_paths).__name__}. Using default suspicious paths."
+        )
+        _suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
+
+    if _suspicious_paths:
+        security_status_checks.append(SECURITY_SUSPICIOUS_PATHS_STR)
+
+    _committer_identity_check: Any = _security_checks.get("committer-identity-check", True)
+    if not isinstance(_committer_identity_check, bool):
+        LOGGER.warning(
+            f"{repo.name}: security-checks.committer-identity-check must be boolean, "
+            f"got {type(_committer_identity_check).__name__}. Defaulting to true."
+        )
+        _committer_identity_check = True
+
+    if _committer_identity_check:
+        security_status_checks.append(SECURITY_COMMITTER_IDENTITY_STR)
+
+    return security_status_checks
+
+
 def get_required_status_checks(
     repo: Repository,
     data: dict[str, Any],
@@ -158,54 +210,10 @@ def get_required_status_checks(
         # Handle other GitHub API errors (rate limits, permissions, etc.)
         LOGGER.warning(f"Failed to check .pre-commit-config.yaml for {repo.name}: {ex}")
 
-    # security-checks is read from the repository-scoped Config so repo-local
-    # .github-webhook-server.yaml overrides win over repository config.yaml
-    _security_checks: Any = config.get_value(value="security-checks", return_on_none={})
-    if not isinstance(_security_checks, dict):
-        LOGGER.warning(
-            f"{repo.name}: security-checks must be a mapping, got {type(_security_checks).__name__}. "
-            "Using security checks defaults."
-        )
-        _security_checks = {}
-
-    _mandatory: Any = _security_checks.get("mandatory", True)
-    if not isinstance(_mandatory, bool):
-        LOGGER.warning(
-            f"{repo.name}: security-checks.mandatory must be boolean, got {type(_mandatory).__name__}. "
-            "Defaulting to true."
-        )
-        _mandatory = True
-
-    if _mandatory:
-        _suspicious_paths: Any = _security_checks.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
-        if not isinstance(_suspicious_paths, list):
-            LOGGER.warning(
-                f"{repo.name}: security-checks.suspicious-paths must be a list, "
-                f"got {type(_suspicious_paths).__name__}. Using default suspicious paths."
-            )
-            _suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
-
-        if _suspicious_paths:
-            default_status_checks.append(SECURITY_SUSPICIOUS_PATHS_STR)
-
-        _committer_identity_check: Any = _security_checks.get("committer-identity-check", True)
-        if not isinstance(_committer_identity_check, bool):
-            LOGGER.warning(
-                f"{repo.name}: security-checks.committer-identity-check must be boolean, "
-                f"got {type(_committer_identity_check).__name__}. Defaulting to true."
-            )
-            _committer_identity_check = True
-
-        if _committer_identity_check:
-            default_status_checks.append(SECURITY_COMMITTER_IDENTITY_STR)
+    default_status_checks.extend(get_security_status_checks(repo=repo, config=config))
 
     # Deduplicate status checks while preserving order
-    seen: set[str] = set()
-    deduplicated: list[str] = []
-    for status_check in default_status_checks:
-        if status_check not in seen:
-            seen.add(status_check)
-            deduplicated.append(status_check)
+    deduplicated: list[str] = list(dict.fromkeys(default_status_checks))
 
     # Remove excluded status checks
     for status_check in exclude_status_checks:
@@ -347,13 +355,22 @@ def set_repository(
                     exclude_status_checks,
                 ) = get_user_configures_status_checks(status_checks=status_checks)
 
-                required_status_checks = include_status_checks or get_required_status_checks(
-                    repo=repo,
-                    data=data,
-                    default_status_checks=_default_status_checks,
-                    exclude_status_checks=exclude_status_checks,
-                    config=config,
-                )
+                if include_status_checks:
+                    # security-checks.mandatory governs this path too, dedup keeping include-runs order
+                    required_status_checks: list[str] = list(
+                        dict.fromkeys([
+                            *include_status_checks,
+                            *get_security_status_checks(repo=repo, config=config),
+                        ])
+                    )
+                else:
+                    required_status_checks = get_required_status_checks(
+                        repo=repo,
+                        data=data,
+                        default_status_checks=_default_status_checks,
+                        exclude_status_checks=exclude_status_checks,
+                        config=config,
+                    )
                 futures.append(
                     executor.submit(
                         set_branch_protection,
