@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 import github
+import yaml
 from github import Auth, Github, GithubIntegration
 from github.Auth import AppAuth
 from github.Branch import Branch
@@ -122,25 +123,30 @@ def set_repository_settings(repository: Repository, api_user: str) -> None:
     )
 
 
-def get_security_status_checks(repo: Repository, config: Config) -> list[str]:
-    """Security check names to require, gated on the repository-scoped security-checks config.
+def get_security_status_checks(
+    repository_full_name: str,
+    config: Config,
+    repository_config: dict[str, Any] | None = None,
+) -> list[str]:
+    """Security check names to require, gated on the security-checks config.
 
-    security-checks is read from the repository-scoped Config so repo-local
-    .github-webhook-server.yaml overrides win over repository config.yaml
+    security-checks is read with Config.get_value, so the repository-local
+    .github-webhook-server.yaml content passed as `repository_config` wins over the
+    repository/root config.yaml entries.
     """
-    _security_checks: Any = config.get_value(value="security-checks", return_on_none={})
+    _security_checks: Any = config.get_value(value="security-checks", return_on_none={}, extra_dict=repository_config)
     if not isinstance(_security_checks, dict):
         LOGGER.warning(
-            f"{repo.name}: security-checks must be a mapping, got {type(_security_checks).__name__}. "
-            "Using security checks defaults."
+            f"{repository_full_name}: security-checks must be a mapping, "
+            f"got {type(_security_checks).__name__}. Using security checks defaults."
         )
         _security_checks = {}
 
     _mandatory: Any = _security_checks.get("mandatory", True)
     if not isinstance(_mandatory, bool):
         LOGGER.warning(
-            f"{repo.name}: security-checks.mandatory must be boolean, got {type(_mandatory).__name__}. "
-            "Defaulting to true."
+            f"{repository_full_name}: security-checks.mandatory must be boolean, "
+            f"got {type(_mandatory).__name__}. Defaulting to true."
         )
         _mandatory = True
 
@@ -152,10 +158,16 @@ def get_security_status_checks(repo: Repository, config: Config) -> list[str]:
     _suspicious_paths: Any = _security_checks.get("suspicious-paths", DEFAULT_SUSPICIOUS_PATHS)
     if not isinstance(_suspicious_paths, list):
         LOGGER.warning(
-            f"{repo.name}: security-checks.suspicious-paths must be a list, "
+            f"{repository_full_name}: security-checks.suspicious-paths must be a list, "
             f"got {type(_suspicious_paths).__name__}. Using default suspicious paths."
         )
         _suspicious_paths = DEFAULT_SUSPICIOUS_PATHS
+    else:
+        # Keep in sync with `security_suspicious_paths` in webhook_server/libs/github_api.py:
+        # a blank entry would make branch protection require a check the runner never reports.
+        _suspicious_paths = [
+            str(path).strip() for path in _suspicious_paths if isinstance(path, (str, int, float)) and str(path).strip()
+        ]
 
     if _suspicious_paths:
         security_status_checks.append(SECURITY_SUSPICIOUS_PATHS_STR)
@@ -163,7 +175,7 @@ def get_security_status_checks(repo: Repository, config: Config) -> list[str]:
     _committer_identity_check: Any = _security_checks.get("committer-identity-check", True)
     if not isinstance(_committer_identity_check, bool):
         LOGGER.warning(
-            f"{repo.name}: security-checks.committer-identity-check must be boolean, "
+            f"{repository_full_name}: security-checks.committer-identity-check must be boolean, "
             f"got {type(_committer_identity_check).__name__}. Defaulting to true."
         )
         _committer_identity_check = True
@@ -181,6 +193,7 @@ def get_required_status_checks(
     exclude_status_checks: list[str],
     *,
     config: Config,
+    repository_config: dict[str, Any] | None = None,
 ) -> list[str]:
     if data.get("tox"):
         default_status_checks.append("tox")
@@ -210,7 +223,13 @@ def get_required_status_checks(
         # Handle other GitHub API errors (rate limits, permissions, etc.)
         LOGGER.warning(f"Failed to check .pre-commit-config.yaml for {repo.name}: {ex}")
 
-    default_status_checks.extend(get_security_status_checks(repo=repo, config=config))
+    default_status_checks.extend(
+        get_security_status_checks(
+            repository_full_name=data.get("name", ""),
+            config=config,
+            repository_config=repository_config,
+        )
+    )
 
     # Deduplicate status checks while preserving order
     deduplicated: list[str] = list(dict.fromkeys(default_status_checks))
@@ -318,6 +337,17 @@ def set_repository(
     if not github_api:
         return False, f"{full_repository_name}: Failed to get github api", LOGGER.error
 
+    try:
+        repository_config: dict[str, Any] = config.repository_local_data(
+            github_api=github_api, repository_full_name=full_repository_name
+        )
+    except yaml.YAMLError:
+        # Never abort startup on a broken repo-local file, the config.yaml values are used instead
+        LOGGER.warning(
+            f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, ignoring it"
+        )
+        repository_config = {}
+
     repo = _get_github_repo_api(github_api=github_api, repository=full_repository_name)
     if not repo:
         return False, f"[API user {api_user}] - {full_repository_name}: Failed to get repository", LOGGER.error
@@ -360,7 +390,11 @@ def set_repository(
                     required_status_checks: list[str] = list(
                         dict.fromkeys([
                             *include_status_checks,
-                            *get_security_status_checks(repo=repo, config=config),
+                            *get_security_status_checks(
+                                repository_full_name=full_repository_name,
+                                config=config,
+                                repository_config=repository_config,
+                            ),
                         ])
                     )
                     # exclude-runs wins over include-runs, security checks included
@@ -374,6 +408,7 @@ def set_repository(
                         default_status_checks=_default_status_checks,
                         exclude_status_checks=exclude_status_checks,
                         config=config,
+                        repository_config=repository_config,
                     )
                 futures.append(
                     executor.submit(
