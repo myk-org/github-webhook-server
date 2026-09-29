@@ -1,14 +1,16 @@
 # Webhook and Health API
 
-The server exposes exactly two routes on the public surface: a health probe and the GitHub webhook receiver. Everything else (`/logs`, `/logs/api/*`, `/mcp`, `/static`) is optional or internal and is only registered when the matching feature flag is enabled.
+The always-available surface is small: a health probe, the GitHub webhook receiver, the `/static` assets used by the log viewer UI, and FastAPI's own `/docs` and `/redoc`. The log viewer API and WebSocket routes are always *registered* too — `ENABLE_LOG_SERVER` gates *access* at request time rather than registration, so with the flag off `/logs/api/*` answers `404` and `/logs/ws` closes the connection. The log viewer HTML page and `/mcp` are the two routes that are only registered when their feature flag is set.
 
 | Method | Path | Purpose | Registered when |
 | --- | --- | --- | --- |
 | `GET` | `/webhook_server/healthcheck` | Liveness probe | Always |
 | `POST` | `/webhook_server` | GitHub webhook receiver | Always |
 | `GET` | `/static/*` | CSS/JS assets for the log viewer UI | Always (mounted directory) |
-| `GET` | `/logs`, `/logs/api/*` | Log viewer UI and API | `ENABLE_LOG_SERVER=true` |
-| `WS` | `/logs/ws` | Real-time log stream | `ENABLE_LOG_SERVER=true` |
+| `GET` | `/logs` | Log viewer UI page | `ENABLE_LOG_SERVER=true` |
+| `GET` | `/logs/api/*` | Log viewer API | Always (access gated at request time by `ENABLE_LOG_SERVER`) |
+| `WS` | `/logs/ws` | Real-time log stream | Always (closes the connection unless `ENABLE_LOG_SERVER=true`) |
+| `GET` | `/docs`, `/redoc` | FastAPI-generated interactive API docs | Always |
 | `GET`/`POST`/`DELETE` | `/mcp` | MCP streamable HTTP transport | `ENABLE_MCP_SERVER=true` |
 
 The base path is not configurable. In `webhook_server/app.py`:

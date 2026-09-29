@@ -27,7 +27,7 @@ All check runs are written to `last_commit.sha`. Output is truncated to 65534 ch
 
 Built-in and custom command checks share one code path, `RunnerHandler.run_check()`. Each one is described by a small `CheckConfig` record: the check-run name, the command (which may contain the `{worktree_path}` placeholder), a display title, and whether the command runs with `cwd` set to the worktree.
 
-The CI stage is driven by `PullRequestHandler._run_pull_request_ci_tasks()`. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. Conventional-title and the two security checks are scheduled only when their config is present, and every validated custom check is scheduled unconditionally.
+The CI stage is driven by `PullRequestHandler._run_pull_request_ci_tasks()`. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. `conventional-title` is scheduled only when its config is present. The two security checks need no opt-in: with no `security-checks` block at all, `suspicious-paths` falls back to `DEFAULT_SUSPICIOUS_PATHS` and both `mandatory` and `committer-identity-check` default to `true`, so both run. Every validated custom check is scheduled unconditionally.
 
 ### The built-in checks
 

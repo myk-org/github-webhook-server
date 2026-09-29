@@ -29,8 +29,25 @@ is the default.
 ```bash
 export WEBHOOK_SERVER_DATA_DIR="$HOME/webhook-server-data"
 mkdir -p "$WEBHOOK_SERVER_DATA_DIR"
+
+cat > "$WEBHOOK_SERVER_DATA_DIR/config.yaml" <<'YAML'
+github-app-id: 123456
+github-tokens:
+  - ghp_your_token_here
+
+webhook-ip: https://your-domain.example/webhook_server
+
+repositories:
+  your-repo:
+    name: your-org/your-repo
+YAML
+
 WEBHOOK_SERVER_DATA_DIR="$WEBHOOK_SERVER_DATA_DIR" uv run entrypoint.py
 ```
+
+Without `config.yaml` the startup call to `Config.exists()` raises `FileNotFoundError`, so the
+directory alone is not enough. See [Quick Start](quick-start.html) for the full setup,
+including the GitHub App private key.
 
 ## `ENABLE_LOG_SERVER`
 

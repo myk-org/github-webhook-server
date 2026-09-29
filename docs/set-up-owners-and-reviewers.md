@@ -8,7 +8,7 @@ your repository and uses them to decide who must review a pull request, who coun
 
 | Key | Effect |
 | --- | --- |
-| `approvers` | Members of this scope who can `/approve`. At least one is required for the `can-be-merged` check. |
+| `approvers` | Members of this scope who can `/approve`. An approval from this list is required for the `can-be-merged` check only when the scope has at least one approver; a path with no approvers listed imposes no approval requirement. |
 | `reviewers` | Members of this scope who are eligible for reviewer auto-assignment; `/lgtm` is not gated by membership. |
 | `allowed-users` | Users (in addition to collaborators and contributors) who may run commands such as `/retest`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewers`. |
 | `root-approvers` | Optional boolean. Set to `false` to opt out of requiring an approval from the root `OWNERS` approvers. |
