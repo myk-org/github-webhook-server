@@ -86,7 +86,9 @@ class Config:
     def repository_data(self) -> dict[str, Any]:
         return self.root_data["repositories"].get(self.repository, {})
 
-    def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
+    def repository_local_data(
+        self, github_api: github.Github, repository_full_name: str, *, raise_on_error: bool = False
+    ) -> dict[str, Any]:
         """
         Get repository-specific configuration from .github-webhook-server.yaml file.
 
@@ -96,6 +98,10 @@ class Config:
         Args:
             github_api: PyGithub API instance for repository access
             repository_full_name: Full repository name (owner/repo-name)
+            raise_on_error: Re-raise transient fetch failures (rate limit, network, 5xx) instead of
+                swallowing them into an empty dict. A missing file (UnknownObjectException) is not
+                an error and returns `{}` either way. Startup callers use this so an incomplete read
+                is never mistaken for "no repo-local config".
 
         Returns:
             Dictionary containing repository configuration, or empty dict if file not found
@@ -118,11 +124,20 @@ class Config:
                 repo_config = yaml.safe_load(config_file.decoded_content)
                 return repo_config
 
+            except UnknownObjectException:
+                # File genuinely absent, not a failure
+                return {}
+
             except yaml.YAMLError:
                 self.logger.exception(f"Repository {repository_full_name} config has invalid YAML syntax")
                 raise
 
             except Exception:
+                if raise_on_error:
+                    self.logger.exception(
+                        f"Repository {repository_full_name} config file could not be read, it is NOT absent"
+                    )
+                    raise
                 self.logger.exception(f"Repository {repository_full_name} config file not found or error")
                 return {}
 

@@ -338,8 +338,13 @@ def set_repository(
         return False, f"{full_repository_name}: Failed to get github api", LOGGER.error
 
     try:
+        # `repository_local_data()` is used instead of `github_api_call()` because this function is
+        # synchronous and runs on a ThreadPoolExecutor worker during startup; `github_api_call()` is
+        # async and the fetch would have to be hoisted to the async boundary, restructuring startup.
+        # Trade-off: this read is not retried and a transient failure is not swallowed - it aborts
+        # branch protection for this repository instead of writing protection from partial config.
         repository_config: dict[str, Any] = config.repository_local_data(
-            github_api=github_api, repository_full_name=full_repository_name
+            github_api=github_api, repository_full_name=full_repository_name, raise_on_error=True
         )
     except yaml.YAMLError:
         # Never abort startup on a broken repo-local file, the config.yaml values are used instead
@@ -347,6 +352,15 @@ def set_repository(
             f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, ignoring it"
         )
         repository_config = {}
+    except Exception:
+        # We cannot tell if the repo-local config exists, so we cannot know which security-checks the
+        # repository disabled. Skip it entirely rather than writing protection from incomplete config.
+        return (
+            False,
+            f"[API user {api_user}] - {full_repository_name}: Failed to read .github-webhook-server.yaml, "
+            "skipping repository settings",
+            LOGGER.error,
+        )
 
     repo = _get_github_repo_api(github_api=github_api, repository=full_repository_name)
     if not repo:

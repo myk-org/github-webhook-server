@@ -1,6 +1,7 @@
 """Tests for webhook_server.utils.github_repository_settings module."""
 
 from concurrent.futures import Future
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -8,6 +9,7 @@ import pytest
 import yaml
 from github.GithubException import GithubException, UnknownObjectException
 
+from webhook_server.libs.config import Config
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CONVENTIONAL_TITLE_STR,
@@ -36,6 +38,51 @@ from webhook_server.utils.github_repository_settings import (
     set_repository_labels,
     set_repository_settings,
 )
+
+
+def _make_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Config:
+    """Build a real Config rooted in tmp_path."""
+    monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", str(tmp_path))
+    (tmp_path / "config.yaml").write_text(yaml.dump({"repositories": {"test-repo": {"name": "org/test-repo"}}}))
+    return Config(repository="test-repo")
+
+
+class TestRepositoryLocalData:
+    """A missing repo-local file is not an error, a failed read is."""
+
+    def test_missing_file_returns_empty_dict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """UnknownObjectException means the file is absent, so {} on both paths."""
+        config = _make_config(tmp_path, monkeypatch)
+        repo = Mock()
+        repo.get_contents.side_effect = UnknownObjectException(404, "Not Found", None)
+        github_api = Mock()
+        github_api.get_repo.return_value = repo
+
+        assert config.repository_local_data(github_api, "org/test-repo") == {}
+        assert config.repository_local_data(github_api, "org/test-repo", raise_on_error=True) == {}
+
+    def test_transient_failure_default_returns_empty_dict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """Webhook-time callers keep the lenient behaviour."""
+        config = _make_config(tmp_path, monkeypatch)
+        github_api = Mock()
+        github_api.get_repo.side_effect = GithubException(502, "Bad Gateway", None)
+
+        assert config.repository_local_data(github_api, "org/test-repo") == {}
+
+    def test_transient_failure_raises_when_strict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_logger: Mock
+    ) -> None:
+        """Startup callers see the failure instead of a silent {}."""
+        config = _make_config(tmp_path, monkeypatch)
+        github_api = Mock()
+        github_api.get_repo.side_effect = GithubException(502, "Bad Gateway", None)
+
+        with pytest.raises(GithubException):
+            config.repository_local_data(github_api, "org/test-repo", raise_on_error=True)
 
 
 class TestGetGithubRepoApi:
@@ -163,7 +210,9 @@ class _FakeConfig:
         self._local_data: dict[str, Any] = local_data
         self.local_data_calls: list[str] = []
 
-    def repository_local_data(self, github_api: Any, repository_full_name: str) -> dict[str, Any]:
+    def repository_local_data(
+        self, github_api: Any, repository_full_name: str, *, raise_on_error: bool = False
+    ) -> dict[str, Any]:
         self.local_data_calls.append(repository_full_name)
         return self._local_data
 
@@ -869,6 +918,52 @@ class TestSetRepository:
         contexts = mock_set_branch_protection.call_args.kwargs["required_status_checks"]
         assert [check for check in contexts if check in expected] == expected
         assert (SECURITY_SUSPICIOUS_PATHS_STR in contexts) is bool(expected)
+
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
+    @patch("webhook_server.utils.github_repository_settings.get_branch_sampler")
+    @patch("webhook_server.utils.github_repository_settings.set_branch_protection")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_repo_local_read_failure_skips_branch_protection(
+        self,
+        mock_logger: Mock,
+        mock_get_repo: Mock,
+        mock_set_branch_protection: Mock,
+        mock_get_branch: Mock,
+        mock_set_repo_settings: Mock,
+        mock_set_repo_labels: Mock,
+    ) -> None:
+        """A transient read failure is not 'no local config': no protection is written for the repo."""
+        mock_repo = Mock()
+        mock_repo.private = False
+        mock_get_repo.return_value = mock_repo
+        mock_get_branch.return_value = Mock()
+
+        config = _FakeConfig(
+            repository_data={"protected-branches": {"main": {}}, "default-status-checks": []},
+            local_data={},
+        )
+        config.repository_local_data = Mock(  # type: ignore[method-assign]
+            side_effect=GithubException(502, "Bad Gateway", None), __name__="repository_local_data"
+        )
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "owner/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={"strict": True},
+            config=config,  # type: ignore[arg-type]
+        )
+
+        assert result[0] is False
+        assert result[2] == mock_logger.error
+        assert "Failed to read .github-webhook-server.yaml" in result[1]
+        mock_set_branch_protection.assert_not_called()
+        mock_set_repo_labels.assert_not_called()
+        mock_set_repo_settings.assert_not_called()
+        # the strict opt-in is what makes the failure visible here
+        assert config.repository_local_data.call_args.kwargs["raise_on_error"] is True
 
     @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
     @patch("webhook_server.utils.github_repository_settings.set_repository_settings")
