@@ -167,3 +167,6 @@ find_unused_code.py
 CRUSH.md
 sidecar-helper/node_modules/
 sidecar-helper/dist/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
