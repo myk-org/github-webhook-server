@@ -20,12 +20,9 @@ byte-identical to upstream.
 from __future__ import annotations
 
 import html as _html_mod
-import json
 import logging
 import re
-import shutil
 import urllib.parse
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -60,11 +57,6 @@ DOCSFY_REPO_URL = "https://github.com/myk-org/docsfy"
 # happens to *end* with this exact phrase would have its entire body greedily
 # swallowed as part of the "title" and get misclassified as a stub.
 _FAILURE_STUB_RE = re.compile(r"^#[ \t]+[^\n]+\n\n\*Documentation generation failed\.(?: Please re-run\.)?\*\s*$")
-
-
-def is_generation_failure_stub(content: str) -> bool:
-    """Check whether content is one of the known generation-failure stub formats."""
-    return bool(_FAILURE_STUB_RE.match(content.strip()))
 
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -537,107 +529,3 @@ def _build_llms_full_txt(
                 "",
             ])
     return "\n".join(lines)
-
-
-def _filter_navigation_pages(
-    navigation: list[dict[str, Any]],
-    keep_page: Callable[[dict[str, Any]], bool],
-) -> list[dict[str, Any]]:
-    """Return navigation groups with pages filtered by `keep_page`, dropping empty groups."""
-    filtered: list[dict[str, Any]] = []
-    for group in navigation:
-        kept_pages = [page for page in group.get("pages", []) if keep_page(page)]
-        if kept_pages:
-            filtered.append({**group, "pages": kept_pages})
-    return filtered
-
-
-def render_site(
-    plan: dict[str, Any],
-    pages: dict[str, str],
-    output_dir: Path,
-) -> None:
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    assets_dir = output_dir / "assets"
-    assets_dir.mkdir(exist_ok=True)
-
-    # Prevent GitHub Pages from running Jekyll
-    (output_dir / ".nojekyll").touch()
-
-    project_name: str = plan.get("project_name", "Documentation")
-    tagline: str = plan.get("tagline", "")
-    navigation: list[dict[str, Any]] = plan.get("navigation", [])
-    repo_url: str = plan.get("repo_url", "")
-    version: str | None = plan.get("version")
-
-    if STATIC_DIR.exists():
-        for static_file in STATIC_DIR.iterdir():
-            if static_file.is_file():
-                shutil.copy2(static_file, assets_dir / static_file.name)
-
-    # Filter out invalid slugs
-    valid_pages: dict[str, str] = {}
-    for slug, content in pages.items():
-        if "/" in slug or "\\" in slug or slug.startswith(".") or ".." in slug:
-            logger.warning(f"Skipping invalid slug: {slug}")
-        else:
-            valid_pages[slug] = content
-
-    # Filter navigation to only include pages that exist in valid_pages
-    filtered_navigation = _filter_navigation_pages(navigation, lambda page: page.get("slug", "") in valid_pages)
-
-    index_html = render_index(project_name, tagline, filtered_navigation, repo_url=repo_url, version=version)
-    (output_dir / "index.html").write_text(index_html, encoding="utf-8")
-
-    # Build ordered list of valid slugs for prev/next navigation
-    valid_slug_order: list[dict[str, str]] = []
-    for group in filtered_navigation:
-        for page in group.get("pages", []):
-            slug = page.get("slug", "")
-            valid_slug_order.append({"slug": slug, "title": page.get("title", slug)})
-
-    for idx, slug_info in enumerate(valid_slug_order):
-        slug = slug_info["slug"]
-        md_content = valid_pages[slug]
-        title = slug_info["title"]
-
-        prev_page = valid_slug_order[idx - 1] if idx > 0 else None
-        next_page = valid_slug_order[idx + 1] if idx < len(valid_slug_order) - 1 else None
-
-        page_html = render_page(
-            markdown_content=md_content,
-            page_title=title,
-            project_name=project_name,
-            tagline=tagline,
-            navigation=filtered_navigation,
-            current_slug=slug,
-            prev_page=prev_page,
-            next_page=next_page,
-            repo_url=repo_url,
-            version=version,
-        )
-        (output_dir / f"{slug}.html").write_text(page_html, encoding="utf-8")
-        (output_dir / f"{slug}.md").write_text(md_content, encoding="utf-8")
-
-    search_index = _build_search_index(valid_pages, plan)
-    (output_dir / "search-index.json").write_text(json.dumps(search_index), encoding="utf-8")
-
-    # Generate llms.txt files using filtered navigation so only rendered pages
-    # appear. Pages whose content is a known generation-failure stub are
-    # additionally excluded here so AI-readable indexes never present a
-    # failed/CoT page as if it were real documentation, even though the
-    # stub remains visible on the HTML site itself as a failure notice.
-    llms_navigation = _filter_navigation_pages(
-        filtered_navigation,
-        lambda page: not is_generation_failure_stub(valid_pages.get(page.get("slug", ""), "")),
-    )
-
-    llms_txt = _build_llms_txt(plan, navigation=llms_navigation)
-    (output_dir / "llms.txt").write_text(llms_txt, encoding="utf-8")
-
-    llms_full_txt = _build_llms_full_txt(plan, valid_pages, navigation=llms_navigation)
-    (output_dir / "llms-full.txt").write_text(llms_full_txt, encoding="utf-8")
-
-    logger.info(f"Rendered site: {len(valid_pages)} pages to {output_dir}")
