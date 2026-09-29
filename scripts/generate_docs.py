@@ -89,6 +89,18 @@ def _h1(markdown_text: str, slug: str) -> str:
     return titles[0]
 
 
+def _is_generation_failure_stub(markdown_text: str) -> bool:
+    """Return True when a page's body is the docsfy generation-failure notice.
+
+    Upstream docsfy keeps such pages out of the AI-readable indexes so a failed
+    generation is never published as if it were real documentation; that filter
+    was lost when the renderer and generator were vendored. The pattern lives in
+    the renderer, which already declares it, so reuse it here rather than
+    keeping a second copy that can drift.
+    """
+    return renderer._FAILURE_STUB_RE.match(markdown_text) is not None  # noqa: SLF001
+
+
 def _build_navigation(pages: dict[str, str]) -> list[dict[str, Any]]:
     # "group" is the key the Jinja templates read; "title" is the documented
     # shape for the plan dict. Both carry the same group heading.
@@ -164,8 +176,14 @@ def main() -> int:
         "search-index.json",
         json.dumps(renderer._build_search_index(search_pages, plan)),  # noqa: SLF001
     )
-    _write("llms.txt", renderer._build_llms_txt(plan))  # noqa: SLF001
-    _write("llms-full.txt", renderer._build_llms_full_txt(plan, pages))  # noqa: SLF001
+    # Both AI-readable indexes drop generation-failure stubs. The rendered HTML
+    # and search-index.json keep every page: a stub still has a link to follow.
+    ai_navigation = [
+        {**group, "pages": [p for p in group["pages"] if not _is_generation_failure_stub(pages[p["slug"]])]}
+        for group in navigation
+    ]
+    _write("llms.txt", renderer._build_llms_txt(plan, ai_navigation))  # noqa: SLF001
+    _write("llms-full.txt", renderer._build_llms_full_txt(plan, pages, ai_navigation))  # noqa: SLF001
 
     # Drop HTML for pages that are no longer in the navigation (renamed or
     # removed markdown). glob() is non-recursive, so docs/assets/ is untouched,
