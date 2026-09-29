@@ -1,6 +1,7 @@
 """Tests for webhook_server.utils.github_repository_settings module."""
 
 from concurrent.futures import Future
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -13,6 +14,8 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
+    SECURITY_COMMITTER_IDENTITY_STR,
+    SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
 )
 from webhook_server.utils.github_repository_settings import (
@@ -139,6 +142,15 @@ class TestSetRepositorySettings:
         mock_logger.warning.assert_called_once()
 
 
+def _config(security_checks: dict[str, Any] | None = None) -> Mock:
+    """Return a Config mock whose security-checks value is `security_checks`."""
+    config = Mock()
+    config.get_value.side_effect = lambda value, return_on_none: (
+        security_checks if value == "security-checks" else return_on_none
+    )
+    return config
+
+
 class TestGetRequiredStatusChecks:
     """Test suite for get_required_status_checks function."""
 
@@ -151,7 +163,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         # Should contain at least 'basic-check' and 'verified' (default)
         assert "basic-check" in result
@@ -167,7 +181,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "tox" in result
         assert "verified" in result
@@ -179,7 +195,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert BUILD_CONTAINER_STR in result
 
@@ -190,7 +208,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert PYTHON_MODULE_INSTALL_STR in result
 
@@ -201,7 +221,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert PRE_COMMIT_STR in result
 
@@ -212,7 +234,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert CONVENTIONAL_TITLE_STR in result
 
@@ -224,7 +248,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "pre-commit.ci - pr" in result
 
@@ -237,7 +263,9 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert result.count("tox") == 0
         assert "verified" in result
@@ -249,9 +277,91 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = []
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(
+            mock_repo, data, default_status_checks, exclude_status_checks, config=_config()
+        )
 
         assert "verified" not in result
+
+    def test_get_required_status_checks_security_checks_default(self) -> None:
+        """Security checks are required by default when not configured."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config())
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_mandatory(self) -> None:
+        """Security checks are required when security-checks.mandatory is true."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"mandatory": True}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_not_mandatory(self) -> None:
+        """No security checks are required when security-checks.mandatory is false."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"mandatory": False}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+
+    def test_get_required_status_checks_security_checks_empty_suspicious_paths(self) -> None:
+        """No suspicious-paths check when suspicious-paths is empty, committer check still added."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"suspicious-paths": []}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+
+    def test_get_required_status_checks_security_checks_committer_disabled(self) -> None:
+        """No committer-identity check when committer-identity-check is false."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(mock_repo, {}, [], [], config=_config({"committer-identity-check": False}))
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+
+    def test_get_required_status_checks_security_checks_excluded(self) -> None:
+        """Security checks can be removed by exclude-runs."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo,
+            {},
+            [],
+            [SECURITY_SUSPICIOUS_PATHS_STR, SECURITY_COMMITTER_IDENTITY_STR],
+            config=_config(),
+        )
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR not in result
+        assert SECURITY_COMMITTER_IDENTITY_STR not in result
+
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_get_required_status_checks_security_checks_malformed(self, mock_logger: Mock) -> None:
+        """Malformed security-checks values log a warning and fall back to defaults."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        result = get_required_status_checks(
+            mock_repo, {}, [], [], config=_config({"mandatory": "yes", "committer-identity-check": "no"})
+        )
+
+        assert SECURITY_SUSPICIOUS_PATHS_STR in result
+        assert SECURITY_COMMITTER_IDENTITY_STR in result
+        assert mock_logger.warning.call_count == 2
 
 
 class TestGetUserConfiguresStatusChecks:
