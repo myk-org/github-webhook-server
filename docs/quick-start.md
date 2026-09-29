@@ -38,7 +38,7 @@ WEBHOOK_SERVER_DATA_DIR="$WEBHOOK_SERVER_DATA_DIR" uv run entrypoint.py
 ```
 
 ```bash
-curl http://127.0.0.1:500/webhook_server/healthcheck
+curl http://127.0.0.1:5000/webhook_server/healthcheck
 ```
 
 ```json
@@ -126,7 +126,7 @@ By default, the server listens on `0.0.0.0:500`. On startup it creates or update
 ### 5. Verify the server is healthy
 
 ```bash
-curl http://127.0.0.1:500/webhook_server/healthcheck
+curl http://127.0.0.1:5000/webhook_server/healthcheck
 ```
 
 You should get:

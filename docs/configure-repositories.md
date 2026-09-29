@@ -1,3 +1,6 @@
+# Configure Repositories
+
+```yaml
 # config.yaml
 github-app-id: 123456
 github-tokens:

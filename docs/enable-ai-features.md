@@ -1,3 +1,6 @@
+# Enable AI Features
+
+```yaml
 # config.yaml
 repositories:
   my-repository:
@@ -68,7 +71,7 @@ services:
 ```
 
 ```bash
-curl -f http://localhost:500/webhook_server/healthcheck
+curl -f http://localhost:5000/webhook_server/healthcheck
 curl -f http://localhost:910/health
 ```
 

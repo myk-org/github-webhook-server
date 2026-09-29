@@ -1,3 +1,6 @@
+# Secure Webhooks and Pull Requests
+
+```yaml
 # config.yaml
 webhook-secret: your-random-secret-string
 verify-github-ips: true

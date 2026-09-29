@@ -15,7 +15,7 @@ Use this page when a webhook was accepted but the automation still did not do wh
 ENABLE_LOG_SERVER=true WEBHOOK_SERVER_DATA_DIR=/path/to/data uv run entrypoint.py
 ```
 
-1. Open `http://127.0.0.1:500/logs`.
+1. Open `http://127.0.0.1:5000/logs`.
 2. Paste the GitHub delivery ID into `Hook ID`.
 3. Click the hook ID in the results to open the workflow timeline.
 4. Click the failed step to see its status, duration, error, and matching log lines.
@@ -140,13 +140,13 @@ Server-side streaming is most useful with these filters:
 If you want the same filtered data without using the button, download it directly.
 
 ```bash
-curl -OJ "http://127.0.0.1:500/logs/api/export?format_type=json&hook_id=<delivery-id>&level=ERROR&limit=500"
+curl -OJ "http://127.0.0.1:5000/logs/api/export?format_type=json&hook_id=<delivery-id>&level=ERROR&limit=500"
 ```
 
 If you want the step timeline directly, fetch it by delivery ID.
 
 ```bash
-curl "http://127.0.0.1:500/logs/api/workflow-steps/<delivery-id>"
+curl "http://127.0.0.1:5000/logs/api/workflow-steps/<delivery-id>"
 ```
 
 See [Log Viewer and MCP API](log-viewer-and-mcp-api.html) for the full set of routes and query parameters.

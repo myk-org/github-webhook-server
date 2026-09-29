@@ -1,3 +1,6 @@
+# Manage Pull Requests
+
+```yaml
 # .github-webhook-server.yaml
 verified-job: true
 create-issue-for-new-pr: true
