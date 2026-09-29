@@ -83,7 +83,7 @@ dependencies = [
   "psutil>=7.0.0",
   "fastapi-mcp>=0.4.0",
   "mcp>=1.9,<2",
-  "pi-sidecar-client>=4.2.0",
+  "pi-sidecar-client>=4.6.5",
   "aiohttp>=3.9.0",
 ]
 
