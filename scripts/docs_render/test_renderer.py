@@ -111,3 +111,34 @@ def test_inserts_blank_lines_before_blocks_not_inside_fences() -> None:
         assert lines[index - 1] == ""
 
     assert "```python\n- code\n> code\n```" in "\n".join(lines)
+
+
+def test_still_inserts_blank_lines_in_prose() -> None:
+    markdown = "intro\n- item\n> quote\nafter"
+    assert _ensure_blank_lines(markdown) == "intro\n\n- item\n\n> quote\nafter"
+
+
+def test_no_blank_line_inserted_inside_tilde_fence() -> None:
+    markdown = "intro\n~~~\n- item\n> quote\n~~~\nafter"
+    # Blank before the opening fence only; the body stays untouched.
+    assert _ensure_blank_lines(markdown) == "intro\n\n~~~\n- item\n> quote\n~~~\nafter"
+
+
+def test_tilde_fence_not_closed_by_backticks() -> None:
+    # The ``` lines inside the ~~~ block are content, not closers.
+    markdown = "intro\n~~~\n```\n- item\n```\n~~~\n- item\nafter"
+    assert _ensure_blank_lines(markdown) == "intro\n\n~~~\n```\n- item\n```\n~~~\n\n- item\nafter"
+
+
+def test_indents_tilde_fence_body_only() -> None:
+    src = "~~~\n# config.yaml\nkey: value\n\n~~~\nafter\n"
+    expected = "~~~\n    # config.yaml\n    key: value\n\n~~~\nafter\n"
+    assert _indent_fenced_blocks(src) == expected
+
+
+def test_indent_does_not_close_tilde_fence_on_backticks_and_vice_versa() -> None:
+    src = "~~~\n```\n# still inside\n```\n~~~\n"
+    assert _indent_fenced_blocks(src) == "~~~\n    ```\n    # still inside\n    ```\n~~~\n"
+
+    src = "```\n~~~\n# still inside\n~~~\n```\n"
+    assert _indent_fenced_blocks(src) == "```\n    ~~~\n    # still inside\n    ~~~\n```\n"

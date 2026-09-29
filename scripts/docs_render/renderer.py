@@ -151,12 +151,28 @@ def _sanitize_html(html: str) -> str:
     return html
 
 
-_CODE_FENCE_ANNOTATION_RE = re.compile(r"^(```+)\d+:\d+:(.+)$", re.MULTILINE)
-_CODE_FENCE_FILEPATH_RE = re.compile(r"^(```+)((?:\S+/)+\S+)\s*$", re.MULTILINE)
+# A fence opens with 3+ backticks or 3+ tildes; the two never close each other.
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})(.*)$")
+
+_CODE_FENCE_ANNOTATION_RE = re.compile(r"^(`{3,}|~{3,})\d+:\d+:(.+)$", re.MULTILINE)
+_CODE_FENCE_FILEPATH_RE = re.compile(r"^(`{3,}|~{3,})((?:\S+/)+\S+)\s*$", re.MULTILINE)
 _CODE_FENCE_BARE_FILE_RE = re.compile(
-    r"^(```+)([A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+)\s*$",
+    r"^(`{3,}|~{3,})([A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+)\s*$",
     re.MULTILINE,
 )
+
+
+def _fence_marker(line: str) -> tuple[str, str] | None:
+    """Return ``(fence_run, rest)`` if ``line`` is a fence marker, else ``None``.
+
+    ``fence_run`` is the run of backticks or tildes, ``rest`` the remainder of
+    the line stripped (info string / language, empty for a closing fence).
+    """
+    match = _FENCE_RE.match(line.lstrip())
+    if match is None:
+        return None
+    return match.group(1), match.group(2).strip()
+
 
 _EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -262,15 +278,16 @@ def _clean_code_fence_annotations(md_text: str) -> str:
     lines = md_text.split("\n")
     result: list[str] = []
     fence_depth = 0
+    opening_fence = ""
     opening_fence_len = 0
 
     for line in lines:
         stripped = line.lstrip()
+        marker = _fence_marker(stripped)
 
-        if stripped.startswith("```"):
+        if marker is not None:
             original_line = line
-            backtick_count = len(stripped) - len(stripped.lstrip("`"))
-            rest = stripped[backtick_count:].strip()
+            fence_run, rest = marker
 
             if fence_depth == 0:
                 # Outermost fence opening: apply annotation cleaning
@@ -279,12 +296,14 @@ def _clean_code_fence_annotations(md_text: str) -> str:
                 line = _CODE_FENCE_BARE_FILE_RE.sub(_replace_bare_file_fence, line)
                 if line == original_line and rest in _FILENAME_TO_LANG:
                     indent = line[: len(line) - len(stripped)]
-                    line = f"{indent}{'`' * backtick_count}{_FILENAME_TO_LANG[rest]}"
+                    line = f"{indent}{fence_run}{_FILENAME_TO_LANG[rest]}"
                 fence_depth = 1
-                opening_fence_len = backtick_count
-            elif backtick_count >= opening_fence_len and not rest:
-                # Closing the outermost fence
+                opening_fence = fence_run
+                opening_fence_len = len(fence_run)
+            elif fence_run[0] == opening_fence[0] and len(fence_run) >= opening_fence_len and not rest:
+                # Closing the outermost fence (matching character only)
                 fence_depth = 0
+                opening_fence = ""
                 opening_fence_len = 0
             # else: inner fence marker, ignore
 
@@ -299,29 +318,33 @@ def _ensure_blank_lines(md_text: str) -> str:
     The Python markdown library requires blank lines before lists,
     blockquotes, and code fences. AI-generated content often omits these.
 
-    Blank lines are never inserted inside fenced code blocks.
+    Blank lines are never inserted inside fenced code blocks (``` or ~~~).
     """
     lines = md_text.split("\n")
     result: list[str] = []
     fence_depth = 0
+    opening_fence = ""
     opening_fence_len = 0
     for i, line in enumerate(lines):
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
 
-        # Track fence state using backtick-count matching so that
+        # Track fence state using fence-length matching so that
         # inner fences inside an outer block don't toggle the state.
+        # A ~~~ fence is only closed by ~~~ (and vice versa).
         was_in_fence = fence_depth > 0
-        if stripped.startswith("```"):
-            backtick_count = len(stripped) - len(stripped.lstrip("`"))
-            rest = stripped[backtick_count:].strip()
+        marker = _fence_marker(stripped)
+        if marker is not None:
+            fence_run, rest = marker
             if fence_depth == 0:
                 # Opening a new fence
                 fence_depth = 1
-                opening_fence_len = backtick_count
-            elif backtick_count >= opening_fence_len and not rest:
-                # Closing the current fence (same or more backticks, nothing after)
+                opening_fence = fence_run
+                opening_fence_len = len(fence_run)
+            elif fence_run[0] == opening_fence[0] and len(fence_run) >= opening_fence_len and not rest:
+                # Closing the current fence (same or more fence chars, nothing after)
                 fence_depth = 0
+                opening_fence = ""
                 opening_fence_len = 0
             # else: inner fence marker inside outer block, ignore
 
@@ -340,8 +363,8 @@ def _ensure_blank_lines(md_text: str) -> str:
                 and not re.match(r"^\d+\. ", prev_stripped)
                 or stripped.startswith("> ")
                 and not prev_stripped.startswith("> ")
-                or stripped.startswith("```")
-                and not prev_stripped.startswith("```")
+                or _FENCE_RE.match(stripped) is not None
+                and _FENCE_RE.match(prev_stripped) is None
             ):
                 needs_blank = True
 
@@ -479,15 +502,20 @@ def _indent_fenced_blocks(text: str) -> str:
     the block delimited by its unindented ``` fences while making the comments
     read as quoted code rather than headings.
 
-    Only lines between an opening ``` fence and its matching closing ``` fence
-    are touched; blank lines inside a fence are left truly empty to avoid
+    Only lines between an opening fence (``` or ~~~) and its matching closing
+    fence are touched; blank lines inside a fence are left truly empty to avoid
     trailing whitespace.
     """
     out: list[str] = []
     in_fence = False
+    fence_char = ""
     for line in text.split("\n"):
-        if line.startswith("```"):
+        match = _FENCE_RE.match(line)
+        char = match.group(1)[0] if match is not None else ""
+        if char and (not in_fence or char == fence_char):
+            # Toggle, but only a matching character closes an open fence.
             in_fence = not in_fence
+            fence_char = char if in_fence else ""
         elif in_fence and line.strip():
             out.append(f"    {line}")
             continue
