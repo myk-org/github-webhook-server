@@ -8,14 +8,17 @@
 - Test + coverage: `uv run --group tests pytest -n auto --cov=webhook_server`
 - Schema tests: `uv run pytest webhook_server/tests/test_config_schema.py -v`
 - Lint + static checks: `prek run --all-files` (covers ruff, ruff-format, mypy, flake8, gitleaks, detect-secrets, eslint — the only supported way to run them)
-- Full verify: `prek run --all-files && uv run --group tests pytest -n auto`
+- CI gate: `uvx tox` (runs the `unittests` and `unused-code` environments — this is what CI actually runs; `uvx` needs no install. Plain `tox` works if you have it globally)
+- Full verify: `prek run --all-files && uvx tox`
 - Rebuild docs site: `uv run python scripts/generate_docs.py` (see [Documentation](#documentation))
 
 ## Definition of Done
 A task is complete when ALL pass:
-1. `prek run --all-files` exits 0 — this is the only lint/type/static gate
-2. `uv run --group tests pytest -n auto` exits 0 — 90% coverage required, new code without tests fails CI
+1. `prek run --all-files` exits 0 — the only lint/type/static gate
+2. `uvx tox` exits 0 — **this is the gate CI runs**, and it is not covered by anything else below. It runs `unittests` (pytest over `webhook_server/tests` and `scripts`) plus `unused-code`, which fails on dead code. Passing `prek` and pytest does NOT imply tox passes: dead code is invisible to both.
 3. All imports at top of file, complete type hints on all functions
+
+> **Why tox is separate:** `unused-code` has no local equivalent in `prek` or a bare `pytest` run. Code that is never called — a leftover function, an unused import — passes every other check and fails here. Do not treat a green `prek` + `pytest` as ready to push.
 
 ## When Blocked
 - Tests fail after 3 attempts → stop, report failing test with full output
