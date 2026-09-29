@@ -956,12 +956,13 @@ class TestSetRepository:
             config=config,  # type: ignore[arg-type]
         )
 
-        assert result[0] is False
-        assert result[2] == mock_logger.error
-        assert "Failed to read .github-webhook-server.yaml" in result[1]
+        assert result[0] is True
+        assert result[2] == mock_logger.info
+        mock_logger.error.assert_called_once()
         mock_set_branch_protection.assert_not_called()
-        mock_set_repo_labels.assert_not_called()
-        mock_set_repo_settings.assert_not_called()
+        mock_get_branch.assert_not_called()
+        mock_set_repo_labels.assert_called_once_with(repository=mock_repo, api_user="test-user")
+        mock_set_repo_settings.assert_called_once_with(repository=mock_repo, api_user="test-user")
         # the strict opt-in is what makes the failure visible here
         assert config.repository_local_data.call_args.kwargs["raise_on_error"] is True
 

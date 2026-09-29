@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import generate_docs
 from pytest import MonkeyPatch
 
 NAV: list[tuple[str, list[str]]] = [("Group", ["alpha", "beta"])]
+
+
+def test_h1_ignores_inline_code_before_heading() -> None:
+    assert generate_docs._h1("`inline code`\n# Title\n", "example") == "Title"
 
 
 def _setup(tmp_path: Path, monkeypatch: MonkeyPatch, slugs: list[str]) -> Path:
@@ -35,6 +40,8 @@ def test_main_writes_pages_indexes_and_removes_stale_html(tmp_path: Path, monkey
     assert "Body of beta." in (docs / "beta.html").read_text(encoding="utf-8")
     assert "alpha.md" in (docs / "llms.txt").read_text(encoding="utf-8")
     assert "gone" not in (docs / "llms.txt").read_text(encoding="utf-8")
+    search_index = json.loads((docs / "search-index.json").read_text(encoding="utf-8"))
+    assert {entry["slug"] for entry in search_index} == {"alpha", "beta"}
 
     # Stale page removed; its markdown source and every other artefact untouched.
     assert not (docs / "gone.html").exists()

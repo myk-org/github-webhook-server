@@ -337,11 +337,12 @@ def set_repository(
     if not github_api:
         return False, f"{full_repository_name}: Failed to get github api", LOGGER.error
 
+    apply_branch_protection = True
     try:
         # `repository_local_data()` is used instead of `github_api_call()` because this function is
         # synchronous and runs on a ThreadPoolExecutor worker during startup; `github_api_call()` is
         # async and the fetch would have to be hoisted to the async boundary, restructuring startup.
-        # Trade-off: this read is not retried and a transient failure is not swallowed - it aborts
+        # Trade-off: this read is not retried and a transient failure is not swallowed - it skips
         # branch protection for this repository instead of writing protection from partial config.
         repository_config: dict[str, Any] = config.repository_local_data(
             github_api=github_api, repository_full_name=full_repository_name, raise_on_error=True
@@ -354,13 +355,12 @@ def set_repository(
         repository_config = {}
     except Exception:
         # We cannot tell if the repo-local config exists, so we cannot know which security-checks the
-        # repository disabled. Skip it entirely rather than writing protection from incomplete config.
-        return (
-            False,
+        # repository disabled. Skip only branch protection rather than writing it from incomplete config.
+        LOGGER.error(
             f"[API user {api_user}] - {full_repository_name}: Failed to read .github-webhook-server.yaml, "
-            "skipping repository settings",
-            LOGGER.error,
+            "skipping branch protection"
         )
+        apply_branch_protection = False
 
     repo = _get_github_repo_api(github_api=github_api, repository=full_repository_name)
     if not repo:
@@ -376,6 +376,9 @@ def set_repository(
                 f"{full_repository_name}: Repository is private, skipping setting branch settings",
                 LOGGER.warning,
             )
+
+        if not apply_branch_protection:
+            return True, f"{full_repository_name}: Setting repository settings is done", LOGGER.info
 
         futures: list[Future[Any]] = []
 

@@ -59,6 +59,7 @@ NAVIGATION: list[tuple[str, list[str]]] = [
 ]
 
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})(.*)$")
 
 
 def _h1(markdown_text: str, slug: str) -> str:
@@ -71,13 +72,12 @@ def _h1(markdown_text: str, slug: str) -> str:
     fence: str | None = None
     for line in markdown_text.splitlines():
         stripped = line.lstrip()
-        if stripped.startswith("`"):
-            # Compare backtick runs only, so a closing ``` matches an
-            # opening ```yaml.
-            ticks = stripped[: len(stripped) - len(stripped.lstrip("`"))]
+        fence_match = _FENCE_RE.match(stripped)
+        if fence_match:
+            marker = fence_match.group(1)
             if fence is None:
-                fence = ticks
-            elif len(ticks) >= len(fence) and not stripped[len(ticks) :].strip():
+                fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence) and not fence_match.group(2).strip():
                 fence = None
             continue
         if fence is None:
@@ -159,9 +159,10 @@ def main() -> int:
             ),
         )
 
+    search_pages = {page["slug"]: pages[page["slug"]] for page in order}
     _write(
         "search-index.json",
-        json.dumps(renderer._build_search_index(pages, plan)),  # noqa: SLF001
+        json.dumps(renderer._build_search_index(search_pages, plan)),  # noqa: SLF001
     )
     _write("llms.txt", renderer._build_llms_txt(plan))  # noqa: SLF001
     _write("llms-full.txt", renderer._build_llms_full_txt(plan, pages))  # noqa: SLF001

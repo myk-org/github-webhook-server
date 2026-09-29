@@ -12,8 +12,9 @@ which keeps working via the ``docsfy_repo_url`` template variable.
 
 It is a vendored copy, so local modifications are expected. The local
 deviations are ``_indent_fenced_blocks`` (see its docstring, ``llms-full.txt``
-only) and the ``<base>`` strip in ``_sanitize_html`` (local hardening, see
-there); everything else is byte-identical to upstream.
+only), script closing-tag hardening, and the ``<base>`` strip in
+``_sanitize_html`` (local hardening, see there); everything else is
+byte-identical to upstream.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ def _make_logger() -> logging.Logger:
     """
     try:
         return get_logger_with_params()
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return logging.getLogger(__name__)
 
 
@@ -83,8 +84,9 @@ def _get_jinja_env() -> Environment:
 
 def _sanitize_html(html: str) -> str:
     """Remove dangerous HTML elements from AI-generated content."""
-    # Remove script tags and content
-    html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    # LOCAL HARDENING, not present upstream: tolerate valid closing-tag
+    # whitespace and self-closing syntax so scripts cannot bypass sanitization.
+    html = re.sub(r"<script[^>]*>.*?</script\s*/?>", "", html, flags=re.DOTALL | re.IGNORECASE)
     # Remove iframe, object, embed, form tags
     for tag in ["iframe", "object", "embed", "form"]:
         html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.DOTALL | re.IGNORECASE)
