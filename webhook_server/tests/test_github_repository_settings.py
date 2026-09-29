@@ -981,7 +981,7 @@ class TestSetRepository:
         mock_set_repo_settings: Mock,
         mock_set_repo_labels: Mock,
     ) -> None:
-        """Invalid repo-local YAML is logged and ignored, startup continues with config.yaml values."""
+        """Invalid repo-local YAML is logged at ERROR, branch protection is skipped, startup does not abort."""
         mock_repo = Mock()
         mock_repo.private = False
         mock_get_repo.return_value = mock_repo
@@ -1008,9 +1008,17 @@ class TestSetRepository:
         )
 
         assert result[0] is True
-        required = mock_set_branch_protection.call_args.kwargs["required_status_checks"]
-        assert SECURITY_SUSPICIOUS_PATHS_STR not in required
-        mock_logger.warning.assert_called()
+        # Branch protection must NOT be written from the config.yaml defaults: the runtime path
+        # (config.repository_local_data with raise_on_error=True) propagates this same YAML error, so a
+        # required status check written here could never be reported - every PR would be permanently
+        # unmergeable with no visible cause. Unparsable repo-local config means UNKNOWN, not "no config".
+        mock_set_branch_protection.assert_not_called()
+        mock_get_branch.assert_not_called()
+        mock_logger.error.assert_called_once()
+        error_message = mock_logger.error.call_args.args[0]
+        assert "owner/test-repo" in error_message
+        assert "skipping branch protection" in error_message
+        assert result[2] == mock_logger.info
 
     @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
     @patch("webhook_server.utils.github_repository_settings.LOGGER")

@@ -347,12 +347,18 @@ def set_repository(
         repository_config: dict[str, Any] = config.repository_local_data(
             github_api=github_api, repository_full_name=full_repository_name, raise_on_error=True
         )
-    except yaml.YAMLError:
-        # Never abort startup on a broken repo-local file, the config.yaml values are used instead
-        LOGGER.warning(
-            f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, ignoring it"
+    except yaml.YAMLError as ex:
+        # Never abort startup on a broken repo-local file, but do not fall back to the defaults either:
+        # the runtime path (config.repository_local_data, raise_on_error=True) propagates this same error, so
+        # no security status check is ever reported for this repository. Requiring checks that can never run
+        # makes every PR permanently unmergeable with no visible cause, and a default we cannot trust is not
+        # "no config" - it is UNKNOWN. Startup and runtime must agree here: leave branch protection untouched.
+        LOGGER.error(
+            f"[API user {api_user}] - {full_repository_name}: Invalid YAML in .github-webhook-server.yaml, ex: {ex}, "
+            "skipping branch protection"
         )
         repository_config = {}
+        apply_branch_protection = False
     except Exception:
         # We cannot tell if the repo-local config exists, so we cannot know which security-checks the
         # repository disabled. Skip only branch protection rather than writing it from incomplete config.
