@@ -145,7 +145,7 @@ Read the counters before you trust the result set:
 - `filtered_count_min` — `len(entries) + offset`, the **lower bound** of matches. There is no exact total count; paging with `offset` is the way to walk a large result set.
 - `total_log_count_estimate` — string, sampled from file sizes across the first 10 `.log` files (~200 bytes per line assumed). It is a size for the stats bar, not a count you can page against.
 
-Errors: `400` for an unparseable timestamp or a limit outside 1–10000 reaching the controller, `500` for log file access errors, `422` from FastAPI for a `limit`/`offset` outside the declared `Query` bounds.
+Errors: `400` for an unparseable timestamp or a limit outside 1–10000 reaching the controller, `422` from FastAPI for a `limit`/`offset` outside the declared `Query` bounds. Damaged log data is not an error: a log file that cannot be read is logged at `WARNING` and skipped by the streamer, and a JSONL line that is not valid JSON is dropped by `get_raw_json_entry()`. A corrupt file therefore yields fewer entries, not a `500`.
 
 ## `GET /logs/api/export`
 
@@ -239,7 +239,7 @@ Only parameter: `hook_id`, the delivery ID.
 Data source, in order:
 
 1. **JSON summaries first.** `_stream_json_log_entries()` scans `webhooks_*.json` for a `type: "webhook_summary"` entry whose `hook_id` matches. That entry is the serialized `WebhookContext` (see [context](#hook-id-and-the-workflow-context)), and `_transform_json_entry_to_timeline()` reshapes it.
-2. **Text log fallback.** If no JSON entry matches — or the JSON path raises — `get_workflow_steps()` re-reads the text `.log` files and reconstructs the timeline from `logger.step` lines. This path also recovers `token_spend`, falling back to parsing it out of the message text.
+2. **Text log fallback.** If no JSON entry matches — or the JSON path raises **any** `HTTPException`, including `500 Malformed log entry` — `get_workflow_steps()` re-reads the text `.log` files and reconstructs the timeline from `logger.step` lines. This path also recovers `token_spend`, falling back to parsing it out of the message text.
 
 Response from the JSON path:
 
@@ -269,11 +269,33 @@ Response from the JSON path:
 }
 ```
 
-`pr` is `null` when the delivery had no pull request. `token_spend` is only present when the delivery recorded one. Malformed JSON summaries fail fast rather than returning partial data — a missing `timing`, a missing `timing.started_at`/`timing.duration_ms`, a missing `workflow_steps`, a non-dict `pr`, or a step without a `timestamp` all produce `500 Malformed log entry`.
+`pr` is `null` when the delivery had no pull request. `token_spend` is only present when the delivery recorded one.
+
+A broken summary never yields partial data here — but it also never surfaces as a `500`. Three cases, and they are not the same:
+
+| Situation | JSON path | What the endpoint returns |
+| --- | --- | --- |
+| The summary line is not valid JSON | `get_raw_json_entry()` catches `json.JSONDecodeError` and returns `None`; the line is dropped silently, no error raised | Behaves exactly as if no summary existed: `404` from the JSON path, then the text fallback |
+| No `webhook_summary` entry for the `hook_id` inside the scanned window | `404 No JSON log entry found for hook ID: ...` | Text fallback |
+| The summary parses but fails structural validation — missing `timing`, missing `timing.started_at` or `timing.duration_ms`, missing `workflow_steps`, a non-dict `pr`, or a step without a `timestamp` | `_transform_json_entry_to_timeline()` raises `ValueError`; `get_workflow_steps_json()` converts it to `500 Malformed log entry` | That `500` is **swallowed** and the request falls through to the text logs. You get a reconstructed `200` timeline in the text-fallback shape, or `404 No data found for hook ID: ...` / `404 No workflow steps found for hook ID: ...` if the text logs do not cover the delivery |
+
+The swallow is the backward-compatibility path, and it is unconditional — it does not distinguish a missing summary from a corrupt one:
+
+```python
+try:
+    # First try JSON logs (more efficient and complete)
+    try:
+        return await self.get_workflow_steps_json(hook_id)
+    except HTTPException:
+        # Fall back to text log parsing for backward compatibility
+        pass
+```
+
+So `500 Malformed log entry` is **not** a response this endpoint can produce. It belongs to `get_workflow_steps_json()` and is only reachable through `/logs/api/step-logs/{hook_id}/{step_name}`, which calls that method directly. To diagnose a corrupt summary, look for `Malformed log entry for hook ID: ...` in `logs_server.log` — the `logger.exception()` fires even though the request does not fail.
 
 The text-fallback shape differs: steps carry `message`, `level`, `relative_time_ms`, `repository`, `event_type`, `pr_number`, `task_id`, `task_type`, `task_status` instead of the JSON-path fields, and the top level has only `hook_id`, `start_time`, `total_duration_ms`, `step_count`, `steps` (plus `token_spend` when found).
 
-Errors: `404` when neither path finds data for the ID, `400` for an unusable identifier, `500` for a malformed entry.
+Errors: `404` when neither path finds data for the ID — `No data found for hook ID: ...` when the text logs hold nothing for it, `No workflow steps found for hook ID: ...` when they hold entries but no `logger.step` lines; `400` for an unusable identifier; `500 Internal server error` for an unexpected failure. A malformed JSON summary does **not** produce a `500` here — see the table above.
 
 ## `GET /logs/api/step-logs/{hook_id}/{step_name}`
 
@@ -304,7 +326,9 @@ The step is located in the workflow timeline, then a time window is computed: `s
 }
 ```
 
-Errors: `404` if the hook ID has no timeline or the step name is not in it, `403` when the client IP is not private/loopback/link-local or cannot be determined, `500` if the step has no usable timestamp.
+This route reads the JSON summaries only. It calls `get_workflow_steps_json()` directly, with no text-log fallback, which makes it the one endpoint that can actually return `500 Malformed log entry`: a matching summary that fails structural validation propagates the error instead of being abandoned. A `hook_id` with no summary at all gets `404 No JSON log entry found for hook ID: ...` — note that is *not* the same message the workflow-steps route returns, and that route may still serve the delivery from text logs.
+
+Errors: `404` if no JSON summary matches the hook ID or the step name is not in the timeline, `403` when the client IP is not private/loopback/link-local or cannot be determined, `500 Malformed log entry` for a summary that parses but fails validation, `500` if the step has no usable timestamp or its timestamp is unparseable.
 
 ### The trusted-network check
 
@@ -483,7 +507,8 @@ Steps are recorded through `start_step()` / `complete_step()` / `fail_step()`. A
 | The viewer page renders "Log Viewer Template Error" | `templates/log_viewer.html` could not be read; a built-in fallback page is served |
 | The page loads but shows no entries | `<data-dir>/logs` is empty or missing. Startup fails if `webhook_server/web/static/` is missing, not the logs directory — check `WEBHOOK_SERVER_DATA_DIR`. |
 | `is_partial_scan: true` or a `"...+"` count | The 20 000 / 50 000 entry streaming cap was hit. Add `hook_id`, `repository`, or a time range. |
-| `404` from `workflow-steps` for a delivery you can see in `/logs/api/entries` | The JSON summary has not been written yet (it is written at the end of processing), or the delivery fell outside the 25-file / 50 000-entry window |
+| `404` from `workflow-steps` for a delivery you can see in `/logs/api/entries` | The JSON summary has not been written yet (it is written at the end of processing), the delivery fell outside the 25-file / 50 000-entry window, or the summary is corrupt and the text logs have no `logger.step` lines to replace it — all three end in the same `404` |
+| `500 Malformed log entry` from `step-logs` but a `200` (or `404`) from `workflow-steps` for the same ID | The two routes disagree by design: `step-logs` reads the JSON summary directly and surfaces the validation error, `workflow-steps` falls back to text logs. Check `logs_server.log` for `Malformed log entry for hook ID: ...` |
 | `/mcp` returns `500` "MCP server not initialized" | `fastapi_mcp` failed to import or the session manager failed to start. Check `mcp_server.log` and the startup logs. |
 
 ## See also

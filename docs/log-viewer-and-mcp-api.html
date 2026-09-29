@@ -448,7 +448,7 @@
 <li><code>filtered_count_min</code> — <code>len(entries) + offset</code>, the <strong>lower bound</strong> of matches. There is no exact total count; paging with <code>offset</code> is the way to walk a large result set.</li>
 <li><code>total_log_count_estimate</code> — string, sampled from file sizes across the first 10 <code>.log</code> files (~200 bytes per line assumed). It is a size for the stats bar, not a count you can page against.</li>
 </ul>
-<p>Errors: <code>400</code> for an unparseable timestamp or a limit outside 1–10000 reaching the controller, <code>500</code> for log file access errors, <code>422</code> from FastAPI for a <code>limit</code>/<code>offset</code> outside the declared <code>Query</code> bounds.</p>
+<p>Errors: <code>400</code> for an unparseable timestamp or a limit outside 1–10000 reaching the controller, <code>422</code> from FastAPI for a <code>limit</code>/<code>offset</code> outside the declared <code>Query</code> bounds. Damaged log data is not an error: a log file that cannot be read is logged at <code>WARNING</code> and skipped by the streamer, and a JSONL line that is not valid JSON is dropped by <code>get_raw_json_entry()</code>. A corrupt file therefore yields fewer entries, not a <code>500</code>.</p>
 <h2 id="get-logsapiexport"><code>GET /logs/api/export</code></h2>
 <p>The same filters, streamed to a file download. Operation ID <code>export_logs</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/export?format_type=json&amp;level=ERROR&amp;start_time=2024-01-01T00:00:00Z&amp;limit=10000</span>
@@ -561,7 +561,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <p>Data source, in order:</p>
 <ol>
 <li><strong>JSON summaries first.</strong> <code>_stream_json_log_entries()</code> scans <code>webhooks_*.json</code> for a <code>type: "webhook_summary"</code> entry whose <code>hook_id</code> matches. That entry is the serialized <code>WebhookContext</code> (see <a href="#hook-id-and-the-workflow-context">context</a>), and <code>_transform_json_entry_to_timeline()</code> reshapes it.</li>
-<li><strong>Text log fallback.</strong> If no JSON entry matches — or the JSON path raises — <code>get_workflow_steps()</code> re-reads the text <code>.log</code> files and reconstructs the timeline from <code>logger.step</code> lines. This path also recovers <code>token_spend</code>, falling back to parsing it out of the message text.</li>
+<li><strong>Text log fallback.</strong> If no JSON entry matches — or the JSON path raises <strong>any</strong> <code>HTTPException</code>, including <code>500 Malformed log entry</code> — <code>get_workflow_steps()</code> re-reads the text <code>.log</code> files and reconstructs the timeline from <code>logger.step</code> lines. This path also recovers <code>token_spend</code>, falling back to parsing it out of the message text.</li>
 </ol>
 <p>Response from the JSON path:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -589,9 +589,47 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <span class="p">}</span>
 </code></pre></div>
 
-<p><code>pr</code> is <code>null</code> when the delivery had no pull request. <code>token_spend</code> is only present when the delivery recorded one. Malformed JSON summaries fail fast rather than returning partial data — a missing <code>timing</code>, a missing <code>timing.started_at</code>/<code>timing.duration_ms</code>, a missing <code>workflow_steps</code>, a non-dict <code>pr</code>, or a step without a <code>timestamp</code> all produce <code>500 Malformed log entry</code>.</p>
+<p><code>pr</code> is <code>null</code> when the delivery had no pull request. <code>token_spend</code> is only present when the delivery recorded one.</p>
+<p>A broken summary never yields partial data here — but it also never surfaces as a <code>500</code>. Three cases, and they are not the same:</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>JSON path</th>
+<th>What the endpoint returns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The summary line is not valid JSON</td>
+<td><code>get_raw_json_entry()</code> catches <code>json.JSONDecodeError</code> and returns <code>None</code>; the line is dropped silently, no error raised</td>
+<td>Behaves exactly as if no summary existed: <code>404</code> from the JSON path, then the text fallback</td>
+</tr>
+<tr>
+<td>No <code>webhook_summary</code> entry for the <code>hook_id</code> inside the scanned window</td>
+<td><code>404 No JSON log entry found for hook ID: ...</code></td>
+<td>Text fallback</td>
+</tr>
+<tr>
+<td>The summary parses but fails structural validation — missing <code>timing</code>, missing <code>timing.started_at</code> or <code>timing.duration_ms</code>, missing <code>workflow_steps</code>, a non-dict <code>pr</code>, or a step without a <code>timestamp</code></td>
+<td><code>_transform_json_entry_to_timeline()</code> raises <code>ValueError</code>; <code>get_workflow_steps_json()</code> converts it to <code>500 Malformed log entry</code></td>
+<td>That <code>500</code> is <strong>swallowed</strong> and the request falls through to the text logs. You get a reconstructed <code>200</code> timeline in the text-fallback shape, or <code>404 No data found for hook ID: ...</code> / <code>404 No workflow steps found for hook ID: ...</code> if the text logs do not cover the delivery</td>
+</tr>
+</tbody>
+</table>
+<p>The swallow is the backward-compatibility path, and it is unconditional — it does not distinguish a missing summary from a corrupt one:</p>
+<div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="c1"># First try JSON logs (more efficient and complete)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_workflow_steps_json</span><span class="p">(</span><span class="n">hook_id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">HTTPException</span><span class="p">:</span>
+        <span class="c1"># Fall back to text log parsing for backward compatibility</span>
+        <span class="k">pass</span>
+</code></pre></div>
+
+<p>So <code>500 Malformed log entry</code> is <strong>not</strong> a response this endpoint can produce. It belongs to <code>get_workflow_steps_json()</code> and is only reachable through <code>/logs/api/step-logs/{hook_id}/{step_name}</code>, which calls that method directly. To diagnose a corrupt summary, look for <code>Malformed log entry for hook ID: ...</code> in <code>logs_server.log</code> — the <code>logger.exception()</code> fires even though the request does not fail.</p>
 <p>The text-fallback shape differs: steps carry <code>message</code>, <code>level</code>, <code>relative_time_ms</code>, <code>repository</code>, <code>event_type</code>, <code>pr_number</code>, <code>task_id</code>, <code>task_type</code>, <code>task_status</code> instead of the JSON-path fields, and the top level has only <code>hook_id</code>, <code>start_time</code>, <code>total_duration_ms</code>, <code>step_count</code>, <code>steps</code> (plus <code>token_spend</code> when found).</p>
-<p>Errors: <code>404</code> when neither path finds data for the ID, <code>400</code> for an unusable identifier, <code>500</code> for a malformed entry.</p>
+<p>Errors: <code>404</code> when neither path finds data for the ID — <code>No data found for hook ID: ...</code> when the text logs hold nothing for it, <code>No workflow steps found for hook ID: ...</code> when they hold entries but no <code>logger.step</code> lines; <code>400</code> for an unusable identifier; <code>500 Internal server error</code> for an unexpected failure. A malformed JSON summary does <strong>not</strong> produce a <code>500</code> here — see the table above.</p>
 <h2 id="get-logsapistep-logshook_idstep_name"><code>GET /logs/api/step-logs/{hook_id}/{step_name}</code></h2>
 <p>The log lines written while one workflow step ran. Operation ID <code>get_step_logs</code>. This is the one route with a network restriction.</p>
 <div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/step-logs/72d3162e-cc78-11e3-81ab-4c9367dc0958/webhook_routing</span>
@@ -632,7 +670,8 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <span class="p">}</span>
 </code></pre></div>
 
-<p>Errors: <code>404</code> if the hook ID has no timeline or the step name is not in it, <code>403</code> when the client IP is not private/loopback/link-local or cannot be determined, <code>500</code> if the step has no usable timestamp.</p>
+<p>This route reads the JSON summaries only. It calls <code>get_workflow_steps_json()</code> directly, with no text-log fallback, which makes it the one endpoint that can actually return <code>500 Malformed log entry</code>: a matching summary that fails structural validation propagates the error instead of being abandoned. A <code>hook_id</code> with no summary at all gets <code>404 No JSON log entry found for hook ID: ...</code> — note that is <em>not</em> the same message the workflow-steps route returns, and that route may still serve the delivery from text logs.</p>
+<p>Errors: <code>404</code> if no JSON summary matches the hook ID or the step name is not in the timeline, <code>403</code> when the client IP is not private/loopback/link-local or cannot be determined, <code>500 Malformed log entry</code> for a summary that parses but fails validation, <code>500</code> if the step has no usable timestamp or its timestamp is unparseable.</p>
 <h3 id="the-trusted-network-check">The trusted-network check</h3>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">require_trusted_network</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="o">...</span>
@@ -965,7 +1004,11 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 </tr>
 <tr>
 <td><code>404</code> from <code>workflow-steps</code> for a delivery you can see in <code>/logs/api/entries</code></td>
-<td>The JSON summary has not been written yet (it is written at the end of processing), or the delivery fell outside the 25-file / 50 000-entry window</td>
+<td>The JSON summary has not been written yet (it is written at the end of processing), the delivery fell outside the 25-file / 50 000-entry window, or the summary is corrupt and the text logs have no <code>logger.step</code> lines to replace it — all three end in the same <code>404</code></td>
+</tr>
+<tr>
+<td><code>500 Malformed log entry</code> from <code>step-logs</code> but a <code>200</code> (or <code>404</code>) from <code>workflow-steps</code> for the same ID</td>
+<td>The two routes disagree by design: <code>step-logs</code> reads the JSON summary directly and surfaces the validation error, <code>workflow-steps</code> falls back to text logs. Check <code>logs_server.log</code> for <code>Malformed log entry for hook ID: ...</code></td>
 </tr>
 <tr>
 <td><code>/mcp</code> returns <code>500</code> "MCP server not initialized"</td>
