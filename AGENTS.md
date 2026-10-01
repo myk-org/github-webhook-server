@@ -10,7 +10,7 @@
 - Lint + static checks: `uvx prek run --all-files` (covers ruff, ruff-format, mypy, flake8, gitleaks, detect-secrets, eslint — the only supported way to run them)
 - CI gate: `uvx tox` (runs the `unittests` and `unused-code` environments — this is what CI actually runs; `uvx` needs no install. Plain `tox` works if you have it globally)
 - Full verify: `uvx prek run --all-files && uvx tox`
-- Rebuild docs site: `uvx pi-docsite` (see [Documentation](#documentation))
+- Rebuild docs site: `uvx pi-docsite --docs-dir docs --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."` (see [Documentation](#documentation); keep this in sync with the same command below)
 
 ## Definition of Done
 A task is complete when ALL pass:
