@@ -1,0 +1,35 @@
+{
+  "groups": [
+    {
+      "name": "Getting Started",
+      "pages": ["quick-start"]
+    },
+    {
+      "name": "User Guides",
+      "pages": [
+        "configure-repositories",
+        "set-up-owners-and-reviewers",
+        "manage-pull-requests",
+        "run-pull-request-commands",
+        "set-up-checks-and-release-workflows",
+        "enable-ai-features",
+        "secure-webhooks-and-pull-requests",
+        "debug-with-the-log-viewer"
+      ]
+    },
+    {
+      "name": "Explore",
+      "pages": ["automation-recipes"]
+    },
+    {
+      "name": "Reference",
+      "pages": [
+        "configuration-reference",
+        "environment-variables",
+        "webhook-and-health-api",
+        "log-viewer-and-mcp-api",
+        "supported-github-events"
+      ]
+    }
+  ]
+}

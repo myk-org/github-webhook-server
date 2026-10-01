@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enable AI Features - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -282,7 +282,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 </code></pre></div>
 
 <p>Use the credential that matches your <code>ai-provider</code> value. The first command checks the webhook server, and the second checks the local AI sidecar; replace <code>9100</code> if you set <code>SIDECAR_PORT</code>.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Provider</th>
@@ -303,7 +303,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <td><code>CURSOR_API_KEY</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Tip:</strong> Add <code>ACPX_AGENTS=cursor</code> when you want Cursor model discovery. The example deployment also supports <code>docker exec -it github-webhook-server agent</code> if you prefer Cursor interactive login instead of <code>CURSOR_API_KEY</code>.</p>
 </blockquote>
@@ -324,7 +324,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <span class="w">        </span><span class="nt">timeout-minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 </code></pre></div>
 
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Mode</th>
@@ -341,7 +341,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <td>The server edits the PR title and turns the check green if the suggestion validates.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Open a PR with a non-matching title, or retitle an existing PR, to test the feature. If the repo does not have a <code>conventional-title</code> rule, this AI feature stays idle even if <code>ai-features</code> is present.</p>
 <blockquote>
 <p><strong>Tip:</strong> Start with <code>suggest</code> so humans can review the wording before you move to <code>fix</code>.</p>
@@ -384,7 +384,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 </code></pre></div>
 
 <p>This block is separate from <code>ai-features</code>. Conventional-title suggestions and cherry-pick AI use the local sidecar, but <code>test-oracle</code> calls the external service at <code>server-url</code>.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Trigger</th>
@@ -405,7 +405,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 <td>When new commits are pushed to a PR</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>/test-oracle</code> always works on demand when the feature is configured, regardless of the trigger list.</p>
 <blockquote>
 <p><strong>Note:</strong> The automatic <code>approved</code> trigger means the project's <code>/approve</code> command, not a plain GitHub review approval.</p>
@@ -505,7 +505,7 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -513,13 +513,14 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -565,5 +566,6 @@ curl<span class="w"> </span>-f<span class="w"> </span>http://localhost:9100/heal
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>

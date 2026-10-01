@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration Reference - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -206,7 +206,7 @@
                     <h1 id="configuration-reference">Configuration Reference</h1>
 <p>Reference for <code>config.yaml</code>, repository entries under <code>repositories.&lt;repo-id&gt;</code>, and repository-local <code>.github-webhook-server.yaml</code> overrides. See <a href="configure-repositories.html">Configure Repositories</a> for rollout patterns, <a href="set-up-checks-and-release-workflows.html">Set Up Checks and Release Workflows</a> for workflow examples, <a href="enable-ai-features.html">Enable AI Features</a> for AI setup, <a href="secure-webhooks-and-pull-requests.html">Secure Webhooks and Pull Requests</a> for hardening, <a href="supported-github-events.html">Supported GitHub Events</a> for event coverage, and <a href="environment-variables.html">Environment Variables</a> for non-YAML settings.</p>
 <h2 id="files-and-resolution">Files and Resolution</h2>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Scope label</th>
@@ -227,8 +227,8 @@
 <td>Root of <code>.github-webhook-server.yaml</code></td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>File</th>
@@ -248,8 +248,8 @@
 <td>Optional. Overrides only the keys the webhook runtime reads from the repository after startup.</td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Resolution rule</th>
@@ -278,7 +278,7 @@
 <td>A repo-scoped block replaces the global block instead of deep-merging it. Repeat required subkeys when overriding.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> <code>.github-webhook-server.yaml</code> is not consulted for <code>name</code>, <code>log-level</code>, <code>log-file</code>, <code>mask-sensitive-data</code>, <code>github-tokens</code>, <code>events</code>, <code>default-status-checks</code>, <code>protected-branches</code>, <code>allow-commands-on-draft-prs</code>, <code>test-oracle</code>, or <code>pr-size-thresholds</code>. Put those keys in <code>config.yaml</code>.</p>
 <p><strong>Note:</strong> A repo-local <code>branch-protection</code> block only affects webhook-time <code>required_conversation_resolution</code> handling. GitHub branch protection updates at startup still come from <code>config.yaml</code>.</p>
@@ -302,7 +302,7 @@
 
 <h2 id="global-keys">Global Keys</h2>
 <h3 id="logging">Logging</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -349,7 +349,7 @@
 <td>Applies log masking across the server unless a repo-level <code>config.yaml</code> override is present.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">log-level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
 <span class="nt">log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook-server.log</span>
 <span class="nt">mcp-log-file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp_server.log</span>
@@ -358,7 +358,7 @@
 </code></pre></div>
 
 <h3 id="github-access-and-network">GitHub Access and Network</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -440,7 +440,7 @@
 <td>Used in production mode; ignored when dev reload mode is enabled.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> If <code>verify-github-ips</code> or <code>verify-cloudflare-ips</code> is enabled and no allowlist loads successfully, the server fails closed and does not start.</p>
 </blockquote>
@@ -459,7 +459,7 @@
 </code></pre></div>
 
 <h3 id="global-repository-defaults">Global Repository Defaults</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -513,7 +513,7 @@
 <td>Omitted blocks draft-PR commands, <code>[]</code> allows all, and a non-empty list allows only the listed commands.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">default-status-checks</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ci/external</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy/manual-approval</span>
@@ -529,7 +529,7 @@
 
 <h3 id="docker"><code>docker</code></h3>
 <p>Where: <code>Global</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -555,7 +555,7 @@
 <td>Used for startup <code>docker.io</code> login.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">docker</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dockerhub-user</span>
 <span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;dockerhub-token&gt;</span>
@@ -564,7 +564,7 @@
 <h2 id="repository-registration">Repository Registration</h2>
 <h3 id="repositories"><code>repositories</code></h3>
 <p>Where: <code>Global</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -597,7 +597,7 @@
 <td>Used for GitHub API access, webhook registration, and repo setup.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">repositories</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">github-webhook-server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-org/github-webhook-server</span>
@@ -608,7 +608,7 @@
 <h2 id="repository-keys">Repository Keys</h2>
 <h3 id="repo-keys-read-from-configyaml-only">Repo Keys Read From <code>config.yaml</code> Only</h3>
 <p>Where: <code>Repo</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -669,7 +669,7 @@
 <td>Omitted blocks draft-PR commands, <code>[]</code> allows all, non-empty list allows only the listed commands.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> For event behavior after delivery, see <a href="supported-github-events.html">Supported GitHub Events</a>.</p>
 </blockquote>
@@ -696,7 +696,7 @@
 
 <h3 id="repo-keys-read-from-configyaml-or-github-webhook-serveryaml">Repo Keys Read From <code>config.yaml</code> or <code>.github-webhook-server.yaml</code></h3>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -792,7 +792,7 @@
 <td>Overrides whether cherry-pick PRs are assigned to the original PR author.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> <code>pre-commit</code> is runtime-disabled until you set it to <code>true</code>, even though the schema advertises a <code>true</code> default.</p>
 </blockquote>
@@ -815,7 +815,7 @@
 <h2 id="shared-blocks">Shared Blocks</h2>
 <h3 id="branch-protection"><code>branch-protection</code></h3>
 <p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -869,7 +869,7 @@
 <td>GitHub enforces conversation resolution, and the webhook runtime listens to review-thread events only when this is enabled.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> Repo <code>branch-protection</code> values overlay global values field by field.</p>
 </blockquote>
@@ -891,7 +891,7 @@
 
 <h3 id="labels"><code>labels</code></h3>
 <p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -924,7 +924,7 @@
 <td>Applies the configured color when matching labels are created or updated.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> Reviewed-by labels such as <code>approved-*</code>, <code>lgtm-*</code>, <code>commented-*</code>, and <code>changes-requested-*</code> are always enabled.</p>
 <p><strong>Tip:</strong> Use <code>pr-size-thresholds</code> to control <code>size/*</code> label names and colors.</p>
@@ -944,7 +944,7 @@
 
 <h3 id="welcome-extra-info"><code>welcome-extra-info</code></h3>
 <p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -963,7 +963,7 @@
 <td>Adds extra guidance to the welcome comment unless a repo file overrides it.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> If <code>.github-webhook-server-welcome-message.md</code> exists in the repository, its contents replace <code>welcome-extra-info</code>. An empty file suppresses configured welcome text.</p>
 </blockquote>
@@ -974,7 +974,7 @@
 
 <h3 id="security-checks"><code>security-checks</code></h3>
 <p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1014,7 +1014,7 @@
 <td>Allows listed committers to pass the identity check; entries are normalized to lowercase.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> Built-in <code>suspicious-paths</code> defaults are <code>.claude/</code>, <code>.vscode/</code>, <code>.cursor/</code>, <code>.devcontainer/</code>, <code>.pi/</code>, <code>.github/workflows/</code>, and <code>.github/actions/</code>.</p>
 <p><strong>Note:</strong> The server automatically trusts the GitHub App bot login, <code>web-flow</code>, and the API users behind <code>github-tokens</code>.</p>
@@ -1033,7 +1033,7 @@
 
 <h3 id="ai-features"><code>ai-features</code></h3>
 <p>Where: <code>Global</code> or <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1094,7 +1094,7 @@
 <td>Limits how long the AI cherry-pick resolution step can run.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> Repo/local <code>ai-features</code> replaces the global block. Repeat <code>ai-provider</code> and <code>ai-model</code> in every override.</p>
 <p><strong>Note:</strong> Cherry-picks resolved with AI are never auto-verified.</p>
@@ -1113,7 +1113,7 @@
 
 <h3 id="test-oracle"><code>test-oracle</code></h3>
 <p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1160,7 +1160,7 @@
 <td>Controls when the server runs automatic oracle analysis.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> <code>approved</code> refers to the <code>/approve</code> command path used by this server. The <code>/test-oracle</code> command works whenever the block is configured.</p>
 <p><strong>Warning:</strong> Repo <code>test-oracle</code> replaces the global block. <code>.github-webhook-server.yaml</code> does not override this block.</p>
@@ -1178,7 +1178,7 @@
 
 <h3 id="pr-size-thresholds"><code>pr-size-thresholds</code></h3>
 <p>Where: <code>Global</code> or <code>Repo</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1204,7 +1204,7 @@
 <td>Sets the label color for the bucket.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Note:</strong> Built-in thresholds are <code>size/XS</code> for <code>&lt;20</code>, <code>size/S</code> for <code>&lt;50</code>, <code>size/M</code> for <code>&lt;100</code>, <code>size/L</code> for <code>&lt;300</code>, <code>size/XL</code> for <code>&lt;500</code>, and <code>size/XXL</code> otherwise.</p>
 <p><strong>Warning:</strong> Repo <code>pr-size-thresholds</code> replaces the global block. <code>.github-webhook-server.yaml</code> does not override this block.</p>
@@ -1224,7 +1224,7 @@
 <h2 id="repository-only-blocks">Repository-Only Blocks</h2>
 <h3 id="tox"><code>tox</code></h3>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1264,7 +1264,7 @@
 <td>Used only when <code>tox.python-version</code> is absent.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> Use exact branch names and string env lists. The runtime does not expand branch globs, and array branch values are not normalized before execution.</p>
 <p><strong>Note:</strong> If a <code>tox</code> block exists but no branch key matches the PR base branch, tox still runs with the repository’s default tox configuration.</p>
@@ -1278,7 +1278,7 @@
 
 <h3 id="protected-branches"><code>protected-branches</code></h3>
 <p>Where: <code>Repo</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1311,7 +1311,7 @@
 <td>Subtracted from the branch’s required-check list in both paths, removing any entry it names — including the security checks.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> Use exact branch names and the object form shown below. The schema accepts array shorthand, but the startup branch-settings path reads the object form.</p>
 </blockquote>
@@ -1331,7 +1331,7 @@
 
 <h3 id="pypi"><code>pypi</code></h3>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1350,14 +1350,14 @@
 <td>Enables package publishing on the repository’s release/tag workflow.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">pypi</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;pypi-token&gt;</span>
 </code></pre></div>
 
 <h3 id="container"><code>container</code></h3>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1432,7 +1432,7 @@
 <td>Selects the Dockerfile used for the build.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="nt">container</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay-user</span>
 <span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;quay-token&gt;</span>
@@ -1449,7 +1449,7 @@
 
 <h4 id="containeroci-annotations"><code>container.oci-annotations</code></h4>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1510,7 +1510,7 @@
 <td>Adds the repository name annotation.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> <code>container.context</code> must stay under the repository root. Path traversal is rejected at runtime.</p>
 </blockquote>
@@ -1532,7 +1532,7 @@
 
 <h3 id="custom-check-runs"><code>custom-check-runs</code></h3>
 <p>Where: <code>Repo/local</code></p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -1565,7 +1565,7 @@
 <td>Mandatory checks join the required-check list; optional checks still run but do not block merge.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Warning:</strong> Custom check names must be unique and cannot collide with built-in check names: <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>python-module-install</code>, <code>conventional-title</code>, <code>can-be-merged</code>, <code>security-suspicious-paths</code>, and <code>security-committer-identity</code>.</p>
 <p><strong>Note:</strong> The server validates that the command has an executable after any leading environment assignments, and that the executable exists on the server.</p>
@@ -1656,7 +1656,7 @@
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -1664,13 +1664,14 @@
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -1716,5 +1717,6 @@
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>

@@ -10,7 +10,7 @@
 - Lint + static checks: `uvx prek run --all-files` (covers ruff, ruff-format, mypy, flake8, gitleaks, detect-secrets, eslint — the only supported way to run them)
 - CI gate: `uvx tox` (runs the `unittests` and `unused-code` environments — this is what CI actually runs; `uvx` needs no install. Plain `tox` works if you have it globally)
 - Full verify: `uvx prek run --all-files && uvx tox`
-- Rebuild docs site: `uv run python scripts/generate_docs.py` (see [Documentation](#documentation))
+- Rebuild docs site: `uvx pi-docsite --docs-dir docs --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."` (see [Documentation](#documentation); keep this in sync with the same command below)
 
 ## Definition of Done
 A task is complete when ALL pass:
@@ -43,9 +43,9 @@ See `docs/` for architecture and configuration reference docs.
 `docs/*.md` is the source of truth. `docs/*.html`, `docs/search-index.json`, `docs/llms.txt` and `docs/llms-full.txt` are **generated** — never edit them by hand.
 
 - Update or write the markdown: `docs/<slug>.md`
-- Rebuild the site: `uv run python scripts/generate_docs.py` (run from repo root; idempotent, so a clean second run produces no diff)
+- Rebuild the site: `uvx pi-docsite --docs-dir docs --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."` (run from repo root; idempotent, so a clean second run produces no diff). `--project-name` and `--repo-url` are derived from the git remote — only the tagline needs repeating
 - Preview: serve `docs/` over HTTP and open a page (e.g. `uv run python -m http.server -d docs 8000`) — do not open the `.html` via `file://`, the sidebar and search need HTTP
-- `scripts/docs_render/` is a vendored copy of the renderer from `myk-org/docsfy` (Jinja templates + Pygments highlighting). It is deliberately committed so docs can be rebuilt without that repo present.
+- The renderer is the `pi-docsite` package on PyPI, run through `uvx` — nothing is vendored in this repo and no docs build dependency is committed. Regenerate with whatever `pi-docsite` version is current.
 
 Markdown rules that the renderer depends on:
 - Every file starts with exactly one H1 — it becomes the page title and the sidebar label
@@ -53,7 +53,7 @@ Markdown rules that the renderer depends on:
 - Use `| tables |` for tabular data; tables inside a code fence render as raw text
 - Cross-link other pages by slug: `[label](other-page.html)`
 
-Adding a new page: create `docs/<slug>.md` with one H1, then add it to the navigation list in `scripts/generate_docs.py` — the sidebar is not auto-discovered, so a page missing from that list will not appear in navigation or search.
+Adding a new page: create `docs/<slug>.md` with one H1, then add its slug to `docs/nav.json` — array order is display order. A page missing from `nav.json` is still built, but lands under a fallback group named `More` and the build prints a note naming it.
 
 ## When Writing Code
 
