@@ -10,3 +10,10 @@ push_commands = ["/agentic_review"]
 [review_agent]
 comments_location_policy = "both"
 inline_comments_severity_threshold = 1
+
+# Files owned by another project, not by this repo. The docs site is rendered by
+# pi-docsite (PyPI), which writes these on every build; docs/*.md and docs/nav.json
+# are authored here and stay in scope. A review comment on rendered HTML is a
+# complaint about the generator, not about this repo, so it belongs upstream.
+[ignore]
+glob = ["docs/*.html", "docs/assets/*", "docs/llms.txt", "docs/llms-full.txt", "docs/search-index.json"]
