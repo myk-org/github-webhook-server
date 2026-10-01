@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Set Up Checks and Release Workflows - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -228,7 +228,7 @@
 <p>The CI stage is driven by <code>PullRequestHandler._run_pull_request_ci_tasks()</code>. It always schedules tox, pre-commit, python-module-install, and build-container; each of those runners returns early if its feature is not configured. <code>conventional-title</code> is scheduled only when its config is present. The two security checks need no opt-in: with no <code>security-checks</code> block at all, <code>suspicious-paths</code> falls back to <code>DEFAULT_SUSPICIOUS_PATHS</code> and both <code>mandatory</code> and <code>committer-identity-check</code> default to <code>true</code>, so both run. Every validated custom check is scheduled unconditionally.</p>
 <h3 id="the-built-in-checks">The built-in checks</h3>
 <p>Check-run names are constants in <code>webhook_server/utils/constants.py</code>, so what the GitHub UI shows is exactly these strings.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Check run</th>
@@ -283,7 +283,7 @@
 <td>Human-driven: a check run named after the <code>verified</code> label, set to success when the label is added.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Notes per check:</p>
 <ul>
 <li>
@@ -429,7 +429,7 @@
 </code></pre></div>
 
 <p>Keys, exactly as the server reads them:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -484,7 +484,7 @@
 <td>See below.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>build-args</code> and <code>args</code> also accept a single string, which is split with <code>shlex</code>; anything that is neither a string nor a list is ignored. <code>username</code>, <code>password</code>, and <code>repository</code> are read as required keys — a <code>container</code> block missing any of them raises on load, so it is all-or-nothing. <code>dockerfile</code> is read by the server even though the schema does not list it, so set it there and it will be honoured.</p>
 <p>Tag selection, from <code>container_repository_and_tag()</code>:</p>
 <ul>
@@ -589,7 +589,7 @@
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -597,13 +597,14 @@
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -649,5 +650,6 @@
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>

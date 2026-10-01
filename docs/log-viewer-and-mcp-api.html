@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Log Viewer and MCP API - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -219,7 +219,7 @@
 </blockquote>
 <p>One route, <code>GET /logs/api/step-logs/{hook_id}/{step_name}</code>, additionally requires a <strong>private, loopback, or link-local client IP</strong> via <code>require_trusted_network</code>. That is a network-range check on <code>request.client.host</code>, not authentication, and it is trivially bypassed by a misconfigured reverse proxy that does not preserve the client address. It is a speed bump, not a control.</p>
 <h2 id="route-summary">Route summary</h2>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -290,7 +290,7 @@
 <td>Always (started by <code>entrypoint.py</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The two flags are read once at import time and the routes are then either registered or not:</p>
 <div class="highlight"><pre><span></span><code><span class="n">LOG_SERVER_ENABLED</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ENABLE_LOG_SERVER"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"true"</span>
 <span class="n">MCP_SERVER_ENABLED</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ENABLE_MCP_SERVER"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"true"</span>
@@ -334,7 +334,7 @@
 </code></pre></div>
 
 <h3 id="query-parameters">Query parameters</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Parameter</th>
@@ -411,7 +411,7 @@
 <td><code>&gt;= 0</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>All filters are ANDed and matched exactly against the parsed entry fields; <code>search</code> is a case-insensitive substring of <code>message</code>. Time filters compare against the entry timestamp — <code>start_time</code> keeps entries at or after it, <code>end_time</code> keeps entries at or before it. <code>Z</code> suffixes are accepted (<code>parse_datetime_string()</code> rewrites a trailing <code>Z</code> to <code>+00:00</code> before calling <code>datetime.fromisoformat</code>); an unparseable value is a <code>400</code> with <code>Invalid start_time format: ...</code>.</p>
 <h3 id="response">Response</h3>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -454,7 +454,7 @@
 <div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/export?format_type=json&amp;level=ERROR&amp;start_time=2024-01-01T00:00:00Z&amp;limit=10000</span>
 </code></pre></div>
 
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Parameter</th>
@@ -483,7 +483,7 @@
 <td><code>1</code>–<code>100000</code> at the query layer</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The controller rejects <code>limit &gt; 50000</code> with <code>413</code> ("Result set too large"), even though the query parameter accepts up to 100 000.</p>
 <p>Response headers:</p>
 <div class="highlight"><pre><span></span><code>content-type: application/json
@@ -511,7 +511,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 </code></pre></div>
 
 <p><code>hook_id</code> is the only parameter, and it is flexible — the controller branches on the value:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Form</th>
@@ -536,7 +536,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>Delivery ID as given</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Entries are streamed from at most 15 files / 10 000 entries and filtered by whichever identifier was recognised. Stages are then matched by regex over the log messages (<code>WORKFLOW_STAGE_PATTERNS</code>): Webhook Received, Validation Complete, Reviewers Assigned, Labels Applied, Checks Started, Checks Complete, Processing Complete.</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">"identifier"</span><span class="p">:</span><span class="w"> </span><span class="s2">"72d3162e-cc78-11e3-81ab-4c9367dc0958"</span><span class="p">,</span>
@@ -591,7 +591,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 
 <p><code>pr</code> is <code>null</code> when the delivery had no pull request. <code>token_spend</code> is only present when the delivery recorded one.</p>
 <p>A broken summary never yields partial data here — but it also never surfaces as a <code>500</code>. Three cases, and they are not the same:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Situation</th>
@@ -616,7 +616,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>That <code>500</code> is <strong>swallowed</strong> and the request falls through to the text logs. You get a reconstructed <code>200</code> timeline in the text-fallback shape, or <code>404 No data found for hook ID: ...</code> / <code>404 No workflow steps found for hook ID: ...</code> if the text logs do not cover the delivery</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The swallow is the backward-compatibility path, and it is unconditional — it does not distinguish a missing summary from a corrupt one:</p>
 <div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
     <span class="c1"># First try JSON logs (more efficient and complete)</span>
@@ -635,7 +635,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <div class="highlight"><pre><span></span><code><span class="err">GET /logs/api/step-logs/72d3162e-cc78-11e3-81ab-4c9367dc0958/webhook_routing</span>
 </code></pre></div>
 
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Parameter</th>
@@ -655,7 +655,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>1–100 characters — must equal a <code>step_name</code> from the timeline above, e.g. <code>webhook_routing</code>, <code>clone_repository</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The step is located in the workflow timeline, then a time window is computed: <code>step.timestamp</code> to <code>step.timestamp + duration_ms</code>, or a 60 000 ms default window when the step has no recorded duration. Text <code>.log</code> entries with the same <code>hook_id</code> inside that window are collected, capped at <strong>500 entries</strong> (<code>_MAX_STEP_LOGS</code>).</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">"step"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
@@ -687,7 +687,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <span class="nx">ws</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">data</span><span class="p">));</span>
 </code></pre></div>
 
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Parameter</th>
@@ -727,7 +727,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>Log level</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>These are query parameters, not message frames. There is no <code>start_time</code>, <code>end_time</code>, or <code>search</code> on the socket — the live stream only supports the six filters above, unlike the REST search.</p>
 <p>Behaviour:</p>
 <ul>
@@ -761,7 +761,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 </ol>
 <h3 id="exposed-tools">Exposed tools</h3>
 <p><code>FastApiMCP</code> converts every OpenAPI operation into a tool named after its <code>operation_id</code>, then drops anything tagged <code>mcp_exclude</code>. With both flags on, the tool list is:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Tool</th>
@@ -798,7 +798,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td><code>GET /logs/api/step-logs/{hook_id}/{step_name}</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>POST /webhook_server</code> carries <code>tags=["mcp_exclude"]</code> and is therefore <strong>not</strong> exposed as a tool — an AI client cannot post webhooks through MCP. <code>/mcp</code> itself is excluded by <code>include_in_schema=False</code>. The <code>/static</code> mount and the WebSocket are not OpenAPI operations and are not tools either.</p>
 <h3 id="client-configuration">Client configuration</h3>
 <p>Because the transport is stateless and JSON-only, point a Streamable HTTP MCP client at the base URL:</p>
@@ -829,7 +829,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <p>It is the git-tool bridge for AI-assisted conflict resolution (<code>runner_handler.py</code> builds <code>http://127.0.0.1:5001/tools/run</code> per tool). It is unreachable from other hosts by design; do not change the bind address.</p>
 <h3 id="post-1270015001toolsrun"><code>POST 127.0.0.1:5001/tools/run</code></h3>
 <p>JSON body:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Field</th>
@@ -864,10 +864,10 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>Clamped to 1–300 s; falls back to the tool default (<code>30</code>) when unparseable</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Response: <code>{"success": bool, "output": "..."}</code> — stdout, or stderr when stdout is empty, truncated to 50 000 characters. A timeout returns <code>{"success": false, "output": "Command timed out after Ns"}</code>.</p>
 <h3 id="tool-registry">Tool registry</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Tool</th>
@@ -908,13 +908,13 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td><code>0</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Blocked flags are rejected with <code>403</code>, including combined short options: <code>-rf</code> is caught by expanding it into <code>-r -f</code> and checking each character against the blocked short flags. This is what keeps the AI conflict-resolution path read-only apart from scoped <code>git rm</code> and file edits — no <code>bash</code>, no recursive delete.</p>
 <p>Status codes: <code>400</code> for a non-JSON body, a missing <code>tool</code>/<code>cwd</code>, or a non-string <code>cwd</code>/<code>args</code>; <code>403</code> for a blocked flag or a disallowed subcommand; <code>404</code> for an unknown tool name; <code>200</code> for anything the subprocess produced.</p>
 <h2 id="hook_id-and-the-workflow-context"><code>hook_id</code> and the workflow context</h2>
 <p>Everything under <code>/logs/api/*</code> that takes a <code>hook_id</code> is keyed by the GitHub delivery ID — the <code>X-GitHub-Delivery</code> header of the original webhook. Per request the server builds a <code>WebhookContext</code> (<code>webhook_server/utils/context.py</code>) and, at the end of processing, writes it as one <code>type: "webhook_summary"</code> line to <code>webhooks_YYYY-MM-DD.json</code>. That summary is what the pr-flow and workflow-steps routes read.</p>
 <p>The fields the viewer surfaces:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Field</th>
@@ -967,10 +967,10 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td>One-line human-readable result</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Steps are recorded through <code>start_step()</code> / <code>complete_step()</code> / <code>fail_step()</code>. A step that started but never completed is marked <code>status: "started"</code> with <code>duration_ms: null</code> in the summary line, which the timeline reads as "incomplete".</p>
 <h2 id="troubleshooting">Troubleshooting</h2>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Symptom</th>
@@ -1015,7 +1015,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 <td><code>fastapi_mcp</code> failed to import or the session manager failed to start. Check <code>mcp_server.log</code> and the startup logs.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="see-also">See also</h2>
 <ul>
 <li><a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a> — task walkthrough for the UI.</li>
@@ -1091,7 +1091,7 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -1099,13 +1099,14 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -1151,5 +1152,6 @@ content-disposition: attachment; filename=webhook_logs_20240115_143025.json
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>

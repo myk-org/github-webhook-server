@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Webhook and Health API - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -205,7 +205,7 @@
                          the AI generates the content, not end users. -->
                     <h1 id="webhook-and-health-api">Webhook and Health API</h1>
 <p>The always-available surface is small: a health probe, the GitHub webhook receiver, the <code>/static</code> assets used by the log viewer UI, and FastAPI's own <code>/docs</code> and <code>/redoc</code>. The log viewer API and WebSocket routes are always <em>registered</em> too — <code>ENABLE_LOG_SERVER</code> gates <em>access</em> at request time rather than registration, so with the flag off <code>/logs/api/*</code> answers <code>404</code> and <code>/logs/ws</code> closes the connection. The log viewer HTML page and <code>/mcp</code> are the two routes that are only registered when their feature flag is set.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -264,7 +264,7 @@
 <td><code>ENABLE_MCP_SERVER=true</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The base path is not configurable. In <code>webhook_server/app.py</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="n">APP_URL_ROOT_PATH</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"/webhook_server"</span>
 </code></pre></div>
@@ -312,7 +312,7 @@
 
 <p><code>POST /webhook_server</code> is the GitHub callback. The handler validates synchronously and then returns immediately, with the real work running as an <code>asyncio</code> background task.</p>
 <h3 id="request-headers">Request headers</h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Header</th>
@@ -342,7 +342,7 @@
 <td>Body is read raw as bytes for signature verification, then parsed as JSON.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Only <code>X-Hub-Signature-256</code> is checked. The legacy SHA-1 <code>X-Hub-Signature</code> header is ignored.</p>
 <h3 id="request-body">Request body</h3>
 <p>Any GitHub event payload, but the following must be present or the request is rejected with <code>400</code>:</p>
@@ -380,7 +380,7 @@
 </blockquote>
 <h3 id="background-processing">Background processing</h3>
 <p><code>process_webhook</code> builds a structured context, constructs <code>GithubWebhook</code>, calls <code>await api.process()</code>, and always calls <code>await api.cleanup()</code>. Errors are caught and logged; <strong>none of them change the HTTP response</strong>:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Background failure</th>
@@ -405,11 +405,11 @@
 <td>Re-raised (shutdown), not logged as an error</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Each run writes a structured log record (see <a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a>) and logs a summary with the delivery ID prefix. During shutdown the server waits up to 30 seconds for in-flight background tasks, then cancels them.</p>
 <h3 id="error-responses">Error responses</h3>
 <p>All errors are FastAPI's standard JSON error shape.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Status</th>
@@ -479,7 +479,7 @@
 <td>Failure while loading config for signature verification</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Request signatures didn't match!"</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
@@ -517,7 +517,7 @@
 <h2 id="other-route-groups-summary">Other route groups (summary)</h2>
 <p>Full reference: <a href="log-viewer-and-mcp-api.html">Log Viewer and MCP API</a> and <a href="debug-with-the-log-viewer.html">Debug with the Log Viewer</a>.</p>
 <h3 id="log-viewer-enable_log_servertrue">Log viewer — <code>ENABLE_LOG_SERVER=true</code></h3>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -562,7 +562,7 @@
 <td>Real-time log stream with the same filters as the UI. Closes with <code>1008</code> when the log server is disabled.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Every <code>/logs/api/*</code> route depends on <code>require_log_server_enabled</code>, which returns <code>404</code> with <code>Log server is disabled. Set ENABLE_LOG_SERVER=true to enable.</code> when the flag is off.</p>
 <h3 id="mcp-enable_mcp_servertrue">MCP — <code>ENABLE_MCP_SERVER=true</code></h3>
 <div class="highlight"><pre><span></span><code><span class="n">FASTAPI_APP</span><span class="o">.</span><span class="n">add_api_route</span><span class="p">(</span>
@@ -600,7 +600,7 @@ curl<span class="w"> </span>-i<span class="w"> </span>-X<span class="w"> </span>
 <p>Then follow that <code>delivery_id</code> in the log viewer (<code>hook_id</code> filter on <code>/logs/api/entries</code>) to see whether processing actually succeeded.</p>
 <p>For a live OpenAPI schema, <code>/docs</code> and <code>/redoc</code> are served by FastAPI (title <code>webhook-server</code>) with <code>POST /webhook_server</code> hidden from the MCP tool surface via its <code>mcp_exclude</code> tag.</p>
 <h2 id="configuration-keys-this-api-depends-on">Configuration keys this API depends on</h2>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -633,7 +633,7 @@ curl<span class="w"> </span>-i<span class="w"> </span>-X<span class="w"> </span>
 <td>Log destinations for the log viewer and MCP server.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>See <a href="configuration-reference.html">Configuration Reference</a> for every key and <a href="environment-variables.html">Environment Variables</a> for the feature flags.</p>
                 </div>
             </article>
@@ -690,7 +690,7 @@ curl<span class="w"> </span>-i<span class="w"> </span>-X<span class="w"> </span>
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -698,13 +698,14 @@ curl<span class="w"> </span>-i<span class="w"> </span>-X<span class="w"> </span>
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -750,5 +751,6 @@ curl<span class="w"> </span>-i<span class="w"> </span>-X<span class="w"> </span>
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>

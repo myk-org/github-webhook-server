@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Run Pull Request Commands - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,8 +175,8 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener" class="docsfy-badge" title="Generated with docsfy">
-                    ⚡ docs<span class="brand-accent">fy</span>
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                    ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
                 <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener noreferrer" class="top-bar-github" id="github-link" data-repo-url="https://github.com/myk-org/github-webhook-server">
@@ -228,7 +228,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </code></pre></div>
 
 <h2 id="who-can-run-what">Who can run what</h2>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Who</th>
@@ -253,8 +253,8 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <td>Any user who can comment, no permission check</td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Command</th>
@@ -399,7 +399,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <td>Maintainer</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
 <p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list.
 Set it in <code>config.yaml</code>, either globally or under <code>repositories.&lt;repo&gt;</code> to override the global default for a single
@@ -414,7 +414,7 @@ repository:</p>
 
 <p>This key is read from <code>config.yaml</code> only. Unlike most other settings, it is <strong>not</strong> read from a repository-local
 <code>.github-webhook-server.yaml</code> — placing it there has no effect and draft PRs stay blocked.</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Value</th>
@@ -435,7 +435,7 @@ repository:</p>
 <td>Only the listed commands are allowed; any other command is rejected with a comment naming the allowed ones</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>/test-oracle</code> is the one exception to the per-command allowlist — it runs on a draft PR even when it is not listed in
 <code>allow-commands-on-draft-prs</code>. That exception only applies when the key is set, even to an empty list. If the key is
 absent, the draft pull request is dropped before any command is evaluated, so <code>/test-oracle</code> does not run either.</p>
@@ -533,7 +533,7 @@ external contributor working on a PR. The grant is per pull request: the server 
 <em>"retest requires an argument"</em> comment. Unknown names get a <em>"No &lt;name&gt; configured for this repository"</em> comment; the
 valid ones still run.</p>
 <p>Supported names depend on the repository configuration:</p>
-<table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>Test name</th>
@@ -566,7 +566,7 @@ valid ones still run.</p>
 <td>Any check run defined in <code>custom-check-runs</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <div class="highlight"><pre><span></span><code>/retest tox
 </code></pre></div>
 
@@ -731,7 +731,7 @@ command; those labels are managed by the server itself.</p>
 
         <footer class="page-footer">
 
-            Generated with <a href="https://github.com/myk-org/docsfy" target="_blank" rel="noopener">docs<span class="brand-accent">fy</span></a>
+            Built from <code>docs/*.md</code> by <code>pi-docsite</code>
             <span class="footer-sep">&middot;</span>
             <span class="footer-llm">LLM-friendly: <a href="llms.txt">llms.txt</a> &middot; <a href="llms-full.txt">llms-full.txt</a></span>
         </footer>
@@ -739,13 +739,14 @@ command; those labels are managed by the server itself.</p>
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js"></script>
-    <script src="assets/search.js"></script>
-    <script src="assets/copy.js"></script>
-    <script src="assets/callouts.js"></script>
-    <script src="assets/scrollspy.js"></script>
-    <script src="assets/codelabels.js"></script>
-    <script src="assets/github.js"></script>
+    <script src="assets/theme.js?v=e7c0b4379e"></script>
+
+    <script src="assets/search.js?v=e7c0b4379e"></script>
+    <script src="assets/copy.js?v=e7c0b4379e"></script>
+    <script src="assets/callouts.js?v=e7c0b4379e"></script>
+    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
+    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
+    <script src="assets/github.js?v=e7c0b4379e"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
@@ -791,5 +792,6 @@ command; those labels are managed by the server itself.</p>
     }
 })();
 </script>
+<!-- generated by pi-docsite -->
 </body>
 </html>
