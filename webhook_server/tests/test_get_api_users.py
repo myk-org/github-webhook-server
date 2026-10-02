@@ -58,30 +58,39 @@ async def test_get_api_users_returns_logins() -> None:
 
 @pytest.mark.asyncio
 async def test_get_api_users_skips_exhausted_token() -> None:
-    """A rate-limited token yields None rather than stalling or being reported as usable."""
+    """An exhausted token yields None rather than contributing a trusted login.
+
+    GET /rate_limit answers 200 even when a token is out of core budget, so the free
+    authenticity check alone cannot reject it. This exercises validate_token() for real
+    rather than mocking it - mocking the validator hides exactly this path.
+    """
     hook = Mock(spec=GithubWebhook)
     hook.logger = Mock()
     hook.log_prefix = ""
     hook.config = Mock()
 
+    exhausted_api, healthy_api = Mock(), Mock()
+    # Both authenticate fine; only the budget separates them.
+    helpers_module._token_probe_cache["exhausted-token"] = helpers_module.TokenProbe("exhausted-user", 0, 5000, 0.0)
+    helpers_module._token_probe_cache["healthy-token"] = helpers_module.TokenProbe("healthy-user", 4000, 5000, 0.0)
+
     with (
         patch("asyncio.to_thread", new=_inline_to_thread),
-        patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis,
-        patch("webhook_server.libs.github_api.validate_token") as mock_probe,
+        patch(
+            "webhook_server.libs.github_api.get_apis_and_tokes_from_config",
+            return_value=[(exhausted_api, "exhausted-token"), (healthy_api, "healthy-token")],
+        ),
     ):
-        mock_get_apis.return_value = [(Mock(), "exhausted"), (Mock(), "healthy")]
-        mock_probe.side_effect = [
-            GithubException(403, {"message": "API rate limit exceeded"}, None),
-            "healthy-user",
-        ]
-
         users = await GithubWebhook.get_api_users(hook)
 
     assert users == [None, "healthy-user"]
+    # The exhausted token authenticated (free check ran) but was still refused
+    exhausted_api.get_rate_limit.assert_called_once()
+    exhausted_api.get_user.assert_not_called()
     hook.logger.exception.assert_called_once()
-    # token is masked to its last 4 chars, never logged in full
     logged = hook.logger.exception.call_args.args[0]
-    assert "...sted" in logged
+    # token is masked to its last 4 chars, never logged in full
+    assert "...oken" in logged
     assert "API rate limit exceeded" in logged
 
 

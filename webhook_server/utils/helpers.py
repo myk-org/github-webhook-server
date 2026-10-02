@@ -499,15 +499,20 @@ def cached_token_probe(token: str) -> TokenProbe | None:
 def validate_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> str:
     """Confirm *token* is usable right now and return its login, without spending core budget.
 
-    Validation uses ``GET /rate_limit`` on purpose. It authenticates the token - GitHub
-    answers 401 as soon as it is revoked or invalid, verified against a bad credential -
-    and GitHub does not charge it against the core rate limit. That makes it a genuinely
-    current validity check for free, where ``GET /user`` costs one core request per token per
-    webhook purely to read a login that never changes.
+    Two checks, because neither alone is sufficient:
 
-    The login itself comes from the probe cache. Caching it is safe precisely because
-    validity is re-confirmed on every call: a stale entry can never grant trust to a token
-    that has since been revoked.
+    1. **Validity** - ``GET /rate_limit`` authenticates the token, answering 401 as soon as it
+       is revoked or invalid (verified against a deliberately bad credential), and GitHub does
+       not charge it against the core rate limit. So this is a genuinely current check for
+       free, where ``GET /user`` costs one core request per token per webhook.
+    2. **Remaining budget** - ``GET /rate_limit`` answers 200 even for a token that is out of
+       core budget, so it cannot be trusted to reject an exhausted token. The budget comes
+       from the probe cache instead. That is fresh here: ``get_api_with_highest_rate_limit()``
+       probes every configured token earlier in the same ``GithubWebhook.__init__``, so this
+       read reflects a real response made moments earlier rather than a stale ranking.
+
+    An exhausted token is excluded so it cannot contribute a login to the auto-verified and
+    trusted-committer lists.
 
     Args:
         api: Github client for this token
@@ -524,11 +529,16 @@ def validate_token(api: github.Github, token: str, logger: Logger, log_prefix: s
     github_api_call_sync(api.get_rate_limit, logger=logger, log_prefix=log_prefix)
 
     known = cached_token_probe(token)
-    if known is not None:
-        return known.login
+    if known is None:
+        # No probe on record - first sighting, or called outside token selection. One real
+        # request to establish both the login and the budget.
+        return probe_token(api, token, logger=logger, log_prefix=log_prefix).login
 
-    # No login on record yet - first sighting. One real request to learn it.
-    return probe_token(api, token, logger=logger, log_prefix=log_prefix).login
+    if known.remaining <= 0:
+        raise GithubException(403, {"message": "API rate limit exceeded for this token"}, None)
+
+    # The login cannot change for a given token, and validity was just re-confirmed above.
+    return known.login
 
 
 def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> TokenProbe:
