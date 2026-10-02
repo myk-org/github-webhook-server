@@ -496,6 +496,41 @@ def cached_token_probe(token: str) -> TokenProbe | None:
         return _token_probe_cache.get(token)
 
 
+def validate_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> str:
+    """Confirm *token* is usable right now and return its login, without spending core budget.
+
+    Validation uses ``GET /rate_limit`` on purpose. It authenticates the token - GitHub
+    answers 401 as soon as it is revoked or invalid, verified against a bad credential -
+    and GitHub does not charge it against the core rate limit. That makes it a genuinely
+    current validity check for free, where ``GET /user`` costs one core request per token per
+    webhook purely to read a login that never changes.
+
+    The login itself comes from the probe cache. Caching it is safe precisely because
+    validity is re-confirmed on every call: a stale entry can never grant trust to a token
+    that has since been revoked.
+
+    Args:
+        api: Github client for this token
+        token: the token itself, used as the cache key
+        logger: Logger instance used for retry warnings
+        log_prefix: Prefix prepended to retry warnings
+
+    Returns:
+        str: the login for this token
+
+    Raises:
+        GithubException: the token is invalid, revoked or out of rate limit
+    """
+    github_api_call_sync(api.get_rate_limit, logger=logger, log_prefix=log_prefix)
+
+    known = cached_token_probe(token)
+    if known is not None:
+        return known.login
+
+    # No login on record yet - first sighting. One real request to learn it.
+    return probe_token(api, token, logger=logger, log_prefix=log_prefix).login
+
+
 def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> TokenProbe:
     """Read a token's login and enforced core budget from a real request.
 

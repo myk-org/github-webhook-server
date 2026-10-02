@@ -59,8 +59,8 @@ from webhook_server.utils.helpers import (
     get_apis_and_tokes_from_config,
     get_github_repo_api,
     prepare_log_prefix,
-    probe_token,
     run_command,
+    validate_token,
 )
 from webhook_server.utils.staleness import MergeCheckDebouncer, is_stale_for_pr
 
@@ -936,18 +936,19 @@ class GithubWebhook:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                # Always a real request, never a cached login: these logins become the
-                # auto-verified and trusted-committer lists, so a since-revoked token must
-                # not keep contributing a trusted identity. probe_token() applies the
-                # retry wrapper internally, so it is not wrapped again here.
-                probe = await asyncio.to_thread(probe_token, api, token, self.logger, self.log_prefix)
+                # validate_token() re-confirms validity on every call, so a since-revoked
+                # token drops out of the auto-verified and trusted-committer lists instead
+                # of gating auto-merge. It uses GET /rate_limit, which authenticates but is
+                # not charged against the core rate limit - this used to spend one core
+                # request per token per webhook just to read a login that never changes.
+                login = await asyncio.to_thread(validate_token, api, token, self.logger, self.log_prefix)
             except Exception as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
                 )
                 return None
 
-            return probe.login
+            return login
 
         return await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
 
