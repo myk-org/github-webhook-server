@@ -3,7 +3,9 @@ import logging
 import os
 import subprocess as sp
 import sys
+import threading
 import time
+from collections.abc import Iterator
 from unittest.mock import Mock, patch
 
 import github
@@ -14,7 +16,7 @@ from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
 from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.helpers import (
-    TOKEN_PROBE_TTL_SECONDS,
+    cached_token_probe,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_future_results,
@@ -28,7 +30,7 @@ from webhook_server.utils.helpers import (
 
 
 @pytest.fixture(autouse=True)
-def _clear_token_probe_cache():
+def _clear_token_probe_cache() -> Iterator[None]:
     """Token probes are cached process-wide, so keep tests independent."""
     helpers_module._token_probe_cache.clear()
     yield
@@ -53,7 +55,7 @@ class TestTokenProbing:
         api.get_user.return_value.login = "user1"
         api.rate_limiting = (4321, 5000)
 
-        probe = probe_token(api, "probe-headers-token")
+        probe = probe_token(api, "probe-headers-token", logger=Mock(), log_prefix="")
 
         assert probe.login == "user1"
         assert probe.remaining == 4321
@@ -61,30 +63,71 @@ class TestTokenProbing:
         # GET /rate_limit is free but can advertise a budget GitHub is not enforcing
         api.get_rate_limit.assert_not_called()
 
-    def test_probe_token_is_cached(self) -> None:
-        """A token is probed at most once per TTL, not once per webhook."""
+    def test_probe_token_never_reuses_cached_budget(self) -> None:
+        """A cached budget may describe a window that earlier webhooks already spent."""
         api = Mock()
         api.get_user.return_value.login = "user1"
         api.rate_limiting = (4321, 5000)
+        probe_token(api, "stale-budget-token", logger=Mock(), log_prefix="")
 
-        probe_token(api, "cached-token")
-        probe_token(api, "cached-token")
+        # A later webhook finds the token exhausted - the cached 4321 must not be reused
+        api.rate_limiting = (0, 5000)
+        api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
 
-        api.get_user.assert_called_once()
-
-    def test_probe_token_refreshes_after_ttl(self) -> None:
-        """A cached probe must not outlive the budget it reported."""
-        api = Mock()
-        api.get_user.return_value.login = "user1"
-        api.rate_limiting = (4321, 5000)
-
-        probe_token(api, "expiring-token")
-        with patch(
-            "webhook_server.utils.helpers.time.monotonic", return_value=time.monotonic() + TOKEN_PROBE_TTL_SECONDS + 1
-        ):
-            probe_token(api, "expiring-token")
+        with pytest.raises(GithubException):
+            probe_token(api, "stale-budget-token", logger=Mock(), log_prefix="")
 
         assert api.get_user.call_count == 2
+
+    def test_cached_token_probe_is_ranking_only(self) -> None:
+        """cached_token_probe() exposes the last result for ordering, not for decisions."""
+        api = Mock()
+        api.get_user.return_value.login = "user1"
+        api.rate_limiting = (4321, 5000)
+
+        assert cached_token_probe("unknown-token") is None
+
+        probe_token(api, "ranked-token", logger=Mock(), log_prefix="")
+
+        cached = cached_token_probe("ranked-token")
+        assert cached is not None
+        assert (cached.login, cached.remaining, cached.limit) == ("user1", 4321, 5000)
+
+    def test_probe_token_coalesces_concurrent_callers(self) -> None:
+        """Concurrent callers for one token share a single request."""
+        slow_api, other_api = Mock(), Mock()
+        for api in (slow_api, other_api):
+            api.get_user.return_value.login = "user1"
+            api.rate_limiting = (4000, 5000)
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def _blocking_get_user() -> Mock:
+            started.set()
+            release.wait(timeout=5)
+            return slow_api.get_user.return_value
+
+        slow_api.get_user.side_effect = _blocking_get_user
+
+        results: list[helpers_module.TokenProbe] = []
+        threads = [
+            threading.Thread(target=lambda a=api: results.append(probe_token(a, "shared-token", Mock(), "")))
+            for api in (slow_api, other_api)
+        ]
+        for thread in threads:
+            thread.start()
+        started.wait(timeout=5)
+        time.sleep(0.05)  # let the second caller block on the per-token lock
+        release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert len(results) == 2
+        assert results[0] is results[1]
+        # Only the caller that won the lock issued a request
+        assert slow_api.get_user.call_count == 1
+        assert other_api.get_user.call_count == 0
 
     def test_probe_token_raises_on_rate_limit(self) -> None:
         """An exhausted token raises, so callers can skip it instead of selecting it."""
@@ -92,7 +135,7 @@ class TestTokenProbing:
         api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
 
         with pytest.raises(GithubException):
-            probe_token(api, "exhausted-token")
+            probe_token(api, "exhausted-token", logger=Mock(), log_prefix="")
 
         # A failed probe must not be cached - the token may recover after the reset
         assert "exhausted-token" not in helpers_module._token_probe_cache
@@ -133,7 +176,7 @@ class TestHelpers:
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.utils.helpers.log_rate_limit")
     def test_get_api_with_highest_rate_limit(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
-        """Test getting API with highest rate limit."""
+        """Test the candidate with the highest known budget is selected."""
 
         # Mock APIs with different rate limits
         mock_api1 = Mock()
@@ -146,6 +189,10 @@ class TestHelpers:
 
         mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
 
+        # Warm the ranking cache so token2 is the preferred candidate
+        helpers_module._token_probe_cache["token1"] = helpers_module.TokenProbe("user1", 100, 5000, 0.0)
+        helpers_module._token_probe_cache["token2"] = helpers_module.TokenProbe("user2", 200, 5000, 0.0)
+
         config = Config(repository="test-repo")
         api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
@@ -153,6 +200,31 @@ class TestHelpers:
         assert api == mock_api2
         assert token == "token2"
         assert user == "user2"
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_get_api_with_highest_rate_limit_falls_back(self, mock_get_apis: Mock) -> None:
+        """A stale top-ranked candidate that fails validation must not be returned."""
+
+        # Highest cached budget, but now exhausted
+        stale_api = Mock()
+        stale_api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
+
+        # Lower cached budget, still usable
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [10, 5000]
+        healthy_api.get_user.return_value.login = "healthy"
+
+        mock_get_apis.return_value = [(stale_api, "stale-token"), (healthy_api, "healthy-token")]
+        helpers_module._token_probe_cache["stale-token"] = helpers_module.TokenProbe("stale", 5000, 5000, 0.0)
+        helpers_module._token_probe_cache["healthy-token"] = helpers_module.TokenProbe("healthy", 10, 5000, 0.0)
+
+        config = Config(repository="test-repo")
+        api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        assert api == healthy_api
+        assert token == "healthy-token"
+        assert user == "healthy"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")

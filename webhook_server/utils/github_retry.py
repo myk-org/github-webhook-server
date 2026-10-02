@@ -28,6 +28,7 @@ Usage::
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -60,6 +61,77 @@ def _is_retryable(ex: Exception) -> bool:
 
     error_str = str(ex)
     return any(substring in error_str for substring in _RETRYABLE_SUBSTRINGS)
+
+
+def _log_retry_warning(
+    logger: logging.Logger,
+    log_prefix: str,
+    attempt: int,
+    delay: int,
+    ex: Exception,
+) -> None:
+    logger.warning(
+        "%sGitHub API call failed (attempt %d/%d), retrying in %ds: %s: %s",
+        f"{log_prefix} " if log_prefix else "",
+        attempt + 1,
+        _MAX_RETRIES + 1,
+        delay,
+        type(ex).__name__,
+        ex,
+    )
+
+
+def github_api_call_sync[T](
+    func: Callable[..., T],
+    *args: Any,
+    logger: logging.Logger,
+    log_prefix: str,
+    **kwargs: Any,
+) -> T:
+    """Synchronous twin of :func:`github_api_call` with the same retry policy.
+
+    Use this from synchronous call sites that touch PyGithub - notably
+    :func:`~webhook_server.utils.helpers.get_api_with_highest_rate_limit`, which runs
+    inside ``GithubWebhook.__init__`` and cannot await. Those callers already occupy a
+    worker thread, so the backoff is a blocking sleep rather than an await; wrapping them
+    in ``github_api_call`` would either block the event loop or double-wrap the retry.
+
+    Args:
+        func: The callable to execute
+        *args: Positional arguments forwarded to *func*
+        logger: Logger instance used for retry warning messages
+        log_prefix: Prefix string prepended to retry warning messages
+        **kwargs: Keyword arguments forwarded to *func*
+
+    Returns:
+        The return value of *func*.
+
+    Raises:
+        The original exception after all retries are exhausted, or immediately for
+        non-retryable errors, and ``asyncio.CancelledError``.
+    """
+    last_exception: Exception | None = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return func(*args, **kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception as ex:
+            last_exception = ex
+
+            if not _is_retryable(ex):
+                raise
+
+            if attempt == _MAX_RETRIES:
+                break
+
+            delay = _BASE_DELAY * (2**attempt)
+            _log_retry_warning(logger, log_prefix, attempt, delay, ex)
+            time.sleep(delay)
+
+    assert last_exception is not None  # noqa: S101
+    raise last_exception
 
 
 async def github_api_call[T](
@@ -113,15 +185,7 @@ async def github_api_call[T](
                 break
 
             delay = _BASE_DELAY * (2**attempt)
-            logger.warning(
-                "%sGitHub API call failed (attempt %d/%d), retrying in %ds: %s: %s",
-                f"{log_prefix} " if log_prefix else "",
-                attempt + 1,
-                _MAX_RETRIES + 1,
-                delay,
-                type(ex).__name__,
-                ex,
-            )
+            _log_retry_warning(logger, log_prefix, attempt, delay, ex)
             await asyncio.sleep(delay)
 
     assert last_exception is not None  # noqa: S101

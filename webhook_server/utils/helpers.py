@@ -28,6 +28,7 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils.github_retry import github_api_call_sync
 from webhook_server.utils.json_log_handler import JsonLogHandler
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
@@ -450,12 +451,6 @@ async def run_command(
                 logger.exception(f"{log_prefix} CRITICAL: Failed to wait for subprocess - potential zombie")
 
 
-# A token's login is stable, but its remaining budget is not, so the probe result is
-# reused briefly instead of issuing a GET /user per token per webhook (that was 6 core
-# requests per webhook, purely to read a login for logging).
-TOKEN_PROBE_TTL_SECONDS = 60.0
-
-
 class TokenProbe(NamedTuple):
     """Result of probing a token with a real request.
 
@@ -463,6 +458,10 @@ class TokenProbe(NamedTuple):
     response headers, not from ``GET /rate_limit``: that endpoint is itself free and can
     advertise a full budget GitHub is not enforcing for this credential (verified against
     production - ``GET /user`` 403'd at 0/5000 while ``GET /rate_limit`` reported 5000/5000).
+
+    ``probed_at`` is used only to tell whether another caller refreshed the entry while
+    this one waited for the per-token lock. It is never a cache expiry: a budget is only
+    ever valid for the moment it was read.
     """
 
     login: str
@@ -472,6 +471,7 @@ class TokenProbe(NamedTuple):
 
 
 _token_probe_cache: dict[str, TokenProbe] = {}
+_token_probe_locks: dict[str, threading.Lock] = {}
 _token_probe_lock = threading.Lock()
 
 
@@ -486,12 +486,30 @@ def get_github_client(token: str) -> github.Github:
     return github.Github(auth=github.Auth.Token(token), retry=github.GithubRetry(max_rate_limit_wait=0))
 
 
-def probe_token(api: github.Github, token: str) -> TokenProbe:
-    """Probe a token with a real request, returning its login and enforced core budget.
+def cached_token_probe(token: str) -> TokenProbe | None:
+    """Return the last known probe for *token*, for ranking and logging only.
+
+    Never use this to decide whether a token is usable - the budget it records can
+    describe a window that later webhooks have already spent.
+    """
+    with _token_probe_lock:
+        return _token_probe_cache.get(token)
+
+
+def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> TokenProbe:
+    """Read a token's login and enforced core budget from a real request.
+
+    Always issues a request unless another caller completed one while this caller was
+    waiting for the per-token lock, so the value is current enough to act on: a cached
+    budget could describe a window that earlier webhooks already spent, and a cached
+    login would be treated as proof that a since-revoked token is still usable.
+    Concurrent callers for the same token share a single request.
 
     Args:
         api: Github client for this token
         token: the token itself, used as the cache key
+        logger: Logger instance used for retry warnings
+        log_prefix: Prefix prepended to retry warnings
 
     Returns:
         TokenProbe: login, remaining and limit as reported by GitHub
@@ -500,20 +518,24 @@ def probe_token(api: github.Github, token: str) -> TokenProbe:
         GithubException: the token is invalid, revoked or out of rate limit
     """
     with _token_probe_lock:
-        cached = _token_probe_cache.get(token)
+        per_token_lock = _token_probe_locks.setdefault(token, threading.Lock())
+        observed = _token_probe_cache.get(token)
 
-    if cached and (time.monotonic() - cached.probed_at) < TOKEN_PROBE_TTL_SECONDS:
-        return cached
+    with per_token_lock:
+        # Another caller may have refreshed this token while we waited for the lock.
+        current = _token_probe_cache.get(token)
+        if current is not None and current is not observed:
+            return current
 
-    login = api.get_user().login
-    # rate_limiting is populated from the response headers of the get_user() call above.
-    remaining, limit = api.rate_limiting
-    probe = TokenProbe(login=login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+        user = github_api_call_sync(api.get_user, logger=logger, log_prefix=log_prefix)
+        # rate_limiting is populated from the response headers of the get_user() call above.
+        remaining, limit = api.rate_limiting
+        probe = TokenProbe(login=user.login, remaining=remaining, limit=limit, probed_at=time.monotonic())
 
-    with _token_probe_lock:
-        _token_probe_cache[token] = probe
+        with _token_probe_lock:
+            _token_probe_cache[token] = probe
 
-    return probe
+        return probe
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
@@ -540,10 +562,6 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     """
     logger = get_logger_with_params()
 
-    api: github.Github | None = None
-    token: str = ""
-    selected: TokenProbe | None = None
-
     msg = "Get API and tokens"
 
     if repository_name:
@@ -559,7 +577,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         _api, _token = apis_and_tokens[0]
 
         try:
-            probe = probe_token(_api, _token)
+            probe = probe_token(_api, _token, logger=logger, log_prefix=msg)
         except GithubException as ex:
             raise NoApiTokenError(f"Single configured token is invalid: {ex}") from ex
 
@@ -568,9 +586,18 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         logger.info(f"API user {probe.login} selected (single API configured)")
         return _api, _token, probe.login
 
-    for _api, _token in apis_and_tokens:
+    # Order candidates by the last known budget so the token most likely to be usable is
+    # revalidated first. This is ordering only - the rank can be stale, so the winner is
+    # always re-probed below and the next candidate is tried if that fails.
+    def _known_budget(pair: tuple[github.Github, str]) -> int:
+        known = cached_token_probe(pair[1])
+        return known.remaining if known is not None else -1
+
+    candidates = sorted(apis_and_tokens, key=_known_budget, reverse=True)
+
+    for _api, _token in candidates:
         try:
-            probe = probe_token(_api, _token)
+            probe = probe_token(_api, _token, logger=logger, log_prefix=msg)
         except GithubException as ex:
             # This catches RateLimitExceededException as it's a subclass of GithubException.
             # Reaching here means the token is unusable *now* - it is skipped rather than
@@ -580,15 +607,10 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 
         log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
 
-        if selected is None or probe.remaining > selected.remaining:
-            api, token, selected = _api, _token, probe
-            logger.debug(f"API user {probe.login} has higher rate limit ({probe.remaining}), updating selection")
+        logger.info(f"API user {probe.login} selected with highest rate limit: {probe.remaining}")
+        return _api, _token, probe.login
 
-    if api is None or selected is None:
-        raise NoApiTokenError("Failed to get API with highest rate limit")
-
-    logger.info(f"API user {selected.login} selected with highest rate limit: {selected.remaining}")
-    return api, token, selected.login
+    raise NoApiTokenError("Failed to get API with highest rate limit")
 
 
 def log_rate_limit(remaining: int, limit: int, api_user: str) -> None:

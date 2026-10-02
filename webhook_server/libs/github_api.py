@@ -936,12 +936,11 @@ class GithubWebhook:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                # probe_token() reads the login and the enforced rate limit from one real
-                # request, and caches it - previously this issued a get_user() per token
-                # per webhook on top of the ones already done during token selection.
-                probe = await github_api_call(
-                    lambda: probe_token(api, token), logger=self.logger, log_prefix=self.log_prefix
-                )
+                # Always a real request, never a cached login: these logins become the
+                # auto-verified and trusted-committer lists, so a since-revoked token must
+                # not keep contributing a trusted identity. probe_token() applies the
+                # retry wrapper internally, so it is not wrapped again here.
+                probe = await asyncio.to_thread(probe_token, api, token, self.logger, self.log_prefix)
             except Exception as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
