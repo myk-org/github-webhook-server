@@ -295,6 +295,79 @@ class TestHelpers:
         with pytest.raises(NoApiTokenError, match="Failed to get API with highest rate limit"):
             get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_get_api_with_highest_rate_limit_skips_retry_backoff(self, mock_get_apis: Mock) -> None:
+        """A transiently failing token must not park selection through its full backoff.
+
+        This loop runs inside the webhook constructor, which the app limits to four workers.
+        A sick token retrying 2+4+8+16s would block the queue after a healthy token had
+        already proved usable.
+        """
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [4000, 5000]
+        healthy_api.get_user.return_value.login = "healthy"
+
+        sick_api = Mock()
+        sick_api.get_user.side_effect = GithubException(500, {"message": "Internal Server Error"})
+
+        mock_get_apis.return_value = [(healthy_api, "healthy-token"), (sick_api, "sick-token")]
+
+        with patch("webhook_server.utils.github_retry.time.sleep") as mock_sleep:
+            with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+                config = Config(repository="test-repo")
+                api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        assert (api, token, user) == (healthy_api, "healthy-token", "healthy")
+        # Sick token was tried exactly once and never slept
+        assert sick_api.get_user.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_get_api_with_highest_rate_limit_skips_spent_token(self, mock_get_apis: Mock) -> None:
+        """A token that answers but has zero budget must never be selected.
+
+        The single-token path still returns an exhausted token - with one configured token
+        there is nothing better to use, so failing fast on selection would change behaviour
+        without improving it. With several configured, picking a spent one means every
+        later call 403s and the webhook fails confusingly instead of simply not being routed
+        there.
+        """
+        spent_api = Mock()
+        spent_api.rate_limiting = [0, 5000]
+        spent_api.get_user.return_value.login = "spent"
+
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [40, 5000]
+        healthy_api.get_user.return_value.login = "healthy"
+
+        mock_get_apis.return_value = [(spent_api, "spent-token"), (healthy_api, "healthy-token")]
+
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        # The spent token answered and would have won on "only one that responded"
+        assert (api, token, user) == (healthy_api, "healthy-token", "healthy")
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_all_spent_tokens_raises(self, mock_get_apis: Mock) -> None:
+        """Every probe reporting zero remaining must produce the no-usable-token error."""
+        apis = []
+        for index in range(3):
+            api = Mock()
+            api.rate_limiting = [0, 5000]
+            api.get_user.return_value.login = f"spent{index}"
+            apis.append((api, f"spent-token-{index}"))
+        mock_get_apis.return_value = apis
+
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            with pytest.raises(NoApiTokenError, match="Failed to get API with highest rate limit"):
+                get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
     def test_get_github_repo_api(self) -> None:
         """Test getting GitHub repository API."""
         mock_github_api = Mock()

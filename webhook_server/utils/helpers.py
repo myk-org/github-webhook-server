@@ -28,7 +28,7 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
-from webhook_server.utils.github_retry import github_api_call_sync
+from webhook_server.utils.github_retry import _MAX_RETRIES, github_api_call_sync
 from webhook_server.utils.json_log_handler import JsonLogHandler
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
@@ -541,7 +541,7 @@ def validate_token(api: github.Github, token: str, logger: Logger, log_prefix: s
     return known.login
 
 
-def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> TokenProbe:
+def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str, use_retry: bool = True) -> TokenProbe:
     """Read a token's login and enforced core budget from a real request.
 
     Always issues a request unless another caller completed one while this caller was
@@ -559,6 +559,11 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str)
         token: the token itself, used as the cache key
         logger: Logger instance used for retry warnings
         log_prefix: Prefix prepended to retry warnings
+        use_retry: retry transient failures. Token selection passes ``False``: it probes
+            every configured token in turn, and a token having a bad moment would otherwise
+            hold a constructor worker through the full 2+4+8+16s backoff after a healthy
+            token had already been found. Skipping it for one webhook is cheap; blocking the
+            queue is not.
 
     Returns:
         TokenProbe: login, remaining and limit as reported by GitHub
@@ -588,7 +593,12 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str)
             return probe
 
     try:
-        return github_api_call_sync(_single_request, logger=logger, log_prefix=log_prefix)
+        return github_api_call_sync(
+            _single_request,
+            logger=logger,
+            log_prefix=log_prefix,
+            max_retries=_MAX_RETRIES if use_retry else 0,
+        )
     except GithubException:
         # Correct the ranking: a token that just failed must not keep the top slot in the
         # candidate order, or every webhook keeps trying it first until the entry ages out.
@@ -657,15 +667,27 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     # so it cannot decide which token to use. A token that cannot be probed right now
     # (exhausted, revoked, transient failure) is skipped rather than selected, so one bad
     # token never takes the whole webhook down.
+    #
+    # Probes are single-attempt here. This loop runs inside the webhook constructor, which
+    # the app limits to four workers; retrying one token's transient failure would park a
+    # worker for ~30s after another token had already proved usable. Candidates that respond
+    # are still all compared fresh.
     for _api, _token in apis_and_tokens:
         try:
-            probe = probe_token(_api, _token, logger=logger, log_prefix=msg)
+            probe = probe_token(_api, _token, logger=logger, log_prefix=msg, use_retry=False)
         except GithubException as ex:
             # This catches RateLimitExceededException as it's a subclass of GithubException.
             logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
             continue
 
         log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
+
+        if probe.remaining <= 0:
+            # Out of budget. It answered the probe, so it could win on "only one that
+            # responded" - but every later call with this client would 403, so the webhook
+            # would fail anyway, just more slowly and more confusingly.
+            logger.warning(f"API user {probe.login} has no rate limit remaining, skipping")
+            continue
 
         if selected is None or probe.remaining > selected.remaining:
             api, token, selected = _api, _token, probe

@@ -86,6 +86,7 @@ def github_api_call_sync[T](
     *args: Any,
     logger: logging.Logger,
     log_prefix: str,
+    max_retries: int = _MAX_RETRIES,
     **kwargs: Any,
 ) -> T:
     """Synchronous twin of :func:`github_api_call` with the same retry policy.
@@ -101,6 +102,10 @@ def github_api_call_sync[T](
         *args: Positional arguments forwarded to *func*
         logger: Logger instance used for retry warning messages
         log_prefix: Prefix string prepended to retry warning messages
+        max_retries: retries after the first attempt. ``0`` makes a single attempt with no
+            backoff, for callers that must not block on a slow or failing dependency - token
+            selection uses it so one sick token cannot hold a constructor worker for the
+            full 2+4+8+16s ladder while other tokens are usable.
         **kwargs: Keyword arguments forwarded to *func*
 
     Returns:
@@ -112,7 +117,7 @@ def github_api_call_sync[T](
     """
     last_exception: Exception | None = None
 
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         try:
             return func(*args, **kwargs)
         except asyncio.CancelledError:
@@ -123,7 +128,7 @@ def github_api_call_sync[T](
             if not _is_retryable(ex):
                 raise
 
-            if attempt == _MAX_RETRIES:
+            if attempt == max_retries:
                 break
 
             delay = _BASE_DELAY * (2**attempt)
