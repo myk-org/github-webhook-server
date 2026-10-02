@@ -106,6 +106,27 @@ def _new_webhook_init_pool() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init")
 
 
+class ConstructorReservation:
+    """Idempotent admission slot for one accepted webhook.
+
+    The counter is process-global and monotonic, so a reservation that is never returned
+    permanently shrinks capacity until every delivery is rejected. Release is therefore
+    idempotent and armed both when construction finishes and from the handler task's
+    done-callback, covering the path where the task is cancelled before its body runs.
+    """
+
+    __slots__ = ("_released",)
+
+    def __init__(self) -> None:
+        self._released: bool = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        release_constructor_slot()
+
+
 def _webhook_init_pool_for(request: Request) -> ThreadPoolExecutor:
     """Return the constructor pool owned by *this app instance*, creating it if needed.
 
@@ -345,14 +366,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
-        # Retire this app instance's own constructor pool: drop the queued ones without
-        # blocking on the ones already running (each can hold a worker for ~30s of retry
-        # backoff). Other app instances in this process own their own pools and are
-        # unaffected.
-        _pool: ThreadPoolExecutor | None = getattr(FASTAPI_APP.state, "webhook_init_pool", None)
+        # Retire this app instance's constructor pool LAST. The background-task drain above
+        # runs inside the try body, so reaching this point means acknowledged webhooks have
+        # had their grace period; cancelling queued pool futures any earlier would discard
+        # constructors for deliveries the endpoint already answered 200 to, and those would
+        # never reach process(). Read _app - the instance this lifespan belongs to - not the
+        # module-level FASTAPI_APP, so a separate instance's pool is left alone. In finally
+        # so a failed startup still releases it.
+        _pool: ThreadPoolExecutor | None = getattr(_app.state, "webhook_init_pool", None)
         if _pool is not None:
             _pool.shutdown(wait=False, cancel_futures=True)
-            FASTAPI_APP.state.webhook_init_pool = None
+            _app.state.webhook_init_pool = None
 
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
@@ -517,6 +541,7 @@ async def process_webhook(request: Request) -> JSONResponse:
         _delivery_id: str,
         _event_type: str,
         _init_pool: ThreadPoolExecutor,
+        _reservation: ConstructorReservation,
     ) -> None:
         """Process webhook in background with granular error handling.
 
@@ -550,13 +575,6 @@ async def process_webhook(request: Request) -> JSONResponse:
         _logger.info(f"{_log_context} Processing webhook")
 
         try:
-            if len(_background_tasks) >= WEBHOOK_INIT_MAX_PENDING:
-                _logger.error(
-                    f"{_log_context} Dropped: {len(_background_tasks)} webhook(s) already pending, "
-                    f"limit is {WEBHOOK_INIT_MAX_PENDING}. GitHub will redeliver."
-                )
-                return
-
             # Webhook construction is blocking I/O and can spend up to ~30s inside
             # github_api_call_sync retry backoff during a GitHub outage. It runs on a
             # dedicated, bounded pool: on the event loop it would stall every other
@@ -585,8 +603,10 @@ async def process_webhook(request: Request) -> JSONResponse:
                 raise
             finally:
                 # The slot covers construction only; process() and cleanup() are not bounded
-                # by it, so give it back as soon as the client is ready.
-                release_constructor_slot()
+                # by it, so give it back as soon as the client is ready. release() is
+                # idempotent and is also armed on the task's done-callback, so a handler
+                # cancelled before it ever reaches here still gives its reservation back.
+                _reservation.release()
 
             try:
                 await _api.process()
@@ -640,7 +660,8 @@ async def process_webhook(request: Request) -> JSONResponse:
     # Admit BEFORE scheduling the task and before answering. A webhook dropped after the
     # 200 is gone for good: GitHub treats a 2xx as delivered and will not redeliver it.
     # 503 is retryable, so rejecting here is what actually gets the delivery reprocessed.
-    if not try_admit_constructor():
+    reservation = ConstructorReservation() if try_admit_constructor() else None
+    if reservation is None:
         LOGGER.error(
             f"{log_context} Rejected: {WEBHOOK_INIT_MAX_PENDING} webhook constructor(s) already in flight. "
             "Returning 503 so GitHub retries."
@@ -666,11 +687,16 @@ async def process_webhook(request: Request) -> JSONResponse:
                 _delivery_id=delivery_id,
                 _event_type=event_type,
                 _init_pool=_webhook_init_pool_for(request),
+                _reservation=reservation,
             )
         )
     except BaseException:
-        release_constructor_slot()
+        reservation.release()
         raise
+
+    # Safety net: a handler cancelled before its body runs never reaches its own release,
+    # and an unreleased slot permanently shrinks process-wide capacity.
+    task.add_done_callback(lambda _done: reservation.release())
 
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)

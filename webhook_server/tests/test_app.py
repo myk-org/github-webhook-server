@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import ipaddress
@@ -1426,3 +1427,80 @@ class TestWebhookConstructionThreading:
         first_pool.shutdown(wait=False, cancel_futures=True)
         # The second instance is untouched and still accepts work
         assert second_pool.submit(lambda: 1).result(timeout=5) == 1
+
+    @pytest.mark.asyncio
+    async def test_lifespan_retires_the_pools_of_the_app_it_owns(self) -> None:
+        """Shutdown must read _app.state, not FASTAPI_APP.state.
+
+        The pool lives on the app that created it, so reading the module-level FASTAPI_APP
+        left a separate instance's pool - and its queued constructors - alive on exit.
+        """
+        owned_app, other_app = Mock(), Mock()
+        # Plain Mock, not Mock(spec=[]): a spec restricts reads, so getattr(state,
+        # "webhook_init_pool") would return None and the branch under test would not run.
+        owned_app.state = Mock()
+        other_app.state = Mock()
+        owned_pool = app_module._new_webhook_init_pool()
+        other_pool = app_module._new_webhook_init_pool()
+        owned_app.state.webhook_init_pool = owned_pool
+        other_app.state.webhook_init_pool = other_pool
+
+        try:
+            await self._run_lifespan_to_completion(owned_app)
+        except Exception:  # pragma: no cover - lifespan may fail on unrelated missing config
+            pass
+
+        assert owned_pool._shutdown is True
+        assert owned_app.state.webhook_init_pool is None
+        # The unrelated instance keeps its pool and can still accept work
+        assert other_pool._shutdown is False
+        assert other_pool.submit(lambda: 1).result(timeout=5) == 1
+        other_pool.shutdown(wait=False, cancel_futures=True)
+
+    @staticmethod
+    async def _run_lifespan_to_completion(app: Mock) -> None:
+        """Drive lifespan() through startup and shutdown against *app*.
+
+        lifespan is wrapped in @asynccontextmanager, so it must be entered with
+        ``async with`` - reaching for the raw generator would skip the body entirely and the
+        shutdown branch under test would never execute.
+        """
+        async with app_module.lifespan(app):
+            pass
+
+    @pytest.mark.asyncio
+    async def test_reservation_released_when_handler_cancelled_before_running(self) -> None:
+        """A handler cancelled before its body runs must still return its slot.
+
+        The admission counter is process-global and monotonic; an unreleased reservation
+        permanently shrinks capacity until every delivery is rejected with 503.
+        """
+        app_module._constructors_in_flight = 0
+        reservation = app_module.ConstructorReservation()
+        assert app_module.try_admit_constructor() is True
+
+        task = asyncio.create_task(asyncio.sleep(0))
+        task.add_done_callback(lambda _done: reservation.release())
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0)  # let the done-callback run
+
+        assert app_module._constructors_in_flight == 0
+
+    @pytest.mark.asyncio
+    async def test_reservation_release_is_idempotent(self) -> None:
+        """Double release must not free a slot another webhook now owns."""
+        app_module._constructors_in_flight = 0
+        reservation = app_module.ConstructorReservation()
+        assert app_module.try_admit_constructor() is True
+
+        reservation.release()
+        assert app_module.try_admit_constructor() is True
+        assert app_module._constructors_in_flight == 1
+
+        reservation.release()
+        reservation.release()
+        assert app_module._constructors_in_flight == 1, "idempotent release corrupted the counter"
+
+        app_module._constructors_in_flight = 0
