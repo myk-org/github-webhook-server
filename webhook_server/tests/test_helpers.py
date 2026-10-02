@@ -1,24 +1,101 @@
 import asyncio
-import datetime
 import logging
 import os
 import subprocess as sp
 import sys
+import time
 from unittest.mock import Mock, patch
 
+import github
 import pytest
+from github import GithubException
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.helpers import (
+    TOKEN_PROBE_TTL_SECONDS,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_future_results,
+    get_github_client,
     get_github_repo_api,
     get_logger_with_params,
     log_rate_limit,
+    probe_token,
     run_command,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_token_probe_cache():
+    """Token probes are cached process-wide, so keep tests independent."""
+    helpers_module._token_probe_cache.clear()
+    yield
+    helpers_module._token_probe_cache.clear()
+
+
+class TestTokenProbing:
+    """Rate-limit probing: fail fast, trust enforced budget, don't re-probe per webhook."""
+
+    def test_get_github_client_passes_failing_retry(self) -> None:
+        """max_rate_limit_wait=0 is what stops PyGithub blocking a worker thread."""
+        with patch("github.Github") as mock_github_cls:
+            get_github_client("ghp_faketest1234")  # pragma: allowlist secret
+
+        kwargs = mock_github_cls.call_args.kwargs
+        assert isinstance(kwargs["retry"], github.GithubRetry)
+        assert kwargs["retry"].max_rate_limit_wait == 0
+
+    def test_probe_token_reads_budget_from_response_headers(self) -> None:
+        """Budget must come from X-RateLimit-Remaining, not from GET /rate_limit."""
+        api = Mock()
+        api.get_user.return_value.login = "user1"
+        api.rate_limiting = (4321, 5000)
+
+        probe = probe_token(api, "probe-headers-token")
+
+        assert probe.login == "user1"
+        assert probe.remaining == 4321
+        assert probe.limit == 5000
+        # GET /rate_limit is free but can advertise a budget GitHub is not enforcing
+        api.get_rate_limit.assert_not_called()
+
+    def test_probe_token_is_cached(self) -> None:
+        """A token is probed at most once per TTL, not once per webhook."""
+        api = Mock()
+        api.get_user.return_value.login = "user1"
+        api.rate_limiting = (4321, 5000)
+
+        probe_token(api, "cached-token")
+        probe_token(api, "cached-token")
+
+        api.get_user.assert_called_once()
+
+    def test_probe_token_refreshes_after_ttl(self) -> None:
+        """A cached probe must not outlive the budget it reported."""
+        api = Mock()
+        api.get_user.return_value.login = "user1"
+        api.rate_limiting = (4321, 5000)
+
+        probe_token(api, "expiring-token")
+        with patch(
+            "webhook_server.utils.helpers.time.monotonic", return_value=time.monotonic() + TOKEN_PROBE_TTL_SECONDS + 1
+        ):
+            probe_token(api, "expiring-token")
+
+        assert api.get_user.call_count == 2
+
+    def test_probe_token_raises_on_rate_limit(self) -> None:
+        """An exhausted token raises, so callers can skip it instead of selecting it."""
+        api = Mock()
+        api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
+
+        with pytest.raises(GithubException):
+            probe_token(api, "exhausted-token")
+
+        # A failed probe must not be cached - the token may recover after the reset
+        assert "exhausted-token" not in helpers_module._token_probe_cache
 
 
 class TestHelpers:
@@ -62,20 +139,10 @@ class TestHelpers:
         mock_api1 = Mock()
         mock_api1.rate_limiting = [100, 5000]  # 100 remaining, 5000 limit
         mock_api1.get_user.return_value.login = "user1"
-        mock_rate_limit1 = Mock()
-        mock_rate_limit1.rate.remaining = 100
-        mock_rate_limit1.rate.reset = Mock()
-        mock_rate_limit1.rate.limit = 5000
-        mock_api1.get_rate_limit.return_value = mock_rate_limit1
 
         mock_api2 = Mock()
         mock_api2.rate_limiting = [200, 5000]  # 200 remaining, 5000 limit
         mock_api2.get_user.return_value.login = "user2"
-        mock_rate_limit2 = Mock()
-        mock_rate_limit2.rate.remaining = 200
-        mock_rate_limit2.rate.reset = Mock()
-        mock_rate_limit2.rate.limit = 5000
-        mock_api2.get_rate_limit.return_value = mock_rate_limit2
 
         mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
 
@@ -128,71 +195,62 @@ class TestHelpers:
     def test_get_api_with_highest_rate_limit_invalid_tokens(
         self, mock_log_rate_limit: Mock, mock_get_apis: Mock
     ) -> None:
-        """Test getting API with invalid tokens (rate limit 60)."""
+        """Test getting API when the exhausted token is skipped, not selected."""
 
-        # Mock API with invalid token (rate limit 60)
-        mock_api1 = Mock()
-        mock_api1.rate_limiting = [30, 60]  # Invalid token indicator
-        mock_api1.get_user.return_value.login = "user1"
+        # Token 1 is exhausted: GET /user raises the way PyGithub does once
+        # max_rate_limit_wait=0 stops it from sleeping until the reset.
+        exhausted_api = Mock()
+        exhausted_api.rate_limiting = [0, 5000]
+        exhausted_api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
 
-        # Mock API with valid token
-        mock_api2 = Mock()
-        mock_api2.rate_limiting = [100, 5000]  # Valid token
-        mock_api2.get_user.return_value.login = "user2"
-        mock_rate_limit2 = Mock()
-        mock_rate_limit2.rate.remaining = 100
-        mock_rate_limit2.rate.reset = Mock()
-        mock_rate_limit2.rate.limit = 5000
-        mock_api2.get_rate_limit.return_value = mock_rate_limit2
+        # Token 2 is healthy
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [100, 5000]
+        healthy_api.get_user.return_value.login = "user2"
 
-        mock_get_apis.return_value = [(mock_api1, "invalid_token"), (mock_api2, "valid_token")]
+        mock_get_apis.return_value = [(exhausted_api, "exhausted-token"), (healthy_api, "valid_token")]
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
             api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
-            # Should skip invalid token and return valid one
-            assert api == mock_api2
-            assert token == "valid_token"
-            assert user == "user2"
+        # Should skip the exhausted token and return the healthy one
+        assert api == healthy_api
+        assert token == "valid_token"
+        assert user == "user2"
 
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.utils.helpers.log_rate_limit")
     def test_get_api_with_highest_rate_limit_single_token(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
         """Test single-token short-circuit skips comparison loop."""
         mock_api = Mock()
-        mock_api.rate_limiting = [100, 5000]
+        mock_api.rate_limiting = [4500, 5000]
         mock_api.get_user.return_value.login = "user1"
-        mock_rate_limit = Mock()
-        mock_rate_limit.rate.remaining = 4500
-        mock_rate_limit.rate.reset = Mock()
-        mock_rate_limit.rate.limit = 5000
-        mock_api.get_rate_limit.return_value = mock_rate_limit
 
-        mock_get_apis.return_value = [(mock_api, "token1")]
+        mock_get_apis.return_value = [(mock_api, "single-token")]
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
             api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         assert api == mock_api
-        assert token == "token1"
+        assert token == "single-token"
         assert user == "user1"
-        # Should call get_rate_limit for logging, but not for comparison
-        mock_api.get_rate_limit.assert_called_once()
-        mock_log_rate_limit.assert_called_once()
+        # Budget comes from the response header of the probe, not from GET /rate_limit
+        mock_api.get_rate_limit.assert_not_called()
+        mock_log_rate_limit.assert_called_once_with(remaining=4500, limit=5000, api_user="user1")
 
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     def test_get_api_with_highest_rate_limit_single_token_invalid(self, mock_get_apis: Mock) -> None:
-        """Test single-token path rejects invalid token (rate limit 60)."""
+        """Test single-token path rejects a token whose probe fails."""
         mock_api = Mock()
-        mock_api.rate_limiting = [30, 60]  # Invalid token indicator
+        mock_api.get_user.side_effect = GithubException(401, {"message": "Bad credentials"}, None)
 
         mock_get_apis.return_value = [(mock_api, "invalid_token")]
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
-            with pytest.raises(NoApiTokenError, match="rate limit 60"):
+            with pytest.raises(NoApiTokenError, match="Single configured token is invalid"):
                 get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
     def test_get_logger_with_params_log_file_path(self, tmp_path, monkeypatch):
@@ -307,28 +365,16 @@ class TestHelpers:
         assert result[0] is False
 
     def test_log_rate_limit_all_branches(self):
-        """Test log_rate_limit for all color/warning branches."""
+        """Test log_rate_limit warns below the minimum and stays quiet above it."""
 
         # Patch logger to capture logs
         with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            now = datetime.datetime.now(datetime.UTC)
-            # RED branch (below_minimum)
-            rate_core = Mock()
-            rate_core.remaining = 600
-            rate_core.limit = 5000
-            rate_core.reset = now + datetime.timedelta(seconds=1000)
-            rate_limit = Mock()
-            rate_limit.rate = rate_core
-            log_rate_limit(rate_limit, api_user="user1")
-            # YELLOW branch
-            rate_core.remaining = 1000
-            log_rate_limit(rate_limit, api_user="user2")
-            # GREEN branch
-            rate_core.remaining = 3000
-            log_rate_limit(rate_limit, api_user="user3")
-            # Check that warning was called for RED branch
+            log_rate_limit(600, 5000, api_user="user1")  # below minimum -> warning
+            log_rate_limit(1000, 5000, api_user="user2")
+            log_rate_limit(3000, 5000, api_user="user3")  # healthy -> debug
+            # Check that warning was called for the low-remaining branch
             assert mock_logger.warning.called
             assert mock_logger.debug.called
 

@@ -59,6 +59,7 @@ from webhook_server.utils.helpers import (
     get_apis_and_tokes_from_config,
     get_github_repo_api,
     prepare_log_prefix,
+    probe_token,
     run_command,
 )
 from webhook_server.utils.staleness import MergeCheckDebouncer, is_stale_for_pr
@@ -935,17 +936,11 @@ class GithubWebhook:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                # Pre-flight probe: verify token is functional before attempting get_user()
-                await github_api_call(lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix)
-            except Exception:
-                self.logger.exception(
-                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', skipping"
-                )
-                return None
-
-            try:
-                _api_user = await github_api_call(
-                    lambda: api.get_user().login, logger=self.logger, log_prefix=self.log_prefix
+                # probe_token() reads the login and the enforced rate limit from one real
+                # request, and caches it - previously this issued a get_user() per token
+                # per webhook on top of the ones already done during token selection.
+                probe = await github_api_call(
+                    lambda: probe_token(api, token), logger=self.logger, log_prefix=self.log_prefix
                 )
             except Exception as ex:
                 self.logger.exception(
@@ -953,7 +948,7 @@ class GithubWebhook:
                 )
                 return None
 
-            return _api_user
+            return probe.login
 
         return await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
 

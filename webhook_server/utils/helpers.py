@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import datetime
 import json
 import logging
 import os
@@ -12,18 +11,17 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import Future, as_completed
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import github
 import simple_logger.logger
-from colorama import Fore
 from github import GithubException
-from github.RateLimitOverview import RateLimitOverview
 from github.Repository import Repository
 from simple_logger.logger import get_logger
 from stringcolor import cs
@@ -452,13 +450,79 @@ async def run_command(
                 logger.exception(f"{log_prefix} CRITICAL: Failed to wait for subprocess - potential zombie")
 
 
+# A token's login is stable, but its remaining budget is not, so the probe result is
+# reused briefly instead of issuing a GET /user per token per webhook (that was 6 core
+# requests per webhook, purely to read a login for logging).
+TOKEN_PROBE_TTL_SECONDS = 60.0
+
+
+class TokenProbe(NamedTuple):
+    """Result of probing a token with a real request.
+
+    ``remaining``/``limit`` come from the ``X-RateLimit-Remaining``/``X-RateLimit-Limit``
+    response headers, not from ``GET /rate_limit``: that endpoint is itself free and can
+    advertise a full budget GitHub is not enforcing for this credential (verified against
+    production - ``GET /user`` 403'd at 0/5000 while ``GET /rate_limit`` reported 5000/5000).
+    """
+
+    login: str
+    remaining: int
+    limit: int
+    probed_at: float
+
+
+_token_probe_cache: dict[str, TokenProbe] = {}
+_token_probe_lock = threading.Lock()
+
+
+def get_github_client(token: str) -> github.Github:
+    """Build a Github client that fails fast instead of sleeping on rate limits.
+
+    The default ``GithubRetry`` treats a rate-limit 403 as a primary limit and sleeps
+    until ``X-RateLimit-Reset`` - measured at 241s inside a single ``get_user()`` call,
+    inside the ``asyncio.to_thread`` worker. ``max_rate_limit_wait=0`` makes it raise, so
+    callers can skip the token and try the next one immediately.
+    """
+    return github.Github(auth=github.Auth.Token(token), retry=github.GithubRetry(max_rate_limit_wait=0))
+
+
+def probe_token(api: github.Github, token: str) -> TokenProbe:
+    """Probe a token with a real request, returning its login and enforced core budget.
+
+    Args:
+        api: Github client for this token
+        token: the token itself, used as the cache key
+
+    Returns:
+        TokenProbe: login, remaining and limit as reported by GitHub
+
+    Raises:
+        GithubException: the token is invalid, revoked or out of rate limit
+    """
+    with _token_probe_lock:
+        cached = _token_probe_cache.get(token)
+
+    if cached and (time.monotonic() - cached.probed_at) < TOKEN_PROBE_TTL_SECONDS:
+        return cached
+
+    login = api.get_user().login
+    # rate_limiting is populated from the response headers of the get_user() call above.
+    remaining, limit = api.rate_limiting
+    probe = TokenProbe(login=login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+
+    with _token_probe_lock:
+        _token_probe_cache[token] = probe
+
+    return probe
+
+
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
     # Guard against None tokens from config - default to empty list
     tokens = config.get_value(value="github-tokens") or []
 
     for _token in tokens:
-        apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
+        apis_and_tokens.append((get_github_client(_token), _token))
 
     return apis_and_tokens
 
@@ -477,10 +541,8 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     logger = get_logger_with_params()
 
     api: github.Github | None = None
-    token: str | None = None
-    _api_user: str = ""
-
-    remaining = 0
+    token: str = ""
+    selected: TokenProbe | None = None
 
     msg = "Get API and tokens"
 
@@ -495,72 +557,49 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     # Short-circuit: single token doesn't need rate limit comparison
     if len(apis_and_tokens) == 1:
         _api, _token = apis_and_tokens[0]
-        if _api.rate_limiting[-1] == 60:
-            raise NoApiTokenError("Single configured token has rate limit 60 (indicates invalid token)")
 
         try:
-            _api_user = _api.get_user().login
+            probe = probe_token(_api, _token)
         except GithubException as ex:
             raise NoApiTokenError(f"Single configured token is invalid: {ex}") from ex
 
-        _rate_limit = _api.get_rate_limit()
-        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
 
-        logger.info(f"API user {_api_user} selected (single API configured)")
-        return _api, _token, _api_user
+        logger.info(f"API user {probe.login} selected (single API configured)")
+        return _api, _token, probe.login
 
     for _api, _token in apis_and_tokens:
-        if _api.rate_limiting[-1] == 60:
-            logger.warning("API has rate limit set to 60 which indicates an invalid token, skipping")
-            continue
-
         try:
-            _api_user = _api.get_user().login
+            probe = probe_token(_api, _token)
         except GithubException as ex:
-            # This catches RateLimitExceededException as it's a subclass of GithubException
-            logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
+            # This catches RateLimitExceededException as it's a subclass of GithubException.
+            # Reaching here means the token is unusable *now* - it is skipped rather than
+            # selected, so one exhausted token no longer takes the whole webhook down.
+            logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
             continue
 
-        _rate_limit = _api.get_rate_limit()
-        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
 
-        if _rate_limit.rate.remaining > remaining:
-            remaining = _rate_limit.rate.remaining
-            api, token, _api_user = _api, _token, _api_user
-            logger.debug(f"API user {_api_user} has higher rate limit ({remaining}), updating selection")
+        if selected is None or probe.remaining > selected.remaining:
+            api, token, selected = _api, _token, probe
+            logger.debug(f"API user {probe.login} has higher rate limit ({probe.remaining}), updating selection")
 
-    if not _api_user or not api or not token:
+    if api is None or selected is None:
         raise NoApiTokenError("Failed to get API with highest rate limit")
 
-    logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
-    return api, token, _api_user
+    logger.info(f"API user {selected.login} selected with highest rate limit: {selected.remaining}")
+    return api, token, selected.login
 
 
-def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
+def log_rate_limit(remaining: int, limit: int, api_user: str) -> None:
+    """Log a token's core budget as reported by GitHub on a real request."""
     logger = get_logger_with_params()
 
-    rate_limit_str: str
-    delta = rate_limit.rate.reset - datetime.datetime.now(tz=datetime.UTC)
-    time_for_limit_reset = max(int(delta.total_seconds()), 0)
-    below_minimum: bool = rate_limit.rate.remaining < 700
-
-    if below_minimum:
-        rate_limit_str = f"{Fore.RED}{rate_limit.rate.remaining}{Fore.RESET}"
-
-    elif rate_limit.rate.remaining < 2000:
-        rate_limit_str = f"{Fore.YELLOW}{rate_limit.rate.remaining}{Fore.RESET}"
-
-    else:
-        rate_limit_str = f"{Fore.GREEN}{rate_limit.rate.remaining}{Fore.RESET}"
-
-    msg = (
-        f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.rate.limit}. "
-        f"Reset in {rate_limit.rate.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.now(tz=datetime.UTC)})"
-    )
-    logger.debug(msg)
-    if below_minimum:
+    msg = f"[{api_user}] API rate limit: {remaining} of {limit}"
+    if remaining < 700:
         logger.warning(msg)
+    else:
+        logger.debug(msg)
 
 
 def get_future_results(futures: list[Future[Any]]) -> None:
