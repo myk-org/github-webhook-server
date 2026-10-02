@@ -614,6 +614,10 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     """
     logger = get_logger_with_params()
 
+    api: github.Github | None = None
+    token: str = ""
+    selected: TokenProbe | None = None
+
     msg = "Get API and tokens"
 
     if repository_name:
@@ -638,31 +642,30 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         logger.info(f"API user {probe.login} selected (single API configured)")
         return _api, _token, probe.login
 
-    # Order candidates by the last known budget so the token most likely to be usable is
-    # revalidated first. This is ordering only - the rank can be stale, so the winner is
-    # always re-probed below and the next candidate is tried if that fails.
-    def _known_budget(pair: tuple[github.Github, str]) -> int:
-        known = cached_token_probe(pair[1])
-        return known.remaining if known is not None else -1
-
-    candidates = sorted(apis_and_tokens, key=_known_budget, reverse=True)
-
-    for _api, _token in candidates:
+    # Probe every configured token and select the one with the most calls left. All probes
+    # are fresh: a cached budget can describe a window that earlier webhooks already spent,
+    # so it cannot decide which token to use. A token that cannot be probed right now
+    # (exhausted, revoked, transient failure) is skipped rather than selected, so one bad
+    # token never takes the whole webhook down.
+    for _api, _token in apis_and_tokens:
         try:
             probe = probe_token(_api, _token, logger=logger, log_prefix=msg)
         except GithubException as ex:
             # This catches RateLimitExceededException as it's a subclass of GithubException.
-            # Reaching here means the token is unusable *now* - it is skipped rather than
-            # selected, so one exhausted token no longer takes the whole webhook down.
             logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
             continue
 
         log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
 
-        logger.info(f"API user {probe.login} selected with highest rate limit: {probe.remaining}")
-        return _api, _token, probe.login
+        if selected is None or probe.remaining > selected.remaining:
+            api, token, selected = _api, _token, probe
+            logger.debug(f"API user {probe.login} has higher rate limit ({probe.remaining}), updating selection")
 
-    raise NoApiTokenError("Failed to get API with highest rate limit")
+    if api is None or selected is None:
+        raise NoApiTokenError("Failed to get API with highest rate limit")
+
+    logger.info(f"API user {selected.login} selected with highest rate limit: {selected.remaining}")
+    return api, token, selected.login
 
 
 def log_rate_limit(remaining: int, limit: int, api_user: str) -> None:

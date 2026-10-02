@@ -176,7 +176,7 @@ class TestHelpers:
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.utils.helpers.log_rate_limit")
     def test_get_api_with_highest_rate_limit(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
-        """Test the candidate with the highest known budget is selected."""
+        """Test the token with the most calls left is selected."""
 
         # Mock APIs with different rate limits
         mock_api1 = Mock()
@@ -189,14 +189,40 @@ class TestHelpers:
 
         mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
 
-        # Warm the ranking cache so token2 is the preferred candidate
-        helpers_module._token_probe_cache["token1"] = helpers_module.TokenProbe("user1", 100, 5000, 0.0)
-        helpers_module._token_probe_cache["token2"] = helpers_module.TokenProbe("user2", 200, 5000, 0.0)
+        config = Config(repository="test-repo")
+        api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        # Both tokens are probed fresh and the higher one wins
+        assert api == mock_api2
+        assert token == "token2"
+        assert user == "user2"
+        mock_api1.get_user.assert_called_once()
+        mock_api2.get_user.assert_called_once()
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_get_api_with_highest_rate_limit_ignores_stale_cache(self, mock_get_apis: Mock) -> None:
+        """Selection must use fresh probes, never a cached ranking.
+
+        The cached rank is deliberately inverted here: token1 was last seen with 5000 calls
+        and token2 with 10, but the fresh probes report the opposite. Picking the cached
+        leader would return token1 and run the webhook on 50 calls while token2 has 4800.
+        """
+        mock_api1 = Mock()
+        mock_api1.rate_limiting = [50, 5000]
+        mock_api1.get_user.return_value.login = "user1"
+
+        mock_api2 = Mock()
+        mock_api2.rate_limiting = [4800, 5000]
+        mock_api2.get_user.return_value.login = "user2"
+
+        mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
+        helpers_module._token_probe_cache["token1"] = helpers_module.TokenProbe("user1", 5000, 5000, 0.0)
+        helpers_module._token_probe_cache["token2"] = helpers_module.TokenProbe("user2", 10, 5000, 0.0)
 
         config = Config(repository="test-repo")
         api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
-        # Should return the API with higher rate limit (mock_api2)
         assert api == mock_api2
         assert token == "token2"
         assert user == "user2"
@@ -204,23 +230,30 @@ class TestHelpers:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     def test_get_api_with_highest_rate_limit_falls_back(self, mock_get_apis: Mock) -> None:
-        """A stale top-ranked candidate that fails validation must not be returned."""
+        """A token that cannot be probed must be skipped, not selected."""
 
-        # Highest cached budget, but now exhausted
-        stale_api = Mock()
-        stale_api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
+        # Exhausted: cannot be probed at all
+        dead_api = Mock()
+        dead_api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
 
-        # Lower cached budget, still usable
+        # Usable, but with the lowest budget of the two healthy tokens
+        thin_api = Mock()
+        thin_api.rate_limiting = [10, 5000]
+        thin_api.get_user.return_value.login = "thin"
+
         healthy_api = Mock()
-        healthy_api.rate_limiting = [10, 5000]
+        healthy_api.rate_limiting = [4000, 5000]
         healthy_api.get_user.return_value.login = "healthy"
 
-        mock_get_apis.return_value = [(stale_api, "stale-token"), (healthy_api, "healthy-token")]
-        helpers_module._token_probe_cache["stale-token"] = helpers_module.TokenProbe("stale", 5000, 5000, 0.0)
-        helpers_module._token_probe_cache["healthy-token"] = helpers_module.TokenProbe("healthy", 10, 5000, 0.0)
+        mock_get_apis.return_value = [
+            (dead_api, "dead-token"),
+            (thin_api, "thin-token"),
+            (healthy_api, "healthy-token"),
+        ]
 
-        config = Config(repository="test-repo")
-        api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         assert api == healthy_api
         assert token == "healthy-token"
