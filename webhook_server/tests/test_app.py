@@ -4,6 +4,7 @@ import hmac
 import ipaddress
 import json
 import os
+import threading
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -11,6 +12,7 @@ import httpx
 import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
 from webhook_server import app as app_module
 from webhook_server.app import (
@@ -1158,3 +1160,162 @@ class TestWebhookApp:
                 mock_logger.error.assert_called()
                 call_args = mock_logger.error.call_args
                 assert "Repository not found in configuration" in call_args[0][0]
+
+
+class TestWebhookConstructionThreading:
+    """GithubWebhook construction must never run on the event loop.
+
+    It is blocking I/O and can spend up to ~30s inside github_api_call_sync retry backoff
+    during a GitHub outage, so running it on the loop would stall every other in-flight
+    webhook. These tests fail if that regresses to an inline constructor call.
+
+    No test here sleeps for a fixed duration: the fake constructor blocks on an Event that
+    the test always sets, and loop progress is measured with asyncio.sleep(0) yields. If a
+    test fails before releasing, the 10s wait inside the worker is the backstop.
+    """
+
+    PAYLOAD: dict[str, Any] = {
+        "action": "opened",
+        "repository": {"name": "repo", "full_name": "org/repo"},
+        "sender": {"login": "someone"},
+    }
+    # Only a backstop for the regression case, so a mis-wired constructor fails the test
+    # instead of deadlocking it. The happy path never waits this long.
+    WORKER_TIMEOUT: float = 2.0
+
+    @classmethod
+    def _request(cls) -> Mock:
+        request = Mock()
+        request.headers = Headers({"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "d-1"})
+        request.body = AsyncMock(return_value=json.dumps(cls.PAYLOAD).encode())
+        return request
+
+    @classmethod
+    def _constructor(cls, recorded: dict[str, Any], release: threading.Event, block: bool) -> Any:
+        def _build(**kwargs: Any) -> Mock:
+            recorded["thread"] = threading.get_ident()
+            recorded["started"].set()
+            if block:
+                release.wait(timeout=cls.WORKER_TIMEOUT)
+            instance = Mock()
+            instance.process = AsyncMock()
+            instance.cleanup = AsyncMock()
+            recorded["instance"] = instance
+            return instance
+
+        return _build
+
+    @classmethod
+    async def _submit(cls) -> asyncio.Task[Any]:
+        """Fire the endpoint and hand back the background handler task it spawned.
+
+        ``_background_tasks`` is a module-global set shared with every other test in this
+        file, so pick out the task this call created rather than whichever happens to be
+        first - awaiting a foreign task would hang.
+        """
+        before = set(app_module._background_tasks)
+        response = await app_module.process_webhook(cls._request())
+        assert response.status_code == 200
+        new_tasks = [task for task in app_module._background_tasks if task not in before]
+        assert len(new_tasks) == 1, f"expected one background task, got {len(new_tasks)}"
+        return new_tasks[0]
+
+    @classmethod
+    async def _drain(cls, task: asyncio.Task[Any]) -> None:
+        """Await a handler task, never blocking the suite forever if it wedges."""
+        await asyncio.wait_for(asyncio.shield(task), timeout=5)
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_constructor_runs_off_the_event_loop(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """The constructor must run on a worker thread, not the loop thread."""
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        release.set()  # do not block; we only care which thread it ran on
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=False)
+
+        loop_thread = threading.get_ident()
+        task = await self._submit()
+        try:
+            await self._drain(task)
+        finally:
+            task.cancel()
+
+        assert recorded["thread"] != loop_thread, "GithubWebhook construction ran on the event loop"
+        assert recorded["instance"].cleanup.await_count == 1
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_event_loop_stays_responsive_during_construction(
+        self, mock_webhook_cls: Mock, mock_signature: Mock
+    ) -> None:
+        """A constructor blocked in a worker must not stop the loop from running tasks."""
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+
+        task = await self._submit()
+        try:
+            for _ in range(10_000):
+                if recorded["started"].is_set():
+                    break
+                await asyncio.sleep(0)
+            assert recorded["started"].is_set(), "constructor never started"
+
+            # The worker is blocked inside the constructor here. Yielding the loop must keep
+            # making progress; if construction ran on the event loop instead, the very first
+            # yield would not return until the constructor finished.
+            for _ in range(50):
+                await asyncio.sleep(0)
+
+            assert "instance" not in recorded, "event loop was blocked behind the constructor"
+            release.set()
+            await self._drain(task)
+        finally:
+            task.cancel()
+            release.set()
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_cancelled_handler_cleans_up_orphaned_constructor(
+        self, mock_webhook_cls: Mock, mock_signature: Mock
+    ) -> None:
+        """Cancelling mid-construction must still collect and clean up the instance.
+
+        The worker runs to completion after the handler stops awaiting, and the constructor
+        has already made the clone temp dir, so the orphaned instance has to be cleaned up
+        explicitly or shutdown leaks a directory.
+        """
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+
+        task = await self._submit()
+        # Bounded spin: never busy-wait forever if construction never starts.
+        for _ in range(10_000):
+            if recorded["started"].is_set():
+                break
+            await asyncio.sleep(0)
+        assert recorded["started"].is_set(), "constructor never started"
+
+        task.cancel()
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        instance = recorded.get("instance")
+        assert instance is not None, "orphaned constructor never completed"
+        instance.cleanup.assert_awaited()
+        instance.process.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_constructor_pool_is_bounded(self) -> None:
+        """Constructor workers are capped so a webhook burst cannot spawn them unbounded."""
+        assert app_module._webhook_init_pool._max_workers == app_module.WEBHOOK_INIT_MAX_WORKERS

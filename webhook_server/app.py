@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import functools
 import importlib
 import ipaddress
 import json
@@ -6,6 +8,7 @@ import logging
 import os
 import traceback
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from ipaddress import IPv4Network, IPv6Network
@@ -61,6 +64,15 @@ LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
 _background_tasks: set[asyncio.Task[Any]] = set()
+
+# Dedicated pool for GithubWebhook construction. Kept separate from the default executor
+# so that constructors sleeping in retry backoff cannot starve the API-user checks and
+# cleanup that share the default pool, and bounded so a webhook burst cannot spawn an
+# unbounded number of them.
+WEBHOOK_INIT_MAX_WORKERS: int = 4
+_webhook_init_pool: ThreadPoolExecutor = ThreadPoolExecutor(
+    max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init"
+)
 
 # MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
 http_transport: Any | None = None
@@ -287,6 +299,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
+        # NOTE: _webhook_init_pool is deliberately NOT shut down here. It is a process-level
+        # singleton, but lifespan runs once per FastAPI app instance, so shutting it down
+        # would permanently kill the pool for every later instance in the same process
+        # (every TestClient context, for one). Its threads are joined at interpreter exit.
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
         if _log_viewer_controller_singleton is not None:
@@ -479,13 +495,26 @@ async def process_webhook(request: Request) -> JSONResponse:
         _logger.info(f"{_log_context} Processing webhook")
 
         try:
-            # Initialize GithubWebhook inside a worker thread to avoid blocking webhook
-            # response. It is entirely blocking I/O, and token selection can spend up to
-            # ~30s in retry backoff, so running it on the event loop would stall every
-            # other in-flight webhook during a GitHub outage.
-            _api: GithubWebhook = await asyncio.to_thread(
-                GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger
+            # Webhook construction is blocking I/O and can spend up to ~30s inside
+            # github_api_call_sync retry backoff during a GitHub outage. It runs on a
+            # dedicated, bounded pool: on the event loop it would stall every other
+            # in-flight webhook, and on the shared default executor a burst would occupy
+            # every worker and starve the API-user checks and cleanup that use that pool.
+            init_future = asyncio.get_running_loop().run_in_executor(
+                _webhook_init_pool,
+                functools.partial(GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger),
             )
+            try:
+                # shield so a cancelled handler does not abandon the worker mid-construction
+                _api: GithubWebhook = await asyncio.shield(init_future)
+            except asyncio.CancelledError:
+                # The worker runs to completion even after we stop waiting for it, and the
+                # constructor has already created the clone temp dir. Collect the result and
+                # clean it up so a shutdown mid-construction does not leak a directory.
+                with contextlib.suppress(Exception):
+                    orphaned_api = await init_future
+                    await orphaned_api.cleanup()
+                raise
             try:
                 await _api.process()
             finally:

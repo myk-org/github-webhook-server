@@ -309,7 +309,7 @@ class TestGithubApiCallSync:
     """The synchronous twin is used by token selection, which cannot await."""
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_successful_call_first_attempt(self, mock_sleep, mock_logger):
+    def test_successful_call_first_attempt(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         func = Mock(return_value=42)
         result = github_api_call_sync(func, logger=mock_logger, log_prefix=LOG_PREFIX)
         assert result == 42
@@ -317,7 +317,7 @@ class TestGithubApiCallSync:
         mock_sleep.assert_not_called()
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_successful_call_after_transient_failure(self, mock_sleep, mock_logger):
+    def test_successful_call_after_transient_failure(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         """Backoff must use the documented exponential delays."""
         func = Mock(
             side_effect=[
@@ -331,7 +331,7 @@ class TestGithubApiCallSync:
         mock_sleep.assert_called_once_with(2)
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_exponential_backoff_sequence(self, mock_sleep, mock_logger):
+    def test_exponential_backoff_sequence(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         """2, 4, 8, 16 - the full ladder before retries are exhausted."""
         ex = GithubException(status=503, data={"message": "Service Unavailable"})
         func = Mock(side_effect=[ex, ex, ex, ex, "ok"])
@@ -342,7 +342,7 @@ class TestGithubApiCallSync:
         assert [call.args[0] for call in mock_sleep.call_args_list] == [2, 4, 8, 16]
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_raises_after_retries_exhausted(self, mock_sleep, mock_logger):
+    def test_raises_after_retries_exhausted(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         """All attempts used up - the last exception is re-raised, not swallowed."""
         ex = GithubException(status=500, data={"message": "Internal Server Error"})
         func = Mock(side_effect=ex)
@@ -355,7 +355,7 @@ class TestGithubApiCallSync:
         assert mock_logger.warning.call_count == 4
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_no_retry_on_403(self, mock_sleep, mock_logger):
+    def test_no_retry_on_403(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         """A rate-limit 403 is not retryable - it must surface immediately."""
         func = Mock(side_effect=GithubException(status=403, data={"message": "API rate limit exceeded"}))
         with pytest.raises(GithubException):
@@ -364,7 +364,7 @@ class TestGithubApiCallSync:
         mock_sleep.assert_not_called()
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_no_retry_on_bad_credentials(self, mock_sleep, mock_logger):
+    def test_no_retry_on_bad_credentials(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         func = Mock(side_effect=BadCredentialsException(status=401, data={"message": "Bad credentials"}))
         with pytest.raises(BadCredentialsException):
             github_api_call_sync(func, logger=mock_logger, log_prefix=LOG_PREFIX)
@@ -372,7 +372,7 @@ class TestGithubApiCallSync:
         mock_sleep.assert_not_called()
 
     @patch("webhook_server.utils.github_retry.time.sleep")
-    def test_forwards_args_and_kwargs(self, mock_sleep, mock_logger):
+    def test_forwards_args_and_kwargs(self, mock_sleep: Mock, mock_logger: Mock) -> None:
         func = Mock(return_value="ok")
         result = github_api_call_sync(func, "positional", keyword="value", logger=mock_logger, log_prefix=LOG_PREFIX)
         assert result == "ok"
