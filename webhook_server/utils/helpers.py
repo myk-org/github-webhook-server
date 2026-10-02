@@ -505,6 +505,10 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str)
     login would be treated as proof that a since-revoked token is still usable.
     Concurrent callers for the same token share a single request.
 
+    Retry backoff is deliberately kept *outside* the per-token lock. Holding that lock
+    across ``github_api_call_sync`` would serialize every other caller behind this
+    token's full backoff (2+4+8+16s), so one failing token stalls all webhooks.
+
     Args:
         api: Github client for this token
         token: the token itself, used as the cache key
@@ -521,21 +525,34 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str)
         per_token_lock = _token_probe_locks.setdefault(token, threading.Lock())
         observed = _token_probe_cache.get(token)
 
-    with per_token_lock:
-        # Another caller may have refreshed this token while we waited for the lock.
-        current = _token_probe_cache.get(token)
-        if current is not None and current is not observed:
-            return current
+    def _single_request() -> TokenProbe:
+        with per_token_lock:
+            # Another caller may have refreshed this token while we waited for the lock.
+            current = _token_probe_cache.get(token)
+            if current is not None and current is not observed:
+                return current
 
-        user = github_api_call_sync(api.get_user, logger=logger, log_prefix=log_prefix)
-        # rate_limiting is populated from the response headers of the get_user() call above.
-        remaining, limit = api.rate_limiting
-        probe = TokenProbe(login=user.login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+            user = api.get_user()
+            # rate_limiting is populated from the response headers of the get_user() call above.
+            remaining, limit = api.rate_limiting
+            probe = TokenProbe(login=user.login, remaining=remaining, limit=limit, probed_at=time.monotonic())
 
+            with _token_probe_lock:
+                _token_probe_cache[token] = probe
+
+            return probe
+
+    try:
+        return github_api_call_sync(_single_request, logger=logger, log_prefix=log_prefix)
+    except GithubException:
+        # Correct the ranking: a token that just failed must not keep the top slot in the
+        # candidate order, or every webhook keeps trying it first until the entry ages out.
+        # Only drop the snapshot our ordering was based on, never a fresher one.
         with _token_probe_lock:
-            _token_probe_cache[token] = probe
+            if _token_probe_cache.get(token) is observed:
+                _token_probe_cache.pop(token, None)
 
-        return probe
+        raise
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:

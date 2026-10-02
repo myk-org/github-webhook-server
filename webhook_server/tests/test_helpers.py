@@ -228,6 +228,29 @@ class TestHelpers:
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_exhausted_token_rank_is_corrected(self, mock_get_apis: Mock) -> None:
+        """A token that fails must lose its top rank, not stay preferred forever."""
+        exhausted_api = Mock()
+        exhausted_api.get_user.side_effect = GithubException(403, {"message": "API rate limit exceeded"}, None)
+
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [10, 5000]
+        healthy_api.get_user.return_value.login = "healthy"
+
+        mock_get_apis.return_value = [(exhausted_api, "exhausted"), (healthy_api, "healthy")]
+        helpers_module._token_probe_cache["exhausted"] = helpers_module.TokenProbe("exhausted", 5000, 5000, 0.0)
+        helpers_module._token_probe_cache["healthy"] = helpers_module.TokenProbe("healthy", 10, 5000, 0.0)
+
+        config = Config(repository="test-repo")
+        api, _, _ = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+        assert api == healthy_api
+
+        # The stale 5000 entry is gone, so the next webhook does not try it first
+        assert cached_token_probe("exhausted") is None
+        assert cached_token_probe("healthy") is not None
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     def test_get_api_with_highest_rate_limit_no_apis(self, mock_get_apis: Mock) -> None:
         """Test getting API when no APIs available."""
 

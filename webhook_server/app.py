@@ -479,8 +479,13 @@ async def process_webhook(request: Request) -> JSONResponse:
         _logger.info(f"{_log_context} Processing webhook")
 
         try:
-            # Initialize GithubWebhook inside background task to avoid blocking webhook response
-            _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
+            # Initialize GithubWebhook inside a worker thread to avoid blocking webhook
+            # response. It is entirely blocking I/O, and token selection can spend up to
+            # ~30s in retry backoff, so running it on the event loop would stall every
+            # other in-flight webhook during a GitHub outage.
+            _api: GithubWebhook = await asyncio.to_thread(
+                GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger
+            )
             try:
                 await _api.process()
             finally:
