@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-import functools
+import contextvars
 import importlib
 import ipaddress
 import json
@@ -70,9 +70,32 @@ _background_tasks: set[asyncio.Task[Any]] = set()
 # cleanup that share the default pool, and bounded so a webhook burst cannot spawn an
 # unbounded number of them.
 WEBHOOK_INIT_MAX_WORKERS: int = 4
+# Admission limit covering running *and* queued constructors. Without it a webhook burst
+# queues behind constructors that can each sit ~30s in retry backoff, delaying deliveries
+# GitHub has already been told were accepted. Anything past this is dropped and logged;
+# GitHub redelivers it.
+WEBHOOK_INIT_MAX_PENDING: int = 32
 _webhook_init_pool: ThreadPoolExecutor = ThreadPoolExecutor(
     max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init"
 )
+
+
+def _rotate_webhook_init_pool() -> None:
+    """Cancel not-yet-started constructors and install a fresh pool.
+
+    ``wait=False`` leaves already-running constructors alone so shutdown is not blocked on
+    up to ~30s of retry backoff. ``cancel_futures=True`` drops the queued ones. A new pool is
+    swapped in before the old one is retired, because this singleton is process-level while
+    lifespan is per-app-instance - retiring it without a replacement would permanently break
+    every later app instance in the same process.
+    """
+    global _webhook_init_pool
+    retiring, _webhook_init_pool = (
+        _webhook_init_pool,
+        ThreadPoolExecutor(max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init"),
+    )
+    retiring.shutdown(wait=False, cancel_futures=True)
+
 
 # MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
 http_transport: Any | None = None
@@ -299,10 +322,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
-        # NOTE: _webhook_init_pool is deliberately NOT shut down here. It is a process-level
-        # singleton, but lifespan runs once per FastAPI app instance, so shutting it down
-        # would permanently kill the pool for every later instance in the same process
-        # (every TestClient context, for one). Its threads are joined at interpreter exit.
+        # Cancel constructors that have not started and stop accepting new ones, without
+        # blocking on the ones already running. A fresh pool is installed first so a later
+        # app instance in this process (every TestClient context) still has a live one -
+        # shutting the singleton down here alone permanently killed it for all of them.
+        _rotate_webhook_init_pool()
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
         if _log_viewer_controller_singleton is not None:
@@ -495,15 +519,28 @@ async def process_webhook(request: Request) -> JSONResponse:
         _logger.info(f"{_log_context} Processing webhook")
 
         try:
+            if len(_background_tasks) >= WEBHOOK_INIT_MAX_PENDING:
+                _logger.error(
+                    f"{_log_context} Dropped: {len(_background_tasks)} webhook(s) already pending, "
+                    f"limit is {WEBHOOK_INIT_MAX_PENDING}. GitHub will redeliver."
+                )
+                return
+
             # Webhook construction is blocking I/O and can spend up to ~30s inside
             # github_api_call_sync retry backoff during a GitHub outage. It runs on a
             # dedicated, bounded pool: on the event loop it would stall every other
             # in-flight webhook, and on the shared default executor a burst would occupy
             # every worker and starve the API-user checks and cleanup that use that pool.
-            init_future = asyncio.get_running_loop().run_in_executor(
-                _webhook_init_pool,
-                functools.partial(GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger),
-            )
+            #
+            # run_in_executor does NOT propagate contextvars (asyncio.to_thread does), so the
+            # caller's context has to be captured here or the constructor saves ctx=None and
+            # silently disables token metrics, workflow-step tracking and JSON log enrichment.
+            init_context = contextvars.copy_context()
+
+            def _construct() -> GithubWebhook:
+                return init_context.run(GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger)
+
+            init_future = asyncio.get_running_loop().run_in_executor(_webhook_init_pool, _construct)
             try:
                 # shield so a cancelled handler does not abandon the worker mid-construction
                 _api: GithubWebhook = await asyncio.shield(init_future)

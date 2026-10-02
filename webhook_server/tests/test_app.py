@@ -30,6 +30,7 @@ from webhook_server.utils.app_utils import (
     get_cloudflare_allowlist,
     get_github_allowlist,
 )
+from webhook_server.utils.context import get_context
 
 
 class TestWebhookApp:
@@ -1319,3 +1320,66 @@ class TestWebhookConstructionThreading:
     async def test_constructor_pool_is_bounded(self) -> None:
         """Constructor workers are capped so a webhook burst cannot spawn them unbounded."""
         assert app_module._webhook_init_pool._max_workers == app_module.WEBHOOK_INIT_MAX_WORKERS
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_constructor_inherits_webhook_context(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """The worker must see the handler's contextvars.
+
+        run_in_executor does not propagate them the way asyncio.to_thread does, so without
+        an explicit copy_context() the constructor saves ctx=None and silently disables
+        token metrics, workflow-step tracking and JSON log enrichment for every webhook.
+        """
+        seen: dict[str, Any] = {}
+
+        def _constructor(**kwargs: Any) -> Mock:
+            seen["ctx"] = get_context()
+            instance = Mock()
+            instance.process = AsyncMock()
+            instance.cleanup = AsyncMock()
+            return instance
+
+        mock_webhook_cls.side_effect = _constructor
+
+        task = await self._submit()
+        await self._drain(task)
+
+        assert seen["ctx"] is not None, "webhook context was lost in the worker - ctx would be None"
+        assert seen["ctx"].hook_id == "d-1"
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_pending_limit_drops_burst_overflow(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """Past the admission limit the delivery is dropped and logged, not silently queued.
+
+        Queued constructors cannot start while earlier ones sit in retry backoff, so an
+        unbounded queue delays deliveries GitHub has already been told were accepted.
+        """
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+
+        try:
+            with patch.object(app_module, "WEBHOOK_INIT_MAX_PENDING", 0):
+                task = await self._submit()
+                # The handler returns without constructing, so the task finishes on its own.
+                await asyncio.wait_for(asyncio.shield(task), timeout=5)
+        finally:
+            release.set()
+
+        mock_webhook_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pool_rotation_leaves_a_live_pool(self) -> None:
+        """Shutdown must retire the old pool without breaking later app instances."""
+        original = app_module._webhook_init_pool
+        app_module._rotate_webhook_init_pool()
+
+        assert app_module._webhook_init_pool is not original
+        assert app_module._webhook_init_pool._shutdown is False
+        # A submission against the replacement must still be accepted
+        assert app_module._webhook_init_pool.submit(lambda: 1).result(timeout=5) == 1
