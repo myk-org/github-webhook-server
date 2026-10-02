@@ -1189,6 +1189,8 @@ class TestWebhookConstructionThreading:
         request = Mock()
         request.headers = Headers({"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "d-1"})
         request.body = AsyncMock(return_value=json.dumps(cls.PAYLOAD).encode())
+        # The constructor pool is owned per app instance and resolved from request.app
+        request.app = app_module.FASTAPI_APP
         return request
 
     @classmethod
@@ -1319,7 +1321,8 @@ class TestWebhookConstructionThreading:
     @pytest.mark.asyncio
     async def test_constructor_pool_is_bounded(self) -> None:
         """Constructor workers are capped so a webhook burst cannot spawn them unbounded."""
-        assert app_module._webhook_init_pool._max_workers == app_module.WEBHOOK_INIT_MAX_WORKERS
+        pool = app_module._webhook_init_pool_for(self._request())
+        assert pool._max_workers == app_module.WEBHOOK_INIT_MAX_WORKERS
 
     @pytest.mark.asyncio
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
@@ -1353,33 +1356,73 @@ class TestWebhookConstructionThreading:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.verify_signature")
     @patch("webhook_server.app.GithubWebhook")
-    async def test_pending_limit_drops_burst_overflow(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
-        """Past the admission limit the delivery is dropped and logged, not silently queued.
+    async def test_capacity_returns_503_so_github_retries(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """At capacity the endpoint must reject with 503, never answer 200 and drop.
 
-        Queued constructors cannot start while earlier ones sit in retry backoff, so an
-        unbounded queue delays deliveries GitHub has already been told were accepted.
+        GitHub treats a 2xx as delivered and will not redeliver, so dropping after the
+        response commits loses the webhook permanently.
         """
-        recorded: dict[str, Any] = {"started": threading.Event()}
-        release = threading.Event()
-        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+        with patch.object(app_module, "try_admit_constructor", return_value=False):
+            before = set(app_module._background_tasks)
+            response = await app_module.process_webhook(self._request())
 
-        try:
-            with patch.object(app_module, "WEBHOOK_INIT_MAX_PENDING", 0):
-                task = await self._submit()
-                # The handler returns without constructing, so the task finishes on its own.
-                await asyncio.wait_for(asyncio.shield(task), timeout=5)
-        finally:
-            release.set()
-
+        assert response.status_code == 503
+        assert response.status_code >= 500  # retryable by GitHub
         mock_webhook_cls.assert_not_called()
+        # No *new* task was scheduled: compare against what was already pending.
+        assert app_module._background_tasks == before
 
     @pytest.mark.asyncio
-    async def test_pool_rotation_leaves_a_live_pool(self) -> None:
-        """Shutdown must retire the old pool without breaking later app instances."""
-        original = app_module._webhook_init_pool
-        app_module._rotate_webhook_init_pool()
+    async def test_admission_counts_constructors_not_background_tasks(self) -> None:
+        """The reservation must bound constructors, not handler tasks.
 
-        assert app_module._webhook_init_pool is not original
-        assert app_module._webhook_init_pool._shutdown is False
-        # A submission against the replacement must still be accepted
-        assert app_module._webhook_init_pool.submit(lambda: 1).result(timeout=5) == 1
+        _background_tasks holds a task for the whole handler lifetime (process() and
+        cleanup() included) and also the MCP manager task, so counting it rejected
+        deliveries while every worker sat idle.
+        """
+        app_module._constructors_in_flight = 0
+        assert app_module.try_admit_constructor() is True
+        assert app_module._constructors_in_flight == 1
+
+        # Background tasks are not constructors and must not consume reservations
+        decoy = MagicMock()
+        app_module._background_tasks.add(decoy)
+        try:
+            assert app_module.try_admit_constructor() is True
+            assert app_module._constructors_in_flight == 2
+        finally:
+            # never leave entries in this shared module-global set
+            app_module._background_tasks.discard(decoy)
+
+        app_module.release_constructor_slot()
+        app_module.release_constructor_slot()
+        assert app_module._constructors_in_flight == 0
+
+        with patch.object(app_module, "WEBHOOK_INIT_MAX_PENDING", 1):
+            assert app_module.try_admit_constructor() is True
+            assert app_module.try_admit_constructor() is False
+            app_module.release_constructor_slot()
+
+    @pytest.mark.asyncio
+    async def test_each_app_instance_owns_its_own_pool(self) -> None:
+        """One instance's shutdown must not retire another instance's pool.
+
+        A shared module-level pool meant shutting one app down cancelled queued
+        constructors belonging to a still-running instance, so its already-acknowledged
+        webhook could never reach process().
+        """
+        first, second = Mock(), Mock()
+        first.state = Mock(spec=[])
+        second.state = Mock(spec=[])
+        first_request, second_request = Mock(), Mock()
+        first_request.app = first
+        second_request.app = second
+
+        first_pool = app_module._webhook_init_pool_for(first_request)
+        second_pool = app_module._webhook_init_pool_for(second_request)
+
+        assert first_pool is not second_pool, "both app instances resolved to the same pool"
+
+        first_pool.shutdown(wait=False, cancel_futures=True)
+        # The second instance is untouched and still accepts work
+        assert second_pool.submit(lambda: 1).result(timeout=5) == 1

@@ -6,6 +6,7 @@ import ipaddress
 import json
 import logging
 import os
+import threading
 import traceback
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
@@ -72,29 +73,51 @@ _background_tasks: set[asyncio.Task[Any]] = set()
 WEBHOOK_INIT_MAX_WORKERS: int = 4
 # Admission limit covering running *and* queued constructors. Without it a webhook burst
 # queues behind constructors that can each sit ~30s in retry backoff, delaying deliveries
-# GitHub has already been told were accepted. Anything past this is dropped and logged;
-# GitHub redelivers it.
+# GitHub has already been told were accepted.
 WEBHOOK_INIT_MAX_PENDING: int = 32
-_webhook_init_pool: ThreadPoolExecutor = ThreadPoolExecutor(
-    max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init"
-)
+_constructor_admission_lock = threading.Lock()
+_constructors_in_flight: int = 0
 
 
-def _rotate_webhook_init_pool() -> None:
-    """Cancel not-yet-started constructors and install a fresh pool.
+def try_admit_constructor() -> bool:
+    """Reserve a constructor slot, returning False when the process is at capacity.
 
-    ``wait=False`` leaves already-running constructors alone so shutdown is not blocked on
-    up to ~30s of retry backoff. ``cancel_futures=True`` drops the queued ones. A new pool is
-    swapped in before the old one is retired, because this singleton is process-level while
-    lifespan is per-app-instance - retiring it without a replacement would permanently break
-    every later app instance in the same process.
+    Counts constructors specifically. ``_background_tasks`` cannot answer this: it holds a
+    task for that handler's entire lifetime, including ``process()`` and ``cleanup()``, and
+    it also holds the MCP manager task - so counting it rejected deliveries while workers sat
+    idle, and could reject while every worker was free.
     """
-    global _webhook_init_pool
-    retiring, _webhook_init_pool = (
-        _webhook_init_pool,
-        ThreadPoolExecutor(max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init"),
-    )
-    retiring.shutdown(wait=False, cancel_futures=True)
+    global _constructors_in_flight
+    with _constructor_admission_lock:
+        if _constructors_in_flight >= WEBHOOK_INIT_MAX_PENDING:
+            return False
+        _constructors_in_flight += 1
+        return True
+
+
+def release_constructor_slot() -> None:
+    """Return a reservation taken by :func:`try_admit_constructor`."""
+    global _constructors_in_flight
+    with _constructor_admission_lock:
+        _constructors_in_flight = max(0, _constructors_in_flight - 1)
+
+
+def _new_webhook_init_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init")
+
+
+def _webhook_init_pool_for(request: Request) -> ThreadPoolExecutor:
+    """Return the constructor pool owned by *this app instance*, creating it if needed.
+
+    Ownership is per app instance, not per process. A shared pool meant one instance's
+    lifespan shutdown cancelled queued constructors belonging to another still-running
+    instance, so an acknowledged webhook could never reach process() at all.
+    """
+    pool = getattr(request.app.state, "webhook_init_pool", None)
+    if pool is None:
+        pool = _new_webhook_init_pool()
+        request.app.state.webhook_init_pool = pool
+    return pool
 
 
 # MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
@@ -322,11 +345,15 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
-        # Cancel constructors that have not started and stop accepting new ones, without
-        # blocking on the ones already running. A fresh pool is installed first so a later
-        # app instance in this process (every TestClient context) still has a live one -
-        # shutting the singleton down here alone permanently killed it for all of them.
-        _rotate_webhook_init_pool()
+        # Retire this app instance's own constructor pool: drop the queued ones without
+        # blocking on the ones already running (each can hold a worker for ~30s of retry
+        # backoff). Other app instances in this process own their own pools and are
+        # unaffected.
+        _pool: ThreadPoolExecutor | None = getattr(FASTAPI_APP.state, "webhook_init_pool", None)
+        if _pool is not None:
+            _pool.shutdown(wait=False, cancel_futures=True)
+            FASTAPI_APP.state.webhook_init_pool = None
+
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
         if _log_viewer_controller_singleton is not None:
@@ -485,7 +512,11 @@ async def process_webhook(request: Request) -> JSONResponse:
     LOGGER.info(f"{log_context} Webhook validation passed, queuing for background processing")
 
     async def process_with_error_handling(
-        _hook_data: dict[Any, Any], _headers: Headers, _delivery_id: str, _event_type: str
+        _hook_data: dict[Any, Any],
+        _headers: Headers,
+        _delivery_id: str,
+        _event_type: str,
+        _init_pool: ThreadPoolExecutor,
     ) -> None:
         """Process webhook in background with granular error handling.
 
@@ -540,7 +571,7 @@ async def process_webhook(request: Request) -> JSONResponse:
             def _construct() -> GithubWebhook:
                 return init_context.run(GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger)
 
-            init_future = asyncio.get_running_loop().run_in_executor(_webhook_init_pool, _construct)
+            init_future = asyncio.get_running_loop().run_in_executor(_init_pool, _construct)
             try:
                 # shield so a cancelled handler does not abandon the worker mid-construction
                 _api: GithubWebhook = await asyncio.shield(init_future)
@@ -552,6 +583,11 @@ async def process_webhook(request: Request) -> JSONResponse:
                     orphaned_api = await init_future
                     await orphaned_api.cleanup()
                 raise
+            finally:
+                # The slot covers construction only; process() and cleanup() are not bounded
+                # by it, so give it back as soon as the client is ready.
+                release_constructor_slot()
+
             try:
                 await _api.process()
             finally:
@@ -601,17 +637,41 @@ async def process_webhook(request: Request) -> JSONResponse:
             finally:
                 clear_context()
 
+    # Admit BEFORE scheduling the task and before answering. A webhook dropped after the
+    # 200 is gone for good: GitHub treats a 2xx as delivered and will not redeliver it.
+    # 503 is retryable, so rejecting here is what actually gets the delivery reprocessed.
+    if not try_admit_constructor():
+        LOGGER.error(
+            f"{log_context} Rejected: {WEBHOOK_INIT_MAX_PENDING} webhook constructor(s) already in flight. "
+            "Returning 503 so GitHub retries."
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": status.HTTP_503_SERVICE_UNAVAILABLE,
+                "message": "Server at webhook processing capacity, retry",
+                "delivery_id": delivery_id,
+                "event_type": event_type,
+            },
+        )
+
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
     # Store task reference for observability and graceful shutdown
-    task = asyncio.create_task(
-        process_with_error_handling(
-            _hook_data=hook_data,
-            _headers=request.headers,
-            _delivery_id=delivery_id,
-            _event_type=event_type,
+    try:
+        task = asyncio.create_task(
+            process_with_error_handling(
+                _hook_data=hook_data,
+                _headers=request.headers,
+                _delivery_id=delivery_id,
+                _event_type=event_type,
+                _init_pool=_webhook_init_pool_for(request),
+            )
         )
-    )
+    except BaseException:
+        release_constructor_slot()
+        raise
+
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
