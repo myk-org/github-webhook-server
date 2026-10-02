@@ -11,6 +11,8 @@ from unittest.mock import Mock, patch
 import github
 import pytest
 from github import GithubException
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from urllib3.exceptions import MaxRetryError, ResponseError
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
@@ -367,6 +369,36 @@ class TestHelpers:
             config = Config(repository="test-repo")
             with pytest.raises(NoApiTokenError, match="Failed to get API with highest rate limit"):
                 get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    def test_network_blip_does_not_drop_the_webhook(self, mock_get_apis: Mock) -> None:
+        """A transport failure on one token must skip it, not end construction.
+
+        Selection probes single-attempt, so a connection blip raises immediately instead of
+        being retried away. If that exception is not caught, it escapes __init__ and the
+        delivery - which the endpoint already answered 200 for - is dropped even though
+        another configured token is perfectly healthy.
+        """
+        healthy_api = Mock()
+        healthy_api.rate_limiting = [4000, 5000]
+        healthy_api.get_user.return_value.login = "healthy"
+
+        for error in (
+            RequestsConnectionError("connection reset"),
+            MaxRetryError(None, "https://api.github.com/user"),
+            ResponseError("too many 500 error responses"),
+        ):
+            sick_api = Mock()
+            sick_api.get_user.side_effect = error
+            mock_get_apis.return_value = [(sick_api, "sick-token"), (healthy_api, "healthy-token")]
+
+            helpers_module._token_probe_cache.clear()
+            with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+                config = Config(repository="test-repo")
+                api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+            assert (api, token, user) == (healthy_api, "healthy-token", "healthy"), f"blip escaped: {error!r}"
 
     def test_get_github_repo_api(self) -> None:
         """Test getting GitHub repository API."""

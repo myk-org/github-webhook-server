@@ -40,6 +40,16 @@ _RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 _PERMANENT_STATUS_CODES = frozenset({401, 403, 404, 422})
 _RETRYABLE_SUBSTRINGS = ("500 error responses", "Max retries exceeded")
 
+# Transport failures that github_api_call_sync would have retried away. Callers that probe
+# single-attempt (token selection) must treat these as "this token is unavailable right now"
+# and move on, not as a fatal error - otherwise one network blip ends construction for a
+# delivery the endpoint has already acknowledged.
+TRANSIENT_API_ERRORS: tuple[type[Exception], ...] = (
+    RequestsConnectionError,
+    MaxRetryError,
+    ResponseError,
+)
+
 _MAX_RETRIES = 4
 _BASE_DELAY = 2
 

@@ -28,7 +28,7 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
-from webhook_server.utils.github_retry import _MAX_RETRIES, github_api_call_sync
+from webhook_server.utils.github_retry import _MAX_RETRIES, TRANSIENT_API_ERRORS, github_api_call_sync
 from webhook_server.utils.json_log_handler import JsonLogHandler
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
@@ -599,7 +599,7 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str,
             log_prefix=log_prefix,
             max_retries=_MAX_RETRIES if use_retry else 0,
         )
-    except GithubException:
+    except (GithubException, *TRANSIENT_API_ERRORS):
         # Correct the ranking: a token that just failed must not keep the top slot in the
         # candidate order, or every webhook keeps trying it first until the entry ages out.
         # Only drop the snapshot our ordering was based on, never a fresher one.
@@ -675,8 +675,11 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     for _api, _token in apis_and_tokens:
         try:
             probe = probe_token(_api, _token, logger=logger, log_prefix=msg, use_retry=False)
-        except GithubException as ex:
-            # This catches RateLimitExceededException as it's a subclass of GithubException.
+        except (GithubException, *TRANSIENT_API_ERRORS) as ex:
+            # GithubException covers rate-limit/revoked/404; the transport errors cover a
+            # network blip. Selection probes single-attempt, so without the second group a
+            # single connection failure would escape and end construction for a delivery the
+            # endpoint has already acknowledged, even when another token is healthy.
             logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
             continue
 
