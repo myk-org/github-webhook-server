@@ -1654,3 +1654,86 @@ class TestSkipAuditPool:
         ticker.cancel()
 
         assert ticks > 0, "the event loop was blocked for the whole shutdown"
+
+    @pytest.mark.asyncio
+    async def test_stalled_drain_times_out_and_abandons(self, monkeypatch: Any) -> None:
+        """The timeout branch had no test: both existing tests drained well inside it."""
+        monkeypatch.setattr("webhook_server.app._SKIP_AUDIT_SHUTDOWN_TIMEOUT", 0.05)
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        started = threading.Event()
+        release = threading.Event()
+
+        def _wedged() -> None:
+            started.set()
+            release.wait(5)
+
+        pool.submit(_wedged)
+        assert started.wait(5)
+
+        try:
+            await _shutdown_skip_audit_pool(app)
+        finally:
+            release.set()
+
+        assert app.state.skip_audit_pool is None, "pool reference survived a stalled drain"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_does_not_skip_the_rest_of_cleanup(self) -> None:
+        """Cancelling shutdown must not escape into the lifespan finally and skip the
+        constructor-pool retirement that runs immediately after this call."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        pool.submit(release.wait, 5)
+
+        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+
+        # The point is that this returns at all: a propagated CancelledError would abort
+        # the surrounding finally block.
+        await asyncio.wait_for(task, timeout=5)
+        assert app.state.skip_audit_pool is None
+
+    @pytest.mark.asyncio
+    async def test_pool_reference_is_cleared_after_the_drain_not_before(self) -> None:
+        """Clearing it first let a request arriving mid-shutdown create a pool that was
+        never retired."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        observed: list[Any] = []
+        done = threading.Event()
+
+        def _write() -> None:
+            # Long enough that the peek lands mid-drain; an instant write would finish
+            # before the peek ran and make this assertion meaningless.
+            time.sleep(0.2)
+            done.set()
+
+        pool.submit(_write)
+
+        async def _peek() -> None:
+            await asyncio.sleep(0.05)
+            observed.append(getattr(app.state, "skip_audit_pool", None))
+
+        await asyncio.gather(_shutdown_skip_audit_pool(app), _peek())
+
+        assert observed[0] is pool, "the pool was cleared before it drained"
+        assert done.is_set()

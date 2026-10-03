@@ -452,24 +452,43 @@ def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
 async def _shutdown_skip_audit_pool(app: Any) -> None:
     """Drain the audit pool on shutdown so accepted records are not lost.
 
-    Off the event loop and time-bounded: shutdown(wait=True) blocks until every queued
-    write finishes, and these writes take an flock and fsync. Calling it synchronously
-    from the async lifespan froze the loop for as long as the slowest disk took. The wait
-    is bounded so one wedged write cannot hold shutdown open indefinitely - past the
-    timeout the pool is abandoned rather than waited on, since a record that cannot be
-    flushed during shutdown is better than a process that never exits.
+    Three failure modes this has to survive, all of them real on a slow or contended disk:
+
+    * A normal drain must finish, so a record for a delivery GitHub already saw a 200
+      for is not lost.
+    * A write that never returns must not hold shutdown open. Python cannot kill a
+      running thread, and ThreadPoolExecutor joins its workers at interpreter exit, so the
+      bounded wait below abandons the pool rather than blocking on it. Note the honest
+      limit: that keeps the *lifespan* from blocking, but a thread stuck in the kernel
+      still delays interpreter exit. The real mitigation is that these writes are a flock
+      plus an fsync of a few KB, not an unbounded operation.
+    * Cancelling the await (SIGTERM during shutdown) must not skip the rest of the
+      lifespan's cleanup - the constructor pool is retired immediately after this call,
+      and letting CancelledError escape would discard it.
+
+    Swallowing the cancellation deliberately: this runs in the lifespan's finally, and the
+    alternative is abandoning an in-flight constructor pool, which would drop deliveries
+    the endpoint already answered 200 to.
     """
     executor = getattr(app.state, "skip_audit_pool", None)
     if executor is None:
         return
-    app.state.skip_audit_pool = None
     try:
-        await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=_SKIP_AUDIT_SHUTDOWN_TIMEOUT)
-    except TimeoutError:
-        LOGGER.warning(
-            f"Skipped-delivery audit pool did not drain within {_SKIP_AUDIT_SHUTDOWN_TIMEOUT}s; abandoning it"
-        )
-        executor.shutdown(wait=False)
+        try:
+            await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=_SKIP_AUDIT_SHUTDOWN_TIMEOUT)
+        except TimeoutError:
+            LOGGER.warning(
+                f"Skipped-delivery audit pool did not drain within {_SKIP_AUDIT_SHUTDOWN_TIMEOUT}s; abandoning it"
+            )
+            executor.shutdown(wait=False)
+        except asyncio.CancelledError:
+            # Do not wait, but still release the workers rather than leaving them queued.
+            LOGGER.warning("Skipped-delivery audit pool shutdown cancelled; abandoning queued writes")
+            executor.shutdown(wait=False, cancel_futures=True)
+    finally:
+        # Cleared only AFTER the drain. Clearing it first let a request arriving during
+        # shutdown see no pool, create a second one, and never have it retired.
+        app.state.skip_audit_pool = None
 
 
 async def _record_skipped_delivery(
