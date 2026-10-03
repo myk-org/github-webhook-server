@@ -374,11 +374,15 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # never reach process(). Read _app - the instance this lifespan belongs to - not the
         # module-level FASTAPI_APP, so a separate instance's pool is left alone. In finally
         # so a failed startup still releases it.
-        await _shutdown_skip_audit_pool(_app)
+        # Order matters. The constructor pool is retired first and the audit pool drained
+        # last, so a CancelledError escaping the (awaiting) audit drain - which is now
+        # re-raised rather than swallowed, because swallowing it made a cancelled shutdown
+        # look successful - cannot skip the cleanup below.
         _pool: ThreadPoolExecutor | None = getattr(_app.state, "webhook_init_pool", None)
         if _pool is not None:
             _pool.shutdown(wait=False, cancel_futures=True)
             _app.state.webhook_init_pool = None
+        await _shutdown_skip_audit_pool(_app)
 
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
@@ -473,6 +477,10 @@ async def _shutdown_skip_audit_pool(app: Any) -> None:
     executor = getattr(app.state, "skip_audit_pool", None)
     if executor is None:
         return
+    # Marked BEFORE the drain, and left set: an executor rejects submissions once shutdown
+    # begins, so a request arriving mid-drain must see that and skip rather than submit
+    # into a pool that will raise RuntimeError under it.
+    app.state.skip_audit_stopping = True
     try:
         try:
             await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=_SKIP_AUDIT_SHUTDOWN_TIMEOUT)
@@ -482,9 +490,13 @@ async def _shutdown_skip_audit_pool(app: Any) -> None:
             )
             executor.shutdown(wait=False)
         except asyncio.CancelledError:
-            # Do not wait, but still release the workers rather than leaving them queued.
-            LOGGER.warning("Skipped-delivery audit pool shutdown cancelled; abandoning queued writes")
-            executor.shutdown(wait=False, cancel_futures=True)
+            # Do not wait, and do NOT cancel_futures: those writes are for deliveries GitHub
+            # already saw a 200 for. Let them finish in the background. The cancellation is
+            # re-raised - swallowing it made a cancelled shutdown look successful - and the
+            # lifespan orders this call last precisely so that is safe.
+            LOGGER.warning("Skipped-delivery audit pool shutdown cancelled; queued writes will complete in background")
+            executor.shutdown(wait=False)
+            raise
     finally:
         # Cleared only AFTER the drain. Clearing it first let a request arriving during
         # shutdown see no pool, create a second one, and never have it retired.
@@ -534,8 +546,17 @@ async def _record_skipped_delivery(
         # every GitHub API call (github_retry delegates to asyncio.to_thread) and with
         # cleanup, so a burst of disk-bound audit writes - fsync plus contention on the
         # log-file lock - would occupy the workers that accepted webhooks are waiting for.
+        if getattr(app.state, "skip_audit_stopping", False):
+            # Shutdown has begun. Submitting now would raise RuntimeError from an executor
+            # that no longer accepts work, turning a shutdown race into a 500. The text log
+            # line already records the skip, so this loses the timeline, not the fact.
+            LOGGER.warning(f"Skipping audit record for {delivery_id}: server is shutting down")
+            return
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(_skip_audit_pool_for(app), write_webhook_log, ctx)
+        try:
+            await loop.run_in_executor(_skip_audit_pool_for(app), write_webhook_log, ctx)
+        except RuntimeError as ex:  # pragma: no cover - lost the race with shutdown
+            LOGGER.warning(f"Could not write audit record for {delivery_id}: {ex}")
     except Exception:
         LOGGER.exception(f"Failed to write webhook log for skipped delivery {delivery_id}")
     finally:

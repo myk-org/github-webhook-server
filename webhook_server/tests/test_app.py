@@ -23,6 +23,7 @@ from webhook_server.app import (
     _SKIP_AUDIT_MAX_WORKERS,
     FASTAPI_APP,
     HTTPException,
+    _record_skipped_delivery,
     _shutdown_skip_audit_pool,
     _skip_audit_pool_for,
     get_log_viewer_controller,
@@ -1684,9 +1685,14 @@ class TestSkipAuditPool:
         assert app.state.skip_audit_pool is None, "pool reference survived a stalled drain"
 
     @pytest.mark.asyncio
-    async def test_cancellation_does_not_skip_the_rest_of_cleanup(self) -> None:
-        """Cancelling shutdown must not escape into the lifespan finally and skip the
-        constructor-pool retirement that runs immediately after this call."""
+    async def test_cancellation_propagates_but_still_cleans_up(self) -> None:
+        """A cancelled shutdown must not look successful.
+
+        The previous behaviour caught CancelledError and returned, so the caller could not
+        tell a cancelled drain from a clean one. Cancellation is now re-raised. That is
+        only safe because the lifespan retires the constructor pool BEFORE this call, so
+        nothing important can be skipped by the re-raise.
+        """
 
         class _App:
             class state:  # noqa: N801
@@ -1702,10 +1708,80 @@ class TestSkipAuditPool:
         task.cancel()
         release.set()
 
-        # The point is that this returns at all: a propagated CancelledError would abort
-        # the surrounding finally block.
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+
+        assert app.state.skip_audit_pool is None, "cleanup was skipped on cancellation"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_does_not_discard_queued_writes(self) -> None:
+        """Queued writes are for deliveries GitHub already saw a 200 for."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        finished = threading.Event()
+
+        def _queued() -> None:
+            release.wait(5)
+            finished.set()
+
+        pool.submit(_queued)
+
+        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+
+        # cancel_futures=True would have dropped this before it ran.
+        await asyncio.to_thread(finished.wait, 5)
+        assert finished.is_set(), "a queued audit write was discarded on cancellation"
+
+    @pytest.mark.asyncio
+    async def test_submitting_during_shutdown_is_refused_not_raised(self) -> None:
+        """The pool rejects work once shutdown starts; that must not become a 500."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        pool.submit(release.wait, 5)
+
+        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0.01)
+        assert getattr(app.state, "skip_audit_stopping", False)
+
+        with pytest.raises(RuntimeError):
+            pool.submit(lambda: None)
+
+        release.set()
         await asyncio.wait_for(task, timeout=5)
-        assert app.state.skip_audit_pool is None
+
+    @pytest.mark.asyncio
+    async def test_skip_record_during_shutdown_does_not_raise(self) -> None:
+        """_record_skipped_delivery must return quietly once shutdown has begun."""
+
+        class _App:
+            class state:  # noqa: N801
+                skip_audit_stopping = True
+
+        # Must not raise even though the pool is gone and shutdown is in progress.
+        await _record_skipped_delivery(
+            app=_App(),
+            delivery_id="d1",
+            event_type="check_run",
+            hook_data={"repository": {"name": "r", "full_name": "o/r"}},
+            skip_reason="check_run (action=created, skipped)",
+        )
 
     @pytest.mark.asyncio
     async def test_pool_reference_is_cleared_after_the_drain_not_before(self) -> None:
