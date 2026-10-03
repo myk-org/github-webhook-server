@@ -93,10 +93,12 @@ class LogParser:
     TASK_ID_PATTERN = re.compile(r"\[task_id=((?:\\.|[^\]])+)\]")
     TASK_TYPE_PATTERN = re.compile(r"\[task_type=((?:\\.|[^\]])+)\]")
     TASK_STATUS_PATTERN = re.compile(r"\[task_status=((?:\\.|[^\]])+)\]")
-    # Pattern for token spend: handles both original and masked formats
-    # Original: "Token spend: 35 API calls"
-    # Masked: "token ***** 35 API calls" (when "token" is redacted by secret masking)
-    TOKEN_SPEND_PATTERN = re.compile(r"(?:Token spend|token\s+\*+)\s*:?\s*(\d+)\s+API calls")
+    # Pattern for token spend. Anchored on "<n> API calls" rather than on the label
+    # before it, so it survives label changes: the label is redacted by
+    # mask_sensitive_patterns when it reads "token <value>", which made a
+    # login-based prefix unparseable. Handles "Token spend: 35 API calls" and
+    # "API spend: deadlock1bot 35 API calls (...)" alike.
+    TOKEN_SPEND_PATTERN = re.compile(r"(\d+)\s+API calls")
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
@@ -263,7 +265,8 @@ class LogParser:
 
         Parses messages like:
         - "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
-        - "token ***** 35 API calls (initial: 2831, final: 2796, remaining: 2796)" (when masked)
+        - "API spend: deadlock1bot 35 API calls (initial: 2831, remaining: 2796, reset in 512s)"
+          (current format - identified by API login, with the reset time)
 
         Args:
             message: Log message to extract from

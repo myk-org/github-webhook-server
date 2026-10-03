@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException, Request, status
 
-from webhook_server.utils.context import WebhookContext
+from webhook_server.utils.context import WebhookContext, _format_token_spend
 from webhook_server.utils.helpers import get_logger_with_params
 from webhook_server.web.log_viewer import LogViewerController
 
@@ -195,7 +195,7 @@ def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix:
     # Build final summary message
     status_text = "SUCCESS" if ctx.success else "FAILED"
     pr_info = f" PR#{ctx.pr_number}" if ctx.pr_number else ""
-    token_info = f", tokens:{ctx.token_spend}" if ctx.token_spend else ""
+    token_info = _format_token_spend(ctx.token_spend, ctx.api_user)
 
     logger.info(
         f"{log_prefix} [{status_text}] Webhook completed{pr_info} "

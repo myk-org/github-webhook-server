@@ -9,6 +9,7 @@ import shlex
 import shutil
 import tempfile
 import threading
+import time
 import traceback
 from asyncio import Task
 from typing import Any
@@ -55,6 +56,7 @@ from webhook_server.utils.github_repository_settings import (
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import (
     _redact_secrets,
+    cached_token_probe,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
@@ -179,16 +181,29 @@ class GithubWebhook:
             self.github_api._Github__requester = self.requester_wrapper
 
             # Track initial rate limit for token spend calculation
-            # Note: log_prefix not set yet, so we can't use it in error messages here
-            try:
-                initial_rate_limit = github_api.get_rate_limit()
-                self.initial_rate_limit_remaining = initial_rate_limit.rate.remaining
-            except Exception as ex:
-                self.logger.debug(f"Failed to get initial rate limit: {ex}")
+            # Note: log_prefix not set yet, so we can't use it in error messages here.
+            # Prefer the probe that token selection just made: GET /rate_limit is free but
+            # reports a budget GitHub is not enforcing for this credential (verified against
+            # production - /user said 0/5000 while /rate_limit said 5000/5000), which made
+            # every spend line report "initial: 5000" no matter how much was actually left.
+            probe = cached_token_probe(self.token)
+            if probe is not None:
+                self.initial_rate_limit_remaining = probe.remaining
+            else:
+                try:
+                    initial_rate_limit = github_api.get_rate_limit()
+                    self.initial_rate_limit_remaining = initial_rate_limit.rate.remaining
+                except Exception as ex:
+                    self.logger.debug(f"Failed to get initial rate limit: {ex}")
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
-                github_api=github_api, repository_full_name=self.repository_full_name
+                github_api=github_api,
+                repository_full_name=self.repository_full_name,
+                # Pass the repository just resolved: this path only needs get_contents(), so
+                # re-fetching the same repo from the same client is one wasted core request on
+                # every single webhook.
+                repository=self.repository,
             )
             # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
             self._repo_data_from_config(repository_config=local_repository_config)
@@ -254,6 +269,21 @@ class GithubWebhook:
         # Mark webhook routing as completed
         self.ctx.complete_step("webhook_routing")
 
+    def _rate_limit_reset_in(self) -> str:
+        """Seconds until this token's rate limit resets, for log lines.
+
+        Read from PyGithub's cached reset time rather than a fresh /rate_limit call, so
+        reporting the reset costs nothing.
+        """
+        try:
+            reset_at = int(getattr(self.github_api, "rate_limiting_resettime", 0) or 0)
+        except (TypeError, ValueError):
+            # PyGithub attribute may be absent or unset before any request.
+            return "reset in unknown"
+        if reset_at <= 0:
+            return "reset in unknown"
+        return f"reset in {max(reset_at - int(time.time()), 0)}s"
+
     async def _get_token_metrics(self) -> str:
         """Get token metrics (API rate limit consumption) for this webhook.
 
@@ -262,6 +292,13 @@ class GithubWebhook:
         """
         if not self.github_api or self.initial_rate_limit_remaining is None:
             return ""
+
+        # Identify the token by its API user rather than by token prefix: the prefix is
+        # redacted to ***** in the log anyway, so it carries no information, while the
+        # login tells you WHICH budget was spent. Together with the reset time this makes
+        # the line enough to diagnose exhaustion without opening the token.
+        who = self.api_user or "unknown"
+        reset_in = self._rate_limit_reset_in()
 
         try:
             # Use the wrapper count if available (thread-safe per request)
@@ -272,9 +309,9 @@ class GithubWebhook:
                 remaining = max(0, self.initial_rate_limit_remaining - token_spend)
 
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
-                    f"remaining: {remaining})"
+                    f"remaining: {remaining}, {reset_in})"
                 )
 
             final_rate_limit = await github_api_call(
@@ -289,17 +326,17 @@ class GithubWebhook:
                 # Rate limit reset happened - log as 0 since we can't determine actual spend
                 token_spend = 0
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(rate limit reset occurred - initial: {self.initial_rate_limit_remaining}, "
-                    f"final: {final_remaining})"
+                    f"final: {final_remaining}, {reset_in})"
                 )
             else:
                 token_spend = self.initial_rate_limit_remaining - final_remaining
                 # Return token spend with structured format for parsing
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
-                    f"final: {final_remaining}, remaining: {final_remaining})"
+                    f"final: {final_remaining}, remaining: {final_remaining}, {reset_in})"
                 )
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")

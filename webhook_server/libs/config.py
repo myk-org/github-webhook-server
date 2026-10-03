@@ -5,6 +5,7 @@ from typing import Any
 import github
 import yaml
 from github.GithubException import UnknownObjectException
+from github.Repository import Repository
 from simple_logger.logger import get_logger
 
 from webhook_server.utils.constants import CONFIGURABLE_LABEL_CATEGORIES
@@ -87,7 +88,12 @@ class Config:
         return self.root_data["repositories"].get(self.repository, {})
 
     def repository_local_data(
-        self, github_api: github.Github, repository_full_name: str, *, raise_on_error: bool = False
+        self,
+        github_api: github.Github,
+        repository_full_name: str,
+        *,
+        raise_on_error: bool = False,
+        repository: Repository | None = None,
     ) -> dict[str, Any]:
         """
         Get repository-specific configuration from .github-webhook-server.yaml file.
@@ -102,6 +108,10 @@ class Config:
                 swallowing them into an empty dict. A missing file (UnknownObjectException) is not
                 an error and returns `{}` either way. Startup callers use this so an incomplete read
                 is never mistaken for "no repo-local config".
+            repository: already-fetched repository for the same client and full name. GithubWebhook
+                resolves it once per webhook and then needs it only for get_contents(); passing it
+                in avoids a second identical get_repo() call - one core request saved per webhook,
+                per repository. Callers that have not fetched it can omit it.
 
         Returns:
             Dictionary containing repository configuration, or empty dict if file not found
@@ -112,9 +122,10 @@ class Config:
         if self.repository and repository_full_name:
             try:
                 # Directly use github_api.get_repo instead of importing get_github_repo_api
-                # to avoid circular dependency with helpers.py
+                # to avoid circular dependency with helpers.py. Reuses the caller's repository
+                # when one is supplied, which saves a core request per webhook.
                 self.logger.debug(f"Get GitHub API for repository {repository_full_name}")
-                repo = github_api.get_repo(repository_full_name)
+                repo = repository if repository is not None else github_api.get_repo(repository_full_name)
                 try:
                     _path = repo.get_contents(".github-webhook-server.yaml")
                 except UnknownObjectException:

@@ -582,10 +582,15 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str,
             if current is not None and current is not observed:
                 return current
 
+            # Github.get_user() is LAZY - it issues no request and leaves rate_limiting at
+            # PyGithub's default (5000, 5000). Reading it here returned that default for
+            # every token, every webhook, so selection always saw a 5000/5000 tie and the
+            # first configured token always won. Touching .login first materialises the
+            # request and populates rate_limiting with the real enforced budget.
             user = api.get_user()
-            # rate_limiting is populated from the response headers of the get_user() call above.
+            login = user.login
             remaining, limit = api.rate_limiting
-            probe = TokenProbe(login=user.login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+            probe = TokenProbe(login=login, remaining=remaining, limit=limit, probed_at=time.monotonic())
 
             with _token_probe_lock:
                 _token_probe_cache[token] = probe

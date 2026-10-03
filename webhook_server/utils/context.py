@@ -47,6 +47,19 @@ from typing import Any
 _webhook_context: ContextVar[WebhookContext | None] = ContextVar("webhook_context", default=None)
 
 
+def _format_token_spend(token_spend: int | None, api_user: str = "") -> str:
+    """Render the per-webhook token spend for the summary line.
+
+    Includes the API login so the line identifies which budget was spent - the token
+    itself is redacted to ***** by secret masking and carries no information, while the
+    login tells you which token to look at when a budget runs out.
+    """
+    if not token_spend:
+        return ""
+    who = f" ({api_user})" if api_user else ""
+    return f", tokens:{token_spend}{who}"
+
+
 def _format_duration(ms: int) -> str:
     """Format milliseconds to human-readable duration string.
 
@@ -326,7 +339,7 @@ class WebhookContext:
         # Build final summary
         status_text = "SUCCESS" if self.success else "FAILED"
         pr_info = f" PR#{self.pr_number}" if self.pr_number else ""
-        token_info = f", tokens:{self.token_spend}" if self.token_spend else ""
+        token_info = _format_token_spend(self.token_spend, self.api_user)
 
         return (
             f"[{status_text}] Webhook completed{pr_info} "

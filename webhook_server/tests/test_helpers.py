@@ -131,6 +131,35 @@ class TestTokenProbing:
         assert slow_api.get_user.call_count == 1
         assert other_api.get_user.call_count == 0
 
+    def test_probe_token_materialises_request_before_reading_rate_limit(self) -> None:
+        """rate_limiting must be read AFTER .login, or it is PyGithub's default.
+
+        Github.get_user() is lazy: it issues no request and leaves rate_limiting at
+        (5000, 5000). Reading it before touching .login made every probe report a full
+        budget, so selection always saw a tie and the first configured token always won -
+        including when it was exhausted.
+        """
+
+        class _LazyAuthenticatedUser:
+            """Materialises the GET /user request only when a field is read."""
+
+            def __init__(self, api: Mock) -> None:
+                self._api = api
+
+            @property
+            def login(self) -> str:
+                self._api.rate_limiting = (1234, 5000)  # request happens here
+                return "real-user"
+
+        api = Mock()
+        api.rate_limiting = (5000, 5000)  # PyGithub default before any request
+        api.get_user.return_value = _LazyAuthenticatedUser(api)
+
+        probe = probe_token(api, "lazy-token", logger=Mock(), log_prefix="")
+
+        assert probe.remaining == 1234, "probe read PyGithub's default instead of the real budget"
+        assert probe.login == "real-user"
+
     def test_probe_token_raises_on_rate_limit(self) -> None:
         """An exhausted token raises, so callers can skip it instead of selecting it."""
         api = Mock()

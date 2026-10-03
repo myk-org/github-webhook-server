@@ -93,3 +93,8 @@ async def test_github_webhook_token_metrics_with_counter():
         # When using wrapper, we don't show "final" anymore, but we show "remaining"
         # remaining = initial - spend = 5000 - 2 = 4998
         assert "remaining: 4998" in metrics
+        # The line identifies the token by its API login - the raw token is redacted to
+        # ***** by secret masking and tells you nothing about which budget was spent.
+        assert "API spend: user 2 API calls" in metrics
+        # ...and carries the reset time so exhaustion is diagnosable from the log alone
+        assert "reset in " in metrics
