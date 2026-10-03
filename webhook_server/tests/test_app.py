@@ -6,6 +6,8 @@ import ipaddress
 import json
 import os
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -18,8 +20,11 @@ from starlette.datastructures import Headers
 
 from webhook_server import app as app_module
 from webhook_server.app import (
+    _SKIP_AUDIT_MAX_WORKERS,
     FASTAPI_APP,
     HTTPException,
+    _shutdown_skip_audit_pool,
+    _skip_audit_pool_for,
     get_log_viewer_controller,
     healthcheck,
     require_log_server_enabled,
@@ -1570,3 +1575,82 @@ class TestWebhookConstructionThreading:
         assert app_module._constructors_in_flight == 1, "idempotent release corrupted the counter"
 
         app_module._constructors_in_flight = 0
+
+
+class TestSkipAuditPool:
+    """Skipped-delivery writes must not share workers with accepted webhook work."""
+
+    @pytest.mark.asyncio
+    async def test_pool_is_separate_from_the_default_executor(self) -> None:
+        """The default executor is what github_retry uses for every GitHub API call."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+
+        assert pool is not asyncio.get_running_loop()._default_executor
+        assert pool is _skip_audit_pool_for(app), "a second call must reuse the same pool"
+        assert app.state.skip_audit_pool is pool
+
+    @pytest.mark.asyncio
+    async def test_pool_is_bounded(self) -> None:
+        """Skipped deliveries are the common case; an unbounded pool would thrash the disk."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        pool = _skip_audit_pool_for(_App())
+
+        assert isinstance(pool, ThreadPoolExecutor)
+        assert pool._max_workers == _SKIP_AUDIT_MAX_WORKERS
+
+    @pytest.mark.asyncio
+    async def test_shutdown_drains_pending_writes(self) -> None:
+        """A write queued at shutdown must still run: GitHub already saw its 200."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        done = threading.Event()
+
+        def _write() -> None:
+            time.sleep(0.05)
+            done.set()
+
+        pool.submit(_write)
+        await _shutdown_skip_audit_pool(app)
+
+        assert done.is_set(), "shutdown abandoned a queued audit write"
+        assert app.state.skip_audit_pool is None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_does_not_block_the_event_loop(self) -> None:
+        """shutdown(wait=True) on a slow write must not freeze the loop."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        ticks = 0
+
+        async def _keep_ticking() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.005)
+                ticks += 1
+
+        pool.submit(time.sleep, 0.3)
+        ticker = asyncio.create_task(_keep_ticking())
+        await _shutdown_skip_audit_pool(app)
+        ticker.cancel()
+
+        assert ticks > 0, "the event loop was blocked for the whole shutdown"

@@ -374,7 +374,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # never reach process(). Read _app - the instance this lifespan belongs to - not the
         # module-level FASTAPI_APP, so a separate instance's pool is left alone. In finally
         # so a failed startup still releases it.
-        _shutdown_skip_audit_pool(_app)
+        await _shutdown_skip_audit_pool(_app)
         _pool: ThreadPoolExecutor | None = getattr(_app.state, "webhook_init_pool", None)
         if _pool is not None:
             _pool.shutdown(wait=False, cancel_futures=True)
@@ -429,6 +429,7 @@ def healthcheck() -> dict[str, Any]:
 
 
 _SKIP_AUDIT_MAX_WORKERS = 2
+_SKIP_AUDIT_SHUTDOWN_TIMEOUT = 10.0
 
 
 def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
@@ -448,13 +449,27 @@ def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
     return executor
 
 
-def _shutdown_skip_audit_pool(app: Any) -> None:
-    """Drain the audit pool on shutdown so accepted records are not lost."""
+async def _shutdown_skip_audit_pool(app: Any) -> None:
+    """Drain the audit pool on shutdown so accepted records are not lost.
+
+    Off the event loop and time-bounded: shutdown(wait=True) blocks until every queued
+    write finishes, and these writes take an flock and fsync. Calling it synchronously
+    from the async lifespan froze the loop for as long as the slowest disk took. The wait
+    is bounded so one wedged write cannot hold shutdown open indefinitely - past the
+    timeout the pool is abandoned rather than waited on, since a record that cannot be
+    flushed during shutdown is better than a process that never exits.
+    """
     executor = getattr(app.state, "skip_audit_pool", None)
     if executor is None:
         return
-    executor.shutdown(wait=True)
     app.state.skip_audit_pool = None
+    try:
+        await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=_SKIP_AUDIT_SHUTDOWN_TIMEOUT)
+    except TimeoutError:
+        LOGGER.warning(
+            f"Skipped-delivery audit pool did not drain within {_SKIP_AUDIT_SHUTDOWN_TIMEOUT}s; abandoning it"
+        )
+        executor.shutdown(wait=False)
 
 
 async def _record_skipped_delivery(
