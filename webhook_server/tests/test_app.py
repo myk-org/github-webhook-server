@@ -1715,7 +1715,12 @@ class TestSkipAuditPool:
 
     @pytest.mark.asyncio
     async def test_cancellation_does_not_discard_queued_writes(self) -> None:
-        """Queued writes are for deliveries GitHub already saw a 200 for."""
+        """Queued writes are for deliveries GitHub already saw a 200 for.
+
+        More writes than workers, and the workers held busy, so at least one future is
+        genuinely QUEUED rather than running. A single submit to a two-worker pool starts
+        immediately, and cancel_futures=True would have passed such a test unnoticed.
+        """
 
         class _App:
             class state:  # noqa: N801
@@ -1724,13 +1729,23 @@ class TestSkipAuditPool:
         app = _App()
         pool = _skip_audit_pool_for(app)
         release = threading.Event()
-        finished = threading.Event()
+        ran: list[int] = []
+        queued_done = threading.Event()
 
-        def _queued() -> None:
+        def _occupy() -> None:
             release.wait(5)
-            finished.set()
 
-        pool.submit(_queued)
+        def _queued(index: int) -> None:
+            ran.append(index)
+            if len(ran) >= 1:
+                queued_done.set()
+
+        # Saturate both workers, then queue behind them.
+        for _ in range(_SKIP_AUDIT_MAX_WORKERS):
+            pool.submit(_occupy)
+        await asyncio.to_thread(lambda: None)
+        for index in range(_SKIP_AUDIT_MAX_WORKERS + 2):
+            pool.submit(_queued, index)
 
         task = asyncio.create_task(_shutdown_skip_audit_pool(app))
         await asyncio.sleep(0)
@@ -1739,13 +1754,16 @@ class TestSkipAuditPool:
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=5)
 
-        # cancel_futures=True would have dropped this before it ran.
-        await asyncio.to_thread(finished.wait, 5)
-        assert finished.is_set(), "a queued audit write was discarded on cancellation"
+        assert await asyncio.to_thread(queued_done.wait, 5), "queued audit write was discarded"
+        assert len(ran) == _SKIP_AUDIT_MAX_WORKERS + 2, f"only {len(ran)} writes ran"
 
     @pytest.mark.asyncio
-    async def test_submitting_during_shutdown_is_refused_not_raised(self) -> None:
-        """The pool rejects work once shutdown starts; that must not become a 500."""
+    async def test_skip_record_during_shutdown_does_not_raise(self) -> None:
+        """A real skip racing a real shutdown must not surface as an exception.
+
+        The earlier version set the flag by hand and separately poked pool.submit, so
+        neither touched the path a request actually takes.
+        """
 
         class _App:
             class state:  # noqa: N801
@@ -1756,32 +1774,49 @@ class TestSkipAuditPool:
         release = threading.Event()
         pool.submit(release.wait, 5)
 
-        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        shutdown = asyncio.create_task(_shutdown_skip_audit_pool(app))
         await asyncio.sleep(0.01)
-        assert getattr(app.state, "skip_audit_stopping", False)
 
-        with pytest.raises(RuntimeError):
-            pool.submit(lambda: None)
+        # Exactly what process_webhook does on a payload-only skip, mid-shutdown.
+        with patch("webhook_server.app.write_webhook_log") as mock_write:
+            await _record_skipped_delivery(
+                app=app,
+                delivery_id="d-race",
+                event_type="check_run",
+                hook_data={"repository": {"name": "r", "full_name": "o/r"}},
+                skip_reason="check_run (action=created, skipped)",
+            )
+        mock_write.assert_not_called()
 
         release.set()
-        await asyncio.wait_for(task, timeout=5)
+        await asyncio.wait_for(shutdown, timeout=5)
 
     @pytest.mark.asyncio
-    async def test_skip_record_during_shutdown_does_not_raise(self) -> None:
-        """_record_skipped_delivery must return quietly once shutdown has begun."""
+    async def test_records_again_after_the_pool_is_recreated(self) -> None:
+        """Regression: the stopping flag was never cleared, so a second lifespan on the
+        same app instance refused every skipped delivery from then on."""
 
         class _App:
             class state:  # noqa: N801
-                skip_audit_stopping = True
+                pass
 
-        # Must not raise even though the pool is gone and shutdown is in progress.
-        await _record_skipped_delivery(
-            app=_App(),
-            delivery_id="d1",
-            event_type="check_run",
-            hook_data={"repository": {"name": "r", "full_name": "o/r"}},
-            skip_reason="check_run (action=created, skipped)",
-        )
+        app = _App()
+        _skip_audit_pool_for(app)
+        app.state.skip_audit_stopping = True
+        app.state.skip_audit_pool = None  # simulate the old pool being retired
+
+        _skip_audit_pool_for(app)
+        assert app.state.skip_audit_stopping is False, "a fresh pool starts out flagged as stopping"
+
+        with patch("webhook_server.app.write_webhook_log") as mock_write:
+            await _record_skipped_delivery(
+                app=app,
+                delivery_id="d-after",
+                event_type="check_run",
+                hook_data={"repository": {"name": "r", "full_name": "o/r"}},
+                skip_reason="check_run (action=created, skipped)",
+            )
+        assert mock_write.call_count == 1, "skipped deliveries stopped being recorded after a restart"
 
     @pytest.mark.asyncio
     async def test_pool_reference_is_cleared_after_the_drain_not_before(self) -> None:

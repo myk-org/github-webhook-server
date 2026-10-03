@@ -450,6 +450,10 @@ def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
     if executor is None:
         executor = ThreadPoolExecutor(max_workers=_SKIP_AUDIT_MAX_WORKERS, thread_name_prefix="skip-audit")
         app.state.skip_audit_pool = executor
+        # A new pool means we are starting, not shutting down. Shutdown sets this flag and
+        # nothing cleared it, so a second lifespan on the same app instance (TestClient
+        # reuse, a restart) would refuse every skipped delivery from then on.
+        app.state.skip_audit_stopping = False
     return executor
 
 
