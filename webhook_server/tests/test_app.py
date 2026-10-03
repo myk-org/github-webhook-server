@@ -6,6 +6,7 @@ import ipaddress
 import json
 import os
 import threading
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -147,6 +148,12 @@ class TestWebhookApp:
         # step-less audit record would be written but never viewable.
         assert skipped_ctx.workflow_steps, "skipped record has no workflow steps"
         assert "skip_delivery" in skipped_ctx.workflow_steps
+        # And the record must not end before its own only step begins, or the timeline
+        # renders with the step outside the delivery's lifetime.
+        step_started = datetime.fromisoformat(skipped_ctx.workflow_steps["skip_delivery"]["timestamp"])
+        assert step_started <= skipped_ctx.completed_at, (
+            "completed_at precedes the skip step - the timeline ends before it starts"
+        )
 
         assert response.status_code == 200, response.text
         data = response.json()

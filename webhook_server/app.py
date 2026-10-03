@@ -374,6 +374,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # never reach process(). Read _app - the instance this lifespan belongs to - not the
         # module-level FASTAPI_APP, so a separate instance's pool is left alone. In finally
         # so a failed startup still releases it.
+        _shutdown_skip_audit_pool(_app)
         _pool: ThreadPoolExecutor | None = getattr(_app.state, "webhook_init_pool", None)
         if _pool is not None:
             _pool.shutdown(wait=False, cancel_futures=True)
@@ -427,7 +428,37 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
+_SKIP_AUDIT_MAX_WORKERS = 2
+
+
+def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
+    """Per-app bounded executor for skipped-delivery audit writes.
+
+    Deliberately NOT the default executor. That one is shared with every GitHub API call
+    (github_retry delegates to asyncio.to_thread) and with cleanup, so a burst of
+    disk-bound audit writes - fsync plus contention on the log-file lock - would occupy
+    the workers that already-accepted webhooks are waiting on.
+
+    Small on purpose: skipped deliveries are the common case and this is pure disk I/O.
+    """
+    executor = getattr(app.state, "skip_audit_pool", None)
+    if executor is None:
+        executor = ThreadPoolExecutor(max_workers=_SKIP_AUDIT_MAX_WORKERS, thread_name_prefix="skip-audit")
+        app.state.skip_audit_pool = executor
+    return executor
+
+
+def _shutdown_skip_audit_pool(app: Any) -> None:
+    """Drain the audit pool on shutdown so accepted records are not lost."""
+    executor = getattr(app.state, "skip_audit_pool", None)
+    if executor is None:
+        return
+    executor.shutdown(wait=True)
+    app.state.skip_audit_pool = None
+
+
 async def _record_skipped_delivery(
+    app: Any,
     delivery_id: str,
     event_type: str,
     hook_data: dict[str, Any],
@@ -459,11 +490,18 @@ async def _record_skipped_delivery(
     )
     try:
         ctx.success = True
-        ctx.completed_at = datetime.now(UTC)
+        # The step must be recorded BEFORE completed_at, or the record's own timeline ends
+        # before its only step started.
         ctx.start_step("skip_delivery", reason=skip_reason)
         ctx.complete_step("skip_delivery", reason=skip_reason)
         ctx.add_note(f"Skipped without API calls: {skip_reason}")
-        await asyncio.to_thread(write_webhook_log, ctx)
+        ctx.completed_at = datetime.now(UTC)
+        # A dedicated executor, not the default one. The default executor is shared with
+        # every GitHub API call (github_retry delegates to asyncio.to_thread) and with
+        # cleanup, so a burst of disk-bound audit writes - fsync plus contention on the
+        # log-file lock - would occupy the workers that accepted webhooks are waiting for.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(_skip_audit_pool_for(app), write_webhook_log, ctx)
     except Exception:
         LOGGER.exception(f"Failed to write webhook log for skipped delivery {delivery_id}")
     finally:
@@ -711,6 +749,7 @@ async def process_webhook(request: Request) -> JSONResponse:
     if payload_skip is not None:
         LOGGER.info(f"{log_context} Skipped without API calls: {payload_skip}")
         await _record_skipped_delivery(
+            app=request.app,
             delivery_id=delivery_id,
             event_type=event_type,
             hook_data=hook_data,
