@@ -11,6 +11,8 @@ from typing import Any
 
 from simple_logger.logger import get_logger
 
+from webhook_server.utils.masking import attach_masking
+
 
 @dataclass
 class LogEntry:
@@ -60,7 +62,8 @@ class LogParser:
 
     def __init__(self) -> None:
         """Initialize LogParser with logger."""
-        self.logger = get_logger(name="log_parser")
+        # get_logger defaults mask_sensitive to False; opt in or this logger writes raw
+        self.logger = attach_masking(get_logger(name="log_parser", mask_sensitive=True), mask_sensitive=True)
 
     # Regex pattern for parsing production logs from prepare_log_prefix() in github_api.py
     # Format from prepare_log_prefix():
@@ -93,10 +96,15 @@ class LogParser:
     TASK_ID_PATTERN = re.compile(r"\[task_id=((?:\\.|[^\]])+)\]")
     TASK_TYPE_PATTERN = re.compile(r"\[task_type=((?:\\.|[^\]])+)\]")
     TASK_STATUS_PATTERN = re.compile(r"\[task_status=((?:\\.|[^\]])+)\]")
-    # Pattern for token spend: handles both original and masked formats
-    # Original: "Token spend: 35 API calls"
-    # Masked: "token ***** 35 API calls" (when "token" is redacted by secret masking)
-    TOKEN_SPEND_PATTERN = re.compile(r"(?:Token spend|token\s+\*+)\s*:?\s*(\d+)\s+API calls")
+    # Pattern for token spend. Both the login-based form this server now emits
+    # ("API spend: deadlock1bot 35 API calls (...)") and the legacy token-prefixed form
+    # ("Token spend: 35 API calls") and the pre-redaction "token ***** 35 API calls" still
+    # present in log files written before this change. A label is required deliberately: anchoring only on
+    # "<n> API calls" made parse_log_entry() treat ANY unrelated line containing that
+    # phrase as this webhook's spend, which the log viewer would then report.
+    # The login form is why the label is "API spend:" and not "token <value>" - the
+    # latter is redacted to "token *****" by mask_sensitive_patterns and is unparseable.
+    TOKEN_SPEND_PATTERN = re.compile(r"(?:API spend:\s*\S+\s+|Token spend:\s+|token\s*\*+\s*:?\s*)(\d+)\s+API calls")
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
@@ -263,7 +271,8 @@ class LogParser:
 
         Parses messages like:
         - "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
-        - "token ***** 35 API calls (initial: 2831, final: 2796, remaining: 2796)" (when masked)
+        - "API spend: deadlock1bot 35 API calls (initial: 2831, remaining: 2796, reset in 512s)"
+          (current format - identified by API login, with the reset time)
 
         Args:
             message: Log message to extract from

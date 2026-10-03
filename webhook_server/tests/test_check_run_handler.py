@@ -23,6 +23,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
+from webhook_server.utils.helpers import TokenProbe
 
 
 class TestCheckRunHandler:
@@ -1053,7 +1054,7 @@ class TestCheckRunRepositoryCloning:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_data = {"test": "data"}
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "test-token", "test-user")
+        mock_get_api.return_value = (Mock(), "test-token", TokenProbe(login="test-user", remaining=5000, limit=5000))
         mock_get_repo.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -1122,7 +1123,7 @@ class TestCheckRunRepositoryCloning:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_data = {"test": "data"}
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "test-token", "test-user")
+        mock_get_api.return_value = (Mock(), "test-token", TokenProbe(login="test-user", remaining=5000, limit=5000))
         mock_get_repo.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -1190,7 +1191,7 @@ class TestCheckRunRepositoryCloning:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_data = {"test": "data"}
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "test-token", "test-user")
+        mock_get_api.return_value = (Mock(), "test-token", TokenProbe(login="test-user", remaining=5000, limit=5000))
         mock_get_repo.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -1298,7 +1299,7 @@ class TestCheckRunRepositoryCloning:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_data = {"test": "data"}
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "test-token", "test-user")
+        mock_get_api.return_value = (Mock(), "test-token", TokenProbe(login="test-user", remaining=5000, limit=5000))
         mock_get_repo.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"

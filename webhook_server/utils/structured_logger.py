@@ -40,6 +40,7 @@ from simple_logger.logger import get_logger
 
 from webhook_server.libs.config import Config
 from webhook_server.utils.context import WebhookContext, get_context
+from webhook_server.utils.masking import attach_masking, config_secret_values
 
 # Platform-specific imports for file locking
 try:
@@ -70,7 +71,12 @@ class StructuredLogWriter:
             logger: Logger instance for error reporting (creates one if not provided)
         """
         self.config = config
-        self.logger = logger or get_logger(name="structured_logger")
+        # This writes the JSONL webhook log; get_logger leaves masking off by default.
+        self.logger = attach_masking(
+            logger or get_logger(name="structured_logger"),
+            mask_sensitive=bool(config.get_value("mask-sensitive-data", return_on_none=True)),
+            secrets=config_secret_values(config),
+        )
         self.log_dir = Path(self.config.data_dir) / "logs"
 
         # Create log directory if it doesn't exist
@@ -287,7 +293,11 @@ def write_webhook_log(context: WebhookContext | None = None) -> None:
 
     # Create Config and StructuredLogWriter
     config = Config()
-    logger = get_logger(name="structured_logger")
+    logger = attach_masking(
+        get_logger(name="structured_logger"),
+        mask_sensitive=bool(config.get_value("mask-sensitive-data", return_on_none=True)),
+        secrets=config_secret_values(config),
+    )
     writer = StructuredLogWriter(config=config, logger=logger)
 
     # Write log entry

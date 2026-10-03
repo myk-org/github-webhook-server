@@ -47,6 +47,19 @@ from typing import Any
 _webhook_context: ContextVar[WebhookContext | None] = ContextVar("webhook_context", default=None)
 
 
+def _format_token_spend(token_spend: int | None, api_user: str = "") -> str:
+    """Render the per-webhook token spend for the summary line.
+
+    Includes the API login so the line identifies which budget was spent - the token
+    itself is redacted to ***** by secret masking and carries no information, while the
+    login tells you which token to look at when a budget runs out.
+    """
+    if not token_spend:
+        return ""
+    who = f" ({api_user})" if api_user else ""
+    return f", tokens:{token_spend}{who}"
+
+
 def _format_duration(ms: int) -> str:
     """Format milliseconds to human-readable duration string.
 
@@ -147,6 +160,15 @@ class WebhookContext:
     # Final status
     success: bool = True
     error: dict[str, Any] | None = None  # Top-level error with traceback
+    note: str = ""  # Why the delivery ended this way when no workflow step says
+
+    def add_note(self, note: str) -> None:
+        """Record why a delivery ended as it did when no workflow step explains it.
+
+        Used for deliveries acknowledged without processing (payload-only skips), which
+        have no steps but must still be findable in the webhook log.
+        """
+        self.note = note
 
     def start_step(self, step_name: str, **data: Any) -> None:
         """Start a workflow step.
@@ -326,11 +348,13 @@ class WebhookContext:
         # Build final summary
         status_text = "SUCCESS" if self.success else "FAILED"
         pr_info = f" PR#{self.pr_number}" if self.pr_number else ""
-        token_info = f", tokens:{self.token_spend}" if self.token_spend else ""
+        token_info = _format_token_spend(self.token_spend, self.api_user)
+
+        note_info = f' note="{self.note}"' if self.note else ""
 
         return (
             f"[{status_text}] Webhook completed{pr_info} "
-            f"[{_format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
+            f"[{_format_duration(duration_ms)}{token_info}{note_info}] steps=[{steps_str}]"
         )
 
     def _derive_level(self) -> str:
@@ -403,6 +427,7 @@ class WebhookContext:
             "final_rate_limit": self.final_rate_limit,
             "success": self.success,
             "error": self.error,
+            "note": self.note,
             "summary": self._build_summary(),
         }
 

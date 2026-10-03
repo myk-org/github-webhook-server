@@ -205,7 +205,12 @@ class TestRunnerHandler:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(False, "/tmp/worktree-path", "out", "err")
+                            return_value=(
+                                False,
+                                "/tmp/worktree-path",
+                                "out",
+                                "err",
+                            )
                         )
                         mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         await runner_handler.run_tox(mock_pull_request)
@@ -1145,7 +1150,12 @@ class TestRunnerHandler:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
-                            return_value=(False, "/tmp/worktree-path", "out", "err")
+                            return_value=(
+                                False,
+                                "/tmp/worktree-path",
+                                "out",
+                                "err",
+                            )
                         )
                         mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         await runner_handler.cherry_pick(mock_pull_request, "main")

@@ -1005,6 +1005,57 @@ class TestBuildSummary:
         assert "repo_clone:completed(2s546ms)" in summary
         assert "push_handler:completed(0ms)" in summary
 
+    def test_build_summary_includes_api_login(self) -> None:
+        """When the API user is known the summary names it, so the budget is attributable."""
+        ctx = WebhookContext(
+            hook_id="hook-123",
+            event_type="check_run",
+            repository="repo",
+            repository_full_name="org/repo",
+        )
+        ctx.completed_at = datetime(2024, 1, 15, 10, 0, 0, 1000, tzinfo=UTC)
+        ctx.token_spend = 4
+        ctx.api_user = "deadlock1bot"
+
+        summary = ctx._build_summary()
+
+        assert summary is not None
+        assert "tokens:4" in summary
+        assert "deadlock1bot" in summary
+
+    def test_build_summary_includes_api_login_alongside_pr(self) -> None:
+        """The login branch is used on the PR summary path too, not just the bare one."""
+        ctx = WebhookContext(
+            hook_id="hook-123",
+            event_type="pull_request",
+            repository="repo",
+            repository_full_name="org/repo",
+        )
+        ctx.completed_at = datetime(2024, 1, 15, 10, 0, 7, 712000, tzinfo=UTC)
+        ctx.pr_number = 968
+        ctx.token_spend = 4
+        ctx.api_user = "myakove-bot"
+
+        summary = ctx._build_summary()
+
+        assert summary is not None
+        assert summary.startswith("[SUCCESS] Webhook completed PR#968 ")
+        assert "myakove-bot" in summary
+
+    def test_add_note_appears_in_summary_and_dict(self) -> None:
+        """A delivery acknowledged without processing still explains itself."""
+        ctx = WebhookContext(
+            hook_id="hook-123",
+            event_type="ping",
+            repository="repo",
+            repository_full_name="org/repo",
+        )
+        ctx.completed_at = datetime(2024, 1, 15, 10, 0, 0, 0, tzinfo=UTC)
+        ctx.add_note("Skipped without API calls: ping")
+
+        assert "Skipped without API calls: ping" in (ctx._build_summary() or "")
+        assert ctx.to_dict()["note"] == "Skipped without API calls: ping"
+
     def test_build_summary_without_pr(self):
         """Test _build_summary() without PR number."""
         start_time = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)

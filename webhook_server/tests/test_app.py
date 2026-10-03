@@ -1,9 +1,14 @@
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import ipaddress
 import json
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -11,11 +16,16 @@ import httpx
 import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
 from webhook_server import app as app_module
 from webhook_server.app import (
+    _SKIP_AUDIT_MAX_WORKERS,
     FASTAPI_APP,
     HTTPException,
+    _record_skipped_delivery,
+    _shutdown_skip_audit_pool,
+    _skip_audit_pool_for,
     get_log_viewer_controller,
     healthcheck,
     require_log_server_enabled,
@@ -28,6 +38,7 @@ from webhook_server.utils.app_utils import (
     get_cloudflare_allowlist,
     get_github_allowlist,
 )
+from webhook_server.utils.context import get_context
 
 
 class TestWebhookApp:
@@ -101,6 +112,65 @@ class TestWebhookApp:
         assert data["message"] == "Webhook queued for processing"
         assert data["delivery_id"] == "test-delivery-123"
         assert data["event_type"] == "pull_request"
+
+    @patch("webhook_server.app.GithubWebhook")
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_payload_skip_acknowledges_without_constructing_client(
+        self,
+        mock_github_webhook: MagicMock,
+        client: TestClient,
+        webhook_secret: str,
+        valid_webhook_payload: dict[str, Any],
+    ) -> None:
+        """A payload-only skip must cost zero API calls AND still be auditable.
+
+        Skipping before construction is what saves the 4-5 core requests, so the test
+        asserts the client was never built and no background work was scheduled - while
+        the delivery is still acknowledged and written to the structured webhook log.
+        """
+        payload_json = json.dumps(valid_webhook_payload)
+        signature = self.create_github_signature(payload_json, webhook_secret)
+
+        headers = {
+            "X-GitHub-Event": "ping",
+            "X-GitHub-Delivery": "skip-delivery-abc",
+            "x-hub-signature-256": signature,
+            "Content-Type": "application/json",
+        }
+
+        with (
+            patch("webhook_server.app.asyncio.create_task") as mock_create_task,
+            patch("webhook_server.app.write_webhook_log") as mock_write_log,
+        ):
+            response = client.post("/webhook_server", content=payload_json, headers=headers)
+
+        # Skipping must not cost observability: the delivery is acknowledged, so it has to
+        # be findable by its ID in the log viewer like any other webhook.
+        assert mock_write_log.call_count == 1
+        skipped_ctx = mock_write_log.call_args.args[0]
+        assert skipped_ctx.hook_id == "skip-delivery-abc"
+        assert "ping" in skipped_ctx.note
+        # The log viewer rejects a record with no workflow_steps as malformed, so a
+        # step-less audit record would be written but never viewable.
+        assert skipped_ctx.workflow_steps, "skipped record has no workflow steps"
+        assert "skip_delivery" in skipped_ctx.workflow_steps
+        # And the record must not end before its own only step begins, or the timeline
+        # renders with the step outside the delivery's lifetime.
+        step_started = datetime.fromisoformat(skipped_ctx.workflow_steps["skip_delivery"]["timestamp"])
+        assert step_started <= skipped_ctx.completed_at, (
+            "completed_at precedes the skip step - the timeline ends before it starts"
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["status"] == 200
+        assert data["message"] == "Webhook acknowledged, no processing needed"
+        assert data["skip_reason"] == "ping"
+        assert data["delivery_id"] == "skip-delivery-abc"
+
+        # The whole point: no client construction, no background task, no API spend.
+        mock_github_webhook.assert_not_called()
+        mock_create_task.assert_not_called()
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_invalid_json(self, client: TestClient, webhook_secret: str) -> None:
@@ -1096,7 +1166,10 @@ class TestWebhookApp:
             mock_logger = mock_get_logger.return_value
 
             headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
-            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+            # A tag ref is what a real push carries. Without it process_webhook() drops the
+            # delivery pre-construction (nothing to do for a branch push) and the handler
+            # error path these tests cover would never run.
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}, "ref": "refs/tags/v1.0.0"}
 
             captured_coro = None
 
@@ -1137,7 +1210,10 @@ class TestWebhookApp:
             mock_logger = mock_get_logger.return_value
 
             headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
-            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+            # A tag ref is what a real push carries. Without it process_webhook() drops the
+            # delivery pre-construction (nothing to do for a branch push) and the handler
+            # error path these tests cover would never run.
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}, "ref": "refs/tags/v1.0.0"}
 
             captured_coro = None
             mock_task = MagicMock()
@@ -1158,3 +1234,617 @@ class TestWebhookApp:
                 mock_logger.error.assert_called()
                 call_args = mock_logger.error.call_args
                 assert "Repository not found in configuration" in call_args[0][0]
+
+
+class TestWebhookConstructionThreading:
+    """GithubWebhook construction must never run on the event loop.
+
+    It is blocking I/O and can spend up to ~30s inside github_api_call_sync retry backoff
+    during a GitHub outage, so running it on the loop would stall every other in-flight
+    webhook. These tests fail if that regresses to an inline constructor call.
+
+    No test here sleeps for a fixed duration: the fake constructor blocks on an Event that
+    the test always sets, and loop progress is measured with asyncio.sleep(0) yields. If a
+    test fails before releasing, the 10s wait inside the worker is the backstop.
+    """
+
+    PAYLOAD: dict[str, Any] = {
+        "action": "opened",
+        "repository": {"name": "repo", "full_name": "org/repo"},
+        "sender": {"login": "someone"},
+    }
+    # Only a backstop for the regression case, so a mis-wired constructor fails the test
+    # instead of deadlocking it. The happy path never waits this long.
+    WORKER_TIMEOUT: float = 2.0
+
+    @classmethod
+    def _request(cls) -> Mock:
+        request = Mock()
+        request.headers = Headers({"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "d-1"})
+        request.body = AsyncMock(return_value=json.dumps(cls.PAYLOAD).encode())
+        # The constructor pool is owned per app instance and resolved from request.app
+        request.app = app_module.FASTAPI_APP
+        return request
+
+    @classmethod
+    def _constructor(cls, recorded: dict[str, Any], release: threading.Event, block: bool) -> Any:
+        def _build(**kwargs: Any) -> Mock:
+            recorded["thread"] = threading.get_ident()
+            recorded["started"].set()
+            if block:
+                release.wait(timeout=cls.WORKER_TIMEOUT)
+            instance = Mock()
+            instance.process = AsyncMock()
+            instance.cleanup = AsyncMock()
+            recorded["instance"] = instance
+            return instance
+
+        return _build
+
+    @classmethod
+    async def _submit(cls) -> asyncio.Task[Any]:
+        """Fire the endpoint and hand back the background handler task it spawned.
+
+        ``_background_tasks`` is a module-global set shared with every other test in this
+        file, so pick out the task this call created rather than whichever happens to be
+        first - awaiting a foreign task would hang.
+        """
+        before = set(app_module._background_tasks)
+        response = await app_module.process_webhook(cls._request())
+        assert response.status_code == 200
+        new_tasks = [task for task in app_module._background_tasks if task not in before]
+        assert len(new_tasks) == 1, f"expected one background task, got {len(new_tasks)}"
+        return new_tasks[0]
+
+    @classmethod
+    async def _drain(cls, task: asyncio.Task[Any]) -> None:
+        """Await a handler task, never blocking the suite forever if it wedges."""
+        await asyncio.wait_for(asyncio.shield(task), timeout=5)
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_constructor_runs_off_the_event_loop(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """The constructor must run on a worker thread, not the loop thread."""
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        release.set()  # do not block; we only care which thread it ran on
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=False)
+
+        loop_thread = threading.get_ident()
+        task = await self._submit()
+        try:
+            await self._drain(task)
+        finally:
+            task.cancel()
+
+        assert recorded["thread"] != loop_thread, "GithubWebhook construction ran on the event loop"
+        assert recorded["instance"].cleanup.await_count == 1
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_event_loop_stays_responsive_during_construction(
+        self, mock_webhook_cls: Mock, mock_signature: Mock
+    ) -> None:
+        """A constructor blocked in a worker must not stop the loop from running tasks."""
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+
+        task = await self._submit()
+        try:
+            for _ in range(10_000):
+                if recorded["started"].is_set():
+                    break
+                await asyncio.sleep(0)
+            assert recorded["started"].is_set(), "constructor never started"
+
+            # The worker is blocked inside the constructor here. Yielding the loop must keep
+            # making progress; if construction ran on the event loop instead, the very first
+            # yield would not return until the constructor finished.
+            for _ in range(50):
+                await asyncio.sleep(0)
+
+            assert "instance" not in recorded, "event loop was blocked behind the constructor"
+            release.set()
+            await self._drain(task)
+        finally:
+            task.cancel()
+            release.set()
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_cancelled_handler_cleans_up_orphaned_constructor(
+        self, mock_webhook_cls: Mock, mock_signature: Mock
+    ) -> None:
+        """Cancelling mid-construction must still collect and clean up the instance.
+
+        The worker runs to completion after the handler stops awaiting, and the constructor
+        has already made the clone temp dir, so the orphaned instance has to be cleaned up
+        explicitly or shutdown leaks a directory.
+        """
+        recorded: dict[str, Any] = {"started": threading.Event()}
+        release = threading.Event()
+        mock_webhook_cls.side_effect = self._constructor(recorded, release, block=True)
+
+        task = await self._submit()
+        # Bounded spin: never busy-wait forever if construction never starts.
+        for _ in range(10_000):
+            if recorded["started"].is_set():
+                break
+            await asyncio.sleep(0)
+        assert recorded["started"].is_set(), "constructor never started"
+
+        task.cancel()
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        instance = recorded.get("instance")
+        assert instance is not None, "orphaned constructor never completed"
+        instance.cleanup.assert_awaited()
+        instance.process.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_constructor_pool_is_bounded(self) -> None:
+        """Constructor workers are capped so a webhook burst cannot spawn them unbounded."""
+        pool = app_module._webhook_init_pool_for(self._request())
+        assert pool._max_workers == app_module.WEBHOOK_INIT_MAX_WORKERS
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_constructor_inherits_webhook_context(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """The worker must see the handler's contextvars.
+
+        run_in_executor does not propagate them the way asyncio.to_thread does, so without
+        an explicit copy_context() the constructor saves ctx=None and silently disables
+        token metrics, workflow-step tracking and JSON log enrichment for every webhook.
+        """
+        seen: dict[str, Any] = {}
+
+        def _constructor(**kwargs: Any) -> Mock:
+            seen["ctx"] = get_context()
+            instance = Mock()
+            instance.process = AsyncMock()
+            instance.cleanup = AsyncMock()
+            return instance
+
+        mock_webhook_cls.side_effect = _constructor
+
+        task = await self._submit()
+        await self._drain(task)
+
+        assert seen["ctx"] is not None, "webhook context was lost in the worker - ctx would be None"
+        assert seen["ctx"].hook_id == "d-1"
+
+    @pytest.mark.asyncio
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.app.verify_signature")
+    @patch("webhook_server.app.GithubWebhook")
+    async def test_capacity_returns_503_so_github_retries(self, mock_webhook_cls: Mock, mock_signature: Mock) -> None:
+        """At capacity the endpoint must reject with 503, never answer 200 and drop.
+
+        GitHub treats a 2xx as delivered and will not redeliver, so dropping after the
+        response commits loses the webhook permanently.
+        """
+        with patch.object(app_module, "try_admit_constructor", return_value=False):
+            before = set(app_module._background_tasks)
+            response = await app_module.process_webhook(self._request())
+
+        assert response.status_code == 503
+        assert response.status_code >= 500  # retryable by GitHub
+        mock_webhook_cls.assert_not_called()
+        # No *new* task was scheduled: compare against what was already pending.
+        assert app_module._background_tasks == before
+
+    @pytest.mark.asyncio
+    async def test_admission_counts_constructors_not_background_tasks(self) -> None:
+        """The reservation must bound constructors, not handler tasks.
+
+        _background_tasks holds a task for the whole handler lifetime (process() and
+        cleanup() included) and also the MCP manager task, so counting it rejected
+        deliveries while every worker sat idle.
+        """
+        app_module._constructors_in_flight = 0
+        assert app_module.try_admit_constructor() is True
+        assert app_module._constructors_in_flight == 1
+
+        # Background tasks are not constructors and must not consume reservations
+        decoy = MagicMock()
+        app_module._background_tasks.add(decoy)
+        try:
+            assert app_module.try_admit_constructor() is True
+            assert app_module._constructors_in_flight == 2
+        finally:
+            # never leave entries in this shared module-global set
+            app_module._background_tasks.discard(decoy)
+
+        app_module.release_constructor_slot()
+        app_module.release_constructor_slot()
+        assert app_module._constructors_in_flight == 0
+
+        with patch.object(app_module, "WEBHOOK_INIT_MAX_PENDING", 1):
+            assert app_module.try_admit_constructor() is True
+            assert app_module.try_admit_constructor() is False
+            app_module.release_constructor_slot()
+
+    @pytest.mark.asyncio
+    async def test_each_app_instance_owns_its_own_pool(self) -> None:
+        """One instance's shutdown must not retire another instance's pool.
+
+        A shared module-level pool meant shutting one app down cancelled queued
+        constructors belonging to a still-running instance, so its already-acknowledged
+        webhook could never reach process().
+        """
+        first, second = Mock(), Mock()
+        first.state = Mock(spec=[])
+        second.state = Mock(spec=[])
+        first_request, second_request = Mock(), Mock()
+        first_request.app = first
+        second_request.app = second
+
+        first_pool = app_module._webhook_init_pool_for(first_request)
+        second_pool = app_module._webhook_init_pool_for(second_request)
+
+        assert first_pool is not second_pool, "both app instances resolved to the same pool"
+
+        first_pool.shutdown(wait=False, cancel_futures=True)
+        # The second instance is untouched and still accepts work
+        assert second_pool.submit(lambda: 1).result(timeout=5) == 1
+
+    @pytest.mark.asyncio
+    async def test_lifespan_retires_the_pools_of_the_app_it_owns(self) -> None:
+        """Shutdown must read _app.state, not FASTAPI_APP.state.
+
+        The pool lives on the app that created it, so reading the module-level FASTAPI_APP
+        left a separate instance's pool - and its queued constructors - alive on exit.
+        """
+        owned_app, other_app = Mock(), Mock()
+        # Plain Mock, not Mock(spec=[]): a spec restricts reads, so getattr(state,
+        # "webhook_init_pool") would return None and the branch under test would not run.
+        owned_app.state = Mock()
+        other_app.state = Mock()
+        owned_pool = app_module._new_webhook_init_pool()
+        other_pool = app_module._new_webhook_init_pool()
+        owned_app.state.webhook_init_pool = owned_pool
+        other_app.state.webhook_init_pool = other_pool
+
+        try:
+            await self._run_lifespan_to_completion(owned_app)
+        except Exception:  # pragma: no cover - lifespan may fail on unrelated missing config
+            pass
+
+        assert owned_pool._shutdown is True
+        assert owned_app.state.webhook_init_pool is None
+        # The unrelated instance keeps its pool and can still accept work
+        assert other_pool._shutdown is False
+        assert other_pool.submit(lambda: 1).result(timeout=5) == 1
+        other_pool.shutdown(wait=False, cancel_futures=True)
+
+    @staticmethod
+    async def _run_lifespan_to_completion(app: Mock) -> None:
+        """Drive lifespan() through startup and shutdown against *app*.
+
+        lifespan is wrapped in @asynccontextmanager, so it must be entered with
+        ``async with`` - reaching for the raw generator would skip the body entirely and the
+        shutdown branch under test would never execute.
+        """
+        async with app_module.lifespan(app):
+            pass
+
+    @pytest.mark.asyncio
+    async def test_reservation_released_when_handler_cancelled_before_running(self) -> None:
+        """A handler cancelled before its body runs must still return its slot.
+
+        The admission counter is process-global and monotonic; an unreleased reservation
+        permanently shrinks capacity until every delivery is rejected with 503.
+        """
+        app_module._constructors_in_flight = 0
+        reservation = app_module.ConstructorReservation()
+        assert app_module.try_admit_constructor() is True
+
+        task = asyncio.create_task(asyncio.sleep(0))
+        task.add_done_callback(lambda _done: reservation.release())
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0)  # let the done-callback run
+
+        assert app_module._constructors_in_flight == 0
+
+    @pytest.mark.asyncio
+    async def test_reservation_release_is_idempotent(self) -> None:
+        """Double release must not free a slot another webhook now owns."""
+        app_module._constructors_in_flight = 0
+        reservation = app_module.ConstructorReservation()
+        assert app_module.try_admit_constructor() is True
+
+        reservation.release()
+        assert app_module.try_admit_constructor() is True
+        assert app_module._constructors_in_flight == 1
+
+        reservation.release()
+        reservation.release()
+        assert app_module._constructors_in_flight == 1, "idempotent release corrupted the counter"
+
+        app_module._constructors_in_flight = 0
+
+
+class TestSkipAuditPool:
+    """Skipped-delivery writes must not share workers with accepted webhook work."""
+
+    @pytest.mark.asyncio
+    async def test_pool_is_separate_from_the_default_executor(self) -> None:
+        """The default executor is what github_retry uses for every GitHub API call."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+
+        assert pool is not asyncio.get_running_loop()._default_executor
+        assert pool is _skip_audit_pool_for(app), "a second call must reuse the same pool"
+        assert app.state.skip_audit_pool is pool
+
+    @pytest.mark.asyncio
+    async def test_pool_is_bounded(self) -> None:
+        """Skipped deliveries are the common case; an unbounded pool would thrash the disk."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        pool = _skip_audit_pool_for(_App())
+
+        assert isinstance(pool, ThreadPoolExecutor)
+        assert pool._max_workers == _SKIP_AUDIT_MAX_WORKERS
+
+    @pytest.mark.asyncio
+    async def test_shutdown_drains_pending_writes(self) -> None:
+        """A write queued at shutdown must still run: GitHub already saw its 200."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        done = threading.Event()
+
+        def _write() -> None:
+            time.sleep(0.05)
+            done.set()
+
+        pool.submit(_write)
+        await _shutdown_skip_audit_pool(app)
+
+        assert done.is_set(), "shutdown abandoned a queued audit write"
+        assert app.state.skip_audit_pool is None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_does_not_block_the_event_loop(self) -> None:
+        """shutdown(wait=True) on a slow write must not freeze the loop."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        ticks = 0
+
+        async def _keep_ticking() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.005)
+                ticks += 1
+
+        pool.submit(time.sleep, 0.3)
+        ticker = asyncio.create_task(_keep_ticking())
+        await _shutdown_skip_audit_pool(app)
+        ticker.cancel()
+
+        assert ticks > 0, "the event loop was blocked for the whole shutdown"
+
+    @pytest.mark.asyncio
+    async def test_stalled_drain_times_out_and_abandons(self, monkeypatch: Any) -> None:
+        """The timeout branch had no test: both existing tests drained well inside it."""
+        monkeypatch.setattr("webhook_server.app._SKIP_AUDIT_SHUTDOWN_TIMEOUT", 0.05)
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        started = threading.Event()
+        release = threading.Event()
+
+        def _wedged() -> None:
+            started.set()
+            release.wait(5)
+
+        pool.submit(_wedged)
+        assert started.wait(5)
+
+        try:
+            await _shutdown_skip_audit_pool(app)
+        finally:
+            release.set()
+
+        assert app.state.skip_audit_pool is None, "pool reference survived a stalled drain"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_propagates_but_still_cleans_up(self) -> None:
+        """A cancelled shutdown must not look successful.
+
+        The previous behaviour caught CancelledError and returned, so the caller could not
+        tell a cancelled drain from a clean one. Cancellation is now re-raised. That is
+        only safe because the lifespan retires the constructor pool BEFORE this call, so
+        nothing important can be skipped by the re-raise.
+        """
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        pool.submit(release.wait, 5)
+
+        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+
+        assert app.state.skip_audit_pool is None, "cleanup was skipped on cancellation"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_does_not_discard_queued_writes(self) -> None:
+        """Queued writes are for deliveries GitHub already saw a 200 for.
+
+        More writes than workers, and the workers held busy, so at least one future is
+        genuinely QUEUED rather than running. A single submit to a two-worker pool starts
+        immediately, and cancel_futures=True would have passed such a test unnoticed.
+        """
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        ran: list[int] = []
+        queued_done = threading.Event()
+
+        def _occupy() -> None:
+            release.wait(5)
+
+        def _queued(index: int) -> None:
+            ran.append(index)
+            if len(ran) >= 1:
+                queued_done.set()
+
+        # Saturate both workers, then queue behind them.
+        for _ in range(_SKIP_AUDIT_MAX_WORKERS):
+            pool.submit(_occupy)
+        await asyncio.to_thread(lambda: None)
+        for index in range(_SKIP_AUDIT_MAX_WORKERS + 2):
+            pool.submit(_queued, index)
+
+        task = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+
+        assert await asyncio.to_thread(queued_done.wait, 5), "queued audit write was discarded"
+        assert len(ran) == _SKIP_AUDIT_MAX_WORKERS + 2, f"only {len(ran)} writes ran"
+
+    @pytest.mark.asyncio
+    async def test_skip_record_during_shutdown_does_not_raise(self) -> None:
+        """A real skip racing a real shutdown must not surface as an exception.
+
+        The earlier version set the flag by hand and separately poked pool.submit, so
+        neither touched the path a request actually takes.
+        """
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        release = threading.Event()
+        pool.submit(release.wait, 5)
+
+        shutdown = asyncio.create_task(_shutdown_skip_audit_pool(app))
+        await asyncio.sleep(0.01)
+
+        # Exactly what process_webhook does on a payload-only skip, mid-shutdown.
+        with patch("webhook_server.app.write_webhook_log") as mock_write:
+            await _record_skipped_delivery(
+                app=app,
+                delivery_id="d-race",
+                event_type="check_run",
+                hook_data={"repository": {"name": "r", "full_name": "o/r"}},
+                skip_reason="check_run (action=created, skipped)",
+            )
+        mock_write.assert_not_called()
+
+        release.set()
+        await asyncio.wait_for(shutdown, timeout=5)
+
+    @pytest.mark.asyncio
+    async def test_records_again_after_the_pool_is_recreated(self) -> None:
+        """Regression: the stopping flag was never cleared, so a second lifespan on the
+        same app instance refused every skipped delivery from then on."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        _skip_audit_pool_for(app)
+        app.state.skip_audit_stopping = True
+        app.state.skip_audit_pool = None  # simulate the old pool being retired
+
+        _skip_audit_pool_for(app)
+        assert app.state.skip_audit_stopping is False, "a fresh pool starts out flagged as stopping"
+
+        with patch("webhook_server.app.write_webhook_log") as mock_write:
+            await _record_skipped_delivery(
+                app=app,
+                delivery_id="d-after",
+                event_type="check_run",
+                hook_data={"repository": {"name": "r", "full_name": "o/r"}},
+                skip_reason="check_run (action=created, skipped)",
+            )
+        assert mock_write.call_count == 1, "skipped deliveries stopped being recorded after a restart"
+
+    @pytest.mark.asyncio
+    async def test_pool_reference_is_cleared_after_the_drain_not_before(self) -> None:
+        """Clearing it first let a request arriving mid-shutdown create a pool that was
+        never retired."""
+
+        class _App:
+            class state:  # noqa: N801
+                pass
+
+        app = _App()
+        pool = _skip_audit_pool_for(app)
+        observed: list[Any] = []
+        done = threading.Event()
+
+        def _write() -> None:
+            # Long enough that the peek lands mid-drain; an instant write would finish
+            # before the peek ran and make this assertion meaningless.
+            time.sleep(0.2)
+            done.set()
+
+        pool.submit(_write)
+
+        async def _peek() -> None:
+            await asyncio.sleep(0.05)
+            observed.append(getattr(app.state, "skip_audit_pool", None))
+
+        await asyncio.gather(_shutdown_skip_audit_pool(app), _peek())
+
+        assert observed[0] is pool, "the pool was cleared before it drained"
+        assert done.is_set()

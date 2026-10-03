@@ -1,11 +1,15 @@
 import asyncio
+import contextlib
+import contextvars
 import importlib
 import ipaddress
 import json
 import logging
 import os
+import threading
 import traceback
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from ipaddress import IPv4Network, IPv6Network
@@ -48,6 +52,7 @@ from webhook_server.utils.helpers import (
     prepare_log_prefix,
 )
 from webhook_server.utils.structured_logger import write_webhook_log
+from webhook_server.utils.webhook_skip import payload_skip_reason
 from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
@@ -61,6 +66,81 @@ LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
 _background_tasks: set[asyncio.Task[Any]] = set()
+
+# Dedicated pool for GithubWebhook construction. Kept separate from the default executor
+# so that constructors sleeping in retry backoff cannot starve the API-user checks and
+# cleanup that share the default pool, and bounded so a webhook burst cannot spawn an
+# unbounded number of them.
+WEBHOOK_INIT_MAX_WORKERS: int = 4
+# Admission limit covering running *and* queued constructors. Without it a webhook burst
+# queues behind constructors that can each sit ~30s in retry backoff, delaying deliveries
+# GitHub has already been told were accepted.
+WEBHOOK_INIT_MAX_PENDING: int = 32
+_constructor_admission_lock = threading.Lock()
+_constructors_in_flight: int = 0
+
+
+def try_admit_constructor() -> bool:
+    """Reserve a constructor slot, returning False when the process is at capacity.
+
+    Counts constructors specifically. ``_background_tasks`` cannot answer this: it holds a
+    task for that handler's entire lifetime, including ``process()`` and ``cleanup()``, and
+    it also holds the MCP manager task - so counting it rejected deliveries while workers sat
+    idle, and could reject while every worker was free.
+    """
+    global _constructors_in_flight
+    with _constructor_admission_lock:
+        if _constructors_in_flight >= WEBHOOK_INIT_MAX_PENDING:
+            return False
+        _constructors_in_flight += 1
+        return True
+
+
+def release_constructor_slot() -> None:
+    """Return a reservation taken by :func:`try_admit_constructor`."""
+    global _constructors_in_flight
+    with _constructor_admission_lock:
+        _constructors_in_flight = max(0, _constructors_in_flight - 1)
+
+
+def _new_webhook_init_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=WEBHOOK_INIT_MAX_WORKERS, thread_name_prefix="webhook-init")
+
+
+class ConstructorReservation:
+    """Idempotent admission slot for one accepted webhook.
+
+    The counter is process-global and monotonic, so a reservation that is never returned
+    permanently shrinks capacity until every delivery is rejected. Release is therefore
+    idempotent and armed both when construction finishes and from the handler task's
+    done-callback, covering the path where the task is cancelled before its body runs.
+    """
+
+    __slots__ = ("_released",)
+
+    def __init__(self) -> None:
+        self._released: bool = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        release_constructor_slot()
+
+
+def _webhook_init_pool_for(request: Request) -> ThreadPoolExecutor:
+    """Return the constructor pool owned by *this app instance*, creating it if needed.
+
+    Ownership is per app instance, not per process. A shared pool meant one instance's
+    lifespan shutdown cancelled queued constructors belonging to another still-running
+    instance, so an acknowledged webhook could never reach process() at all.
+    """
+    pool = getattr(request.app.state, "webhook_init_pool", None)
+    if pool is None:
+        pool = _new_webhook_init_pool()
+        request.app.state.webhook_init_pool = pool
+    return pool
+
 
 # MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
 http_transport: Any | None = None
@@ -287,6 +367,23 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
+        # Retire this app instance's constructor pool LAST. The background-task drain above
+        # runs inside the try body, so reaching this point means acknowledged webhooks have
+        # had their grace period; cancelling queued pool futures any earlier would discard
+        # constructors for deliveries the endpoint already answered 200 to, and those would
+        # never reach process(). Read _app - the instance this lifespan belongs to - not the
+        # module-level FASTAPI_APP, so a separate instance's pool is left alone. In finally
+        # so a failed startup still releases it.
+        # Order matters. The constructor pool is retired first and the audit pool drained
+        # last, so a CancelledError escaping the (awaiting) audit drain - which is now
+        # re-raised rather than swallowed, because swallowing it made a cancelled shutdown
+        # look successful - cannot skip the cleanup below.
+        _pool: ThreadPoolExecutor | None = getattr(_app.state, "webhook_init_pool", None)
+        if _pool is not None:
+            _pool.shutdown(wait=False, cancel_futures=True)
+            _app.state.webhook_init_pool = None
+        await _shutdown_skip_audit_pool(_app)
+
         # Shutdown LogViewerController singleton and close WebSocket connections
         global _log_viewer_controller_singleton
         if _log_viewer_controller_singleton is not None:
@@ -333,6 +430,141 @@ FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="sta
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck", operation_id="healthcheck")
 def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
+
+
+_SKIP_AUDIT_MAX_WORKERS = 2
+_SKIP_AUDIT_SHUTDOWN_TIMEOUT = 10.0
+
+
+def _skip_audit_pool_for(app: Any) -> ThreadPoolExecutor:
+    """Per-app bounded executor for skipped-delivery audit writes.
+
+    Deliberately NOT the default executor. That one is shared with every GitHub API call
+    (github_retry delegates to asyncio.to_thread) and with cleanup, so a burst of
+    disk-bound audit writes - fsync plus contention on the log-file lock - would occupy
+    the workers that already-accepted webhooks are waiting on.
+
+    Small on purpose: skipped deliveries are the common case and this is pure disk I/O.
+    """
+    executor = getattr(app.state, "skip_audit_pool", None)
+    if executor is None:
+        executor = ThreadPoolExecutor(max_workers=_SKIP_AUDIT_MAX_WORKERS, thread_name_prefix="skip-audit")
+        app.state.skip_audit_pool = executor
+        # A new pool means we are starting, not shutting down. Shutdown sets this flag and
+        # nothing cleared it, so a second lifespan on the same app instance (TestClient
+        # reuse, a restart) would refuse every skipped delivery from then on.
+        app.state.skip_audit_stopping = False
+    return executor
+
+
+async def _shutdown_skip_audit_pool(app: Any) -> None:
+    """Drain the audit pool on shutdown so accepted records are not lost.
+
+    Three failure modes this has to survive, all of them real on a slow or contended disk:
+
+    * A normal drain must finish, so a record for a delivery GitHub already saw a 200
+      for is not lost.
+    * A write that never returns must not hold shutdown open. Python cannot kill a
+      running thread, and ThreadPoolExecutor joins its workers at interpreter exit, so the
+      bounded wait below abandons the pool rather than blocking on it. Note the honest
+      limit: that keeps the *lifespan* from blocking, but a thread stuck in the kernel
+      still delays interpreter exit. The real mitigation is that these writes are a flock
+      plus an fsync of a few KB, not an unbounded operation.
+    * Cancelling the await (SIGTERM during shutdown) must not skip the rest of the
+      lifespan's cleanup - the constructor pool is retired immediately after this call,
+      and letting CancelledError escape would discard it.
+
+    Swallowing the cancellation deliberately: this runs in the lifespan's finally, and the
+    alternative is abandoning an in-flight constructor pool, which would drop deliveries
+    the endpoint already answered 200 to.
+    """
+    executor = getattr(app.state, "skip_audit_pool", None)
+    if executor is None:
+        return
+    # Marked BEFORE the drain, and left set: an executor rejects submissions once shutdown
+    # begins, so a request arriving mid-drain must see that and skip rather than submit
+    # into a pool that will raise RuntimeError under it.
+    app.state.skip_audit_stopping = True
+    try:
+        try:
+            await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=_SKIP_AUDIT_SHUTDOWN_TIMEOUT)
+        except TimeoutError:
+            LOGGER.warning(
+                f"Skipped-delivery audit pool did not drain within {_SKIP_AUDIT_SHUTDOWN_TIMEOUT}s; abandoning it"
+            )
+            executor.shutdown(wait=False)
+        except asyncio.CancelledError:
+            # Do not wait, and do NOT cancel_futures: those writes are for deliveries GitHub
+            # already saw a 200 for. Let them finish in the background. The cancellation is
+            # re-raised - swallowing it made a cancelled shutdown look successful - and the
+            # lifespan orders this call last precisely so that is safe.
+            LOGGER.warning("Skipped-delivery audit pool shutdown cancelled; queued writes will complete in background")
+            executor.shutdown(wait=False)
+            raise
+    finally:
+        # Cleared only AFTER the drain. Clearing it first let a request arriving during
+        # shutdown see no pool, create a second one, and never have it retired.
+        app.state.skip_audit_pool = None
+
+
+async def _record_skipped_delivery(
+    app: Any,
+    delivery_id: str,
+    event_type: str,
+    hook_data: dict[str, Any],
+    skip_reason: str,
+) -> None:
+    """Write the structured audit record for a delivery skipped without any API call.
+
+    Skipping before construction is the whole point - it avoids 4-5 core requests per
+    delivery - but it must not cost observability. GitHub acknowledged the delivery, so
+    it belongs in the webhook log and the log viewer just like any other, searchable by
+    its delivery ID. Costs no GitHub API call: this only writes JSONL.
+
+    Two details the log viewer depends on:
+
+    * the record carries a workflow step. The viewer treats a record with no
+      ``workflow_steps`` as malformed and refuses to render it, so a step-less record
+      would be written but never viewable - the audit trail Qodo asked for, unusable.
+    * the write happens off the event loop. It builds a Config, re-reads the YAML for
+      secret values, and takes an flock with fsync. Skipped deliveries are the common
+      case, so doing that inline stalled every concurrent request behind it.
+    """
+    ctx = create_context(
+        hook_id=delivery_id,
+        event_type=event_type,
+        repository=hook_data.get("repository", {}).get("name", "unknown"),
+        repository_full_name=hook_data.get("repository", {}).get("full_name", "unknown"),
+        action=hook_data.get("action"),
+        sender=hook_data.get("sender", {}).get("login"),
+    )
+    try:
+        ctx.success = True
+        # The step must be recorded BEFORE completed_at, or the record's own timeline ends
+        # before its only step started.
+        ctx.start_step("skip_delivery", reason=skip_reason)
+        ctx.complete_step("skip_delivery", reason=skip_reason)
+        ctx.add_note(f"Skipped without API calls: {skip_reason}")
+        ctx.completed_at = datetime.now(UTC)
+        # A dedicated executor, not the default one. The default executor is shared with
+        # every GitHub API call (github_retry delegates to asyncio.to_thread) and with
+        # cleanup, so a burst of disk-bound audit writes - fsync plus contention on the
+        # log-file lock - would occupy the workers that accepted webhooks are waiting for.
+        if getattr(app.state, "skip_audit_stopping", False):
+            # Shutdown has begun. Submitting now would raise RuntimeError from an executor
+            # that no longer accepts work, turning a shutdown race into a 500. The text log
+            # line already records the skip, so this loses the timeline, not the fact.
+            LOGGER.warning(f"Skipping audit record for {delivery_id}: server is shutting down")
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(_skip_audit_pool_for(app), write_webhook_log, ctx)
+        except RuntimeError as ex:  # pragma: no cover - lost the race with shutdown
+            LOGGER.warning(f"Could not write audit record for {delivery_id}: {ex}")
+    except Exception:
+        LOGGER.exception(f"Failed to write webhook log for skipped delivery {delivery_id}")
+    finally:
+        clear_context()
 
 
 @FASTAPI_APP.post(
@@ -445,7 +677,12 @@ async def process_webhook(request: Request) -> JSONResponse:
     LOGGER.info(f"{log_context} Webhook validation passed, queuing for background processing")
 
     async def process_with_error_handling(
-        _hook_data: dict[Any, Any], _headers: Headers, _delivery_id: str, _event_type: str
+        _hook_data: dict[Any, Any],
+        _headers: Headers,
+        _delivery_id: str,
+        _event_type: str,
+        _init_pool: ThreadPoolExecutor,
+        _reservation: ConstructorReservation,
     ) -> None:
         """Process webhook in background with granular error handling.
 
@@ -479,8 +716,39 @@ async def process_webhook(request: Request) -> JSONResponse:
         _logger.info(f"{_log_context} Processing webhook")
 
         try:
-            # Initialize GithubWebhook inside background task to avoid blocking webhook response
-            _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
+            # Webhook construction is blocking I/O and can spend up to ~30s inside
+            # github_api_call_sync retry backoff during a GitHub outage. It runs on a
+            # dedicated, bounded pool: on the event loop it would stall every other
+            # in-flight webhook, and on the shared default executor a burst would occupy
+            # every worker and starve the API-user checks and cleanup that use that pool.
+            #
+            # run_in_executor does NOT propagate contextvars (asyncio.to_thread does), so the
+            # caller's context has to be captured here or the constructor saves ctx=None and
+            # silently disables token metrics, workflow-step tracking and JSON log enrichment.
+            init_context = contextvars.copy_context()
+
+            def _construct() -> GithubWebhook:
+                return init_context.run(GithubWebhook, hook_data=_hook_data, headers=_headers, logger=_logger)
+
+            init_future = asyncio.get_running_loop().run_in_executor(_init_pool, _construct)
+            try:
+                # shield so a cancelled handler does not abandon the worker mid-construction
+                _api: GithubWebhook = await asyncio.shield(init_future)
+            except asyncio.CancelledError:
+                # The worker runs to completion even after we stop waiting for it, and the
+                # constructor has already created the clone temp dir. Collect the result and
+                # clean it up so a shutdown mid-construction does not leak a directory.
+                with contextlib.suppress(Exception):
+                    orphaned_api = await init_future
+                    await orphaned_api.cleanup()
+                raise
+            finally:
+                # The slot covers construction only; process() and cleanup() are not bounded
+                # by it, so give it back as soon as the client is ready. release() is
+                # idempotent and is also armed on the task's done-callback, so a handler
+                # cancelled before it ever reaches here still gives its reservation back.
+                _reservation.release()
+
             try:
                 await _api.process()
             finally:
@@ -530,17 +798,74 @@ async def process_webhook(request: Request) -> JSONResponse:
             finally:
                 clear_context()
 
+    # Drop deliveries that carry no actionable input BEFORE constructing anything.
+    # Constructing GithubWebhook costs 4-5 core requests (token probe per configured
+    # token, two get_repo calls, app slug) and the event type is not consulted until that
+    # is already paid for. Measured on a real PR: 30 of 36 deliveries were skipped yet
+    # still spent 150 of the PR's 204 core calls. Every rule reads only delivery-local
+    # fields - see webhook_server/utils/webhook_skip.py for why that is safe.
+    payload_skip = payload_skip_reason(event_type, hook_data)
+    if payload_skip is not None:
+        LOGGER.info(f"{log_context} Skipped without API calls: {payload_skip}")
+        await _record_skipped_delivery(
+            app=request.app,
+            delivery_id=delivery_id,
+            event_type=event_type,
+            hook_data=hook_data,
+            skip_reason=payload_skip,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": status.HTTP_200_OK,
+                "message": "Webhook acknowledged, no processing needed",
+                "skip_reason": payload_skip,
+                "delivery_id": delivery_id,
+                "event_type": event_type,
+            },
+        )
+
+    # Admit BEFORE scheduling the task and before answering. A webhook dropped after the
+    # 200 is gone for good: GitHub treats a 2xx as delivered and will not redeliver it.
+    # 503 is retryable, so rejecting here is what actually gets the delivery reprocessed.
+    reservation = ConstructorReservation() if try_admit_constructor() else None
+    if reservation is None:
+        LOGGER.error(
+            f"{log_context} Rejected: {WEBHOOK_INIT_MAX_PENDING} webhook constructor(s) already in flight. "
+            "Returning 503 so GitHub retries."
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": status.HTTP_503_SERVICE_UNAVAILABLE,
+                "message": "Server at webhook processing capacity, retry",
+                "delivery_id": delivery_id,
+                "event_type": event_type,
+            },
+        )
+
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
     # Store task reference for observability and graceful shutdown
-    task = asyncio.create_task(
-        process_with_error_handling(
-            _hook_data=hook_data,
-            _headers=request.headers,
-            _delivery_id=delivery_id,
-            _event_type=event_type,
+    try:
+        task = asyncio.create_task(
+            process_with_error_handling(
+                _hook_data=hook_data,
+                _headers=request.headers,
+                _delivery_id=delivery_id,
+                _event_type=event_type,
+                _init_pool=_webhook_init_pool_for(request),
+                _reservation=reservation,
+            )
         )
-    )
+    except BaseException:
+        reservation.release()
+        raise
+
+    # Safety net: a handler cancelled before its body runs never reaches its own release,
+    # and an unreleased slot permanently shrinks process-wide capacity.
+    task.add_done_callback(lambda _done: reservation.release())
+
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 

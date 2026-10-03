@@ -5,9 +5,11 @@ from typing import Any
 import github
 import yaml
 from github.GithubException import UnknownObjectException
+from github.Repository import Repository
 from simple_logger.logger import get_logger
 
 from webhook_server.utils.constants import CONFIGURABLE_LABEL_CATEGORIES
+from webhook_server.utils.masking import attach_masking, config_secret_values
 
 
 class Config:
@@ -16,13 +18,28 @@ class Config:
         logger: Logger | None = None,
         repository: str | None = None,
     ) -> None:
-        self.logger = logger or get_logger(name="config")
+        # Mask on from the first line; the token values are unknown until the file loads,
+        # so reapply once they are (see _apply_masking).
+        self.logger = attach_masking(logger or get_logger(name="config", mask_sensitive=True), mask_sensitive=True)
         self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/home/podman/data")
         self.config_path: str = os.path.join(self.data_dir, "config.yaml")
         self.repository = repository
         self.exists()
         self.repositories_exists()
         self.validate_labels_config()
+        self._apply_masking()
+
+    def _apply_masking(self) -> None:
+        """Honour mask-sensitive-data and mask the secret values now that config is loaded.
+
+        The config logger is created before the file is read, so it starts masked but with
+        no known token values; this runs once ``github-tokens`` and friends are available.
+        """
+        self.logger = attach_masking(
+            self.logger,
+            mask_sensitive=bool(self.get_value("mask-sensitive-data", return_on_none=True)),
+            secrets=config_secret_values(self),
+        )
 
     def exists(self) -> None:
         if not os.path.isfile(self.config_path):
@@ -87,7 +104,12 @@ class Config:
         return self.root_data["repositories"].get(self.repository, {})
 
     def repository_local_data(
-        self, github_api: github.Github, repository_full_name: str, *, raise_on_error: bool = False
+        self,
+        github_api: github.Github,
+        repository_full_name: str,
+        *,
+        raise_on_error: bool = False,
+        repository: Repository | None = None,
     ) -> dict[str, Any]:
         """
         Get repository-specific configuration from .github-webhook-server.yaml file.
@@ -102,6 +124,10 @@ class Config:
                 swallowing them into an empty dict. A missing file (UnknownObjectException) is not
                 an error and returns `{}` either way. Startup callers use this so an incomplete read
                 is never mistaken for "no repo-local config".
+            repository: already-fetched repository for the same client and full name. GithubWebhook
+                resolves it once per webhook and then needs it only for get_contents(); passing it
+                in avoids a second identical get_repo() call - one core request saved per webhook,
+                per repository. Callers that have not fetched it can omit it.
 
         Returns:
             Dictionary containing repository configuration, or empty dict if file not found
@@ -112,9 +138,10 @@ class Config:
         if self.repository and repository_full_name:
             try:
                 # Directly use github_api.get_repo instead of importing get_github_repo_api
-                # to avoid circular dependency with helpers.py
+                # to avoid circular dependency with helpers.py. Reuses the caller's repository
+                # when one is supplied, which saves a core request per webhook.
                 self.logger.debug(f"Get GitHub API for repository {repository_full_name}")
-                repo = github_api.get_repo(repository_full_name)
+                repo = repository if repository is not None else github_api.get_repo(repository_full_name)
                 try:
                     _path = repo.get_contents(".github-webhook-server.yaml")
                 except UnknownObjectException:

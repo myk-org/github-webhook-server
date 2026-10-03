@@ -2031,7 +2031,11 @@ Use `suspicious-paths` for path prefixes that should trigger extra review, and k
 
 Leave masking enabled for normal operation. You can override it per repository, but only use that for short-lived debugging on a trusted system.
 
-> **Warning:** Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files.
+Masking works in two layers. Values the server holds — GitHub tokens, PyPI tokens, registry passwords — are matched by value and masked wherever they appear, including mid-sentence and at the end of a line, and including when they are passed to the logger as a formatting argument. A keyword layer backs that up for secrets the server never held, such as a rotated token or a value echoed by an external tool.
+
+The keyword layer is deliberately broad, so ordinary text after a word like `token`, `login`, or `password` can render as `*****` in a log line. That is cosmetic. Log lines the server writes about token selection avoid those words and stay readable.
+
+> **Warning:** Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files. When it is off, log lines are written exactly as they were composed.
 
 5. Keep optional internal endpoints on trusted networks only.
 
@@ -2287,6 +2291,27 @@ Use this order when the server is busy:
 > **Warning:** JSON exports over 50,000 entries are rejected. If you hit that limit, split the export by time range, repository, or PR.
 
 ## Troubleshooting
+
+**Which API token handled this delivery, and why?**
+
+Token-selection lines carry the delivery ID, so concurrent deliveries can be told apart:
+
+```
+    Get API and tokens for repository myk-org/repo [3f0c9a2e-7b41-4d8e-9a10-2c5b8e6f1d33]
+    [myakove-bot] API rate limit: 4873 of 5000
+    [deadlock1bot] API rate limit: 4582 of 5000
+    Get API and tokens for repository myk-org/repo [3f0c9a2e...] API user myakove-bot selected with highest rate limit: 4873
+```
+
+Every configured token is probed and the one with the highest enforced remaining budget wins. The bracketed name is the GitHub login the token belongs to. A `[user] API rate limit: N of 5000` line below 700 remaining is logged at warning level.
+
+Per-delivery spend appears when the delivery completes:
+
+```
+    API spend: myakove-bot 3 API calls (initial: 4999, remaining: 4996, reset in 3595s)
+```
+
+`initial` is the budget at the start of the delivery, `remaining` what was left after it, and `reset in` the seconds until GitHub refills the window.
 
 **`/logs` returns 404**
 
@@ -2567,7 +2592,7 @@ Reference for `config.yaml`, repository entries under `repositories.<repo-id>`, 
 | `log-file` | `string` | unset | Main application log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes main server logs to this file; omit for console-only main logs. |
 | `mcp-log-file` | `string` | `mcp_server.log` | MCP server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/mcp` server logs when MCP is enabled. |
 | `logs-server-log-file` | `string` | `logs_server.log` | Log viewer server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/logs` server logs when the log viewer is enabled. |
-| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. |
+| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. Set to `false` to return log lines exactly as written. |
 
 ```yaml
     log-level: INFO
@@ -2582,7 +2607,7 @@ Reference for `config.yaml`, repository entries under `repositories.<repo-id>`, 
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `github-app-id` | `integer` | unset | GitHub App ID used by the server. | Identifies the GitHub App when the server looks up app metadata and manages repositories. |
-| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | The server picks the token with the highest remaining rate limit. |
+| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | Every configured token is probed and the one with the highest enforced remaining rate limit is selected. Exhausted, revoked, and unreachable tokens are skipped. |
 | `webhook-ip` | `string` | unset | Full webhook callback URL, including path. | Registered on managed repositories as the webhook target URL. |
 | `webhook-secret` | `string` | unset | Shared webhook secret. | Enables HMAC-SHA256 validation of incoming GitHub webhook payloads. |
 | `verify-github-ips` | `boolean` | `false` | Restrict incoming requests to GitHub’s published webhook IP ranges. | Loads GitHub CIDRs at startup and rejects requests outside the allowlist. |

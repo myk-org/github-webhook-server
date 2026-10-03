@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import datetime
 import json
 import logging
 import os
@@ -12,25 +11,31 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import Future, as_completed
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import github
 import simple_logger.logger
-from colorama import Fore
 from github import GithubException
-from github.RateLimitOverview import RateLimitOverview
 from github.Repository import Repository
 from simple_logger.logger import get_logger
 from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils.context import get_context
+from webhook_server.utils.github_retry import _MAX_RETRIES, TRANSIENT_API_ERRORS, github_api_call_sync
 from webhook_server.utils.json_log_handler import JsonLogHandler
+from webhook_server.utils.masking import (
+    DEFAULT_MASKING_PATTERNS,
+    attach_masking,
+    config_secret_values,
+)
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
 # Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
@@ -44,38 +49,7 @@ def get_logger_with_params(
     repository_name: str = "",
     log_file_name: str | None = None,
 ) -> Logger:
-    mask_sensitive_patterns: list[str] = [
-        # Passwords and secrets
-        "container_repository_password",
-        "password",
-        "secret",
-        # Tokens and API keys
-        "token",
-        "apikey",
-        "api_key",
-        "github_token",
-        "GITHUB_TOKEN",
-        "pypi",
-        # Authentication credentials
-        "username",
-        "login",
-        "-u",
-        "-p",
-        "--username",
-        "--password",
-        "--creds",
-        # Private keys and sensitive IDs
-        "private_key",
-        "private-key",
-        "webhook_secret",
-        "webhook-secret",
-        "github-app-id",
-        # Slack webhooks (contain sensitive URLs)
-        "slack-webhook-url",
-        "slack_webhook_url",
-        "webhook-url",
-        "webhook_url",
-    ]
+    mask_sensitive_patterns: list[str] = list(DEFAULT_MASKING_PATTERNS)
 
     _config = Config(repository=repository_name)
 
@@ -86,6 +60,7 @@ def get_logger_with_params(
     mask_sensitive: bool = _config.get_value(value="mask-sensitive-data", return_on_none=True)
 
     log_file_path_resolved = get_log_file_path(config=_config, log_file_name=log_file)
+    config_secrets = config_secret_values(_config)
 
     # CRITICAL FIX: Use a fixed logger name for the same log file to ensure
     # only ONE RotatingFileHandler instance manages the file rotation.
@@ -101,6 +76,25 @@ def get_logger_with_params(
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
         console=True,  # Enable console output for docker logs with FORCE_COLOR support
+    )
+
+    # simple_logger only masks record.msg, so a secret passed as a lazy %-argument is
+    # logged verbatim and a %s inside the message makes logging raise and drop the line.
+    # Run the record through the formatted-text filter instead and turn simple_logger's
+    # own filter off, so exactly one layer masks and it masks the real text.
+    # Only ever add masking, never remove it. Loggers are cached per log destination and
+    # shared by every repository, so stripping the filter when one repository disables
+    # masking would unmask all of them. A repository's override is honoured by the
+    # _redact_secrets call sites that own that repository's secrets.
+    # The repository is passed so the filter can honour a per-repository
+    # mask-sensitive-data setting for THIS repository without unmasking any other
+    # repository that shares this log destination.
+    attach_masking(
+        logger,
+        mask_sensitive=mask_sensitive,
+        secrets=config_secrets,
+        patterns=mask_sensitive_patterns,
+        repository=repository_name,
     )
 
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
@@ -452,18 +446,184 @@ async def run_command(
                 logger.exception(f"{log_prefix} CRITICAL: Failed to wait for subprocess - potential zombie")
 
 
+class TokenProbe(NamedTuple):
+    """Result of probing a token with a real request.
+
+    ``remaining``/``limit`` come from the ``X-RateLimit-Remaining``/``X-RateLimit-Limit``
+    response headers, not from ``GET /rate_limit``: that endpoint is itself free and can
+    advertise a full budget GitHub is not enforcing for this credential (verified against
+    production - ``GET /user`` 403'd at 0/5000 while ``GET /rate_limit`` reported 5000/5000).
+
+    ``probed_at`` is used only to tell whether another caller refreshed the entry while
+    this one waited for the per-token lock. It is never a cache expiry: a budget is only
+    ever valid for the moment it was read.
+    """
+
+    login: str
+    remaining: int
+    limit: int
+    # Informational only - defaulted so tests can build a probe without inventing a
+    # timestamp. Real probes always stamp it via time.time().
+    probed_at: float = 0.0
+
+
+_token_probe_cache: dict[str, TokenProbe] = {}
+_token_probe_locks: dict[str, threading.Lock] = {}
+_token_probe_lock = threading.Lock()
+
+
+def get_github_client(token: str) -> github.Github:
+    """Build a Github client that fails fast instead of sleeping on rate limits.
+
+    The default ``GithubRetry`` treats a rate-limit 403 as a primary limit and sleeps
+    until ``X-RateLimit-Reset`` - measured at 241s inside a single ``get_user()`` call,
+    inside the ``asyncio.to_thread`` worker. ``max_rate_limit_wait=0`` makes it raise, so
+    callers can skip the token and try the next one immediately.
+    """
+    return github.Github(auth=github.Auth.Token(token), retry=github.GithubRetry(max_rate_limit_wait=0))
+
+
+def cached_token_probe(token: str) -> TokenProbe | None:
+    """Return the last known probe for *token*, for ranking and logging only.
+
+    Never use this to decide whether a token is usable - the budget it records can
+    describe a window that later webhooks have already spent.
+    """
+    with _token_probe_lock:
+        return _token_probe_cache.get(token)
+
+
+def validate_token(api: github.Github, token: str, logger: Logger, log_prefix: str) -> str:
+    """Confirm *token* is usable right now and return its login, without spending core budget.
+
+    Two checks, because neither alone is sufficient:
+
+    1. **Validity** - ``GET /rate_limit`` authenticates the token, answering 401 as soon as it
+       is revoked or invalid (verified against a deliberately bad credential), and GitHub does
+       not charge it against the core rate limit. So this is a genuinely current check for
+       free, where ``GET /user`` costs one core request per token per webhook.
+    2. **Remaining budget** - ``GET /rate_limit`` answers 200 even for a token that is out of
+       core budget, so it cannot be trusted to reject an exhausted token. The budget comes
+       from the probe cache instead. That is fresh here: ``get_api_with_highest_rate_limit()``
+       probes every configured token earlier in the same ``GithubWebhook.__init__``, so this
+       read reflects a real response made moments earlier rather than a stale ranking.
+
+    An exhausted token is excluded so it cannot contribute a login to the auto-verified and
+    trusted-committer lists.
+
+    Args:
+        api: Github client for this token
+        token: the token itself, used as the cache key
+        logger: Logger instance used for retry warnings
+        log_prefix: Prefix prepended to retry warnings
+
+    Returns:
+        str: the login for this token
+
+    Raises:
+        GithubException: the token is invalid, revoked or out of rate limit
+    """
+    github_api_call_sync(api.get_rate_limit, logger=logger, log_prefix=log_prefix)
+
+    known = cached_token_probe(token)
+    if known is None:
+        # No probe on record - first sighting, or called outside token selection. One real
+        # request to establish both the login and the budget.
+        return probe_token(api, token, logger=logger, log_prefix=log_prefix).login
+
+    if known.remaining <= 0:
+        raise GithubException(403, {"message": "API rate limit exceeded for this token"}, None)
+
+    # The login cannot change for a given token, and validity was just re-confirmed above.
+    return known.login
+
+
+def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str, use_retry: bool = True) -> TokenProbe:
+    """Read a token's login and enforced core budget from a real request.
+
+    Always issues a request unless another caller completed one while this caller was
+    waiting for the per-token lock, so the value is current enough to act on: a cached
+    budget could describe a window that earlier webhooks already spent, and a cached
+    login would be treated as proof that a since-revoked token is still usable.
+    Concurrent callers for the same token share a single request.
+
+    Retry backoff is deliberately kept *outside* the per-token lock. Holding that lock
+    across ``github_api_call_sync`` would serialize every other caller behind this
+    token's full backoff (2+4+8+16s), so one failing token stalls all webhooks.
+
+    Args:
+        api: Github client for this token
+        token: the token itself, used as the cache key
+        logger: Logger instance used for retry warnings
+        log_prefix: Prefix prepended to retry warnings
+        use_retry: retry transient failures. Token selection passes ``False``: it probes
+            every configured token in turn, and a token having a bad moment would otherwise
+            hold a constructor worker through the full 2+4+8+16s backoff after a healthy
+            token had already been found. Skipping it for one webhook is cheap; blocking the
+            queue is not.
+
+    Returns:
+        TokenProbe: login, remaining and limit as reported by GitHub
+
+    Raises:
+        GithubException: the token is invalid, revoked or out of rate limit
+    """
+    with _token_probe_lock:
+        per_token_lock = _token_probe_locks.setdefault(token, threading.Lock())
+        observed = _token_probe_cache.get(token)
+
+    def _single_request() -> TokenProbe:
+        with per_token_lock:
+            # Another caller may have refreshed this token while we waited for the lock.
+            current = _token_probe_cache.get(token)
+            if current is not None and current is not observed:
+                return current
+
+            # Github.get_user() is LAZY - it issues no request and leaves rate_limiting at
+            # PyGithub's default (5000, 5000). Reading it here returned that default for
+            # every token, every webhook, so selection always saw a 5000/5000 tie and the
+            # first configured token always won. Touching .login first materialises the
+            # request and populates rate_limiting with the real enforced budget.
+            user = api.get_user()
+            login = user.login
+            remaining, limit = api.rate_limiting
+            probe = TokenProbe(login=login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+
+            with _token_probe_lock:
+                _token_probe_cache[token] = probe
+
+            return probe
+
+    try:
+        return github_api_call_sync(
+            _single_request,
+            logger=logger,
+            log_prefix=log_prefix,
+            max_retries=_MAX_RETRIES if use_retry else 0,
+        )
+    except (GithubException, *TRANSIENT_API_ERRORS):
+        # Correct the ranking: a token that just failed must not keep the top slot in the
+        # candidate order, or every webhook keeps trying it first until the entry ages out.
+        # Only drop the snapshot our ordering was based on, never a fresher one.
+        with _token_probe_lock:
+            if _token_probe_cache.get(token) is observed:
+                _token_probe_cache.pop(token, None)
+
+        raise
+
+
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
     # Guard against None tokens from config - default to empty list
     tokens = config.get_value(value="github-tokens") or []
 
     for _token in tokens:
-        apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
+        apis_and_tokens.append((get_github_client(_token), _token))
 
     return apis_and_tokens
 
 
-def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> tuple[github.Github, str, str]:
+def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> tuple[github.Github, str, TokenProbe]:
     """
     Get API with the highest rate limit
 
@@ -472,20 +632,27 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         repository_name (str, optional): Repository name, if provided try to get token set in config repository section.
 
     Returns:
-        tuple: API, token, api_user
+        tuple: ``(api, token, probe)``. The probe carries the login AND the budget that
+            decided the selection, so callers never re-read the shared probe cache.
     """
     logger = get_logger_with_params()
 
     api: github.Github | None = None
-    token: str | None = None
-    _api_user: str = ""
+    token: str = ""
+    selected: TokenProbe | None = None
 
-    remaining = 0
+    # Concurrent webhooks interleave these lines, and a rate-limit trace is useless if you
+    # cannot tell which delivery produced which number. The webhook context is a ContextVar
+    # set before GithubWebhook is constructed, so the delivery id is already available here -
+    # no parameter threaded through the constructor.
+    ctx = get_context()
+    delivery_id = ctx.hook_id if ctx else ""
 
     msg = "Get API and tokens"
-
     if repository_name:
         msg += f" for repository {repository_name}"
+    if delivery_id:
+        msg += f" [{delivery_id}]"
 
     logger.debug(msg)
 
@@ -495,72 +662,78 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     # Short-circuit: single token doesn't need rate limit comparison
     if len(apis_and_tokens) == 1:
         _api, _token = apis_and_tokens[0]
-        if _api.rate_limiting[-1] == 60:
-            raise NoApiTokenError("Single configured token has rate limit 60 (indicates invalid token)")
 
         try:
-            _api_user = _api.get_user().login
+            probe = probe_token(_api, _token, logger=logger, log_prefix=msg)
         except GithubException as ex:
             raise NoApiTokenError(f"Single configured token is invalid: {ex}") from ex
 
-        _rate_limit = _api.get_rate_limit()
-        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
 
-        logger.info(f"API user {_api_user} selected (single API configured)")
-        return _api, _token, _api_user
+        logger.info(f"API user {probe.login} selected (single API configured)")
+        return _api, _token, probe
 
+    # Probe every configured token and select the one with the most calls left. All probes
+    # are fresh: a cached budget can describe a window that earlier webhooks already spent,
+    # so it cannot decide which token to use. A token that cannot be probed right now
+    # (exhausted, revoked, transient failure) is skipped rather than selected, so one bad
+    # token never takes the whole webhook down.
+    #
+    # Probes are single-attempt here. This loop runs inside the webhook constructor, which
+    # the app limits to four workers; retrying one token's transient failure would park a
+    # worker for ~30s after another token had already proved usable. Candidates that respond
+    # are still all compared fresh.
     for _api, _token in apis_and_tokens:
-        if _api.rate_limiting[-1] == 60:
-            logger.warning("API has rate limit set to 60 which indicates an invalid token, skipping")
-            continue
-
         try:
-            _api_user = _api.get_user().login
-        except GithubException as ex:
-            # This catches RateLimitExceededException as it's a subclass of GithubException
-            logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
+            probe = probe_token(_api, _token, logger=logger, log_prefix=msg, use_retry=False)
+        except (GithubException, *TRANSIENT_API_ERRORS) as ex:
+            # GithubException covers rate-limit/revoked/404; the transport errors cover a
+            # network blip. Selection probes single-attempt, so without the second group a
+            # single connection failure would escape and end construction for a delivery the
+            # endpoint has already acknowledged, even when another token is healthy.
+            # No part of the credential, not even a prefix: "API <prefix>" matches none of
+            # the masking keywords, so nothing downstream would redact what we put here.
+            # Also avoids the word "token", which the keyword layer would redact here and
+            # turn this operator-facing message into nonsense.
+            logger.warning(f"Failed to probe one configured API credential, skipping. {ex}")
             continue
 
-        _rate_limit = _api.get_rate_limit()
-        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
 
-        if _rate_limit.rate.remaining > remaining:
-            remaining = _rate_limit.rate.remaining
-            api, token, _api_user = _api, _token, _api_user
-            logger.debug(f"API user {_api_user} has higher rate limit ({remaining}), updating selection")
+        if probe.remaining <= 0:
+            # Out of budget. It answered the probe, so it could win on "only one that
+            # responded" - but every later call with this client would 403, so the webhook
+            # would fail anyway, just more slowly and more confusingly.
+            logger.warning(f"API user {probe.login} has no rate limit remaining, skipping")
+            continue
 
-    if not _api_user or not api or not token:
+        if selected is None or probe.remaining > selected.remaining:
+            api, token, selected = _api, _token, probe
+            logger.debug(f"API user {probe.login} has higher rate limit ({probe.remaining}), updating selection")
+
+    if api is None or selected is None:
         raise NoApiTokenError("Failed to get API with highest rate limit")
 
-    logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
-    return api, token, _api_user
+    logger.info(f"{msg} API user {selected.login} selected with highest rate limit: {selected.remaining}")
+    # Return the probe itself, not just its login: callers must not re-read the
+    # process-wide probe cache, which another concurrent constructor may have
+    # refreshed for the same token between selection and use.
+    return api, token, selected
 
 
-def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
+def log_rate_limit(remaining: int, limit: int, api_user: str, log_prefix: str = "") -> None:
+    """Log a token's core budget as reported by GitHub on a real request.
+
+    ``log_prefix`` carries the delivery id so concurrent webhooks can be told apart.
+    """
     logger = get_logger_with_params()
 
-    rate_limit_str: str
-    delta = rate_limit.rate.reset - datetime.datetime.now(tz=datetime.UTC)
-    time_for_limit_reset = max(int(delta.total_seconds()), 0)
-    below_minimum: bool = rate_limit.rate.remaining < 700
-
-    if below_minimum:
-        rate_limit_str = f"{Fore.RED}{rate_limit.rate.remaining}{Fore.RESET}"
-
-    elif rate_limit.rate.remaining < 2000:
-        rate_limit_str = f"{Fore.YELLOW}{rate_limit.rate.remaining}{Fore.RESET}"
-
+    msg = f"[{api_user}] API rate limit: {remaining} of {limit}"
+    line = f"{log_prefix} {msg}" if log_prefix else msg
+    if remaining < 700:
+        logger.warning(line)
     else:
-        rate_limit_str = f"{Fore.GREEN}{rate_limit.rate.remaining}{Fore.RESET}"
-
-    msg = (
-        f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.rate.limit}. "
-        f"Reset in {rate_limit.rate.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.now(tz=datetime.UTC)})"
-    )
-    logger.debug(msg)
-    if below_minimum:
-        logger.warning(msg)
+        logger.debug(line)
 
 
 def get_future_results(futures: list[Future[Any]]) -> None:

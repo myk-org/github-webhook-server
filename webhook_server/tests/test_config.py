@@ -203,6 +203,31 @@ class TestConfig:
         mock_github_api.get_repo.assert_called_once_with("org/test-repo")
         mock_repo.get_contents.assert_called_once_with(".github-webhook-server.yaml")
 
+    def test_repository_local_data_reuses_supplied_repository(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pre-fetched repository must not be re-fetched.
+
+        GithubWebhook resolves the repository once per webhook and then only needs
+        get_contents(). Re-fetching the same repo from the same client costs a core request on
+        every webhook, for every repository, and buys nothing.
+        """
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_repo = Mock()
+        mock_config_file = Mock()
+        mock_config_file.decoded_content = yaml.dump({"local-setting": "value"}).encode()
+        mock_repo.get_contents.return_value = mock_config_file
+
+        config = Config(repository="test-repo")
+        mock_github_api = Mock()
+
+        result = config.repository_local_data(mock_github_api, "org/test-repo", repository=mock_repo)
+
+        assert result == {"local-setting": "value"}
+        mock_github_api.get_repo.assert_not_called()
+        mock_repo.get_contents.assert_called_once_with(".github-webhook-server.yaml")
+
     def test_repository_local_data_list_result(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when get_contents returns a list."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)

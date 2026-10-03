@@ -9,6 +9,7 @@ import shlex
 import shutil
 import tempfile
 import threading
+import time
 import traceback
 from asyncio import Task
 from typing import Any
@@ -60,8 +61,10 @@ from webhook_server.utils.helpers import (
     get_github_repo_api,
     prepare_log_prefix,
     run_command,
+    validate_token,
 )
 from webhook_server.utils.staleness import MergeCheckDebouncer, is_stale_for_pr
+from webhook_server.utils.webhook_skip import payload_skip_reason
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _WELCOME_EXTRA_INFO_MAX_BYTES: int = 10240
@@ -147,7 +150,7 @@ class GithubWebhook:
         self.repository: Repository
         self.repository_by_github_app: Repository
         self.token: str
-        self.api_user: str
+        self.api_user: str = ""
         self.current_pull_request_supported_retest: list[str] = []
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
@@ -159,9 +162,11 @@ class GithubWebhook:
 
         # Get config without .github-webhook-server.yaml data
         self._repo_data_from_config(repository_config={})
-        github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
+        github_api, self.token, selected_probe = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
+        if selected_probe is not None:
+            self.api_user = selected_probe.login
 
         if github_api and self.token:
             self.github_api = github_api
@@ -178,16 +183,32 @@ class GithubWebhook:
             self.github_api._Github__requester = self.requester_wrapper
 
             # Track initial rate limit for token spend calculation
-            # Note: log_prefix not set yet, so we can't use it in error messages here
-            try:
-                initial_rate_limit = github_api.get_rate_limit()
-                self.initial_rate_limit_remaining = initial_rate_limit.rate.remaining
-            except Exception as ex:
-                self.logger.debug(f"Failed to get initial rate limit: {ex}")
+            # Note: log_prefix not set yet, so we can't use it in error messages here.
+            # Prefer the probe that token selection just made: GET /rate_limit is free but
+            # reports a budget GitHub is not enforcing for this credential (verified against
+            # production - /user said 0/5000 while /rate_limit said 5000/5000), which made
+            # every spend line report "initial: 5000" no matter how much was actually left.
+            # Use the probe that selected this token. Reading the process-wide cache here
+            # instead is a race: another concurrent constructor can refresh it for the same
+            # token between selection and this line, and this webhook would then record that
+            # other's remaining budget as its own initial (and so its calculated final).
+            if selected_probe is not None:
+                self.initial_rate_limit_remaining = selected_probe.remaining
+            else:
+                try:
+                    initial_rate_limit = github_api.get_rate_limit()
+                    self.initial_rate_limit_remaining = initial_rate_limit.rate.remaining
+                except Exception as ex:
+                    self.logger.debug(f"Failed to get initial rate limit: {ex}")
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
-                github_api=github_api, repository_full_name=self.repository_full_name
+                github_api=github_api,
+                repository_full_name=self.repository_full_name,
+                # Pass the repository just resolved: this path only needs get_contents(), so
+                # re-fetching the same repo from the same client is one wasted core request on
+                # every single webhook.
+                repository=self.repository,
             )
             # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
             self._repo_data_from_config(repository_config=local_repository_config)
@@ -253,6 +274,29 @@ class GithubWebhook:
         # Mark webhook routing as completed
         self.ctx.complete_step("webhook_routing")
 
+    async def _rate_limit_reset_in(self) -> str:
+        """Seconds until this token's rate limit resets, for log lines.
+
+        Read from PyGithub's cached reset time rather than a fresh /rate_limit call, so
+        reporting the reset costs nothing. The read still goes through github_api_call() -
+        it is a live PyGithub client attribute, and touching one outside the wrapper
+        blocks the event loop and skips retry handling.
+        """
+        assert self.github_api is not None  # guarded by _get_token_metrics
+        try:
+            resettime = await github_api_call(
+                lambda: self.github_api.rate_limiting_resettime,  # type: ignore[union-attr]
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            reset_at = int(resettime or 0)
+        except (TypeError, ValueError, GithubException):
+            # PyGithub attribute may be absent or unset before any request.
+            return "reset in unknown"
+        if reset_at <= 0:
+            return "reset in unknown"
+        return f"reset in {max(reset_at - int(time.time()), 0)}s"
+
     async def _get_token_metrics(self) -> str:
         """Get token metrics (API rate limit consumption) for this webhook.
 
@@ -261,6 +305,13 @@ class GithubWebhook:
         """
         if not self.github_api or self.initial_rate_limit_remaining is None:
             return ""
+
+        # Identify the token by its API user rather than by token prefix: the prefix is
+        # redacted to ***** in the log anyway, so it carries no information, while the
+        # login tells you WHICH budget was spent. Together with the reset time this makes
+        # the line enough to diagnose exhaustion without opening the token.
+        who = self.api_user or "unknown"
+        reset_in = await self._rate_limit_reset_in()
 
         try:
             # Use the wrapper count if available (thread-safe per request)
@@ -271,9 +322,9 @@ class GithubWebhook:
                 remaining = max(0, self.initial_rate_limit_remaining - token_spend)
 
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
-                    f"remaining: {remaining})"
+                    f"remaining: {remaining}, {reset_in})"
                 )
 
             final_rate_limit = await github_api_call(
@@ -288,17 +339,17 @@ class GithubWebhook:
                 # Rate limit reset happened - log as 0 since we can't determine actual spend
                 token_spend = 0
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(rate limit reset occurred - initial: {self.initial_rate_limit_remaining}, "
-                    f"final: {final_remaining})"
+                    f"final: {final_remaining}, {reset_in})"
                 )
             else:
                 token_spend = self.initial_rate_limit_remaining - final_remaining
                 # Return token spend with structured format for parsing
                 return (
-                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"API spend: {who} {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
-                    f"final: {final_remaining}, remaining: {final_remaining})"
+                    f"final: {final_remaining}, remaining: {final_remaining}, {reset_in})"
                 )
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
@@ -532,6 +583,17 @@ class GithubWebhook:
         )
 
     async def process(self) -> Any:
+        # Single source of truth for payload-decidable skips. process_webhook() already
+        # applied this before constructing us, so returning None here is the normal path;
+        # the check is kept so both call sites can never drift apart.
+        payload_skip = payload_skip_reason(self.github_event, self.hook_data)
+        if payload_skip is not None:
+            if self.ctx:
+                self.ctx.start_step("webhook_routing", event_type=self.github_event)
+            self.logger.info(f"{self.log_prefix} Webhook processing completed successfully: {payload_skip}")
+            await self._update_context_metrics()
+            return None
+
         # Early exit for pull_request_review_thread events that don't need processing.
         # Must run BEFORE get_api_users() to avoid
         # burning rate limit on get_user() calls for skipped events.
@@ -935,25 +997,19 @@ class GithubWebhook:
             """Check a single API token and return the user login if valid, None otherwise."""
             token_suffix = f"...{token[-4:]}" if token else "unknown"
             try:
-                # Pre-flight probe: verify token is functional before attempting get_user()
-                await github_api_call(lambda: api.rate_limiting[-1], logger=self.logger, log_prefix=self.log_prefix)
-            except Exception:
-                self.logger.exception(
-                    f"{self.log_prefix} Failed to get API rate limit for token ending in '{token_suffix}', skipping"
-                )
-                return None
-
-            try:
-                _api_user = await github_api_call(
-                    lambda: api.get_user().login, logger=self.logger, log_prefix=self.log_prefix
-                )
+                # validate_token() re-confirms validity on every call, so a since-revoked
+                # token drops out of the auto-verified and trusted-committer lists instead
+                # of gating auto-merge. It uses GET /rate_limit, which authenticates but is
+                # not charged against the core rate limit - this used to spend one core
+                # request per token per webhook just to read a login that never changes.
+                login = await asyncio.to_thread(validate_token, api, token, self.logger, self.log_prefix)
             except Exception as ex:
                 self.logger.exception(
                     f"{self.log_prefix} Failed to get API user for token ending in '{token_suffix}', skipping. {ex}"
                 )
                 return None
 
-            return _api_user
+            return login
 
         return await asyncio.gather(*[check_token(api, token) for api, token in apis_and_tokens])
 

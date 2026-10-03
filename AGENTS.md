@@ -42,6 +42,25 @@ See `docs/` for architecture and configuration reference docs.
 ## Documentation
 `docs/*.md` is the source of truth. `docs/*.html`, `docs/search-index.json`, `docs/llms.txt` and `docs/llms-full.txt` are **generated** — never edit them by hand.
 
+### Docs check is part of the change, not a follow-up
+
+**Every code change must come with an explicit docs decision.** After editing code, before committing:
+
+1. **Decide whether the change needs docs.** Anything user-visible does: new/renamed/removed config keys or events, changed defaults or log output, new CLI flags, changed API responses, new behaviour operators must know about. A refactor with no observable difference does not.
+2. **If docs are needed**, edit `docs/<slug>.md`, then **regenerate the HTML** — a changed `.md` with a stale `.html` is a broken docs site, and the generated files are what gets served.
+
+```bash
+uvx pi-docsite --docs-dir docs --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."
+```
+
+3. **Verify it regenerated.** The build is idempotent, so a second run must produce no diff:
+   ```bash
+   git status --porcelain docs/
+   ```
+   Empty output after the rebuild means `docs/*.html` and friends are committed in sync with `docs/*.md`.
+
+**Never** hand-edit `docs/*.html` to make the change look documented, and **never** commit a `docs/*.md` change without the regenerated HTML alongside it.
+
 - Update or write the markdown: `docs/<slug>.md`
 - Rebuild the site: `uvx pi-docsite --docs-dir docs --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."` (run from repo root; idempotent, so a clean second run produces no diff). `--project-name` and `--repo-url` are derived from the git remote — only the tagline needs repeating
 - Preview: serve `docs/` over HTTP and open a page (e.g. `uv run python -m http.server -d docs 8000`) — do not open the `.html` via `file://`, the sidebar and search need HTTP

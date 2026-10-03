@@ -733,6 +733,26 @@ class TestWorkflowSteps:
 
         assert result == 50
 
+    def test_extract_token_spend_login_format(self) -> None:
+        """The format this server emits now: API spend: <login> <n> API calls."""
+        parser = LogParser()
+        message = "API spend: deadlock1bot 35 API calls (initial: 4999, remaining: 4964, reset in 3595s)"
+
+        result = parser.extract_token_spend(message)
+
+        assert result == 35
+
+    def test_extract_token_spend_requires_a_spend_label(self) -> None:
+        """An unrelated line mentioning "N API calls" is not this webhook's spend.
+
+        Anchoring on the count alone let parse_log_entry() attribute any such line to the
+        webhook, which the log viewer then reported as its spend.
+        """
+        parser = LogParser()
+
+        assert parser.extract_token_spend("competing job ran 35 API calls today") is None
+        assert parser.extract_token_spend("repos: 12 API calls available") is None
+
     def test_extract_token_spend_not_found(self) -> None:
         """Test extracting token spend when pattern is not found."""
         parser = LogParser()
