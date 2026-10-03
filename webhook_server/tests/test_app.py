@@ -1100,7 +1100,10 @@ class TestWebhookApp:
             mock_logger = mock_get_logger.return_value
 
             headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
-            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+            # A tag ref is what a real push carries. Without it process_webhook() drops the
+            # delivery pre-construction (nothing to do for a branch push) and the handler
+            # error path these tests cover would never run.
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}, "ref": "refs/tags/v1.0.0"}
 
             captured_coro = None
 
@@ -1141,7 +1144,10 @@ class TestWebhookApp:
             mock_logger = mock_get_logger.return_value
 
             headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
-            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+            # A tag ref is what a real push carries. Without it process_webhook() drops the
+            # delivery pre-construction (nothing to do for a branch push) and the handler
+            # error path these tests cover would never run.
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}, "ref": "refs/tags/v1.0.0"}
 
             captured_coro = None
             mock_task = MagicMock()

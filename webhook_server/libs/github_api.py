@@ -65,6 +65,7 @@ from webhook_server.utils.helpers import (
     validate_token,
 )
 from webhook_server.utils.staleness import MergeCheckDebouncer, is_stale_for_pr
+from webhook_server.utils.webhook_skip import payload_skip_reason
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _WELCOME_EXTRA_INFO_MAX_BYTES: int = 10240
@@ -570,6 +571,17 @@ class GithubWebhook:
         )
 
     async def process(self) -> Any:
+        # Single source of truth for payload-decidable skips. process_webhook() already
+        # applied this before constructing us, so returning None here is the normal path;
+        # the check is kept so both call sites can never drift apart.
+        payload_skip = payload_skip_reason(self.github_event, self.hook_data)
+        if payload_skip is not None:
+            if self.ctx:
+                self.ctx.start_step("webhook_routing", event_type=self.github_event)
+            self.logger.info(f"{self.log_prefix} Webhook processing completed successfully: {payload_skip}")
+            await self._update_context_metrics()
+            return None
+
         # Early exit for pull_request_review_thread events that don't need processing.
         # Must run BEFORE get_api_users() to avoid
         # burning rate limit on get_user() calls for skipped events.

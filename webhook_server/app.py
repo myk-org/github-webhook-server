@@ -52,6 +52,7 @@ from webhook_server.utils.helpers import (
     prepare_log_prefix,
 )
 from webhook_server.utils.structured_logger import write_webhook_log
+from webhook_server.utils.webhook_skip import payload_skip_reason
 from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
@@ -656,6 +657,26 @@ async def process_webhook(request: Request) -> JSONResponse:
                 _logger.exception(f"{_log_context} Failed to write webhook log")
             finally:
                 clear_context()
+
+    # Drop deliveries that carry no actionable input BEFORE constructing anything.
+    # Constructing GithubWebhook costs 4-5 core requests (token probe per configured
+    # token, two get_repo calls, app slug) and the event type is not consulted until that
+    # is already paid for. Measured on a real PR: 30 of 36 deliveries were skipped yet
+    # still spent 150 of the PR's 204 core calls. Every rule reads only delivery-local
+    # fields - see webhook_server/utils/webhook_skip.py for why that is safe.
+    payload_skip = payload_skip_reason(event_type, hook_data)
+    if payload_skip is not None:
+        LOGGER.info(f"{log_context} Skipped without API calls: {payload_skip}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": status.HTTP_200_OK,
+                "message": "Webhook acknowledged, no processing needed",
+                "skip_reason": payload_skip,
+                "delivery_id": delivery_id,
+                "event_type": event_type,
+            },
+        )
 
     # Admit BEFORE scheduling the task and before answering. A webhook dropped after the
     # 200 is gone for good: GitHub treats a 2xx as delivered and will not redeliver it.
