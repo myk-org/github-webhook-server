@@ -12,6 +12,7 @@ from starlette.datastructures import Headers
 
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.log_parser import LogEntry
+from webhook_server.utils.helpers import TokenProbe
 
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
@@ -122,7 +123,10 @@ def github_webhook(mocker, request):
     mock_github_api = mocker.Mock()
     mock_github_api._Github__requester = mocker.Mock()
     mock_github_api.get_rate_limit.return_value.rate.remaining = 5000
-    mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=(mock_github_api, "TOKEN", "USER"))
+    mocker.patch(
+        f"{base_import_path}.get_api_with_highest_rate_limit",
+        return_value=(mock_github_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000)),
+    )
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
     mocker.patch(f"{base_import_path}.GithubWebhook.get_api_users", return_value=())
     mocker.patch(f"{base_import_path}.GithubWebhook._build_trusted_committers", return_value=None)

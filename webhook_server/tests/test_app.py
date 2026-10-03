@@ -106,6 +106,55 @@ class TestWebhookApp:
         assert data["delivery_id"] == "test-delivery-123"
         assert data["event_type"] == "pull_request"
 
+    @patch("webhook_server.app.GithubWebhook")
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_payload_skip_acknowledges_without_constructing_client(
+        self,
+        mock_github_webhook: MagicMock,
+        client: TestClient,
+        webhook_secret: str,
+        valid_webhook_payload: dict[str, Any],
+    ) -> None:
+        """A payload-only skip must cost zero API calls AND still be auditable.
+
+        Skipping before construction is what saves the 4-5 core requests, so the test
+        asserts the client was never built and no background work was scheduled - while
+        the delivery is still acknowledged and written to the structured webhook log.
+        """
+        payload_json = json.dumps(valid_webhook_payload)
+        signature = self.create_github_signature(payload_json, webhook_secret)
+
+        headers = {
+            "X-GitHub-Event": "ping",
+            "X-GitHub-Delivery": "skip-delivery-abc",
+            "x-hub-signature-256": signature,
+            "Content-Type": "application/json",
+        }
+
+        with (
+            patch("webhook_server.app.asyncio.create_task") as mock_create_task,
+            patch("webhook_server.app.write_webhook_log") as mock_write_log,
+        ):
+            response = client.post("/webhook_server", content=payload_json, headers=headers)
+
+        # Skipping must not cost observability: the delivery is acknowledged, so it has to
+        # be findable by its ID in the log viewer like any other webhook.
+        assert mock_write_log.call_count == 1
+        skipped_ctx = mock_write_log.call_args.args[0]
+        assert skipped_ctx.hook_id == "skip-delivery-abc"
+        assert "ping" in skipped_ctx.note
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["status"] == 200
+        assert data["message"] == "Webhook acknowledged, no processing needed"
+        assert data["skip_reason"] == "ping"
+        assert data["delivery_id"] == "skip-delivery-abc"
+
+        # The whole point: no client construction, no background task, no API spend.
+        mock_github_webhook.assert_not_called()
+        mock_create_task.assert_not_called()
+
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_invalid_json(self, client: TestClient, webhook_secret: str) -> None:
         """Test webhook processing with invalid JSON payload."""

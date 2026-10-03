@@ -449,7 +449,9 @@ class TokenProbe(NamedTuple):
     login: str
     remaining: int
     limit: int
-    probed_at: float
+    # Informational only - defaulted so tests can build a probe without inventing a
+    # timestamp. Real probes always stamp it via time.time().
+    probed_at: float = 0.0
 
 
 _token_probe_cache: dict[str, TokenProbe] = {}
@@ -608,7 +610,7 @@ def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, 
     return apis_and_tokens
 
 
-def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> tuple[github.Github, str, str]:
+def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> tuple[github.Github, str, TokenProbe]:
     """
     Get API with the highest rate limit
 
@@ -617,7 +619,8 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         repository_name (str, optional): Repository name, if provided try to get token set in config repository section.
 
     Returns:
-        tuple: API, token, api_user
+        tuple: ``(api, token, probe)``. The probe carries the login AND the budget that
+            decided the selection, so callers never re-read the shared probe cache.
     """
     logger = get_logger_with_params()
 
@@ -655,7 +658,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
 
         logger.info(f"API user {probe.login} selected (single API configured)")
-        return _api, _token, probe.login
+        return _api, _token, probe
 
     # Probe every configured token and select the one with the most calls left. All probes
     # are fresh: a cached budget can describe a window that earlier webhooks already spent,
@@ -695,7 +698,10 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         raise NoApiTokenError("Failed to get API with highest rate limit")
 
     logger.info(f"{msg} API user {selected.login} selected with highest rate limit: {selected.remaining}")
-    return api, token, selected.login
+    # Return the probe itself, not just its login: callers must not re-read the
+    # process-wide probe cache, which another concurrent constructor may have
+    # refreshed for the same token between selection and use.
+    return api, token, selected
 
 
 def log_rate_limit(remaining: int, limit: int, api_user: str, log_prefix: str = "") -> None:

@@ -96,12 +96,15 @@ class LogParser:
     TASK_ID_PATTERN = re.compile(r"\[task_id=((?:\\.|[^\]])+)\]")
     TASK_TYPE_PATTERN = re.compile(r"\[task_type=((?:\\.|[^\]])+)\]")
     TASK_STATUS_PATTERN = re.compile(r"\[task_status=((?:\\.|[^\]])+)\]")
-    # Pattern for token spend. Anchored on "<n> API calls" rather than on the label
-    # before it, so it survives label changes: the label is redacted by
-    # mask_sensitive_patterns when it reads "token <value>", which made a
-    # login-based prefix unparseable. Handles "Token spend: 35 API calls" and
-    # "API spend: deadlock1bot 35 API calls (...)" alike.
-    TOKEN_SPEND_PATTERN = re.compile(r"(\d+)\s+API calls")
+    # Pattern for token spend. Both the login-based form this server now emits
+    # ("API spend: deadlock1bot 35 API calls (...)") and the legacy token-prefixed form
+    # ("Token spend: 35 API calls") and the pre-redaction "token ***** 35 API calls" still
+    # present in log files written before this change. A label is required deliberately: anchoring only on
+    # "<n> API calls" made parse_log_entry() treat ANY unrelated line containing that
+    # phrase as this webhook's spend, which the log viewer would then report.
+    # The login form is why the label is "API spend:" and not "token <value>" - the
+    # latter is redacted to "token *****" by mask_sensitive_patterns and is unparseable.
+    TOKEN_SPEND_PATTERN = re.compile(r"(?:API spend:\s*\S+\s+|Token spend:\s+|token\s*\*+\s*:?\s*)(\d+)\s+API calls")
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """

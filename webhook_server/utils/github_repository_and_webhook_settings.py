@@ -16,7 +16,9 @@ LOGGER = get_logger_with_params()
 
 def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
     config = Config(repository=repository, logger=LOGGER)
-    github_api, _, api_user = get_api_with_highest_rate_limit(config=config, repository_name=repository)
+    github_api, _, selected = get_api_with_highest_rate_limit(config=config, repository_name=repository)
+    # Selection returns the probe; this function's contract is the login alone.
+    api_user = selected.login if selected is not None else ""
     return repository, github_api, api_user
 
 

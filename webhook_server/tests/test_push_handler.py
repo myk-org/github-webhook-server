@@ -187,7 +187,11 @@ class TestPushHandler:
                     _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock failed build
-                    mock_run_command.return_value = (False, "Build failed", "Error")
+                    mock_run_command.return_value = (
+                        False,
+                        "Build failed",
+                        "Error",
+                    )
 
                     await push_handler.upload_to_pypi(tag_name="v1.0.0")
 

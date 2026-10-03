@@ -17,6 +17,7 @@ from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 from webhook_server.utils.constants import SECURITY_COMMITTER_IDENTITY_STR, SECURITY_SUSPICIOUS_PATHS_STR
+from webhook_server.utils.helpers import TokenProbe
 
 
 class TestGithubWebhook:
@@ -128,7 +129,7 @@ class TestGithubWebhook:
     ):
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock(name="repo_api")
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -164,7 +165,7 @@ class TestGithubWebhook:
         self, mock_color, mock_get_repo_api, mock_get_api, mock_config, minimal_hook_data, minimal_headers, logger
     ):
         mock_config.return_value.repository = True
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_color.return_value = "test-repo"
         with patch("webhook_server.libs.github_api.get_repository_github_app_api", return_value=None):
@@ -189,7 +190,7 @@ class TestGithubWebhook:
         logger,
     ):
         mock_config.return_value.repository = True
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = None
         mock_get_app_api.return_value = None
         mock_color.return_value = "test-repo"
@@ -227,7 +228,7 @@ class TestGithubWebhook:
         logger,
     ):
         mock_config.return_value.repository = True
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -262,7 +263,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
@@ -337,7 +338,7 @@ class TestGithubWebhook:
         mock_repository = Mock()
         mock_repository.clone_url = "https://github.com/test/repo.git"
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_repo.return_value = mock_repository
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
@@ -376,7 +377,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
@@ -443,7 +444,7 @@ class TestGithubWebhook:
             mock_user = Mock()
             mock_user.login = "test-user"
             mock_api.get_user.return_value = mock_user
-            mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+            mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
             mock_repo_api.return_value = Mock()
             mock_get_apis.return_value = []
             mock_repo_local_data.return_value = {}
@@ -495,7 +496,7 @@ class TestGithubWebhook:
             mock_user = Mock()
             mock_user.login = "test-user"
             mock_api.get_user.return_value = mock_user
-            mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+            mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
             mock_repo_api.return_value = Mock()
             mock_get_apis.return_value = []
             mock_repo_local_data.return_value = {}
@@ -551,7 +552,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
@@ -588,7 +589,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
@@ -628,7 +629,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
@@ -669,7 +670,7 @@ class TestGithubWebhook:
         mock_user.login = "test-user"
         mock_api.get_user.return_value = mock_user
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_repo_github_app_api.return_value = Mock()
         mock_get_apis.return_value = []
@@ -707,7 +708,7 @@ class TestGithubWebhook:
         # Mock GitHub API to prevent network calls
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -740,7 +741,7 @@ class TestGithubWebhook:
         # Mock GitHub API to prevent network calls
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -776,7 +777,7 @@ class TestGithubWebhook:
         # Mock GitHub API to prevent network calls
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -810,7 +811,7 @@ class TestGithubWebhook:
         # Mock GitHub API to prevent network calls
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -843,7 +844,7 @@ class TestGithubWebhook:
         """Test initialization when both repository objects fail to be created."""
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = None
         mock_get_app_api.return_value = None
         mock_color.return_value = "test-repo"
@@ -875,7 +876,7 @@ class TestGithubWebhook:
         """Test the get_api_users method."""
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -948,7 +949,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
             mock_config.return_value.data_dir = temp_dir
 
-            mock_get_api.return_value = (Mock(), "token", "apiuser")
+            mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
             mock_get_repo_api.return_value = Mock()
             mock_get_app_api.return_value = Mock()
 
@@ -992,7 +993,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     # Mock repository and get_pulls to return a PR with matching head.sha
                     mock_repo = Mock()
@@ -1089,7 +1094,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1170,7 +1179,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1244,7 +1257,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1321,7 +1338,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_pr = Mock()
@@ -1371,7 +1392,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_pr = Mock()
@@ -1418,7 +1443,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     # Fast-path get_pull raises exception
@@ -1464,7 +1493,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
@@ -1525,7 +1558,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1581,7 +1618,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1667,7 +1708,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -1771,7 +1816,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -1826,7 +1871,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     # Fast-path: commit.get_pulls() returns a PR with different HEAD
@@ -1873,7 +1922,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_commit = Mock()
@@ -1915,7 +1968,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_commit = Mock()
@@ -1964,7 +2021,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     # Fast-path fails
@@ -2002,7 +2063,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2033,7 +2094,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2064,7 +2125,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2095,7 +2156,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2121,7 +2182,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2150,7 +2211,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2180,7 +2241,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2205,7 +2266,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2241,7 +2302,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2276,7 +2337,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2310,7 +2371,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2346,7 +2407,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2393,7 +2458,11 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2430,7 +2499,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2478,7 +2551,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2534,7 +2611,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2600,7 +2681,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2667,7 +2752,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2704,7 +2793,11 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_get_repo_api.return_value = Mock()
@@ -2746,7 +2839,11 @@ class TestGithubWebhook:
 
             mock_api = Mock()
             mock_api.get_rate_limit.return_value = Mock(rate=Mock(remaining=5000, limit=5000))
-            mock_get_api.return_value = (mock_api, "test-token", "test-user")
+            mock_get_api.return_value = (
+                mock_api,
+                "test-token",
+                TokenProbe(login="test-user", remaining=5000, limit=5000),
+            )
 
             mock_repository = Mock()
             mock_repository.clone_url = "https://github.com/test/repo.git"
@@ -2787,7 +2884,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2863,7 +2964,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    "test-token",
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
                     mock_repo = Mock()
@@ -2986,7 +3091,7 @@ class TestGithubWebhook:
         mock_repository = Mock()
         mock_repository.clone_url = "https://github.com/test/repo.git"
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_repo.return_value = mock_repository
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
@@ -3067,7 +3172,7 @@ class TestGithubWebhook:
         mock_repository = Mock()
         mock_repository.clone_url = "https://github.com/test/repo.git"
 
-        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", TokenProbe(login="USER", remaining=5000, limit=5000))
         mock_repo_api.return_value = Mock()
         mock_get_repo.return_value = mock_repository
         mock_get_apis.return_value = []
@@ -3104,7 +3209,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
@@ -3136,7 +3241,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository_local_data.return_value = {}
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
@@ -3193,7 +3298,7 @@ class TestGithubWebhook:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
         mock_config.return_value.get_value.side_effect = get_value_side_effect
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -3249,7 +3354,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), TEST_GITHUB_TOKEN, "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    TEST_GITHUB_TOKEN,
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
@@ -3309,7 +3418,11 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), TEST_GITHUB_TOKEN, "apiuser")
+                mock_get_api.return_value = (
+                    Mock(),
+                    TEST_GITHUB_TOKEN,
+                    TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                )
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
@@ -3357,7 +3470,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -3456,7 +3573,11 @@ class TestGithubWebhook:
                 mock_config.return_value.data_dir = temp_dir
 
                 with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
+                    mock_get_api.return_value = (
+                        Mock(),
+                        "token",
+                        TokenProbe(login="apiuser", remaining=5000, limit=5000),
+                    )
 
                     mock_repo = Mock()
                     mock_repo.get_git_tree.return_value.tree = []
@@ -3535,7 +3656,7 @@ class TestGithubWebhook:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
         mock_config.return_value.get_value = mock_get_value
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -3586,7 +3707,7 @@ class TestGithubWebhook:
         mock_config.return_value.repository = True
         mock_config.return_value.repository_local_data.return_value = {}
         mock_config.return_value.get_value = mock_get_value
-        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"

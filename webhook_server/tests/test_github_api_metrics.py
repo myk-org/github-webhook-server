@@ -5,6 +5,7 @@ import pytest
 from starlette.datastructures import Headers
 
 from webhook_server.libs.github_api import CountingRequester, GithubWebhook
+from webhook_server.utils.helpers import TokenProbe
 
 
 class TestCountingRequester:
@@ -125,7 +126,7 @@ class TestGithubWebhookMetrics:
         mock_github_api = Mock()
         mock_requester = Mock()
         mock_github_api._Github__requester = mock_requester
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
@@ -163,7 +164,7 @@ class TestGithubWebhookMetrics:
         existing_wrapper.count = 5
         mock_github_api._Github__requester = existing_wrapper
 
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
 
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
@@ -210,7 +211,7 @@ class TestGithubWebhookMetrics:
         mock_github_api._Github__requester = mock_requester
         mock_github_api.get_rate_limit.return_value.rate.remaining = 5000
 
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
@@ -255,7 +256,7 @@ class TestGithubWebhookMetrics:
         mock_requester = Mock()
         mock_github_api._Github__requester = mock_requester
 
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
 
@@ -292,11 +293,10 @@ class TestGithubWebhookMetrics:
 
         mock_github_api = Mock()
         mock_github_api.get_rate_limit.return_value.rate.remaining = 4995
-
         mock_requester = Mock()
         mock_github_api._Github__requester = mock_requester
 
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=4995, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
 
@@ -341,7 +341,9 @@ class TestGithubWebhookMetrics:
         mock_requester = Mock()
         mock_github_api._Github__requester = mock_requester
 
-        mock_get_api.return_value = (mock_github_api, "token", "apiuser")
+        # Selection reports 100 remaining, so the webhook's initial budget is 100 and the
+        # reset to 5000 below is what makes final > initial.
+        mock_get_api.return_value = (mock_github_api, "token", TokenProbe(login="apiuser", remaining=100, limit=5000))
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
 

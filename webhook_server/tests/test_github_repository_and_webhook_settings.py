@@ -9,6 +9,7 @@ from webhook_server.utils.github_repository_and_webhook_settings import (
     get_repository_api,
     repository_and_webhook_settings,
 )
+from webhook_server.utils.helpers import TokenProbe
 
 
 class TestGetRepositoryApi:
@@ -24,7 +25,7 @@ class TestGetRepositoryApi:
 
         # Mock GitHub API and user
         mock_github_api = Mock()
-        mock_get_api.return_value = (mock_github_api, None, "test-user")
+        mock_get_api.return_value = (mock_github_api, None, TokenProbe(login="test-user", remaining=5000, limit=5000))
 
         # Call function
         repository, github_api, api_user = get_repository_api("test-repo")
@@ -50,7 +51,7 @@ class TestGetRepositoryApi:
         mock_config_class.return_value = mock_config
 
         # Mock no GitHub API available
-        mock_get_api.return_value = (None, None, "test-user")
+        mock_get_api.return_value = (None, None, TokenProbe(login="test-user", remaining=5000, limit=5000))
 
         repository, github_api, api_user = get_repository_api("test-repo")
 

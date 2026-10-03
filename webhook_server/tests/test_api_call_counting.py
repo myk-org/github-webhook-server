@@ -6,6 +6,7 @@ from github import Github
 from starlette.datastructures import Headers
 
 from webhook_server.libs.github_api import CountingRequester, GithubWebhook
+from webhook_server.utils.helpers import TokenProbe
 
 
 def test_counting_requester():
@@ -64,7 +65,7 @@ async def test_github_webhook_token_metrics_with_counter():
         mock_rate_limit.rate.remaining = 5000
         mock_github.get_rate_limit.return_value = mock_rate_limit
 
-        mock_get_api.return_value = (mock_github, "token123", "user")
+        mock_get_api.return_value = (mock_github, "token123", TokenProbe(login="user", remaining=5000, limit=5000))
 
         # Initialize webhook
         webhook = GithubWebhook(mock_hook_data, mock_headers, mock_logger)

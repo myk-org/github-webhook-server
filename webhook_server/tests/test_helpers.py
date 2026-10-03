@@ -221,12 +221,12 @@ class TestHelpers:
         mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
 
         config = Config(repository="test-repo")
-        api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+        api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         # Both tokens are probed fresh and the higher one wins
         assert api == mock_api2
         assert token == "token2"
-        assert user == "user2"
+        assert selected.login == "user2"
         mock_api1.get_user.assert_called_once()
         mock_api2.get_user.assert_called_once()
 
@@ -252,11 +252,11 @@ class TestHelpers:
         helpers_module._token_probe_cache["token2"] = helpers_module.TokenProbe("user2", 10, 5000, 0.0)
 
         config = Config(repository="test-repo")
-        api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+        api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         assert api == mock_api2
         assert token == "token2"
-        assert user == "user2"
+        assert selected.login == "user2"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
@@ -284,11 +284,11 @@ class TestHelpers:
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
-            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+            api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         assert api == healthy_api
         assert token == "healthy-token"
-        assert user == "healthy"
+        assert selected.login == "healthy"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
@@ -347,9 +347,9 @@ class TestHelpers:
         with patch("webhook_server.utils.github_retry.time.sleep") as mock_sleep:
             with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
                 config = Config(repository="test-repo")
-                api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+                api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
-        assert (api, token, user) == (healthy_api, "healthy-token", "healthy")
+        assert (api, token, selected.login) == (healthy_api, "healthy-token", "healthy")
         # Sick token was tried exactly once and never slept
         assert sick_api.get_user.call_count == 1
         mock_sleep.assert_not_called()
@@ -377,10 +377,10 @@ class TestHelpers:
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
-            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+            api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         # The spent token answered and would have won on "only one that responded"
-        assert (api, token, user) == (healthy_api, "healthy-token", "healthy")
+        assert (api, token, selected.login) == (healthy_api, "healthy-token", "healthy")
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
@@ -425,9 +425,9 @@ class TestHelpers:
             helpers_module._token_probe_cache.clear()
             with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
                 config = Config(repository="test-repo")
-                api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+                api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
-            assert (api, token, user) == (healthy_api, "healthy-token", "healthy"), f"blip escaped: {error!r}"
+            assert (api, token, selected.login) == (healthy_api, "healthy-token", "healthy"), f"blip escaped: {error!r}"
 
     def test_get_github_repo_api(self) -> None:
         """Test getting GitHub repository API."""
@@ -474,12 +474,34 @@ class TestHelpers:
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
-            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+            api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         # Should skip the exhausted token and return the healthy one
         assert api == healthy_api
         assert token == "valid_token"
-        assert user == "user2"
+        assert selected.login == "user2"
+
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    @patch("webhook_server.utils.helpers.log_rate_limit")
+    def test_selection_returns_the_probe_that_selected_it(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
+        """Selection must hand back the probe, so callers never re-read the shared cache.
+
+        Returning only the login forces callers to look the budget up again, and a
+        concurrent constructor can refresh that process-wide cache for the same token in
+        between - so the webhook would record someone else's remaining budget as its own.
+        """
+        mock_api = Mock()
+        mock_api.rate_limiting = [1234, 5000]
+        mock_api.get_user.return_value.login = "bot"
+        mock_get_apis.return_value = [(mock_api, "tok1")]
+
+        with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
+            config = Config(repository="test-repo")
+            _, _, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+
+        assert isinstance(selected, helpers_module.TokenProbe)
+        assert selected.login == "bot"
+        assert selected.remaining == 1234
 
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.utils.helpers.log_rate_limit")
@@ -493,11 +515,11 @@ class TestHelpers:
 
         with patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"}):
             config = Config(repository="test-repo")
-            api, token, user = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
+            api, token, selected = get_api_with_highest_rate_limit(config=config, repository_name="test-repo")
 
         assert api == mock_api
         assert token == "single-token"
-        assert user == "user1"
+        assert selected.login == "user1"
         # Budget comes from the response header of the probe, not from GET /rate_limit
         mock_api.get_rate_limit.assert_not_called()
         # log_prefix carries the delivery id so concurrent selections can be attributed

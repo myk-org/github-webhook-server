@@ -160,6 +160,15 @@ class WebhookContext:
     # Final status
     success: bool = True
     error: dict[str, Any] | None = None  # Top-level error with traceback
+    note: str = ""  # Why the delivery ended this way when no workflow step says
+
+    def add_note(self, note: str) -> None:
+        """Record why a delivery ended as it did when no workflow step explains it.
+
+        Used for deliveries acknowledged without processing (payload-only skips), which
+        have no steps but must still be findable in the webhook log.
+        """
+        self.note = note
 
     def start_step(self, step_name: str, **data: Any) -> None:
         """Start a workflow step.
@@ -341,9 +350,11 @@ class WebhookContext:
         pr_info = f" PR#{self.pr_number}" if self.pr_number else ""
         token_info = _format_token_spend(self.token_spend, self.api_user)
 
+        note_info = f' note="{self.note}"' if self.note else ""
+
         return (
             f"[{status_text}] Webhook completed{pr_info} "
-            f"[{_format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
+            f"[{_format_duration(duration_ms)}{token_info}{note_info}] steps=[{steps_str}]"
         )
 
     def _derive_level(self) -> str:
@@ -416,6 +427,7 @@ class WebhookContext:
             "final_rate_limit": self.final_rate_limit,
             "success": self.success,
             "error": self.error,
+            "note": self.note,
             "summary": self._build_summary(),
         }
 

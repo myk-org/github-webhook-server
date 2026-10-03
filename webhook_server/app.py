@@ -427,6 +427,38 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
+def _record_skipped_delivery(
+    delivery_id: str,
+    event_type: str,
+    hook_data: dict[str, Any],
+    skip_reason: str,
+) -> None:
+    """Write the structured audit record for a delivery skipped without any API call.
+
+    Skipping before construction is the whole point - it avoids 4-5 core requests per
+    delivery - but it must not cost observability. GitHub acknowledged the delivery, so
+    it belongs in the webhook log and the log viewer just like any other, searchable by
+    its delivery ID. Costs no GitHub API call: this only writes JSONL.
+    """
+    ctx = create_context(
+        hook_id=delivery_id,
+        event_type=event_type,
+        repository=hook_data.get("repository", {}).get("name", "unknown"),
+        repository_full_name=hook_data.get("repository", {}).get("full_name", "unknown"),
+        action=hook_data.get("action"),
+        sender=hook_data.get("sender", {}).get("login"),
+    )
+    try:
+        ctx.success = True
+        ctx.completed_at = datetime.now(UTC)
+        ctx.add_note(f"Skipped without API calls: {skip_reason}")
+        write_webhook_log(ctx)
+    except Exception:
+        LOGGER.exception(f"Failed to write webhook log for skipped delivery {delivery_id}")
+    finally:
+        clear_context()
+
+
 @FASTAPI_APP.post(
     APP_URL_ROOT_PATH,
     operation_id="process_webhook",
@@ -667,6 +699,12 @@ async def process_webhook(request: Request) -> JSONResponse:
     payload_skip = payload_skip_reason(event_type, hook_data)
     if payload_skip is not None:
         LOGGER.info(f"{log_context} Skipped without API calls: {payload_skip}")
+        _record_skipped_delivery(
+            delivery_id=delivery_id,
+            event_type=event_type,
+            hook_data=hook_data,
+            skip_reason=payload_skip,
+        )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
