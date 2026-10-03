@@ -86,7 +86,16 @@ def get_logger_with_params(
     # shared by every repository, so stripping the filter when one repository disables
     # masking would unmask all of them. A repository's override is honoured by the
     # _redact_secrets call sites that own that repository's secrets.
-    attach_masking(logger, mask_sensitive=mask_sensitive, secrets=config_secrets, patterns=mask_sensitive_patterns)
+    # The repository is passed so the filter can honour a per-repository
+    # mask-sensitive-data setting for THIS repository without unmasking any other
+    # repository that shares this log destination.
+    attach_masking(
+        logger,
+        mask_sensitive=mask_sensitive,
+        secrets=config_secrets,
+        patterns=mask_sensitive_patterns,
+        repository=repository_name,
+    )
 
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
     # Only attach when:

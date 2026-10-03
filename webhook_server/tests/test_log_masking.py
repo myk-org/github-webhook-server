@@ -17,15 +17,17 @@ import importlib
 import inspect
 import io
 import logging
+import os
 import re
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+import yaml
 
 from webhook_server.libs.config import Config
 from webhook_server.utils import masking
-from webhook_server.utils.context import WebhookContext
+from webhook_server.utils.context import WebhookContext, clear_context, create_context
 from webhook_server.utils.helpers import get_api_with_highest_rate_limit, log_rate_limit
 from webhook_server.utils.masking import (
     SecretRedactionFilter,
@@ -321,13 +323,18 @@ class TestAttachMasking:
         stream = io.StringIO()
         logger = self._logger()
         logger.handlers.clear()
+        logger.propagate = False
         handler = logging.StreamHandler(stream)
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
         attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+        # Without this the logger inherits WARNING, logger.info() is dropped, and the
+        # assertion below passes because nothing was ever logged.
+        logger.setLevel(logging.INFO)
 
         logger.info("raw value %s here", GITHUB_TOKEN)
 
+        assert stream.getvalue(), "nothing was logged - the assertion would pass vacuously"
         assert GITHUB_TOKEN not in stream.getvalue()
 
     def test_disabled_attaches_no_filter(self) -> None:
@@ -398,3 +405,150 @@ class TestConfigSecretValues:
         cfg = self._FakeConfig({"github-tokens": ["abc"], "repositories": {}})
 
         assert config_secret_values(cfg) == []
+
+
+class TestPerRepositoryMasking:
+    """Loggers are shared per log destination, so masking must be decided per repository."""
+
+    def _render(self, repository: str | None, attach_with: str) -> str:
+        """Attach for one repository, then log a record attributed to another."""
+        stream = io.StringIO()
+        logger = logging.getLogger(f"per-repo-{attach_with}-{repository}")
+        logger.handlers.clear()
+        logger.propagate = False
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        logger.filters.clear()
+        logger.setLevel(logging.INFO)
+
+        attach_masking(logger, mask_sensitive=attach_with != "off", secrets=[GITHUB_TOKEN], repository=attach_with)
+        if attach_with != "off":
+            attach_masking(logger, mask_sensitive=False, secrets=[GITHUB_TOKEN], repository="other-repo")
+
+        if repository is None:
+            clear_context()
+        else:
+            create_context(
+                hook_id="h1",
+                event_type="check_run",
+                repository=repository,
+                repository_full_name=f"org/{repository}",
+            )
+        logger.info("value %s", GITHUB_TOKEN)
+        clear_context()
+        return stream.getvalue()
+
+    def test_a_repository_can_disable_masking_for_its_own_records(self) -> None:
+        """Regression: never stripping the filter made mask-sensitive-data: false inert."""
+        out = self._render(repository="off", attach_with="off")
+
+        assert GITHUB_TOKEN in out, "mask-sensitive-data: false was ignored for its own repository"
+
+    def test_disabling_for_one_repository_does_not_unmask_another(self) -> None:
+        """The other direction: one repository turning masking off must not leak its
+        neighbours' records, which was the bug that made this filter 'never strip'."""
+        out = self._render(repository="masked-repo", attach_with="on")
+
+        assert GITHUB_TOKEN not in out, "another repository's records were unmasked"
+
+
+class TestSecretCacheUsesRealConfigFile:
+    """The cache is keyed on the config file, so it has to be exercised with a real one."""
+
+    def test_unchanged_file_hits_the_cache(self, tmp_path: Any) -> None:
+        masking._SECRET_VALUES_CACHE.clear()
+        path = _write_config(tmp_path, f"github-tokens:\n  - {GITHUB_TOKEN}\n")
+        cfg = _FileConfig(path)
+
+        first = config_secret_values(cfg)
+        second = config_secret_values(cfg)
+
+        assert first == second == [GITHUB_TOKEN]
+        assert len(masking._SECRET_VALUES_CACHE) == 1, "cache was never populated"
+
+    def test_changing_the_file_invalidates_the_cache(self, tmp_path: Any) -> None:
+        masking._SECRET_VALUES_CACHE.clear()
+        cfg = _FileConfig(_write_config(tmp_path, f"github-tokens:\n  - {GITHUB_TOKEN}\n"))
+        assert config_secret_values(cfg) == [GITHUB_TOKEN]
+
+        os.utime(cfg.config_path, (0, 0))  # ensure the fingerprint changes
+        _write_config(tmp_path, f"github-tokens:\n  - {OAUTH_TOKEN}\n")
+
+        assert config_secret_values(cfg) == [OAUTH_TOKEN], "stale secrets served after the file changed"
+
+    def test_different_repositories_do_not_share_cached_values(self, tmp_path: Any) -> None:
+        """Regression: the cache key omitted the repository.
+
+        get_value() resolves repository-scoped overrides, so the same file yields
+        different secrets per repository. Keyed on the file alone, the first caller's
+        entry was served to every other repository - which then masked the wrong values
+        and left that repository's own credential exposed.
+        """
+        masking._SECRET_VALUES_CACHE.clear()
+        path = _write_config(
+            tmp_path,
+            f"github-tokens:\n  - {GITHUB_TOKEN}\nrepositories:\n  one:\n    github-tokens:\n      - {PYPI_TOKEN}\n",
+        )
+
+        root_values = config_secret_values(_FileConfig(path, repository=""))
+        repo_values = config_secret_values(_FileConfig(path, repository="one"))
+
+        # Each repository must resolve its OWN tokens, not whichever one ran first.
+        assert GITHUB_TOKEN in root_values
+        assert PYPI_TOKEN in repo_values
+        assert GITHUB_TOKEN not in repo_values, "the root's cached values leaked into this repository"
+
+    def test_two_repositories_each_get_their_own_values(self, tmp_path: Any) -> None:
+        masking._SECRET_VALUES_CACHE.clear()
+        path = _write_config(
+            tmp_path,
+            f"github-tokens:\n  - {GITHUB_TOKEN}\n"
+            f"repositories:\n"
+            f"  one:\n    github-tokens:\n      - {PYPI_TOKEN}\n"
+            f"  two:\n    github-tokens:\n      - {AWS_ACCESS_KEY}\n",
+        )
+
+        one = config_secret_values(_FileConfig(path, repository="one"))
+        two = config_secret_values(_FileConfig(path, repository="two"))
+
+        # Each repository must contribute its OWN credential - this is what the cache
+        # bug broke. Collecting every repository's values is deliberate, so extra
+        # values are expected and harmless; a repo-scoped block also REPLACES the root
+        # value for github-tokens rather than merging, so the root token is not required.
+        assert PYPI_TOKEN in one
+        assert AWS_ACCESS_KEY in two
+
+
+def _write_config(tmp_path: Any, body: str) -> str:
+    path = tmp_path / "config.yaml"
+    path.write_text(body)
+    return str(path)
+
+
+class _FileConfig:
+    """Config stub backed by a real file, so _config_fingerprint() actually works.
+
+    ``get_value`` resolves repository-scoped overrides the way Config does - the value for
+    a repository wins over the root - because that resolution is exactly what makes the
+    same file yield different secrets per repository.
+    """
+
+    def __init__(self, config_path: str, repository: str = "") -> None:
+        self.config_path = config_path
+        self.repository = repository
+
+    def get_value(self, value: str, return_on_none: Any = None, extra_dict: Any = None) -> Any:
+        # Re-read every call: the point of these tests is that a changed file yields
+        # changed secrets, so caching the parsed YAML here would hide that.
+        data = yaml.safe_load(open(self.config_path)) or {}
+        for key in (f"repositories.{self.repository}.{value}" if self.repository else "", value):
+            node: Any = data
+            for part in key.split("."):
+                if not isinstance(node, dict):
+                    node = None
+                    break
+                node = node.get(part)
+            if node is not None:
+                return node
+        return return_on_none

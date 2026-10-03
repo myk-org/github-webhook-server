@@ -29,6 +29,8 @@ import os
 import re
 from typing import Any
 
+from webhook_server.utils.context import get_context
+
 # Keywords that introduce a secret in a log line. simple_logger composes these as
 # ({pattern}\W+[^\s]+) - the pattern is a regex fragment and a single separator is enough.
 # Kept broad on purpose: an over-eager mask hides a login name, an under-eager one prints
@@ -115,6 +117,13 @@ class SecretRedactionFilter(logging.Filter):
     Formatting first is what makes lazy ``%``-arguments safe: ``record.getMessage()``
     produces the text that will actually be written, both mask layers then see it, and
     clearing ``args`` stops the formatter re-interpolating the untouched originals.
+
+    Masking is decided PER RECORD, not per logger. Loggers are cached per log
+    destination and shared by every repository, so a single on/off flag on the logger is
+    wrong in both directions: it either lets one repository's ``mask-sensitive-data:
+    false`` unmask everybody else, or (by never stripping the filter) makes that same
+    setting impossible to honour. Resolving the repository from the webhook context at
+    record time is what makes both true at once.
     """
 
     def __init__(
@@ -122,11 +131,29 @@ class SecretRedactionFilter(logging.Filter):
         patterns: list[str] | None = None,
         secrets: list[str] | None = None,
         mask_sensitive: bool = True,
+        repository: str = "",
     ) -> None:
         super().__init__()
         self._patterns = DEFAULT_MASKING_PATTERNS if patterns is None else patterns
         self._secrets = [secret for secret in (secrets or []) if isinstance(secret, str) and secret]
-        self._mask_sensitive = mask_sensitive
+        self._default_mask = mask_sensitive
+        self._repository = repository
+        self._repository_mask: dict[str, bool] = {}
+
+    def configure(self, mask_sensitive: bool, repository: str = "") -> None:
+        """Record this logger's setting for one repository.
+
+        Called on every attach so the map reflects every repository that logs here,
+        not just the first one to reach it.
+
+        A repository-scoped call records ONLY its own entry. It must not become the
+        default, or whichever repository happened to log last would decide masking for
+        every repository not yet in the map - including other masked ones.
+        """
+        if repository:
+            self._repository_mask[repository] = mask_sensitive
+        else:
+            self._default_mask = mask_sensitive
 
     def refresh(self, secrets: list[str] | None, patterns: list[str] | None = None) -> None:
         """Update in place instead of stacking another filter on the same logger."""
@@ -134,8 +161,12 @@ class SecretRedactionFilter(logging.Filter):
         if patterns is not None:
             self._patterns = patterns
 
+    def _enabled_for(self) -> bool:
+        repository = _repository_of()
+        return self._repository_mask.get(repository or self._repository, self._default_mask)
+
     def filter(self, record: logging.LogRecord) -> bool:
-        if not self._mask_sensitive:
+        if not self._enabled_for():
             return True
         try:
             message = record.getMessage()
@@ -146,29 +177,48 @@ class SecretRedactionFilter(logging.Filter):
         return True
 
 
+def _repository_of() -> str:
+    """Repository of the delivery being logged, from the webhook context if there is one.
+
+    Imported lazily and defensively: this module is deliberately dependency-free so any
+    module can use it, and the context module must stay importable from here.
+    """
+    try:
+        ctx = get_context()
+        if ctx is not None and ctx.repository:
+            return ctx.repository
+    except Exception:  # pragma: no cover - context unavailable outside a delivery
+        pass
+    return ""
+
+
 def attach_masking(
     logger: logging.Logger,
     mask_sensitive: bool = True,
     secrets: list[str] | None = None,
     patterns: list[str] | None = None,
+    repository: str = "",
 ) -> logging.Logger:
     """Attach this module's filter to ``logger``, replacing any previous one.
 
-    Idempotent: repeated calls replace rather than stack, so a logger built per call site
-    does not accumulate filters.
+    Idempotent: repeated calls refresh the existing filter rather than stacking another.
     """
-    # A logger is cached per log destination and shared by every repository, so a filter
-    # already installed here is protecting other repositories too. Stripping it when one
-    # repository disables masking would unmask all of them, so this only ever adds.
-    # Repeated calls do not stack: an existing SecretRedactionFilter is refreshed in place.
     filters = getattr(logger, "filters", None)
     if isinstance(filters, list):
         for existing in filters:
             if isinstance(existing, SecretRedactionFilter):
+                existing.configure(mask_sensitive, repository)
                 existing.refresh(secrets=secrets, patterns=patterns)
                 return logger
     if mask_sensitive and hasattr(logger, "addFilter"):
-        logger.addFilter(SecretRedactionFilter(patterns=patterns, secrets=secrets, mask_sensitive=True))
+        logger.addFilter(
+            SecretRedactionFilter(
+                patterns=patterns,
+                secrets=secrets,
+                mask_sensitive=mask_sensitive,
+                repository=repository,
+            )
+        )
     return logger
 
 
@@ -185,7 +235,11 @@ def config_secret_values(config: Any) -> list[str]:
     fingerprint = _config_fingerprint(config)
     cache_key = None
     if fingerprint is not None:
-        cache_key = (config.config_path, fingerprint)
+        # The repository is part of the key, not just the file: get_value() resolves
+        # repository-scoped overrides, so the same file yields different secrets per
+        # repository. Keying on the file alone let the first caller's values be served to
+        # every other repository - its Slack webhook URL would then be un-masked.
+        cache_key = (config.config_path, fingerprint, getattr(config, "repository", "") or "")
         cached = _SECRET_VALUES_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -223,7 +277,10 @@ def config_secret_values(config: Any) -> list[str]:
         for key in ("github-tokens", "pypi.token", "docker.password"):
             harvest(repo.get(key))
 
-    result = [value for value in values if len(value) >= _MIN_SECRET_LENGTH]
+    # Every repository's credentials are collected on purpose - masking a value that
+    # belongs to another repository is harmless, missing one is not. Deduplicated
+    # because the same token commonly appears globally and per-repository.
+    result = list(dict.fromkeys(value for value in values if len(value) >= _MIN_SECRET_LENGTH))
     if cache_key is not None:
         _SECRET_VALUES_CACHE[cache_key] = result
     return result
