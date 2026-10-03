@@ -427,7 +427,7 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-def _record_skipped_delivery(
+async def _record_skipped_delivery(
     delivery_id: str,
     event_type: str,
     hook_data: dict[str, Any],
@@ -439,6 +439,15 @@ def _record_skipped_delivery(
     delivery - but it must not cost observability. GitHub acknowledged the delivery, so
     it belongs in the webhook log and the log viewer just like any other, searchable by
     its delivery ID. Costs no GitHub API call: this only writes JSONL.
+
+    Two details the log viewer depends on:
+
+    * the record carries a workflow step. The viewer treats a record with no
+      ``workflow_steps`` as malformed and refuses to render it, so a step-less record
+      would be written but never viewable - the audit trail Qodo asked for, unusable.
+    * the write happens off the event loop. It builds a Config, re-reads the YAML for
+      secret values, and takes an flock with fsync. Skipped deliveries are the common
+      case, so doing that inline stalled every concurrent request behind it.
     """
     ctx = create_context(
         hook_id=delivery_id,
@@ -451,8 +460,10 @@ def _record_skipped_delivery(
     try:
         ctx.success = True
         ctx.completed_at = datetime.now(UTC)
+        ctx.start_step("skip_delivery", reason=skip_reason)
+        ctx.complete_step("skip_delivery", reason=skip_reason)
         ctx.add_note(f"Skipped without API calls: {skip_reason}")
-        write_webhook_log(ctx)
+        await asyncio.to_thread(write_webhook_log, ctx)
     except Exception:
         LOGGER.exception(f"Failed to write webhook log for skipped delivery {delivery_id}")
     finally:
@@ -699,7 +710,7 @@ async def process_webhook(request: Request) -> JSONResponse:
     payload_skip = payload_skip_reason(event_type, hook_data)
     if payload_skip is not None:
         LOGGER.info(f"{log_context} Skipped without API calls: {payload_skip}")
-        _record_skipped_delivery(
+        await _record_skipped_delivery(
             delivery_id=delivery_id,
             event_type=event_type,
             hook_data=hook_data,

@@ -143,6 +143,10 @@ class TestWebhookApp:
         skipped_ctx = mock_write_log.call_args.args[0]
         assert skipped_ctx.hook_id == "skip-delivery-abc"
         assert "ping" in skipped_ctx.note
+        # The log viewer rejects a record with no workflow_steps as malformed, so a
+        # step-less audit record would be written but never viewable.
+        assert skipped_ctx.workflow_steps, "skipped record has no workflow steps"
+        assert "skip_delivery" in skipped_ctx.workflow_steps
 
         assert response.status_code == 200, response.text
         data = response.json()

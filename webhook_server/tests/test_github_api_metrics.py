@@ -1,4 +1,6 @@
 import threading
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -86,6 +88,16 @@ class TestCountingRequester:
         # Both should share the count
         assert wrapper.count == 2
         assert lazy_wrapper.count == 2
+
+
+async def _inline_to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a to_thread target inline so mocks never reach a real worker thread.
+
+    The reset-time read goes through github_api_call(), which delegates to
+    asyncio.to_thread. Without this the mocked client is touched from a real worker
+    thread and the test's outcome depends on thread scheduling.
+    """
+    return fn(*args, **kwargs)
 
 
 class TestGithubWebhookMetrics:
@@ -236,6 +248,7 @@ class TestGithubWebhookMetrics:
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    @patch("asyncio.to_thread", new=_inline_to_thread)
     @pytest.mark.asyncio
     async def test_get_token_metrics_with_wrapper(
         self,
@@ -276,6 +289,7 @@ class TestGithubWebhookMetrics:
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    @patch("asyncio.to_thread", new=_inline_to_thread)
     @pytest.mark.asyncio
     async def test_get_token_metrics_per_webhook_count(
         self,
@@ -320,6 +334,7 @@ class TestGithubWebhookMetrics:
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    @patch("asyncio.to_thread", new=_inline_to_thread)
     @pytest.mark.asyncio
     async def test_get_token_metrics_fallback_reset(
         self,
