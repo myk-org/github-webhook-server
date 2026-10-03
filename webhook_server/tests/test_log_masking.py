@@ -30,6 +30,8 @@ from webhook_server.utils.helpers import get_api_with_highest_rate_limit, log_ra
 from webhook_server.utils.masking import (
     SecretRedactionFilter,
     apply_masking,
+    attach_masking,
+    config_secret_values,
 )
 
 # Real-shaped secrets, assembled from parts so no contiguous token-shaped literal sits in
@@ -235,6 +237,12 @@ class TestLazyArgumentLeak:
     SECRET = GITHUB_TOKEN
 
     def _render(self, mask_sensitive: bool) -> str:
+        """Render through the project's own attach_masking() path, not a bare logger.
+
+        Building the logger with logging.getLogger() and bolting a filter on by hand
+        tested a construction the server never uses, so it could not catch a regression in
+        how masking is actually attached.
+        """
         stream = io.StringIO()
         logger = logging.getLogger("leak-probe-args")
         logger.handlers.clear()
@@ -243,9 +251,7 @@ class TestLazyArgumentLeak:
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
         logger.filters.clear()
-        logger.addFilter(
-            SecretRedactionFilter(patterns=_patterns(), secrets=[self.SECRET], mask_sensitive=mask_sensitive)
-        )
+        attach_masking(logger, mask_sensitive=mask_sensitive, secrets=[self.SECRET], patterns=_patterns())
         logger.setLevel(logging.INFO)
         logger.info("%s: token", self.SECRET)
         logger.info("using %s", self.SECRET)
@@ -296,3 +302,99 @@ class TestEveryLoggerHonoursTheSetting:
     def test_config_logger_masks_after_load(self) -> None:
         """Config re-applies masking once github-tokens and friends are readable."""
         assert hasattr(Config, "_apply_masking"), "Config never re-applies masking after load"
+
+
+class TestAttachMasking:
+    """attach_masking() is what keeps a logger protected - it needs behaviour tests."""
+
+    def _logger(self) -> logging.Logger:
+        return logging.getLogger(f"attach-probe-{id(self)}")
+
+    def test_attaches_a_redacting_filter_when_enabled(self) -> None:
+        logger = self._logger()
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+
+        assert any(isinstance(f, SecretRedactionFilter) for f in logger.filters)
+
+    def test_masking_applies_through_the_attached_filter(self) -> None:
+        """Not just attached - it has to actually redact the rendered record."""
+        stream = io.StringIO()
+        logger = self._logger()
+        logger.handlers.clear()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+
+        logger.info("raw value %s here", GITHUB_TOKEN)
+
+        assert GITHUB_TOKEN not in stream.getvalue()
+
+    def test_disabled_attaches_no_filter(self) -> None:
+        logger = self._logger()
+        attach_masking(logger, mask_sensitive=False, secrets=[GITHUB_TOKEN])
+
+        assert not any(isinstance(f, SecretRedactionFilter) for f in logger.filters)
+
+    def test_disabled_call_does_not_strip_an_existing_filter(self) -> None:
+        """Regression: loggers are shared per log destination, so stripping here would
+        unmask every other repository's logs when one of them disables masking."""
+        logger = self._logger()
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+        attach_masking(logger, mask_sensitive=False, secrets=[])
+
+        assert any(isinstance(f, SecretRedactionFilter) for f in logger.filters)
+
+    def test_repeated_calls_do_not_stack_filters(self) -> None:
+        logger = self._logger()
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+
+        assert sum(isinstance(f, SecretRedactionFilter) for f in logger.filters) == 1
+
+    def test_refresh_picks_up_new_secrets_without_stacking(self) -> None:
+        """A second attach with a different token set must take effect."""
+        stream = io.StringIO()
+        logger = self._logger()
+        logger.handlers.clear()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        attach_masking(logger, mask_sensitive=True, secrets=["stale-secret-value"])
+        attach_masking(logger, mask_sensitive=True, secrets=[GITHUB_TOKEN])
+
+        logger.info("value %s", GITHUB_TOKEN)
+
+        assert GITHUB_TOKEN not in stream.getvalue(), "stale secret list survived the refresh"
+
+
+class TestConfigSecretValues:
+    """Repository-scoped credentials must actually be found."""
+
+    class _FakeConfig:
+        def __init__(self, values: dict[str, Any]) -> None:
+            self._values = values
+            self.config_path = "/nonexistent/config.yaml"
+
+        def get_value(self, value: str, return_on_none: Any = None, extra_dict: Any = None) -> Any:
+            return self._values.get(value, return_on_none)
+
+    def _config(self) -> Any:
+        return self._FakeConfig({
+            "github-tokens": [GITHUB_TOKEN],
+            "repositories": {"org/repo": {"github-tokens": [PYPI_TOKEN]}},
+        })
+
+    def test_collects_global_secrets(self) -> None:
+        assert GITHUB_TOKEN in config_secret_values(self._config())
+
+    def test_collects_repository_scoped_secrets(self) -> None:
+        """Regression: the repositories key is a MAPPING and was read as a list, so every
+        per-repository token went un-masked."""
+        assert PYPI_TOKEN in config_secret_values(self._config())
+
+    def test_skips_values_too_short_to_be_credentials(self) -> None:
+        """A short value would mask ordinary words."""
+        cfg = self._FakeConfig({"github-tokens": ["abc"], "repositories": {}})
+
+        assert config_secret_values(cfg) == []

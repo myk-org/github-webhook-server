@@ -25,10 +25,9 @@ avoid those words and stay readable.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
-
-from simple_logger.logger import RedactingFilter
 
 # Keywords that introduce a secret in a log line. simple_logger composes these as
 # ({pattern}\W+[^\s]+) - the pattern is a regex fragment and a single separator is enough.
@@ -87,7 +86,9 @@ def apply_masking(
 
     redacted = _redact_known_secrets(text, secrets)
     for pattern in patterns if patterns is not None else DEFAULT_MASKING_PATTERNS:
-        redacted = re.sub(rf"({pattern}\W+[^\s+]+)", f"{pattern} {'*' * 5} ", redacted, flags=re.IGNORECASE)
+        # [^\s]+ not [^\s+]+: excluding '+' stopped the match at a plus sign and left the
+        # rest of a password in the clear. Masking further than necessary is the safe side.
+        redacted = re.sub(rf"({pattern}\W+[^\s]+)", f"{pattern} {'*' * 5} ", redacted, flags=re.IGNORECASE)
     return redacted
 
 
@@ -127,6 +128,12 @@ class SecretRedactionFilter(logging.Filter):
         self._secrets = [secret for secret in (secrets or []) if isinstance(secret, str) and secret]
         self._mask_sensitive = mask_sensitive
 
+    def refresh(self, secrets: list[str] | None, patterns: list[str] | None = None) -> None:
+        """Update in place instead of stacking another filter on the same logger."""
+        self._secrets = [secret for secret in (secrets or []) if isinstance(secret, str) and secret]
+        if patterns is not None:
+            self._patterns = patterns
+
     def filter(self, record: logging.LogRecord) -> bool:
         if not self._mask_sensitive:
             return True
@@ -150,12 +157,16 @@ def attach_masking(
     Idempotent: repeated calls replace rather than stack, so a logger built per call site
     does not accumulate filters.
     """
-    # Drop any filter that masks, so exactly one layer does and repeated calls do not stack.
-    # Test doubles pass Mock loggers whose .filters is not a real list; skip rather than
-    # explode, since there is nothing to de-duplicate on an object that has no filters.
+    # A logger is cached per log destination and shared by every repository, so a filter
+    # already installed here is protecting other repositories too. Stripping it when one
+    # repository disables masking would unmask all of them, so this only ever adds.
+    # Repeated calls do not stack: an existing SecretRedactionFilter is refreshed in place.
     filters = getattr(logger, "filters", None)
     if isinstance(filters, list):
-        logger.filters = [f for f in filters if not isinstance(f, (SecretRedactionFilter, RedactingFilter))]
+        for existing in filters:
+            if isinstance(existing, SecretRedactionFilter):
+                existing.refresh(secrets=secrets, patterns=patterns)
+                return logger
     if mask_sensitive and hasattr(logger, "addFilter"):
         logger.addFilter(SecretRedactionFilter(patterns=patterns, secrets=secrets, mask_sensitive=True))
     return logger
@@ -167,7 +178,18 @@ def config_secret_values(config: Any) -> list[str]:
     Best-effort by design: this gives precision for values we do know, and the keyword
     patterns cover anything missing. Values too short to be a credential are skipped so
     they cannot mask ordinary words.
+
+    Cached per config file (path + mtime + size) because a logger is built on hot paths -
+    re-reading and re-parsing the YAML for every log line setup is not free.
     """
+    fingerprint = _config_fingerprint(config)
+    cache_key = None
+    if fingerprint is not None:
+        cache_key = (config.config_path, fingerprint)
+        cached = _SECRET_VALUES_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
     values: list[str] = []
 
     def add(value: Any) -> None:
@@ -187,15 +209,37 @@ def config_secret_values(config: Any) -> list[str]:
         except Exception:  # pragma: no cover - a missing or malformed key must not break logging
             continue
 
+    # Per-repository credentials live under the "repositories" MAPPING (name -> config),
+    # not a list. Reading a key that does not exist returned None and silently collected
+    # nothing, which is how every repository-scoped token went un-masked.
     try:
-        data = config.get_value(value="data")
+        repositories = config.get_value(value="repositories")
     except Exception:  # pragma: no cover
-        data = None
+        repositories = None
 
-    for repo in data if isinstance(data, list) else []:
+    for repo in repositories.values() if isinstance(repositories, dict) else []:
         if not isinstance(repo, dict):
             continue
         for key in ("github-tokens", "pypi.token", "docker.password"):
             harvest(repo.get(key))
 
-    return [value for value in values if len(value) >= _MIN_SECRET_LENGTH]
+    result = [value for value in values if len(value) >= _MIN_SECRET_LENGTH]
+    if cache_key is not None:
+        _SECRET_VALUES_CACHE[cache_key] = result
+    return result
+
+
+def _config_fingerprint(config: Any) -> tuple[int, int] | None:
+    """Cheap identity for a config file so the cache invalidates when it changes.
+
+    None when the file cannot be stat'd, and the caller then skips caching entirely: a key
+    with no fingerprint cannot be invalidated, so it would serve stale secrets forever.
+    """
+    try:
+        stat = os.stat(config.config_path)
+    except (AttributeError, OSError, TypeError):
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+_SECRET_VALUES_CACHE: dict[Any, list[str]] = {}

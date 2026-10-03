@@ -82,6 +82,10 @@ def get_logger_with_params(
     # logged verbatim and a %s inside the message makes logging raise and drop the line.
     # Run the record through the formatted-text filter instead and turn simple_logger's
     # own filter off, so exactly one layer masks and it masks the real text.
+    # Only ever add masking, never remove it. Loggers are cached per log destination and
+    # shared by every repository, so stripping the filter when one repository disables
+    # masking would unmask all of them. A repository's override is honoured by the
+    # _redact_secrets call sites that own that repository's secrets.
     attach_masking(logger, mask_sensitive=mask_sensitive, secrets=config_secrets, patterns=mask_sensitive_patterns)
 
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
@@ -678,7 +682,11 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
             # network blip. Selection probes single-attempt, so without the second group a
             # single connection failure would escape and end construction for a delivery the
             # endpoint has already acknowledged, even when another token is healthy.
-            logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
+            # No part of the credential, not even a prefix: "API <prefix>" matches none of
+            # the masking keywords, so nothing downstream would redact what we put here.
+            # Also avoids the word "token", which the keyword layer would redact here and
+            # turn this operator-facing message into nonsense.
+            logger.warning(f"Failed to probe one configured API credential, skipping. {ex}")
             continue
 
         log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
