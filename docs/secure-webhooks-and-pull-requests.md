@@ -83,7 +83,11 @@ mask-sensitive-data: true
 
 Leave masking enabled for normal operation. You can override it per repository, but only use that for short-lived debugging on a trusted system.
 
-> **Warning:** Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files.
+Masking works in two layers. Values the server holds — GitHub tokens, PyPI tokens, registry passwords — are matched by value and masked wherever they appear, including mid-sentence and at the end of a line, and including when they are passed to the logger as a formatting argument. A keyword layer backs that up for secrets the server never held, such as a rotated token or a value echoed by an external tool.
+
+The keyword layer is deliberately broad, so ordinary text after a word like `token`, `login`, or `password` can render as `*****` in a log line. That is cosmetic. Log lines the server writes about token selection avoid those words and stay readable.
+
+> **Warning:** Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files. When it is off, log lines are written exactly as they were composed.
 
 5. Keep optional internal endpoints on trusted networks only.
 

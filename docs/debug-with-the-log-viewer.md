@@ -166,6 +166,27 @@ Use this order when the server is busy:
 
 ## Troubleshooting
 
+**Which API token handled this delivery, and why?**
+
+Token-selection lines carry the delivery ID, so concurrent deliveries can be told apart:
+
+```
+Get API and tokens for repository myk-org/repo [3f0c9a2e-7b41-4d8e-9a10-2c5b8e6f1d33]
+[myakove-bot] API rate limit: 4873 of 5000
+[deadlock1bot] API rate limit: 4582 of 5000
+Get API and tokens for repository myk-org/repo [3f0c9a2e...] API user myakove-bot selected with highest rate limit: 4873
+```
+
+Every configured token is probed and the one with the highest enforced remaining budget wins. The bracketed name is the GitHub login the token belongs to. A `[user] API rate limit: N of 5000` line below 700 remaining is logged at warning level.
+
+Per-delivery spend appears when the delivery completes:
+
+```
+API spend: myakove-bot 3 API calls (initial: 4999, remaining: 4996, reset in 3595s)
+```
+
+`initial` is the budget at the start of the delivery, `remaining` what was left after it, and `reset in` the seconds until GitHub refills the window.
+
 **`/logs` returns 404**
 
 - Make sure `ENABLE_LOG_SERVER=true` is set exactly.

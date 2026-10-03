@@ -55,7 +55,7 @@ conventional-title: "feat,fix,docs,refactor"
 | `log-file` | `string` | unset | Main application log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes main server logs to this file; omit for console-only main logs. |
 | `mcp-log-file` | `string` | `mcp_server.log` | MCP server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/mcp` server logs when MCP is enabled. |
 | `logs-server-log-file` | `string` | `logs_server.log` | Log viewer server log file path. Relative paths resolve under `<data-dir>/logs/`. | Writes `/logs` server logs when the log viewer is enabled. |
-| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. |
+| `mask-sensitive-data` | `boolean` | `true` | Redacts tokens, passwords, webhook secrets, registry credentials, and similar values from logs. | Applies log masking across the server unless a repo-level `config.yaml` override is present. Set to `false` to return log lines exactly as written. |
 
 ```yaml
 log-level: INFO
@@ -70,7 +70,7 @@ mask-sensitive-data: true
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `github-app-id` | `integer` | unset | GitHub App ID used by the server. | Identifies the GitHub App when the server looks up app metadata and manages repositories. |
-| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | The server picks the token with the highest remaining rate limit. |
+| `github-tokens` | `array<string>` | unset | Personal access tokens the server can use for repository API calls. | Every configured token is probed and the one with the highest enforced remaining rate limit is selected. Exhausted, revoked, and unreachable tokens are skipped. |
 | `webhook-ip` | `string` | unset | Full webhook callback URL, including path. | Registered on managed repositories as the webhook target URL. |
 | `webhook-secret` | `string` | unset | Shared webhook secret. | Enables HMAC-SHA256 validation of incoming GitHub webhook payloads. |
 | `verify-github-ips` | `boolean` | `false` | Restrict incoming requests to GitHub’s published webhook IP ranges. | Loads GitHub CIDRs at startup and rejects requests outside the allowlist. |

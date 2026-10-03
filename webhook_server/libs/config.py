@@ -9,6 +9,7 @@ from github.Repository import Repository
 from simple_logger.logger import get_logger
 
 from webhook_server.utils.constants import CONFIGURABLE_LABEL_CATEGORIES
+from webhook_server.utils.masking import attach_masking, config_secret_values
 
 
 class Config:
@@ -17,13 +18,28 @@ class Config:
         logger: Logger | None = None,
         repository: str | None = None,
     ) -> None:
-        self.logger = logger or get_logger(name="config")
+        # Mask on from the first line; the token values are unknown until the file loads,
+        # so reapply once they are (see _apply_masking).
+        self.logger = attach_masking(logger or get_logger(name="config", mask_sensitive=True), mask_sensitive=True)
         self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/home/podman/data")
         self.config_path: str = os.path.join(self.data_dir, "config.yaml")
         self.repository = repository
         self.exists()
         self.repositories_exists()
         self.validate_labels_config()
+        self._apply_masking()
+
+    def _apply_masking(self) -> None:
+        """Honour mask-sensitive-data and mask the secret values now that config is loaded.
+
+        The config logger is created before the file is read, so it starts masked but with
+        no known token values; this runs once ``github-tokens`` and friends are available.
+        """
+        self.logger = attach_masking(
+            self.logger,
+            mask_sensitive=bool(self.get_value("mask-sensitive-data", return_on_none=True)),
+            secrets=config_secret_values(self),
+        )
 
     def exists(self) -> None:
         if not os.path.isfile(self.config_path):

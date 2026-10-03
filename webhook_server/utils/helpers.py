@@ -28,8 +28,14 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils.context import get_context
 from webhook_server.utils.github_retry import _MAX_RETRIES, TRANSIENT_API_ERRORS, github_api_call_sync
 from webhook_server.utils.json_log_handler import JsonLogHandler
+from webhook_server.utils.masking import (
+    DEFAULT_MASKING_PATTERNS,
+    attach_masking,
+    config_secret_values,
+)
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
 # Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
@@ -43,38 +49,7 @@ def get_logger_with_params(
     repository_name: str = "",
     log_file_name: str | None = None,
 ) -> Logger:
-    mask_sensitive_patterns: list[str] = [
-        # Passwords and secrets
-        "container_repository_password",
-        "password",
-        "secret",
-        # Tokens and API keys
-        "token",
-        "apikey",
-        "api_key",
-        "github_token",
-        "GITHUB_TOKEN",
-        "pypi",
-        # Authentication credentials
-        "username",
-        "login",
-        "-u",
-        "-p",
-        "--username",
-        "--password",
-        "--creds",
-        # Private keys and sensitive IDs
-        "private_key",
-        "private-key",
-        "webhook_secret",
-        "webhook-secret",
-        "github-app-id",
-        # Slack webhooks (contain sensitive URLs)
-        "slack-webhook-url",
-        "slack_webhook_url",
-        "webhook-url",
-        "webhook_url",
-    ]
+    mask_sensitive_patterns: list[str] = list(DEFAULT_MASKING_PATTERNS)
 
     _config = Config(repository=repository_name)
 
@@ -85,6 +60,7 @@ def get_logger_with_params(
     mask_sensitive: bool = _config.get_value(value="mask-sensitive-data", return_on_none=True)
 
     log_file_path_resolved = get_log_file_path(config=_config, log_file_name=log_file)
+    config_secrets = config_secret_values(_config)
 
     # CRITICAL FIX: Use a fixed logger name for the same log file to ensure
     # only ONE RotatingFileHandler instance manages the file rotation.
@@ -101,6 +77,12 @@ def get_logger_with_params(
         mask_sensitive_patterns=mask_sensitive_patterns,
         console=True,  # Enable console output for docker logs with FORCE_COLOR support
     )
+
+    # simple_logger only masks record.msg, so a secret passed as a lazy %-argument is
+    # logged verbatim and a %s inside the message makes logging raise and drop the line.
+    # Run the record through the formatted-text filter instead and turn simple_logger's
+    # own filter off, so exactly one layer masks and it masks the real text.
+    attach_masking(logger, mask_sensitive=mask_sensitive, secrets=config_secrets, patterns=mask_sensitive_patterns)
 
     # Attach JsonLogHandler for writing log records to the webhook JSONL file.
     # Only attach when:
@@ -643,10 +625,18 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     token: str = ""
     selected: TokenProbe | None = None
 
-    msg = "Get API and tokens"
+    # Concurrent webhooks interleave these lines, and a rate-limit trace is useless if you
+    # cannot tell which delivery produced which number. The webhook context is a ContextVar
+    # set before GithubWebhook is constructed, so the delivery id is already available here -
+    # no parameter threaded through the constructor.
+    ctx = get_context()
+    delivery_id = ctx.hook_id if ctx else ""
 
+    msg = "Get API and tokens"
     if repository_name:
         msg += f" for repository {repository_name}"
+    if delivery_id:
+        msg += f" [{delivery_id}]"
 
     logger.debug(msg)
 
@@ -662,7 +652,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         except GithubException as ex:
             raise NoApiTokenError(f"Single configured token is invalid: {ex}") from ex
 
-        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
 
         logger.info(f"API user {probe.login} selected (single API configured)")
         return _api, _token, probe.login
@@ -688,7 +678,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
             logger.warning(f"Failed to get API user for API {_token[:8]}..., skipping. {ex}")
             continue
 
-        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login)
+        log_rate_limit(remaining=probe.remaining, limit=probe.limit, api_user=probe.login, log_prefix=msg)
 
         if probe.remaining <= 0:
             # Out of budget. It answered the probe, so it could win on "only one that
@@ -704,19 +694,23 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     if api is None or selected is None:
         raise NoApiTokenError("Failed to get API with highest rate limit")
 
-    logger.info(f"API user {selected.login} selected with highest rate limit: {selected.remaining}")
+    logger.info(f"{msg} API user {selected.login} selected with highest rate limit: {selected.remaining}")
     return api, token, selected.login
 
 
-def log_rate_limit(remaining: int, limit: int, api_user: str) -> None:
-    """Log a token's core budget as reported by GitHub on a real request."""
+def log_rate_limit(remaining: int, limit: int, api_user: str, log_prefix: str = "") -> None:
+    """Log a token's core budget as reported by GitHub on a real request.
+
+    ``log_prefix`` carries the delivery id so concurrent webhooks can be told apart.
+    """
     logger = get_logger_with_params()
 
     msg = f"[{api_user}] API rate limit: {remaining} of {limit}"
+    line = f"{log_prefix} {msg}" if log_prefix else msg
     if remaining < 700:
-        logger.warning(msg)
+        logger.warning(line)
     else:
-        logger.debug(msg)
+        logger.debug(line)
 
 
 def get_future_results(futures: list[Future[Any]]) -> None:

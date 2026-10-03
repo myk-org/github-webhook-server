@@ -11,6 +11,8 @@ from typing import Any
 
 from simple_logger.logger import get_logger
 
+from webhook_server.utils.masking import attach_masking
+
 
 @dataclass
 class LogEntry:
@@ -60,7 +62,8 @@ class LogParser:
 
     def __init__(self) -> None:
         """Initialize LogParser with logger."""
-        self.logger = get_logger(name="log_parser")
+        # get_logger defaults mask_sensitive to False; opt in or this logger writes raw
+        self.logger = attach_masking(get_logger(name="log_parser", mask_sensitive=True), mask_sensitive=True)
 
     # Regex pattern for parsing production logs from prepare_log_prefix() in github_api.py
     # Format from prepare_log_prefix():

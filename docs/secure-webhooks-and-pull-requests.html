@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure Webhooks and Pull Requests - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css?v=e7c0b4379e">
+    <link rel="stylesheet" href="assets/style.css?v=5a6efa51d2">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -175,7 +175,7 @@
                 <button class="top-bar-search-btn" id="search-trigger" aria-label="Search">
                     <kbd>&#8984;K</kbd> Search
                 </button>
-                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsfy-badge" title="documentation">
+                <a href="https://github.com/myk-org/github-webhook-server" target="_blank" rel="noopener" class="docsite-badge" title="documentation">
                     ⚡ pi<span class="brand-accent">-docsite</span>
                 </a>
 
@@ -314,8 +314,10 @@
 </code></pre></div>
 
 <p>Leave masking enabled for normal operation. You can override it per repository, but only use that for short-lived debugging on a trusted system.</p>
+<p>Masking works in two layers. Values the server holds — GitHub tokens, PyPI tokens, registry passwords — are matched by value and masked wherever they appear, including mid-sentence and at the end of a line, and including when they are passed to the logger as a formatting argument. A keyword layer backs that up for secrets the server never held, such as a rotated token or a value echoed by an external tool.</p>
+<p>The keyword layer is deliberately broad, so ordinary text after a word like <code>token</code>, <code>login</code>, or <code>password</code> can render as <code>*****</code> in a log line. That is cosmetic. Log lines the server writes about token selection avoid those words and stay readable.</p>
 <blockquote>
-<p><strong>Warning:</strong> Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files.</p>
+<p><strong>Warning:</strong> Turning masking off can expose tokens, passwords, webhook URLs, and other secrets in log files. When it is off, log lines are written exactly as they were composed.</p>
 </blockquote>
 <ol>
 <li>Keep optional internal endpoints on trusted networks only.</li>
@@ -447,14 +449,14 @@
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js?v=e7c0b4379e"></script>
+    <script src="assets/theme.js?v=5a6efa51d2"></script>
 
-    <script src="assets/search.js?v=e7c0b4379e"></script>
-    <script src="assets/copy.js?v=e7c0b4379e"></script>
-    <script src="assets/callouts.js?v=e7c0b4379e"></script>
-    <script src="assets/scrollspy.js?v=e7c0b4379e"></script>
-    <script src="assets/codelabels.js?v=e7c0b4379e"></script>
-    <script src="assets/github.js?v=e7c0b4379e"></script>
+    <script src="assets/search.js?v=5a6efa51d2"></script>
+    <script src="assets/copy.js?v=5a6efa51d2"></script>
+    <script src="assets/callouts.js?v=5a6efa51d2"></script>
+    <script src="assets/scrollspy.js?v=5a6efa51d2"></script>
+    <script src="assets/codelabels.js?v=5a6efa51d2"></script>
+    <script src="assets/github.js?v=5a6efa51d2"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');

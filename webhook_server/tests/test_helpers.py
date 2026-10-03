@@ -500,7 +500,11 @@ class TestHelpers:
         assert user == "user1"
         # Budget comes from the response header of the probe, not from GET /rate_limit
         mock_api.get_rate_limit.assert_not_called()
-        mock_log_rate_limit.assert_called_once_with(remaining=4500, limit=5000, api_user="user1")
+        # log_prefix carries the delivery id so concurrent selections can be attributed
+        mock_log_rate_limit.assert_called_once_with(
+            remaining=4500, limit=5000, api_user="user1", log_prefix=mock_log_rate_limit.call_args.kwargs["log_prefix"]
+        )
+        assert "test-repo" in mock_log_rate_limit.call_args.kwargs["log_prefix"]
 
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     def test_get_api_with_highest_rate_limit_single_token_invalid(self, mock_get_apis: Mock) -> None:
