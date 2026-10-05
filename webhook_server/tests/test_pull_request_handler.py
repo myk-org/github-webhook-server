@@ -803,11 +803,12 @@ class TestPullRequestHandler:
             get_statuses=Mock(side_effect=_status_reader("open-pr-sha")),
         )
         open_pr.get_commits.return_value = [open_pr_head]
+        open_pr.head.sha = "open-pr-sha"
+        pull_request_handler.repository.get_commit = Mock(return_value=open_pr_head)
 
         pull_request_handler.github_webhook.last_commit = merged_event_commit
         # Mock(spec=GithubWebhook) has no repository_by_github_app (set in __init__), so assign it
         pull_request_handler.github_webhook.repository_by_github_app = Mock(create_check_run=_record_check_run)
-        pull_request_handler.github_webhook._get_last_commit = AsyncMock(return_value=open_pr_head)
         # The fixture replaces check_run_handler with a Mock, which would swallow the very check-run
         # writes this test exists to assert, so use a real one bound to the same webhook
         pull_request_handler.check_run_handler = CheckRunHandler(
@@ -859,7 +860,47 @@ class TestPullRequestHandler:
         assert set(statuses_read) == {"open-pr-sha"}
         assert created_check_runs, "the real merge check should have written check runs"
         assert {run["head_sha"] for run in created_check_runs} == {"open-pr-sha"}
+        # The head commit is fetched by SHA, not by listing the PR's whole commit history
+        pull_request_handler.repository.get_commit.assert_called_once_with("open-pr-sha")
+        open_pr.get_commits.assert_not_called()
         # The merged event's own commit must be restored for whatever runs after this pass
+        assert pull_request_handler.github_webhook.last_commit is merged_event_commit
+
+    @pytest.mark.asyncio
+    async def test_post_merge_recheck_failure_does_not_abort_remaining_pull_requests(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that one failing recheck is logged and the pass continues with later pull requests."""
+        failing_pr = Mock()
+        failing_pr.number = 7
+        failing_pr.head.sha = "failing-sha"
+        later_pr = Mock()
+        later_pr.number = 8
+        later_pr.head.sha = "later-sha"
+        later_head = Mock()
+
+        merged_event_commit = Mock(sha="merged-sha")
+
+        with (
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[failing_pr, later_pr]),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler.repository,
+                "get_commit",
+                side_effect=[GithubException(404, "Not Found", None), later_head],
+            ),
+            patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check,
+            patch.object(pull_request_handler.logger, "exception") as mock_exception,
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            pull_request_handler.github_webhook.last_commit = merged_event_commit
+            await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+
+        mock_exception.assert_called_once()
+        # The later pull request was still labeled and rechecked
+        mock_check.assert_awaited_once_with(pull_request=later_pr)
+        # And the merged event's commit is bound again, not the failing PR's head
         assert pull_request_handler.github_webhook.last_commit is merged_event_commit
 
     @pytest.mark.asyncio

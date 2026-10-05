@@ -886,8 +886,9 @@ For more information, please refer to the project documentation or contact the m
         not be left standing.
 
         Each recheck is evaluated against that pull request's own head commit, and the merged event's
-        commit is restored afterwards, because check_if_can_be_merged reads statuses from and writes
-        check runs to github_webhook.last_commit.
+        commit is restored between pull requests, because check_if_can_be_merged reads statuses from
+        and writes check runs to github_webhook.last_commit. A recheck that fails is logged and the
+        pass continues with the remaining pull requests.
         """
         time_sleep = 30
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
@@ -897,24 +898,27 @@ For more information, please refer to the project documentation or contact the m
             lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
         )
         merged_event_commit = self.github_webhook.last_commit
-        try:
-            for pull_request in pulls:
-                self.logger.info(f"{self.log_prefix} check label pull request after merge")
-                became_needs_rebase = await self.label_pull_request_by_merge_state(
-                    pull_request=pull_request, add_only=True
+        for pull_request in pulls:
+            self.logger.info(f"{self.log_prefix} check label pull request after merge")
+            became_needs_rebase = await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
+            if not became_needs_rebase:
+                continue
+
+            try:
+                # Bind the loop variable explicitly so the log message reports this PR's number
+                pr_number = await github_api_call(
+                    lambda pr=pull_request: pr.number, logger=self.logger, log_prefix=self.log_prefix
                 )
-                if became_needs_rebase:
-                    # Bind the loop variable explicitly so the log message reports this PR's number
-                    pr_number = await github_api_call(
-                        lambda pr=pull_request: pr.number, logger=self.logger, log_prefix=self.log_prefix
-                    )
-                    self.logger.info(
-                        f"{self.log_prefix} PR {pr_number} became needs-rebase, rechecking merge eligibility"
-                    )
-                    await self._check_can_be_merged_on_own_head(pull_request=pull_request)
-        finally:
-            # The merged event's own commit must stay bound for anything running after this pass
-            self.github_webhook.last_commit = merged_event_commit
+                self.logger.info(f"{self.log_prefix} PR {pr_number} became needs-rebase, rechecking merge eligibility")
+                await self._check_can_be_merged_on_own_head(pull_request=pull_request)
+            except Exception:
+                # One pull request failing must not abandon the remaining open pull requests
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to recheck merge eligibility after the base branch moved"
+                )
+            finally:
+                # The merged event's own commit stays bound between pull requests and after the pass
+                self.github_webhook.last_commit = merged_event_commit
 
     async def _check_can_be_merged_on_own_head(self, pull_request: PullRequest) -> None:
         """Re-evaluate merge eligibility for a pull request using that pull request's own head commit.
@@ -924,11 +928,16 @@ For more information, please refer to the project documentation or contact the m
         request that was just merged, so without rebinding it, a recheck would evaluate one pull
         request and publish the verdict onto another pull request's commit.
 
+        The head commit is fetched by SHA rather than by listing the pull request's commits, so a
+        pull request with a long history costs one API call instead of one per commit.
+
         Args:
             pull_request: The open pull request whose merge eligibility must be re-evaluated.
         """
-        head_commit = await self.github_webhook._get_last_commit(pull_request=pull_request)
-        self.github_webhook.last_commit = head_commit
+        head_sha = await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
+        self.github_webhook.last_commit = await github_api_call(
+            self.repository.get_commit, head_sha, logger=self.logger, log_prefix=self.log_prefix
+        )
         await self.check_if_can_be_merged(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
