@@ -52,9 +52,11 @@ class CheckRunHandler:
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
         self._repository_private: bool | None = None
-        self._branch_required_status_checks: list[str] | None = None
-        self._all_required_status_checks: list[str] | None = None
-        self._branch_protection: BranchProtection | None = None
+        # Branch protection caches are keyed by base branch ref: one handler instance can evaluate
+        # several pull requests (e.g. the post-merge pass), and each base branch has its own rules
+        self._branch_required_status_checks: dict[str, list[str]] = {}
+        self._all_required_status_checks: dict[str, list[str]] = {}
+        self._branch_protection: dict[str, BranchProtection] = {}
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
@@ -402,9 +404,14 @@ class CheckRunHandler:
         return msg
 
     async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+        base_ref = await github_api_call(
+            lambda: pull_request.base.ref,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
         # Cache to avoid repeated processing
-        if self._all_required_status_checks is not None:
-            return self._all_required_status_checks
+        if base_ref in self._all_required_status_checks:
+            return self._all_required_status_checks[base_ref]
 
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
@@ -443,16 +450,17 @@ class CheckRunHandler:
         # Use ordered deduplication to combine branch and config checks without duplicates
         _all_required_status_checks = list(dict.fromkeys(branch_required_status_checks + all_required_status_checks))
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
-        self._all_required_status_checks = _all_required_status_checks
+        self._all_required_status_checks[base_ref] = _all_required_status_checks
         return _all_required_status_checks
 
     async def _fetch_branch_protection(self, pull_request: PullRequest) -> BranchProtection:
         """Fetch branch protection of the pull request base branch.
 
-        The result is cached on the handler instance. Handler instances are created per webhook
-        event, so the cache never outlives a single event and a repo admin changing branch protection
-        takes effect on the next event. Failures are never cached, so a transient error cannot turn
-        into a permanently empty answer for the rest of the event.
+        The result is cached on the handler instance, keyed by base branch ref so pull requests with
+        different base branches never share another branch's rules. Handler instances are created per
+        webhook event, so the cache never outlives a single event and a repo admin changing branch
+        protection takes effect on the next event. Failures are never cached, so a transient error
+        cannot turn into a permanently empty answer for the rest of the event.
 
         Args:
             pull_request: The GitHub pull request whose base branch protection is needed.
@@ -468,9 +476,6 @@ class CheckRunHandler:
         Callers must not treat a read failure as 'no protection': a repository whose protection
         cannot be read has unknown required status checks, and merge eligibility must fail closed.
         """
-        if self._branch_protection is not None:
-            return self._branch_protection
-
         base_ref = ""
         try:
             base_ref = await github_api_call(
@@ -478,20 +483,25 @@ class CheckRunHandler:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
+            cached_protection = self._branch_protection.get(base_ref)
+            if cached_protection is not None:
+                return cached_protection
+
             pull_request_branch = await github_api_call(
                 self.repository.get_branch,
                 base_ref,
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            self._branch_protection = await github_api_call(
+            branch_protection = await github_api_call(
                 pull_request_branch.get_protection, logger=self.logger, log_prefix=self.log_prefix
             )
         except Exception:
             self.logger.exception(f"{self.log_prefix} Failed to get branch protection of {base_ref or 'base branch'}")
             raise
 
-        return self._branch_protection
+        self._branch_protection[base_ref] = branch_protection
+        return branch_protection
 
     async def branch_protection_requires_up_to_date(self, pull_request: PullRequest) -> bool | None:
         """Report whether branch protection requires branches to be up to date before merging.
@@ -556,8 +566,13 @@ class CheckRunHandler:
             return []
 
         # Cache branch protection settings in instance variable to avoid repeated API calls
-        if self._branch_required_status_checks is not None:
-            return self._branch_required_status_checks
+        base_ref = await github_api_call(
+            lambda: pull_request.base.ref,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        if base_ref in self._branch_required_status_checks:
+            return self._branch_required_status_checks[base_ref]
 
         # A failed read propagates on purpose: unknown required checks must fail closed, otherwise a
         # permissions or connectivity error would let check_if_can_be_merged pass with checks missing
@@ -574,15 +589,15 @@ class CheckRunHandler:
             self.logger.debug(
                 f"{self.log_prefix} Branch protection has no required status checks, no branch checks required"
             )
-            self._branch_required_status_checks = []
-            return self._branch_required_status_checks
+            self._branch_required_status_checks[base_ref] = []
+            return self._branch_required_status_checks[base_ref]
 
         branch_required_status_checks = await github_api_call(
             lambda: required_status_checks.contexts, logger=self.logger, log_prefix=self.log_prefix
         )
         self.logger.debug(f"{self.log_prefix} branch_required_status_checks: {branch_required_status_checks}")
-        self._branch_required_status_checks = branch_required_status_checks
-        return self._branch_required_status_checks
+        self._branch_required_status_checks[base_ref] = branch_required_status_checks
+        return self._branch_required_status_checks[base_ref]
 
     async def required_check_in_progress(
         self,

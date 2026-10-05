@@ -801,7 +801,7 @@ class TestCheckRunHandler:
                 await check_run_handler.get_branch_required_status_checks(mock_pull_request)
 
         # The failure must not be cached as an empty answer for the rest of the event
-        assert check_run_handler._branch_required_status_checks is None
+        assert "main" not in check_run_handler._branch_required_status_checks
 
     @pytest.mark.asyncio
     async def test_get_branch_required_status_checks_no_required_status_checks(
@@ -821,6 +821,51 @@ class TestCheckRunHandler:
             patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
         ):
             assert await check_run_handler.get_branch_required_status_checks(mock_pull_request) == []
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_caches_are_keyed_by_base_ref(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that two base branches in one handler never share protection rules.
+
+        The post-merge pass reuses one handler for every open pull request, so a cache keyed by
+        anything other than the base ref would evaluate a PR against another branch's settings.
+        """
+        pr_main = Mock()
+        pr_main.base.ref = "main"
+        pr_release = Mock()
+        pr_release.base.ref = "release"
+
+        main_protection = Mock()
+        main_protection.required_status_checks.strict = True
+        main_protection.required_status_checks.contexts = ["main-check"]
+        release_protection = Mock()
+        release_protection.required_status_checks.strict = False
+        release_protection.required_status_checks.contexts = ["release-check"]
+
+        main_branch = Mock()
+        main_branch.get_protection.return_value = main_protection
+        release_branch = Mock()
+        release_branch.get_protection.return_value = release_protection
+
+        def _branch_for(ref: str) -> Mock:
+            return main_branch if ref == "main" else release_branch
+
+        with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch.object(check_run_handler.repository, "private", False),
+            patch.object(
+                check_run_handler.repository,
+                "get_branch",
+                side_effect=_branch_for,
+            ),
+        ):
+            assert await check_run_handler.get_branch_required_status_checks(pr_main) == ["main-check"]
+            assert await check_run_handler.get_branch_required_status_checks(pr_release) == ["release-check"]
+            assert await check_run_handler.branch_protection_requires_up_to_date(pr_main) is True
+            assert await check_run_handler.branch_protection_requires_up_to_date(pr_release) is False
+
+        # Each base ref read its own protection exactly once
+        main_branch.get_protection.assert_called_once()
+        release_branch.get_protection.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_required_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:

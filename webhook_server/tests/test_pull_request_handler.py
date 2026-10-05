@@ -10,6 +10,7 @@ from github import GithubException
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import CONFLICT_COMMENT_MARKER, PullRequestHandler
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
@@ -761,6 +762,105 @@ class TestPullRequestHandler:
                     with patch("asyncio.sleep", new=AsyncMock()):
                         await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
                         mock_check.assert_awaited_once_with(pull_request=became_behind)
+
+    @pytest.mark.asyncio
+    async def test_post_merge_recheck_runs_against_open_pull_request_head(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that a post-merge recheck reads and writes the open PR's head commit, not the merged one.
+
+        During a merged event github_webhook.last_commit belongs to the PR that was just merged.
+        Without rebinding it, the recheck would read another PR's statuses and publish the verdict
+        onto the merged PR's commit. The real merge check runs here - mocking it would hide exactly
+        this mismatch.
+        """
+        created_check_runs: list[dict[str, Any]] = []
+        statuses_read: list[str] = []
+
+        def _record_check_run(**kwargs: Any) -> Mock:
+            created_check_runs.append(kwargs)
+            return Mock()
+
+        def _status_reader(sha: str) -> Any:
+            def _get_statuses() -> list[Mock]:
+                statuses_read.append(sha)
+                return []
+
+            return _get_statuses
+
+        open_pr = Mock()
+        open_pr.number = 7
+        open_pr.base.ref = "main"
+
+        merged_event_commit = Mock(
+            sha="merged-sha",
+            get_check_runs=Mock(return_value=[]),
+            get_statuses=Mock(side_effect=_status_reader("merged-sha")),
+        )
+        open_pr_head = Mock(
+            sha="open-pr-sha",
+            get_check_runs=Mock(return_value=[]),
+            get_statuses=Mock(side_effect=_status_reader("open-pr-sha")),
+        )
+        open_pr.get_commits.return_value = [open_pr_head]
+
+        pull_request_handler.github_webhook.last_commit = merged_event_commit
+        # Mock(spec=GithubWebhook) has no repository_by_github_app (set in __init__), so assign it
+        pull_request_handler.github_webhook.repository_by_github_app = Mock(create_check_run=_record_check_run)
+        pull_request_handler.github_webhook._get_last_commit = AsyncMock(return_value=open_pr_head)
+        # The fixture replaces check_run_handler with a Mock, which would swallow the very check-run
+        # writes this test exists to assert, so use a real one bound to the same webhook
+        pull_request_handler.check_run_handler = CheckRunHandler(
+            github_webhook=pull_request_handler.github_webhook,
+            owners_file_handler=pull_request_handler.owners_file_handler,
+        )
+
+        with (
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[open_pr]),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock(return_value=True)),
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch.object(pull_request_handler.github_webhook, "required_conversation_resolution", False),
+            patch.object(
+                pull_request_handler, "skip_if_pull_request_already_merged", new=AsyncMock(return_value=False)
+            ),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
+            patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "branch_protection_requires_up_to_date",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(
+                pull_request_handler,
+                "_compare_branches",
+                new=AsyncMock(return_value={"behind_by": 2, "status": "behind"}),
+            ),
+        ):
+            await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+
+        assert statuses_read, "the real merge check should have read commit statuses"
+        assert "merged-sha" not in statuses_read, "the merged PR's commit must not be read during another PR's recheck"
+        assert set(statuses_read) == {"open-pr-sha"}
+        assert created_check_runs, "the real merge check should have written check runs"
+        assert {run["head_sha"] for run in created_check_runs} == {"open-pr-sha"}
+        # The merged event's own commit must be restored for whatever runs after this pass
+        assert pull_request_handler.github_webhook.last_commit is merged_event_commit
 
     @pytest.mark.asyncio
     async def test_label_pull_request_by_merge_state_reports_new_needs_rebase(

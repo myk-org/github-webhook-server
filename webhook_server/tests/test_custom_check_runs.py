@@ -1050,8 +1050,8 @@ class TestCustomCheckRunsEdgeCases:
         mock_pull_request = Mock()
         mock_pull_request.base.ref = "main"
 
-        # Reset cache
-        check_run_handler._all_required_status_checks = None
+        # Reset cache (keyed by base branch ref)
+        check_run_handler._all_required_status_checks = {}
 
         with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
             result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
