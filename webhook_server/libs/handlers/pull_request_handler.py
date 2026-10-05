@@ -437,6 +437,13 @@ class PullRequestHandler:
                 _check_for_merge = True
                 self.logger.debug(f"{self.log_prefix} PR has {labeled_lower} label, will check for merge.")
 
+            # Merge state labels decide whether a PR that is behind its base branch can be merged,
+            # so changing one must recompute merge readiness. Otherwise a green can-be-merged from
+            # before the base branch moved survives the label that contradicts it.
+            if labeled_lower in (NEEDS_REBASE_LABEL_STR, HAS_CONFLICTS_LABEL_STR):
+                _check_for_merge = True
+                self.logger.debug(f"{self.log_prefix} PR {labeled_lower} label {hook_action}, will check for merge.")
+
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
             if self.ctx:

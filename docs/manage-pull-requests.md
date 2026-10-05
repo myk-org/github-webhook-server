@@ -110,6 +110,8 @@ On merge, the server closes the tracking issue it created for the PR. If cherry-
 
 It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward. A PR that just became `needs-rebase` is re-checked for merge readiness immediately, so a `can-be-merged` that was green before the merge does not survive the base branch moving forward.
 
+Adding or removing `needs-rebase` or `has-conflicts` also triggers a merge readiness recalculation. That keeps the labels and the check consistent even when a recheck could not run - for example when GitHub refused to read a commit - and it is what clears a stale green once the PR is rebased.
+
 > **Tip:** If the PR targets a branch listed in `set-auto-merge-prs`, or if the author is in `auto-verified-and-merged-users`, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.
 
 ## Advanced Usage

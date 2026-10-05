@@ -467,6 +467,59 @@ class TestPullRequestHandler:
                 mock_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
+    async def test_labeled_needs_rebase_rechecks_merge_readiness(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that adding needs-rebase recomputes merge readiness.
+
+        A green can-be-merged from before the base branch moved must not survive the label that
+        contradicts it, and the label event is the recomputation point that also recovers from a
+        transient failure of the post-merge recheck.
+        """
+        pull_request_handler.hook_data["action"] = "labeled"
+        pull_request_handler.hook_data["label"] = {"name": NEEDS_REBASE_LABEL_STR}
+
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_unlabeled_needs_rebase_rechecks_merge_readiness(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that removing needs-rebase recomputes merge readiness, so the check can go green again."""
+        pull_request_handler.hook_data["action"] = "unlabeled"
+        pull_request_handler.hook_data["label"] = {"name": NEEDS_REBASE_LABEL_STR}
+
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_labeled_has_conflicts_rechecks_merge_readiness(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that adding has-conflicts recomputes merge readiness."""
+        pull_request_handler.hook_data["action"] = "labeled"
+        pull_request_handler.hook_data["label"] = {"name": HAS_CONFLICTS_LABEL_STR}
+
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_labeled_unrelated_label_does_not_recheck_merge_readiness(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that an unrelated label does not trigger a merge readiness recomputation."""
+        pull_request_handler.hook_data["action"] = "labeled"
+        pull_request_handler.hook_data["label"] = {"name": "size/M"}
+
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_check_merge.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_unlabeled_verified(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
@@ -902,6 +955,39 @@ class TestPullRequestHandler:
         mock_check.assert_awaited_once_with(pull_request=later_pr)
         # And the merged event's commit is bound again, not the failing PR's head
         assert pull_request_handler.github_webhook.last_commit is merged_event_commit
+
+    @pytest.mark.asyncio
+    async def test_failed_post_merge_recheck_is_recovered_by_the_needs_rebase_label_event(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that a PR left unrechecked by a failed recheck is recovered by its label event.
+
+        The post-merge pass could not evaluate merge readiness for this PR. The needs-rebase label
+        it added emits a labeled event, and that event is what recomputes merge readiness with the
+        PR's own head commit - so the failure cannot leave a green can-be-merged standing.
+        """
+        mock_pull_request.head.sha = "pr-head-sha"
+        pull_request_handler.repository.get_commit = Mock(side_effect=GithubException(404, "Not Found", None))
+
+        with (
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pull_request]),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock(return_value=True)),
+            patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check,
+            patch.object(pull_request_handler.logger, "exception"),
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+            # The in-pass recheck could not run
+            mock_check.assert_not_awaited()
+
+            # The labeled event the pass triggered is what recomputes merge readiness
+            pull_request_handler.hook_data["action"] = "labeled"
+            pull_request_handler.hook_data["label"] = {"name": NEEDS_REBASE_LABEL_STR}
+            pull_request_handler.repository.get_commit = Mock(return_value=Mock(sha="pr-head-sha"))
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+            mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_label_pull_request_by_merge_state_reports_new_needs_rebase(

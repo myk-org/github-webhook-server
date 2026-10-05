@@ -353,6 +353,7 @@
 <h3 id="5-merge-the-pr">5. Merge the PR</h3>
 <p>On merge, the server closes the tracking issue it created for the PR. If cherry-pick labels were already attached, the server starts those follow-up cherry-picks after merge.</p>
 <p>It also refreshes merge-state labels on other open PRs so stale <code>needs-rebase</code> or conflict states get revisited after the branch moves forward. A PR that just became <code>needs-rebase</code> is re-checked for merge readiness immediately, so a <code>can-be-merged</code> that was green before the merge does not survive the base branch moving forward.</p>
+<p>Adding or removing <code>needs-rebase</code> or <code>has-conflicts</code> also triggers a merge readiness recalculation. That keeps the labels and the check consistent even when a recheck could not run - for example when GitHub refused to read a commit - and it is what clears a stale green once the PR is rebased.</p>
 <blockquote>
 <p><strong>Tip:</strong> If the PR targets a branch listed in <code>set-auto-merge-prs</code>, or if the author is in <code>auto-verified-and-merged-users</code>, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.</p>
 </blockquote>
