@@ -74,6 +74,8 @@ class PullRequestHandler:
         self.runner_handler = RunnerHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+        # Compare API results for this event, keyed by (base_ref, head_ref_full)
+        self._compare_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
 
     async def _is_clean_rebase(self, _pull_request: PullRequest) -> bool:
         """Detect whether a synchronize event is a clean rebase (same code changes on a newer base).
@@ -1228,6 +1230,57 @@ For more information, please refer to the project documentation or contact the m
         if self.ctx:
             self.ctx.complete_step("pr_workflow_setup", skipped_due_to_conflicts=True)
 
+    async def _check_if_base_branch_protection_blocks_behind_pr(self, pull_request: PullRequest) -> str:
+        """Check if a PR behind its base branch must block merging per GitHub branch protection.
+
+        Both inputs come from GitHub, never from our own 'needs-rebase' label, so the result cannot
+        go stale: the setting is re-read on every evaluation and the comparison is re-read for the
+        current head.
+
+        Args:
+            pull_request: The GitHub pull request to evaluate.
+
+        Returns:
+            Failure output when branch protection requires up-to-date branches and the PR is behind,
+            empty string otherwise (including when GitHub does not tell us - see below).
+        """
+        requires_up_to_date = await self.check_run_handler.branch_protection_requires_up_to_date(
+            pull_request=pull_request
+        )
+        if requires_up_to_date is None:
+            self.logger.info(
+                f"{self.log_prefix} Branch protection up-to-date requirement unknown, skipping behind check"
+            )
+            return ""
+
+        if not requires_up_to_date:
+            self.logger.debug(f"{self.log_prefix} Branch protection does not require up-to-date branches")
+            return ""
+
+        base_ref, head_user_login, head_ref = await asyncio.gather(
+            github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.head.user.login, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix),
+        )
+        compare_data = await self._compare_branches(base_ref=base_ref, head_ref_full=f"{head_user_login}:{head_ref}")
+        if compare_data is None:
+            self.logger.warning(
+                f"{self.log_prefix} Compare API failed, skipping up-to-date check for {pull_request.number}"
+            )
+            return ""
+
+        behind_by = compare_data.get("behind_by", 0)
+        status = compare_data.get("status", "")
+        if behind_by <= 0 and status != "diverged":
+            self.logger.debug(f"{self.log_prefix} PR is up to date with {base_ref}. {behind_by=} {status=}")
+            return ""
+
+        self.logger.debug(f"{self.log_prefix} PR is behind {base_ref}. {behind_by=} {status=}")
+        return (
+            f"PR is not up to date with base branch {base_ref} and branch protection requires "
+            f"up-to-date branches ({behind_by=}, {status=}).\n"
+        )
+
     async def _queue_pull_request_setup_tasks(
         self, pull_request: PullRequest, is_clean_rebase: bool, label_names: list[str] | None, mergeable: bool
     ) -> None:
@@ -1565,6 +1618,9 @@ For more information, please refer to the project documentation or contact the m
         Returns:
             Compare API response data or None if API call fails.
 
+        Results (including failures) are cached on the handler instance for the duration of the
+        webhook event, so callers within one event share a single API call.
+
         Compare API Reference:
             GET /repos/{owner}/{repo}/compare/{base}...{head}
             Response fields used:
@@ -1573,6 +1629,11 @@ For more information, please refer to the project documentation or contact the m
 
             NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
+        cache_key = (base_ref, head_ref_full)
+        if cache_key in self._compare_cache:
+            self.logger.debug(f"{self.log_prefix} Compare API cache hit for {base_ref}...{head_ref_full}")
+            return self._compare_cache[cache_key]
+
         try:
             _, data = await github_api_call(
                 self.repository._requester.requestJsonAndCheck,
@@ -1581,13 +1642,15 @@ For more information, please refer to the project documentation or contact the m
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            return data
         except GithubException:
             self.logger.exception(f"{self.log_prefix} Failed to call Compare API for {base_ref}...{head_ref_full}")
-            return None
+            data = None
         except Exception:
             self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
-            return None
+            data = None
+
+        self._compare_cache[cache_key] = data
+        return data
 
     async def label_pull_request_by_merge_state(
         self, pull_request: PullRequest, add_only: bool = False, mergeable: bool | None = None
@@ -1796,6 +1859,7 @@ For more information, please refer to the project documentation or contact the m
             All required run check passed.
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
+            PR is not behind its base branch when branch protection requires up-to-date branches.
         """
         if self.ctx:
             self.ctx.start_step("check_merge_eligibility")
@@ -1852,6 +1916,12 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
+
+            behind_failure_output = await self._check_if_base_branch_protection_blocks_behind_pr(
+                pull_request=pull_request
+            )
+            if behind_failure_output:
+                failure_output += behind_failure_output
 
             (
                 required_check_in_progress_failure_output,

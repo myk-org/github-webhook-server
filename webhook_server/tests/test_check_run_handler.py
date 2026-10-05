@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github import GithubException
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
 from starlette.datastructures import Headers
@@ -636,6 +637,132 @@ class TestCheckRunHandler:
                 result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
                 assert result == []
                 mock_info.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_strict(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that the strict required status checks setting is read from GitHub."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks.strict = True
+        mock_branch_protection.required_status_checks.contexts = ["can-be-merged"]
+
+        with (
+            patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
+            patch.object(
+                check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
+                "get_protection",
+                return_value=mock_branch_protection,
+            ),
+        ):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is True
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_not_strict(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that strict=False is reported as False."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks.strict = False
+
+        with (
+            patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
+            patch.object(
+                check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
+                "get_protection",
+                return_value=mock_branch_protection,
+            ),
+        ):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is False
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_no_required_status_checks(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that protection without required status checks cannot gate merging."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks = None
+
+        with (
+            patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
+            patch.object(
+                check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
+                "get_protection",
+                return_value=mock_branch_protection,
+            ),
+        ):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is False
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_unreadable_protection(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that unreadable branch protection returns None instead of a guessed value."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch = Mock()
+        mock_branch.get_protection.side_effect = GithubException(404, "Branch not protected", None)
+
+        with patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is None
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_private_repo_is_not_skipped(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that private repositories still get the strict setting, unlike contexts."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks.strict = True
+        mock_branch = Mock()
+        mock_branch.get_protection.return_value = mock_branch_protection
+
+        with (
+            patch.object(check_run_handler.repository, "private", True),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is True
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_is_fetched_once_per_handler(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that both the contexts and the strict setting share a single protection fetch."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks.strict = True
+        mock_branch_protection.required_status_checks.contexts = ["can-be-merged"]
+        mock_branch = Mock()
+        mock_branch.get_protection.return_value = mock_branch_protection
+
+        with (
+            patch.object(check_run_handler.repository, "private", False),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
+            contexts = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
+            strict = await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request)
+
+        assert contexts == ["can-be-merged"]
+        assert strict is True
+        mock_branch.get_protection.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_branch_required_status_checks_unreadable_protection(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that unreadable branch protection yields no contexts instead of raising."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch = Mock()
+        mock_branch.get_protection.side_effect = GithubException(404, "Branch not protected", None)
+
+        with (
+            patch.object(check_run_handler.repository, "private", False),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
+            assert await check_run_handler.get_branch_required_status_checks(mock_pull_request) == []
 
     @pytest.mark.asyncio
     async def test_required_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:

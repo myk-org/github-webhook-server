@@ -281,6 +281,9 @@
 </tr>
 </tbody>
 </table></div>
+<blockquote>
+<p><strong>Note:</strong> <code>needs-rebase</code> is a badge, not the gate. <code>can-be-merged</code> decides merge readiness from GitHub's own state, so a PR can be behind base and still show <code>can-be-merged</code> when the base branch does not require up-to-date branches. When the base branch does require them, <code>can-be-merged</code> fails and the failure text names how many commits behind the PR is.</p>
+</blockquote>
 <p>Any enabled built-in or custom checks are queued at the same time. Common examples are <code>tox</code>, <code>pre-commit</code>, <code>build-container</code>, <code>conventional-title</code>, and security checks.</p>
 <h3 id="2-review-the-pr">2. Review the PR</h3>
 <p>GitHub review state and explicit approver sign-off are tracked separately. A normal GitHub <code>Approved</code> review counts as reviewer LGTM feedback, while the explicit approver signal is <code>/approve</code>.</p>
@@ -319,6 +322,7 @@
 <ul>
 <li>required status checks are green</li>
 <li>the PR is mergeable and has no conflict label</li>
+<li>the PR is up to date with its base branch when the base branch requires up-to-date branches</li>
 <li>required approver sign-off is present</li>
 <li>the configured <code>minimum-lgtm</code> count is satisfied</li>
 <li>every label in <code>can-be-merged-required-labels</code> is present</li>
@@ -393,7 +397,11 @@
 <h2 id="troubleshooting">Troubleshooting</h2>
 <p><strong><code>can-be-merged</code> is failing</strong></p>
 <ul>
-<li>Open the <code>can-be-merged</code> check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, or merge conflicts.</li>
+<li>Open the <code>can-be-merged</code> check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, merge conflicts, or a PR that is behind its base branch.</li>
+</ul>
+<p><strong><code>can-be-merged</code> is green but GitHub still blocks the merge button</strong></p>
+<ul>
+<li>Open the check and read its output. When the base branch requires up-to-date branches, a green <code>can-be-merged</code> already accounts for that, so a blocked button usually means a different required check or a review requirement is still missing. <code>needs-rebase</code> is only a badge and does not gate the merge on its own.</li>
 </ul>
 <p><strong>The PR lost <code>verified</code> after a push</strong></p>
 <ul>

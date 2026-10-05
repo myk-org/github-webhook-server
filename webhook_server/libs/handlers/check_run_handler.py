@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
+from github import GithubException
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
 from github.PullRequest import PullRequest
@@ -28,6 +29,8 @@ from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import strip_ansi_codes
 
 if TYPE_CHECKING:
+    from github.BranchProtection import BranchProtection
+
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
 
@@ -52,6 +55,8 @@ class CheckRunHandler:
         self._repository_private: bool | None = None
         self._branch_required_status_checks: list[str] | None = None
         self._all_required_status_checks: list[str] | None = None
+        self._branch_protection: BranchProtection | None = None
+        self._branch_protection_fetched: bool = False
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
@@ -443,6 +448,93 @@ class CheckRunHandler:
         self._all_required_status_checks = _all_required_status_checks
         return _all_required_status_checks
 
+    async def _fetch_branch_protection(self, pull_request: PullRequest) -> BranchProtection | None:
+        """Fetch branch protection of the pull request base branch.
+
+        The result (including a failure) is cached on the handler instance. Handler instances are
+        created per webhook event, so the cache never outlives a single event and a repo admin
+        changing branch protection takes effect on the next event.
+
+        Args:
+            pull_request: The GitHub pull request whose base branch protection is needed.
+
+        Returns:
+            Branch protection object, or None when GitHub does not expose it (no protection
+            configured, or the token lacks the permissions required to read it).
+        """
+        if self._branch_protection_fetched:
+            return self._branch_protection
+
+        # Mark as fetched before the calls so a failure is cached too and we do not retry within the event
+        self._branch_protection_fetched = True
+
+        base_ref = ""
+        try:
+            base_ref = await github_api_call(
+                lambda: pull_request.base.ref,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            pull_request_branch = await github_api_call(
+                self.repository.get_branch,
+                base_ref,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            self._branch_protection = await github_api_call(
+                pull_request_branch.get_protection, logger=self.logger, log_prefix=self.log_prefix
+            )
+        except GithubException:
+            self.logger.info(
+                f"{self.log_prefix} Branch protection of {base_ref or 'base branch'} is not readable, "
+                "skipping protection based checks"
+            )
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to get branch protection of {base_ref or 'base branch'}")
+
+        return self._branch_protection
+
+    async def branch_protection_requires_up_to_date(self, pull_request: PullRequest) -> bool | None:
+        """Report whether branch protection requires branches to be up to date before merging.
+
+        This is GitHub's own 'strict' required status checks setting, read from GitHub on every call
+        (cached only for the lifetime of the handler instance, i.e. one webhook event) so a repo admin
+        toggling it is picked up immediately. Deliberately not read from config: stale config would fail
+        the check for pull requests GitHub would happily merge.
+
+        Unlike get_branch_required_status_checks, private repositories are not skipped - the 'strict'
+        setting gates merging regardless of repository visibility.
+
+        Args:
+            pull_request: The GitHub pull request whose base branch protection is needed.
+
+        Returns:
+            True if branches must be up to date, False if they must not, None if unknown (protection
+            not readable, or no required status checks configured). Callers must skip the check on None
+            instead of assuming a value.
+        """
+        branch_protection = await self._fetch_branch_protection(pull_request=pull_request)
+        if branch_protection is None:
+            return None
+
+        required_status_checks = await github_api_call(
+            lambda: branch_protection.required_status_checks,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        if required_status_checks is None:
+            # No required status checks => no check run gates the merge button
+            self.logger.debug(f"{self.log_prefix} Branch protection has no required status checks")
+            return False
+
+        strict = await github_api_call(
+            lambda: bool(required_status_checks.strict),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        self.logger.debug(f"{self.log_prefix} Branch protection required status checks strict: {strict}")
+        return strict
+
     async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         # Check if private repo first (cache to avoid repeated API calls)
         if self._repository_private is None:
@@ -460,20 +552,11 @@ class CheckRunHandler:
         if self._branch_required_status_checks is not None:
             return self._branch_required_status_checks
 
-        base_ref = await github_api_call(
-            lambda: pull_request.base.ref,
-            logger=self.logger,
-            log_prefix=self.log_prefix,
-        )
-        pull_request_branch = await github_api_call(
-            self.repository.get_branch,
-            base_ref,
-            logger=self.logger,
-            log_prefix=self.log_prefix,
-        )
-        branch_protection = await github_api_call(
-            pull_request_branch.get_protection, logger=self.logger, log_prefix=self.log_prefix
-        )
+        branch_protection = await self._fetch_branch_protection(pull_request=pull_request)
+        if branch_protection is None:
+            self._branch_required_status_checks = []
+            return self._branch_required_status_checks
+
         branch_required_status_checks = await github_api_call(
             lambda: branch_protection.required_status_checks.contexts, logger=self.logger, log_prefix=self.log_prefix
         )
