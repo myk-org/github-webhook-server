@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -44,6 +44,21 @@ class _AwaitableValue:
 
 def _owners_data_coroutine(return_value: dict | None = None) -> _AwaitableValue:
     return _AwaitableValue(return_value)
+
+
+class _Unset:
+    """Sentinel distinguishing 'argument not given' from an explicit None."""
+
+    def __repr__(self) -> str:
+        return "<unset>"
+
+
+_UNSET = _Unset()
+
+
+async def _inline_to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a to_thread target inline so mocks never reach a real worker thread."""
+    return fn(*args, **kwargs)
 
 
 def _create_mock_github_webhook() -> Mock:
@@ -710,12 +725,93 @@ class TestPullRequestHandler:
         mock_pr2.number = 2
 
         with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
-            with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
-                with patch("asyncio.sleep", new=AsyncMock()):
-                    await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
-                    mock_label.assert_any_await(pull_request=mock_pr1, add_only=True)
-                    mock_label.assert_any_await(pull_request=mock_pr2, add_only=True)
-                    assert mock_label.await_count == 2
+            with patch.object(
+                pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock(return_value=False)
+            ) as mock_label:
+                with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check:
+                    with patch("asyncio.sleep", new=AsyncMock()):
+                        await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                        mock_label.assert_any_await(pull_request=mock_pr1, add_only=True)
+                        mock_label.assert_any_await(pull_request=mock_pr2, add_only=True)
+                        assert mock_label.await_count == 2
+                        # Nothing fell behind, so no merge eligibility re-evaluation is needed
+                        mock_check.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_label_all_opened_pull_requests_rechecks_merge_when_pr_becomes_needs_rebase(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test that a PR that just became needs-rebase gets its merge eligibility re-evaluated.
+
+        The merge that triggered this pass moved the base branch forward, so a can-be-merged that was
+        green before the merge no longer reflects the current state.
+        """
+        became_behind = Mock()
+        became_behind.number = 7
+        stayed_current = Mock()
+        stayed_current.number = 8
+
+        with patch.object(pull_request_handler.repository, "get_pulls", return_value=[became_behind, stayed_current]):
+            with patch.object(
+                pull_request_handler,
+                "label_pull_request_by_merge_state",
+                new=AsyncMock(side_effect=[True, False]),
+            ):
+                with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check:
+                    with patch("asyncio.sleep", new=AsyncMock()):
+                        await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                        mock_check.assert_awaited_once_with(pull_request=became_behind)
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_reports_new_needs_rebase(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that adding the needs-rebase label is reported back to the caller."""
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add,
+            patch.object(pull_request_handler, "_get_definitive_mergeable", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler,
+                "_compare_branches",
+                new=AsyncMock(return_value={"behind_by": 2, "status": "behind"}),
+            ),
+        ):
+            became_needs_rebase = await pull_request_handler.label_pull_request_by_merge_state(
+                pull_request=mock_pull_request
+            )
+
+        assert became_needs_rebase is True
+        mock_add.assert_awaited_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_reports_no_change_when_up_to_date(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that an up-to-date PR does not report a needs-rebase transition."""
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "_get_definitive_mergeable", new=AsyncMock(return_value=True)),
+            patch.object(
+                pull_request_handler,
+                "_compare_branches",
+                new=AsyncMock(return_value={"behind_by": 0, "status": "ahead"}),
+            ),
+        ):
+            became_needs_rebase = await pull_request_handler.label_pull_request_by_merge_state(
+                pull_request=mock_pull_request
+            )
+
+        assert became_needs_rebase is False
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_with_tag(
@@ -1678,7 +1774,7 @@ class TestPullRequestHandler:
         required_conversation_resolution: bool,
         unresolved_threads: list[dict[str, Any]] | None = None,
         strict_up_to_date: bool | None = False,
-        compare_data: dict[str, Any] | None = None,
+        compare_data: dict[str, Any] | None | _Unset = _UNSET,
     ) -> Generator[dict[str, AsyncMock]]:
         """Shared patch context for check_if_can_be_merged tests.
 
@@ -1688,11 +1784,12 @@ class TestPullRequestHandler:
             required_conversation_resolution: Whether the feature is enabled.
             unresolved_threads: Return value for get_unresolved_review_threads.
             strict_up_to_date: Return value for branch_protection_requires_up_to_date.
-            compare_data: Return value for _compare_branches (None means the API failed).
+            compare_data: Return value for _compare_branches. Defaults to an empty response;
+                pass None explicitly to exercise the Compare API failure path.
         """
         if unresolved_threads is None:
             unresolved_threads = []
-        if compare_data is None:
+        if isinstance(compare_data, _Unset):
             compare_data = {}
 
         with (
@@ -1924,7 +2021,9 @@ class TestPullRequestHandler:
             strict_up_to_date=True,
             compare_data=None,
         ) as mocks:
-            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            with patch.object(pull_request_handler.logger, "warning") as mock_warning:
+                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            assert any("Compare API failed" in call.args[0] for call in mock_warning.call_args_list)
             mocks["add_label"].assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
             mocks["set_check_failure"].assert_not_awaited()
 
@@ -1955,9 +2054,10 @@ class TestPullRequestHandler:
         requester.requestJsonAndCheck = Mock(return_value=(200, {"behind_by": 1, "status": "behind"}))
         pull_request_handler.repository = Mock(_requester=requester, url="https://api.github.com/repos/o/r")
 
-        first = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
-        second = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
-        other_head = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:other")
+        with patch("asyncio.to_thread", new=_inline_to_thread):
+            first = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
+            second = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
+            other_head = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:other")
 
         assert first == {"behind_by": 1, "status": "behind"}
         assert second is first
@@ -1973,8 +2073,9 @@ class TestPullRequestHandler:
         requester.requestJsonAndCheck = Mock(side_effect=GithubException(404, "Not Found", None))
         pull_request_handler.repository = Mock(_requester=requester, url="https://api.github.com/repos/o/r")
 
-        first = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
-        second = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
+        with patch("asyncio.to_thread", new=_inline_to_thread):
+            first = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
+            second = await pull_request_handler._compare_branches(base_ref="main", head_ref_full="user:feature")
 
         assert first is None
         assert second is None

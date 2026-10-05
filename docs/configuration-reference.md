@@ -252,7 +252,7 @@ Where: `Global` or `Repo`
 
 > **Note:** Repo `branch-protection` values overlay global values field by field.
 
-> **Note:** The `can-be-merged` check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The config value still applies when the server sets up branch protection itself.
+> **Note:** The `can-be-merged` check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The same unreadable protection makes the required status check read fail closed instead of reporting no required checks. The config value still applies when the server sets up branch protection itself.
 
 ```yaml
 branch-protection:

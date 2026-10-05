@@ -940,7 +940,7 @@ If the update is only a clean rebase, the server keeps verification aligned with
 
 On merge, the server closes the tracking issue it created for the PR. If cherry-pick labels were already attached, the server starts those follow-up cherry-picks after merge.
 
-It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward.
+It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward. A PR that just became `needs-rebase` is re-checked for merge readiness immediately, so a `can-be-merged` that was green before the merge does not survive the base branch moving forward.
 
 > **Tip:** If the PR targets a branch listed in `set-auto-merge-prs`, or if the author is in `auto-verified-and-merged-users`, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.
 
@@ -2796,7 +2796,7 @@ Where: `Global` or `Repo`
 
 > **Note:** Repo `branch-protection` values overlay global values field by field.
 
-> **Note:** The `can-be-merged` check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The config value still applies when the server sets up branch protection itself.
+> **Note:** The `can-be-merged` check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The same unreadable protection makes the required status check read fail closed instead of reporting no required checks. The config value still applies when the server sets up branch protection itself.
 
 ```yaml
     branch-protection:

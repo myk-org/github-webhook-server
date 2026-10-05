@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -25,6 +26,11 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
 )
 from webhook_server.utils.helpers import TokenProbe
+
+
+async def _inline_to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a to_thread target inline so mocks never reach a real worker thread."""
+    return fn(*args, **kwargs)
 
 
 class TestCheckRunHandler:
@@ -648,6 +654,7 @@ class TestCheckRunHandler:
         mock_branch_protection.required_status_checks.contexts = ["can-be-merged"]
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
             patch.object(
                 check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
@@ -666,6 +673,7 @@ class TestCheckRunHandler:
         mock_branch_protection.required_status_checks.strict = False
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
             patch.object(
                 check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
@@ -686,6 +694,7 @@ class TestCheckRunHandler:
         mock_branch_protection.required_status_checks = None
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "get_branch", return_value=Mock()),
             patch.object(
                 check_run_handler.repository.get_branch.return_value,  # type: ignore[attr-defined]
@@ -705,7 +714,26 @@ class TestCheckRunHandler:
         mock_branch = Mock()
         mock_branch.get_protection.side_effect = GithubException(404, "Branch not protected", None)
 
-        with patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch):
+        with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
+            assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is None
+
+    @pytest.mark.asyncio
+    async def test_branch_protection_requires_up_to_date_permission_error_is_unknown(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that a permissions error is reported as unknown, not as a missing setting."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch = Mock()
+        mock_branch.get_protection.side_effect = GithubException(403, "Resource not accessible", None)
+
+        with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
             assert await check_run_handler.branch_protection_requires_up_to_date(mock_pull_request) is None
 
     @pytest.mark.asyncio
@@ -721,6 +749,7 @@ class TestCheckRunHandler:
         mock_branch.get_protection.return_value = mock_branch_protection
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "private", True),
             patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
         ):
@@ -738,6 +767,7 @@ class TestCheckRunHandler:
         mock_branch.get_protection.return_value = mock_branch_protection
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "private", False),
             patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
         ):
@@ -749,16 +779,44 @@ class TestCheckRunHandler:
         mock_branch.get_protection.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_branch_required_status_checks_unreadable_protection(
+    async def test_get_branch_required_status_checks_protection_read_error_fails_closed(
         self, check_run_handler: CheckRunHandler
     ) -> None:
-        """Test that unreadable branch protection yields no contexts instead of raising."""
+        """Test that an unreadable branch protection raises instead of reporting no required checks.
+
+        Returning an empty list here would let check_if_can_be_merged pass while GitHub-required
+        checks were never evaluated, so the error must propagate to the failure handler.
+        """
         mock_pull_request = Mock()
         mock_pull_request.base.ref = "main"
         mock_branch = Mock()
         mock_branch.get_protection.side_effect = GithubException(404, "Branch not protected", None)
 
         with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
+            patch.object(check_run_handler.repository, "private", False),
+            patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
+        ):
+            with pytest.raises(GithubException):
+                await check_run_handler.get_branch_required_status_checks(mock_pull_request)
+
+        # The failure must not be cached as an empty answer for the rest of the event
+        assert check_run_handler._branch_required_status_checks is None
+
+    @pytest.mark.asyncio
+    async def test_get_branch_required_status_checks_no_required_status_checks(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that protection without required status checks yields no contexts."""
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks = None
+        mock_branch = Mock()
+        mock_branch.get_protection.return_value = mock_branch_protection
+
+        with (
+            patch("asyncio.to_thread", new=_inline_to_thread),
             patch.object(check_run_handler.repository, "private", False),
             patch.object(check_run_handler.repository, "get_branch", return_value=mock_branch),
         ):

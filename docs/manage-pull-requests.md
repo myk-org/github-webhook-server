@@ -108,7 +108,7 @@ If the update is only a clean rebase, the server keeps verification aligned with
 
 On merge, the server closes the tracking issue it created for the PR. If cherry-pick labels were already attached, the server starts those follow-up cherry-picks after merge.
 
-It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward.
+It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward. A PR that just became `needs-rebase` is re-checked for merge readiness immediately, so a `can-be-merged` that was green before the merge does not survive the base branch moving forward.
 
 > **Tip:** If the PR targets a branch listed in `set-auto-merge-prs`, or if the author is in `auto-verified-and-merged-users`, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.
 

@@ -879,6 +879,11 @@ For more information, please refer to the project documentation or contact the m
 
         If the mergeable state is 'behind', the 'needs rebase' label is added.
         If the mergeable state is 'dirty', the 'has conflicts' label is added.
+
+        A pull request that just became behind its base branch is also re-evaluated for merge
+        eligibility. The merge that triggered this pass moved the base branch forward, so a
+        can-be-merged that was green before the merge no longer reflects the current state and must
+        not be left standing.
         """
         time_sleep = 30
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
@@ -889,7 +894,12 @@ For more information, please refer to the project documentation or contact the m
         )
         for pull_request in pulls:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
+            became_needs_rebase = await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
+            if became_needs_rebase:
+                self.logger.info(
+                    f"{self.log_prefix} PR {pull_request.number} became needs-rebase, rechecking merge eligibility"
+                )
+                await self.check_if_can_be_merged(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
@@ -1654,7 +1664,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def label_pull_request_by_merge_state(
         self, pull_request: PullRequest, add_only: bool = False, mergeable: bool | None = None
-    ) -> None:
+    ) -> bool:
         """Label pull request based on merge state.
 
         Flow:
@@ -1675,6 +1685,11 @@ For more information, please refer to the project documentation or contact the m
             pull_request: The GitHub pull request object to label.
             add_only: When True, only add labels, never remove them. Used when
                 checking all open PRs after a merge, where GitHub data may be stale.
+
+        Returns:
+            True when the needs-rebase label was just added, meaning the PR fell behind its base
+            branch during this call. Callers use that to re-evaluate merge eligibility, which is no
+            longer valid once the base branch moved forward.
         """
         if self.ctx:
             self.ctx.start_step("label_merge_state")
@@ -1710,7 +1725,7 @@ For more information, please refer to the project documentation or contact the m
 
                     if self.ctx:
                         self.ctx.complete_step("label_merge_state", has_conflicts=True)
-                    return  # Exit early - conflicts take precedence
+                    return False  # Exit early - conflicts take precedence
 
                 # No conflicts - remove has-conflicts label if present (skip in add_only mode)
                 if has_conflicts_label_exists and not add_only:
@@ -1722,7 +1737,7 @@ For more information, please refer to the project documentation or contact the m
             if not self.labels_handler.is_label_enabled(NEEDS_REBASE_LABEL_STR):
                 if self.ctx:
                     self.ctx.complete_step("label_merge_state", has_conflicts=False)
-                return
+                return False
 
             # Step 3: Check if needs rebase via Compare API
             base_ref, head_user_login, head_ref = await asyncio.gather(
@@ -1737,7 +1752,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.warning(f"{self.log_prefix} Compare API failed, skipping rebase label update")
                 if self.ctx:
                     self.ctx.complete_step("label_merge_state", compare_api_failed=True)
-                return
+                return False
 
             behind_by = compare_data.get("behind_by", 0)
             status = compare_data.get("status", "")
@@ -1750,15 +1765,19 @@ For more information, please refer to the project documentation or contact the m
             )
 
             # Step 4: Update needs-rebase label
+            became_needs_rebase = False
             if needs_rebase and not needs_rebase_label_exists:
                 self.logger.debug(f"{self.log_prefix} Adding {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+                became_needs_rebase = True
             elif not needs_rebase and needs_rebase_label_exists and not add_only:
                 self.logger.debug(f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
             if self.ctx:
                 self.ctx.complete_step("label_merge_state", has_conflicts=False, needs_rebase=needs_rebase)
+
+            return became_needs_rebase
 
         except asyncio.CancelledError:
             self.logger.debug(f"{self.log_prefix} Label merge state check cancelled")
