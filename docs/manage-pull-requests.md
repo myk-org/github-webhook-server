@@ -62,6 +62,8 @@ At the same time, the server applies the first round of state labels and queues 
 | `verified` | The PR is currently verified. This matters only when `verified-job` is enabled. |
 | `can-be-merged` | The PR currently meets all merge requirements. |
 
+> **Note:** `needs-rebase` is a badge, not the gate. `can-be-merged` decides merge readiness from GitHub's own state, so a PR can be behind base and still show `can-be-merged` when the base branch does not require up-to-date branches. When the base branch does require them, `can-be-merged` fails and the failure text names how many commits behind the PR is.
+
 Any enabled built-in or custom checks are queued at the same time. Common examples are `tox`, `pre-commit`, `build-container`, `conventional-title`, and security checks.
 
 ### 2. Review the PR
@@ -84,6 +86,7 @@ A PR becomes merge-ready when these checks all pass:
 
 - required status checks are green
 - the PR is mergeable and has no conflict label
+- the PR is up to date with its base branch when the base branch requires up-to-date branches
 - required approver sign-off is present
 - the configured `minimum-lgtm` count is satisfied
 - every label in `can-be-merged-required-labels` is present
@@ -105,7 +108,9 @@ If the update is only a clean rebase, the server keeps verification aligned with
 
 On merge, the server closes the tracking issue it created for the PR. If cherry-pick labels were already attached, the server starts those follow-up cherry-picks after merge.
 
-It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward.
+It also refreshes merge-state labels on other open PRs so stale `needs-rebase` or conflict states get revisited after the branch moves forward. A PR that just became `needs-rebase` is re-checked for merge readiness immediately, so a `can-be-merged` that was green before the merge does not survive the base branch moving forward.
+
+Adding or removing `needs-rebase` or `has-conflicts` also triggers a merge readiness recalculation. That keeps the labels and the check consistent even when a recheck could not run - for example when GitHub refused to read a commit - and it is what clears a stale green once the PR is rebased.
 
 > **Tip:** If the PR targets a branch listed in `set-auto-merge-prs`, or if the author is in `auto-verified-and-merged-users`, the server can enable native GitHub auto-merge with squash merging as soon as the PR is initialized.
 
@@ -154,7 +159,11 @@ test-oracle:
 
 **`can-be-merged` is failing**
 
-- Open the `can-be-merged` check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, or merge conflicts.
+- Open the `can-be-merged` check first. It reports the missing requirement directly, such as missing approver sign-off, missing required labels, unresolved conversations, failing checks, merge conflicts, or a PR that is behind its base branch.
+
+**`can-be-merged` is green but GitHub still blocks the merge button**
+
+- Open the check and read its output. When the base branch requires up-to-date branches, a green `can-be-merged` already accounts for that, so a blocked button usually means a different required check or a review requirement is still missing. `needs-rebase` is only a badge and does not gate the merge on its own.
 
 **The PR lost `verified` after a push**
 

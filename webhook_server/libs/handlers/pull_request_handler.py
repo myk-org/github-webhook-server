@@ -74,6 +74,8 @@ class PullRequestHandler:
         self.runner_handler = RunnerHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+        # Compare API results for this event, keyed by (base_ref, head_ref_full)
+        self._compare_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
 
     async def _is_clean_rebase(self, _pull_request: PullRequest) -> bool:
         """Detect whether a synchronize event is a clean rebase (same code changes on a newer base).
@@ -434,6 +436,13 @@ class PullRequestHandler:
             if labeled_lower in (WIP_STR, HOLD_LABEL_STR, AUTOMERGE_LABEL_STR):
                 _check_for_merge = True
                 self.logger.debug(f"{self.log_prefix} PR has {labeled_lower} label, will check for merge.")
+
+            # Merge state labels decide whether a PR that is behind its base branch can be merged,
+            # so changing one must recompute merge readiness. Otherwise a green can-be-merged from
+            # before the base branch moved survives the label that contradicts it.
+            if labeled_lower in (NEEDS_REBASE_LABEL_STR, HAS_CONFLICTS_LABEL_STR):
+                _check_for_merge = True
+                self.logger.debug(f"{self.log_prefix} PR {labeled_lower} label {hook_action}, will check for merge.")
 
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
@@ -877,6 +886,16 @@ For more information, please refer to the project documentation or contact the m
 
         If the mergeable state is 'behind', the 'needs rebase' label is added.
         If the mergeable state is 'dirty', the 'has conflicts' label is added.
+
+        A pull request that just became behind its base branch is also re-evaluated for merge
+        eligibility. The merge that triggered this pass moved the base branch forward, so a
+        can-be-merged that was green before the merge no longer reflects the current state and must
+        not be left standing.
+
+        Each recheck is evaluated against that pull request's own head commit, and the merged event's
+        commit is restored between pull requests, because check_if_can_be_merged reads statuses from
+        and writes check runs to github_webhook.last_commit. A recheck that fails is logged and the
+        pass continues with the remaining pull requests.
         """
         time_sleep = 30
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
@@ -885,9 +904,48 @@ For more information, please refer to the project documentation or contact the m
         pulls = await github_api_call(
             lambda: list(self.repository.get_pulls(state="open")), logger=self.logger, log_prefix=self.log_prefix
         )
+        merged_event_commit = self.github_webhook.last_commit
         for pull_request in pulls:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
+            became_needs_rebase = await self.label_pull_request_by_merge_state(pull_request=pull_request, add_only=True)
+            if not became_needs_rebase:
+                continue
+
+            try:
+                # Bind the loop variable explicitly so the log message reports this PR's number
+                pr_number = await github_api_call(
+                    lambda pr=pull_request: pr.number, logger=self.logger, log_prefix=self.log_prefix
+                )
+                self.logger.info(f"{self.log_prefix} PR {pr_number} became needs-rebase, rechecking merge eligibility")
+                await self._check_can_be_merged_on_own_head(pull_request=pull_request)
+            except Exception:
+                # One pull request failing must not abandon the remaining open pull requests
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to recheck merge eligibility after the base branch moved"
+                )
+            finally:
+                # The merged event's own commit stays bound between pull requests and after the pass
+                self.github_webhook.last_commit = merged_event_commit
+
+    async def _check_can_be_merged_on_own_head(self, pull_request: PullRequest) -> None:
+        """Re-evaluate merge eligibility for a pull request using that pull request's own head commit.
+
+        check_if_can_be_merged reads commit statuses from and writes check runs to
+        github_webhook.last_commit. During a merged event that commit still belongs to the pull
+        request that was just merged, so without rebinding it, a recheck would evaluate one pull
+        request and publish the verdict onto another pull request's commit.
+
+        The head commit is fetched by SHA rather than by listing the pull request's commits, so a
+        pull request with a long history costs one API call instead of one per commit.
+
+        Args:
+            pull_request: The open pull request whose merge eligibility must be re-evaluated.
+        """
+        head_sha = await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
+        self.github_webhook.last_commit = await github_api_call(
+            self.repository.get_commit, head_sha, logger=self.logger, log_prefix=self.log_prefix
+        )
+        await self.check_if_can_be_merged(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
@@ -1228,6 +1286,57 @@ For more information, please refer to the project documentation or contact the m
         if self.ctx:
             self.ctx.complete_step("pr_workflow_setup", skipped_due_to_conflicts=True)
 
+    async def _check_if_base_branch_protection_blocks_behind_pr(self, pull_request: PullRequest) -> str:
+        """Check if a PR behind its base branch must block merging per GitHub branch protection.
+
+        Both inputs come from GitHub, never from our own 'needs-rebase' label, so the result cannot
+        go stale: the setting is re-read on every evaluation and the comparison is re-read for the
+        current head.
+
+        Args:
+            pull_request: The GitHub pull request to evaluate.
+
+        Returns:
+            Failure output when branch protection requires up-to-date branches and the PR is behind,
+            empty string otherwise (including when GitHub does not tell us - see below).
+        """
+        requires_up_to_date = await self.check_run_handler.branch_protection_requires_up_to_date(
+            pull_request=pull_request
+        )
+        if requires_up_to_date is None:
+            self.logger.info(
+                f"{self.log_prefix} Branch protection up-to-date requirement unknown, skipping behind check"
+            )
+            return ""
+
+        if not requires_up_to_date:
+            self.logger.debug(f"{self.log_prefix} Branch protection does not require up-to-date branches")
+            return ""
+
+        base_ref, head_user_login, head_ref = await asyncio.gather(
+            github_api_call(lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.head.user.login, logger=self.logger, log_prefix=self.log_prefix),
+            github_api_call(lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix),
+        )
+        compare_data = await self._compare_branches(base_ref=base_ref, head_ref_full=f"{head_user_login}:{head_ref}")
+        if compare_data is None:
+            self.logger.warning(
+                f"{self.log_prefix} Compare API failed, skipping up-to-date check for {pull_request.number}"
+            )
+            return ""
+
+        behind_by = compare_data.get("behind_by", 0)
+        status = compare_data.get("status", "")
+        if behind_by <= 0 and status != "diverged":
+            self.logger.debug(f"{self.log_prefix} PR is up to date with {base_ref}. {behind_by=} {status=}")
+            return ""
+
+        self.logger.debug(f"{self.log_prefix} PR is behind {base_ref}. {behind_by=} {status=}")
+        return (
+            f"PR is not up to date with base branch {base_ref} and branch protection requires "
+            f"up-to-date branches ({behind_by=}, {status=}).\n"
+        )
+
     async def _queue_pull_request_setup_tasks(
         self, pull_request: PullRequest, is_clean_rebase: bool, label_names: list[str] | None, mergeable: bool
     ) -> None:
@@ -1565,6 +1674,9 @@ For more information, please refer to the project documentation or contact the m
         Returns:
             Compare API response data or None if API call fails.
 
+        Results (including failures) are cached on the handler instance for the duration of the
+        webhook event, so callers within one event share a single API call.
+
         Compare API Reference:
             GET /repos/{owner}/{repo}/compare/{base}...{head}
             Response fields used:
@@ -1573,6 +1685,11 @@ For more information, please refer to the project documentation or contact the m
 
             NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
+        cache_key = (base_ref, head_ref_full)
+        if cache_key in self._compare_cache:
+            self.logger.debug(f"{self.log_prefix} Compare API cache hit for {base_ref}...{head_ref_full}")
+            return self._compare_cache[cache_key]
+
         try:
             _, data = await github_api_call(
                 self.repository._requester.requestJsonAndCheck,
@@ -1581,17 +1698,19 @@ For more information, please refer to the project documentation or contact the m
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            return data
         except GithubException:
             self.logger.exception(f"{self.log_prefix} Failed to call Compare API for {base_ref}...{head_ref_full}")
-            return None
+            data = None
         except Exception:
             self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
-            return None
+            data = None
+
+        self._compare_cache[cache_key] = data
+        return data
 
     async def label_pull_request_by_merge_state(
         self, pull_request: PullRequest, add_only: bool = False, mergeable: bool | None = None
-    ) -> None:
+    ) -> bool:
         """Label pull request based on merge state.
 
         Flow:
@@ -1612,6 +1731,11 @@ For more information, please refer to the project documentation or contact the m
             pull_request: The GitHub pull request object to label.
             add_only: When True, only add labels, never remove them. Used when
                 checking all open PRs after a merge, where GitHub data may be stale.
+
+        Returns:
+            True when the needs-rebase label was just added, meaning the PR fell behind its base
+            branch during this call. Callers use that to re-evaluate merge eligibility, which is no
+            longer valid once the base branch moved forward.
         """
         if self.ctx:
             self.ctx.start_step("label_merge_state")
@@ -1647,7 +1771,7 @@ For more information, please refer to the project documentation or contact the m
 
                     if self.ctx:
                         self.ctx.complete_step("label_merge_state", has_conflicts=True)
-                    return  # Exit early - conflicts take precedence
+                    return False  # Exit early - conflicts take precedence
 
                 # No conflicts - remove has-conflicts label if present (skip in add_only mode)
                 if has_conflicts_label_exists and not add_only:
@@ -1659,7 +1783,7 @@ For more information, please refer to the project documentation or contact the m
             if not self.labels_handler.is_label_enabled(NEEDS_REBASE_LABEL_STR):
                 if self.ctx:
                     self.ctx.complete_step("label_merge_state", has_conflicts=False)
-                return
+                return False
 
             # Step 3: Check if needs rebase via Compare API
             base_ref, head_user_login, head_ref = await asyncio.gather(
@@ -1674,7 +1798,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.warning(f"{self.log_prefix} Compare API failed, skipping rebase label update")
                 if self.ctx:
                     self.ctx.complete_step("label_merge_state", compare_api_failed=True)
-                return
+                return False
 
             behind_by = compare_data.get("behind_by", 0)
             status = compare_data.get("status", "")
@@ -1687,15 +1811,19 @@ For more information, please refer to the project documentation or contact the m
             )
 
             # Step 4: Update needs-rebase label
+            became_needs_rebase = False
             if needs_rebase and not needs_rebase_label_exists:
                 self.logger.debug(f"{self.log_prefix} Adding {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+                became_needs_rebase = True
             elif not needs_rebase and needs_rebase_label_exists and not add_only:
                 self.logger.debug(f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label")
                 await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
             if self.ctx:
                 self.ctx.complete_step("label_merge_state", has_conflicts=False, needs_rebase=needs_rebase)
+
+            return became_needs_rebase
 
         except asyncio.CancelledError:
             self.logger.debug(f"{self.log_prefix} Label merge state check cancelled")
@@ -1796,6 +1924,7 @@ For more information, please refer to the project documentation or contact the m
             All required run check passed.
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
+            PR is not behind its base branch when branch protection requires up-to-date branches.
         """
         if self.ctx:
             self.ctx.start_step("check_merge_eligibility")
@@ -1852,6 +1981,12 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
+
+            behind_failure_output = await self._check_if_base_branch_protection_blocks_behind_pr(
+                pull_request=pull_request
+            )
+            if behind_failure_output:
+                failure_output += behind_failure_output
 
             (
                 required_check_in_progress_failure_output,

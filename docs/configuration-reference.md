@@ -243,7 +243,7 @@ Where: `Global` or `Repo`
 
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `branch-protection.strict` | `boolean` | `true` | Use strict status checks. | GitHub requires the branch to be up to date before merging. |
+| `branch-protection.strict` | `boolean` | `true` | Use strict status checks. | GitHub requires the branch to be up to date before merging. Also gates `can-be-merged`: a PR behind its base branch fails the check. See the note below. |
 | `branch-protection.require_code_owner_reviews` | `boolean` | `false` | Require code owner reviews. | GitHub enforces code owner review approval before merge. |
 | `branch-protection.dismiss_stale_reviews` | `boolean` | `true` | Dismiss stale reviews after new commits. | GitHub invalidates earlier approvals on newer commits. |
 | `branch-protection.required_approving_review_count` | `integer` | `0` | Required GitHub approval count. | GitHub enforces the numeric approval threshold. |
@@ -251,6 +251,8 @@ Where: `Global` or `Repo`
 | `branch-protection.required_conversation_resolution` | `boolean` | `true` | Require resolved review conversations. | GitHub enforces conversation resolution, and the webhook runtime listens to review-thread events only when this is enabled. |
 
 > **Note:** Repo `branch-protection` values overlay global values field by field.
+
+> **Note:** The `can-be-merged` check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The same unreadable protection makes the required status check read fail closed instead of reporting no required checks. The config value still applies when the server sets up branch protection itself.
 
 ```yaml
 branch-protection:

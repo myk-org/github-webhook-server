@@ -831,7 +831,7 @@
 <td><code>boolean</code></td>
 <td><code>true</code></td>
 <td>Use strict status checks.</td>
-<td>GitHub requires the branch to be up to date before merging.</td>
+<td>GitHub requires the branch to be up to date before merging. Also gates <code>can-be-merged</code>: a PR behind its base branch fails the check. See the note below.</td>
 </tr>
 <tr>
 <td><code>branch-protection.require_code_owner_reviews</code></td>
@@ -872,6 +872,7 @@
 </table></div>
 <blockquote>
 <p><strong>Note:</strong> Repo <code>branch-protection</code> values overlay global values field by field.</p>
+<p><strong>Note:</strong> The <code>can-be-merged</code> check reads the strict setting from GitHub's branch protection on the PR's base branch at evaluation time, not from this config, so a change made in GitHub takes effect on the next event and the cached value never outlives a single event. When GitHub does not expose branch protection (no protection configured, or the token lacks permission), the behind-base check is skipped rather than guessed from config, because a stale value here would fail PRs GitHub would happily merge. The same unreadable protection makes the required status check read fail closed instead of reporting no required checks. The config value still applies when the server sets up branch protection itself.</p>
 </blockquote>
 <div class="highlight"><pre><span></span><code><span class="nt">branch-protection</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">strict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
