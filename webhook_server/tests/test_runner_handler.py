@@ -1274,6 +1274,53 @@ class TestRunnerHandler:
                     assert success is True
 
     @pytest.mark.asyncio
+    async def test_checkout_worktree_fetches_explicit_sha_before_creating_worktree(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Fetch an explicit commit SHA before creating its worktree when it is missing locally."""
+        sha = "a" * 40
+        repo_dir = runner_handler.github_webhook.clone_repo_dir
+        rev_parse_command = f"git -C {repo_dir} rev-parse --abbrev-ref HEAD"
+        cat_file_command = f"git -C {repo_dir} cat-file -e {sha}^{{commit}}"
+        fetch_command = f"git -C {repo_dir} fetch origin {sha}"
+        events: list[str] = []
+
+        async def run_to_thread_inline(func: Any, *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            events.append(command)
+            if command == rev_parse_command:
+                return (True, "main\n", "")
+            if command == cat_file_command:
+                return (False, "", "missing commit")
+            if command == fetch_command:
+                return (True, "", "")
+            pytest.fail(f"Unexpected git command: {command}")
+
+        async def enter_worktree() -> tuple[bool, str, str, str]:
+            events.append("worktree")
+            return (True, "/tmp/worktree-path", "", "")
+
+        with patch("asyncio.to_thread", new=AsyncMock(side_effect=run_to_thread_inline)):
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(side_effect=mock_run_command)
+            ):
+                with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+                    mock_git_worktree.return_value.__aenter__ = AsyncMock(side_effect=enter_worktree)
+                    mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+                    async with runner_handler._checkout_worktree(
+                        pull_request=mock_pull_request, checkout=sha, skip_merge=True
+                    ):
+                        pass
+
+        mock_git_worktree.assert_called_once()
+        assert events[0] == rev_parse_command
+        assert cat_file_command in events
+        assert fetch_command in events
+        assert events.index(cat_file_command) < events.index(fetch_command) < events.index("worktree")
+
+    @pytest.mark.asyncio
     async def test_checkout_worktree_with_tag(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test _checkout_worktree with tag_name parameter."""
         with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
@@ -2962,6 +3009,7 @@ class TestBuildOciAnnotations:
         """Create a mock PullRequest."""
         mock_pr = Mock()
         mock_pr.head.sha = "pr-sha-abc123"
+        mock_pr.merge_commit_sha = "merge-sha-def456"
         return mock_pr
 
     def test_disabled_returns_empty(self, runner_handler: RunnerHandler) -> None:
@@ -2970,8 +3018,8 @@ class TestBuildOciAnnotations:
         assert runner_handler._build_oci_annotations() == ""
 
     def test_auto_annotations_with_pull_request(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
-        """Test auto-populated annotations with a pull request."""
-        result = runner_handler._build_oci_annotations(pull_request=mock_pull_request, tag="v1.0.0")
+        """Test auto-populated annotations with a selected PR revision."""
+        result = runner_handler._build_oci_annotations(revision=mock_pull_request.head.sha, tag="v1.0.0")
 
         assert "--annotation" in result
         assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in result
@@ -2980,8 +3028,15 @@ class TestBuildOciAnnotations:
         assert "org.opencontainers.image.title=test-repo" in result
         assert "org.opencontainers.image.created=" in result
 
+    def test_merged_pr_uses_merge_commit_sha(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test merged PR annotations use the selected merge commit revision."""
+        result = runner_handler._build_oci_annotations(revision=mock_pull_request.merge_commit_sha)
+
+        assert "org.opencontainers.image.revision=merge-sha-def456" in result
+        assert "org.opencontainers.image.revision=pr-sha-abc123" not in result
+
     def test_auto_annotations_push_event(self, runner_handler: RunnerHandler) -> None:
-        """Test auto-populated annotations on push event (no PR, uses head_commit)."""
+        """Test tagged push annotations use hook_data head_commit (no PR)."""
         result = runner_handler._build_oci_annotations(tag="v2.0.0")
 
         assert "org.opencontainers.image.revision=push-sha-123" in result
@@ -2994,6 +3049,13 @@ class TestBuildOciAnnotations:
 
         assert "org.opencontainers.image.revision" not in result
         assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in result
+
+    def test_no_revision_with_null_head_commit(self, runner_handler: RunnerHandler) -> None:
+        """Test no revision annotation when head_commit is null."""
+        runner_handler.github_webhook.hook_data = {"head_commit": None}
+        result = runner_handler._build_oci_annotations()
+
+        assert "org.opencontainers.image.revision" not in result
 
     def test_no_version_without_tag(self, runner_handler: RunnerHandler) -> None:
         """Test no version annotation when tag is empty."""
@@ -3015,13 +3077,12 @@ class TestBuildOciAnnotations:
     def test_static_overrides_auto(self, runner_handler: RunnerHandler) -> None:
         """Test static annotations override auto-populated ones."""
         runner_handler.github_webhook.container_oci_static_annotations = {
-            "org.opencontainers.image.title": "Custom Title",
+            "org.opencontainers.image.revision": "static-revision",
         }
-        result = runner_handler._build_oci_annotations()
+        result = runner_handler._build_oci_annotations(revision="generated-revision")
 
-        assert "org.opencontainers.image.title=Custom Title" in result
-        # Should NOT contain auto-generated title
-        assert "org.opencontainers.image.title=test-repo" not in result
+        assert "org.opencontainers.image.revision=static-revision" in result
+        assert "org.opencontainers.image.revision=generated-revision" not in result
 
     def test_selective_auto_disable(self, runner_handler: RunnerHandler) -> None:
         """Test selectively disabling auto annotations."""
@@ -3032,7 +3093,7 @@ class TestBuildOciAnnotations:
             "version": True,
             "title": True,
         }
-        result = runner_handler._build_oci_annotations(pull_request=Mock(head=Mock(sha="sha1")), tag="v1.0")
+        result = runner_handler._build_oci_annotations(revision="sha1", tag="v1.0")
 
         assert "org.opencontainers.image.created" not in result
         assert "org.opencontainers.image.source" not in result
@@ -3082,10 +3143,26 @@ class TestBuildOciAnnotations:
         assert "org.opencontainers.image.description=A test image; with special chars & more" in tokens
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "is_merged,revision_mode,expected_revision,expected_checkout",
+        [
+            (False, "auto", "pr-sha-abc123", "pr-sha-abc123"),
+            (True, "auto", "merge-sha-def456", "merge-sha-def456"),
+            (True, "static", "static-revision", "merge-sha-def456"),
+            (True, "disabled", None, "merge-sha-def456"),
+        ],
+        ids=["open-pr", "merged-pr", "merged-static-revision", "merged-auto-revision-disabled"],
+    )
     async def test_build_container_includes_oci_annotations(
-        self, runner_handler: RunnerHandler, tmp_path: Path
+        self,
+        runner_handler: RunnerHandler,
+        tmp_path: Path,
+        is_merged: bool,
+        revision_mode: str,
+        expected_revision: str | None,
+        expected_checkout: str,
     ) -> None:
-        """Test that run_build_container passes OCI annotation flags to podman build."""
+        """Test build annotations and checkout use the same selected revision."""
         runner_handler.github_webhook.build_and_push_container = True
         runner_handler.github_webhook.container_build_args = []
         runner_handler.github_webhook.container_command_args = []
@@ -3093,8 +3170,19 @@ class TestBuildOciAnnotations:
         runner_handler.github_webhook.dockerfile = "Dockerfile"
         runner_handler.github_webhook.container_repository_username = ""
         runner_handler.github_webhook.pypi = {}
+        if revision_mode == "static":
+            runner_handler.github_webhook.container_oci_static_annotations = {
+                "org.opencontainers.image.revision": "static-revision"
+            }
+        elif revision_mode == "disabled":
+            runner_handler.github_webhook.container_oci_auto_annotations["revision"] = False
 
         with (
+            patch(
+                "asyncio.to_thread",
+                new_callable=AsyncMock,
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ),
             patch.object(
                 runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
             ),
@@ -3115,14 +3203,105 @@ class TestBuildOciAnnotations:
 
             mock_pr = Mock()
             mock_pr.number = 1
-            mock_pr.head.sha = "abc123"
+            mock_pr.head.sha = "pr-sha-abc123"
+            mock_pr.merge_commit_sha = "merge-sha-def456"
             mock_pr.base.ref = "main"
 
-            await runner_handler.run_build_container(pull_request=mock_pr)
+            await runner_handler.run_build_container(pull_request=mock_pr, is_merged=is_merged)
 
             cmd_arg = mock_cmd.call_args[1].get("command", "") if mock_cmd.call_args[1] else mock_cmd.call_args[0][0]
             assert "--annotation" in cmd_arg, f"Expected --annotation in podman build command: {cmd_arg}"
             assert "org.opencontainers.image.source=https://github.com/test-org/test-repo" in cmd_arg
+            if expected_revision is None:
+                assert "org.opencontainers.image.revision=" not in cmd_arg
+            else:
+                assert f"org.opencontainers.image.revision={expected_revision}" in cmd_arg
+
+            checkout_kwargs = mock_checkout.call_args.kwargs
+            assert checkout_kwargs["pull_request"] is mock_pr
+            assert checkout_kwargs.get("checkout", "") == expected_checkout
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "revision_mode",
+        ["static", "disabled"],
+        ids=["static-revision-fallback", "auto-revision-disabled"],
+    )
+    async def test_merged_build_fails_without_merge_sha_even_when_revision_annotations_are_static_or_disabled(
+        self, runner_handler: RunnerHandler, tmp_path: Path, revision_mode: str
+    ) -> None:
+        runner_handler.github_webhook.build_and_push_container = True
+        runner_handler.github_webhook.container_build_args = []
+        runner_handler.github_webhook.container_command_args = []
+        runner_handler.github_webhook.container_context = ""
+        runner_handler.github_webhook.dockerfile = "Dockerfile"
+        if revision_mode == "static":
+            runner_handler.github_webhook.container_oci_static_annotations = {
+                "org.opencontainers.image.revision": "static-revision"
+            }
+        else:
+            runner_handler.github_webhook.container_oci_auto_annotations["revision"] = False
+
+        mock_pr = Mock(merge_commit_sha=None)
+        mock_pr.base.ref = "main"
+
+        with (
+            patch(
+                "asyncio.to_thread",
+                new_callable=AsyncMock,
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "ok", ""))
+            ) as mock_cmd,
+            patch.object(runner_handler.check_run_handler, "get_check_run_text", return_value="test output"),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, str(tmp_path / "wt"), "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.run_build_container(pull_request=mock_pr, is_merged=True, set_check=False)
+
+        mock_checkout.assert_not_called()
+        mock_cmd.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("set_check", [False, True])
+    async def test_merged_build_without_merge_commit_fails_before_build(
+        self, runner_handler: RunnerHandler, set_check: bool
+    ) -> None:
+        runner_handler.github_webhook.build_and_push_container = True
+        mock_pr = Mock(merge_commit_sha=None)
+
+        with (
+            patch(
+                "asyncio.to_thread",
+                new_callable=AsyncMock,
+                side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_cmd,
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pr, is_merged=True, set_check=set_check)
+
+        if set_check:
+            mock_failure.assert_awaited_once_with(
+                name=BUILD_CONTAINER_STR,
+                output={
+                    "title": "Build container",
+                    "summary": "",
+                    "text": "Merged container build requires a merge commit SHA",
+                },
+            )
+        else:
+            mock_failure.assert_not_awaited()
+        mock_checkout.assert_not_called()
+        mock_cmd.assert_not_awaited()
 
 
 class TestRebasePr:
