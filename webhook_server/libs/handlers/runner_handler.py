@@ -212,6 +212,23 @@ class RunnerHandler:
                 yield (True, repo_dir, "", "")
                 return
 
+        if pull_request and checkout:
+            rc, _, _ = await run_command(
+                command=f"git -C {repo_dir} cat-file -e {checkout}^{{commit}}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                rc, out, err = await run_command(
+                    command=f"git -C {repo_dir} fetch origin {checkout}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                if not rc:
+                    self.logger.error(f"{self.log_prefix} Failed to fetch explicit checkout {checkout}")
+                    yield (False, "", out, err)
+                    return
+
         # Create worktree for this operation
         async with helpers_module.git_worktree_checkout(
             repo_dir=repo_dir,
@@ -560,12 +577,24 @@ class RunnerHandler:
 
     def _build_oci_annotations(
         self,
-        pull_request: PullRequest | None = None,
+        revision: str | None = None,
         tag: str = "",
     ) -> str:
-        """Build OCI annotation flags for podman build command.
+        """Build shell-quoted OCI annotation flags for a podman build command.
 
-        Returns a string of --annotation flags to append to the build command.
+        Args:
+            revision: Selected PR revision: the head SHA for open PRs or merge
+                SHA for merged PRs. When automatic revision annotations are
+                enabled, this supplies the generated revision annotation; if
+                None, the webhook ``head_commit.id`` is used when available. A
+                static revision annotation may override the generated revision.
+            tag: Non-empty tag used as the OCI version only when automatic
+                version annotations are enabled.
+
+        Returns:
+            Space-separated, shell-quoted ``--annotation`` flags, or an empty
+            string if annotations are disabled or none are available. Static
+            annotations override generated annotations.
         """
         if not self.github_webhook.container_oci_annotations_enabled:
             return ""
@@ -582,11 +611,13 @@ class RunnerHandler:
                 f"https://github.com/{self.github_webhook.repository_full_name}"
             )
 
+        # Prefer the selected PR revision; push/tag builds fall back to the webhook head commit.
         if auto.get("revision", True):
-            if pull_request:
-                annotations["org.opencontainers.image.revision"] = pull_request.head.sha
-            elif self.github_webhook.hook_data.get("head_commit", {}).get("id"):
-                annotations["org.opencontainers.image.revision"] = self.github_webhook.hook_data["head_commit"]["id"]
+            selected_revision = (
+                revision if revision is not None else (self.github_webhook.hook_data.get("head_commit") or {}).get("id")
+            )
+            if selected_revision:
+                annotations["org.opencontainers.image.revision"] = selected_revision
 
         if auto.get("version", True) and tag:
             annotations["org.opencontainers.image.version"] = tag
@@ -625,6 +656,34 @@ class RunnerHandler:
         ):
             return
 
+        has_static_revision = (
+            "org.opencontainers.image.revision" in self.github_webhook.container_oci_static_annotations
+        )
+        auto_revision_enabled = (
+            self.github_webhook.container_oci_annotations_enabled
+            and self.github_webhook.container_oci_auto_annotations.get("revision", True)
+            and not has_static_revision
+        )
+        revision: str | None = None
+        if pull_request and (is_merged or auto_revision_enabled):
+            revision = await github_api_call(
+                lambda: pull_request.merge_commit_sha if is_merged else pull_request.head.sha,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+        if is_merged and not revision:
+            self.logger.error(f"{self.log_prefix} Merged container build requires a merge commit SHA")
+            if set_check:
+                await self.check_run_handler.set_check_failure(
+                    name=BUILD_CONTAINER_STR,
+                    output={
+                        "title": "Build container",
+                        "summary": "",
+                        "text": "Merged container build requires a merge commit SHA",
+                    },
+                )
+            return
+
         if pull_request and set_check:
             if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
@@ -640,6 +699,7 @@ class RunnerHandler:
         async with self._checkout_worktree(
             pull_request=pull_request,
             is_merged=is_merged,
+            checkout=revision or "",
             tag_name=tag,
         ) as (success, worktree_path, out, err):
             output: CheckRunOutput = {
@@ -680,7 +740,7 @@ class RunnerHandler:
                 f"{build_context} -t {_container_repository_and_tag}"
             )
 
-            oci_annotation_flags = self._build_oci_annotations(pull_request=pull_request, tag=tag)
+            oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag)
             if oci_annotation_flags:
                 build_cmd = f"{oci_annotation_flags} {build_cmd}"
 
