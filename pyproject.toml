@@ -45,7 +45,7 @@ packages = ["webhook_server"]
 [project]
 name = "github-webhook-server"
 version = "5.0.0"
-requires-python = "==3.14.*"
+requires-python = "==3.15.*"
 description = "A webhook server to manage Github repositories and pull requests."
 readme = "README.md"
 license = "Apache-2.0"
