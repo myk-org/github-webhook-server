@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.14.*"
 
 [[package]]
@@ -639,7 +639,7 @@ requires-dist = [
     { name = "fastapi-mcp", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", specifier = ">=1.9,<2" },
-    { name = "pi-sidecar-client", specifier = ">=4.6.5" },
+    { name = "pi-sidecar-client", specifier = ">=4.15.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pygithub", specifier = ">=2.4.0" },
@@ -1047,15 +1047,15 @@ wheels = [
 
 [[package]]
 name = "pi-sidecar-client"
-version = "4.9.0"
+version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "python-simple-logger" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0a/bf/d68043933df91338e37685bea4e3475f0e06db94ca57f3b1de164c8d7246/pi_sidecar_client-4.9.0.tar.gz", hash = "sha256:d77dc8f943f7934801f3f6e29c1a8d2246d66452288e370d9cf213be2485453c", size = 25157, upload-time = "2026-10-11T16:18:24.637Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/f4/a67dd560ca732e333d51653f73e2499d3580c6d276e2bce516a74961ac91/pi_sidecar_client-4.15.0.tar.gz", hash = "sha256:391ae30f27dbdc0d5d99ed6e93e0196a0b9ca84acbb2e2962e1e90282fd9505f", size = 28643, upload-time = "2026-10-18T08:36:57.844Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/ad/0274425835e49e8f536d69b6689916ad60efa8962f729e3ab9d59f8169bb/pi_sidecar_client-4.9.0-py3-none-any.whl", hash = "sha256:ac2b6167d8d04249f02fa9a8b15a6d0d00fc35d4afcb28f8a9e5a290d32550d8", size = 19874, upload-time = "2026-10-11T16:18:23.114Z" },
+    { url = "https://files.pythonhosted.org/packages/36/4f/6a1c4c0328b5a46966110ffe44ad1c133be177170bfc69f66478dcbaa1f1/pi_sidecar_client-4.15.0-py3-none-any.whl", hash = "sha256:fe116414521fab7ffebecdbb7d6e11bc4d8e1f5a0aae06dd8457ca456951f193", size = 21838, upload-time = "2026-10-18T08:36:56.529Z" },
 ]
 
 [[package]]
