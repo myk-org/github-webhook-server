@@ -23,6 +23,12 @@
       "enabled": false
     },
     {
+      "description": "Python runtime version is managed manually; don't bump requires-python",
+      "matchManagers": ["pep621"],
+      "matchPackageNames": ["python"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["npm"],
       "matchPackageNames": ["@myk-org/pi-sidecar"],
       "groupName": "npm-deps"
