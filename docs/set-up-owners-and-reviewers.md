@@ -94,6 +94,19 @@ Separately, `all_repository_approvers` is the union of approvers from **every** 
 the repository, regardless of what the PR touches. That repo-wide list is what makes a user
 eligible to run commands; it is not what gates `/approve`.
 
+`root-approvers: false` also unlocks the `/merge` command for approvers of every matched
+`OWNERS` dir (see [Pull request commands](run-pull-request-commands.html)): such an
+approver can merge the PR themselves — once, at the moment the command is sent — when
+`can-be-merged` is green.
+This requires **every** `OWNERS` dir matching the changed files to set `root-approvers: false`,
+and the sender must be an approver of **every** matched dir — intentionally stricter than the
+first-match rule used for approver assignment above (step 4): if any matched dir lacks the
+opt-out, a changed folder has no matching sub-`OWNERS`, or the sender is not an approver of
+some matched dir (e.g. they can approve `xx/yy` but the PR also touches `xx`),
+`/merge` stays disabled and root approvers remain required. On top of the `OWNERS` rules,
+`/merge` is opt-in at the server level: it must be enabled with `allow-merge-command: true`
+(globally or per repository) before any of this applies.
+
 ## Review commands
 
 ### `/approve`

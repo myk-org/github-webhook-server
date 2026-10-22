@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import traceback
 from asyncio import Task
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Iterable
 from typing import TYPE_CHECKING, Any
 
+from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -19,6 +20,7 @@ from webhook_server.utils.constants import (
     APPROVE_STR,
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
+    CAN_BE_MERGED_STR,
     CHERRY_PICK_LABEL_PREFIX,
     COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -26,6 +28,7 @@ from webhook_server.utils.constants import (
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_RETRY_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_MERGE_STR,
     COMMAND_REBASE_STR,
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
@@ -36,6 +39,7 @@ from webhook_server.utils.constants import (
     REACTIONS,
     SECURITY_COMMITTER_IDENTITY_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
+    SUCCESS_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -169,6 +173,7 @@ class IssueCommentHandler:
             COMMAND_REBASE_STR,
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
+            COMMAND_MERGE_STR,
             BUILD_AND_PUSH_CONTAINER_STR,
             COMMAND_ASSIGN_REVIEWER_STR,
             COMMAND_ADD_ALLOWED_USER_STR,
@@ -292,6 +297,18 @@ class IssueCommentHandler:
             ):
                 return
             await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
+
+        elif _command == COMMAND_MERGE_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
+            await self.process_merge_command(
+                pull_request=pull_request,
+                reviewed_user=reviewed_user,
+                is_draft=is_draft,
+                command_args=_args,
+            )
 
         elif _command == COMMAND_CHERRY_PICK_STR:
             if not await self.owners_file_handler.is_user_valid_to_run_commands(
@@ -500,6 +517,165 @@ class IssueCommentHandler:
                 _background_tasks.add(task)
                 task.add_done_callback(_background_tasks.discard)
 
+    async def process_merge_command(
+        self, pull_request: PullRequest, reviewed_user: str, *, is_draft: bool, command_args: str = ""
+    ) -> None:
+        """Process `/merge` command — one-time merge for local approvers.
+
+        Allowed only when every OWNERS dir matching the changed files explicitly sets
+        `root-approvers: false` and the user is an approver of every one of those dirs —
+        a PR touching dirs the user cannot approve is not mergeable by them. The merge is
+        evaluated once, at the moment the command is sent: if the `can-be-merged` check run
+        on the current head SHA is green, the PR is squash-merged immediately; otherwise a
+        comment is posted and nothing else happens — no label is added and no future merge
+        is armed. Never allowed on draft PRs. Opt-in: the command works only when
+        `allow-merge-command` is enabled for the repository (repo level or global).
+        """
+        if not self.github_webhook.allow_merge_command:
+            msg = (
+                "`/merge` is not enabled for this repository "
+                "(set `allow-merge-command: true` in the webhook server config)"
+            )
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        if command_args:
+            msg = "`/merge` takes no arguments"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        if is_draft:
+            msg = "`/merge` is not allowed on draft PRs"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        root_approvers_required = await self.owners_file_handler.get_root_approvers_required_for_pr()
+        if root_approvers_required:
+            msg = (
+                "`/merge` is allowed only when `root-approvers: false` is set "
+                "for every OWNERS dir covering the changed files"
+            )
+            self.logger.debug(f"{self.log_prefix} {msg}. user: {reviewed_user}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        # The sender must be an approver of every matched OWNERS dir, not of any one of them
+        # (the union) — a PR touching dirs the sender cannot approve is not mergeable by them.
+        approvers_by_dir = await self.owners_file_handler.get_local_approvers_by_dir()
+        missing_dirs = [
+            _dir
+            for _dir, _approvers in approvers_by_dir.items()
+            if not self._is_user_in_approvers(reviewed_user=reviewed_user, approvers=_approvers)
+        ]
+        if missing_dirs:
+            msg = (
+                f"`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
+                f"{reviewed_user} is not an approver of: {', '.join(sorted(missing_dirs))}"
+            )
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        check_runs = await github_api_call(
+            lambda: list(self.github_webhook.last_commit.get_check_runs()),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+        # Every status update creates a new check run, so multiple `can-be-merged` runs can
+        # exist for one head SHA — pick the latest by id, independent of API ordering.
+        can_be_merged_runs = [_check_run for _check_run in check_runs if _check_run.name == CAN_BE_MERGED_STR]
+        latest_run = max(can_be_merged_runs, key=lambda _check_run: _check_run.id, default=None)
+
+        if latest_run is None or latest_run.conclusion != SUCCESS_STR:
+            msg = f"{CAN_BE_MERGED_STR} check is not green for the current head commit, not merging"
+            self.logger.info(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
+        try:
+            # Pin the merge to the head SHA whose check runs were validated: GitHub rejects
+            # the merge with 409 if the PR head has moved since, so commits pushed after the
+            # can-be-merged evaluation can never be merged under a stale green run.
+            await github_api_call(
+                pull_request.merge,
+                merge_method="SQUASH",
+                sha=self.github_webhook.last_commit.sha,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            self.logger.info(f"{self.log_prefix} Merged pull request #{pull_request.number} by /merge command")
+        except Exception as ex:
+            # A parallel /merge task (duplicate command lines in one comment) may have already
+            # merged the PR. The shared PullRequest object caches its attributes, so refresh
+            # from GitHub before reading `merged` (best-effort: must not mask the original error).
+            try:
+                await github_api_call(pull_request.update, logger=self.logger, log_prefix=self.log_prefix)
+                if await github_api_call(lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix):
+                    self.logger.info(f"{self.log_prefix} Pull request #{pull_request.number} already merged")
+                    return
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Failed to check if pull request already merged")
+
+            if isinstance(ex, GithubException) and ex.status in (405, 409):
+                # 409: head moved or a merge conflict from a base advance. 405: not mergeable —
+                # commonly a parallel /merge that won before the merged flag propagated to a
+                # fresh read. A 405 whose message mentions disabled squash commits is a
+                # repository policy problem instead: /merge always uses the squash method, so
+                # no retry can succeed there.
+                error_message = str(ex.data.get("message", "")) if isinstance(ex.data, dict) else ""
+                if "disabled squash" in error_message.lower():
+                    msg = (
+                        "Merge rejected — squash merges are disabled for this repository by its policy; "
+                        "`/merge` always uses the squash method and cannot work here"
+                    )
+                else:
+                    msg = (
+                        "Merge rejected — the PR head changed or a merge conflict appeared since the "
+                        "can-be-merged check. Re-run `/check-can-merge` and send `/merge` again once green"
+                    )
+                self.logger.info(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+            self.logger.exception(f"{self.log_prefix} Failed to merge pull request #{pull_request.number}")
+            await github_api_call(
+                pull_request.create_issue_comment,
+                body="Failed to merge, check server logs for details",
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+
+    @staticmethod
+    def _normalized_login(user: str) -> str:
+        """Normalize a GitHub login for comparison (strip @, trim, casefold)."""
+        return user.lstrip("@").strip().casefold()
+
+    def _is_user_in_approvers(self, reviewed_user: str, approvers: Iterable[str]) -> bool:
+        """Return True if the user is in the given approvers list (login-normalized)."""
+        return self._normalized_login(reviewed_user) in {self._normalized_login(_approver) for _approver in approvers}
+
+    def _is_pull_request_approver(self, reviewed_user: str) -> bool:
+        """Return True if the user is an approver of the PR's changed files (per OWNERS)."""
+        return self._is_user_in_approvers(
+            reviewed_user=reviewed_user, approvers=self.owners_file_handler.all_pull_request_approvers
+        )
+
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
         _comment = await github_api_call(
             pull_request.get_issue_comment, issue_comment_id, logger=self.logger, log_prefix=self.log_prefix
@@ -530,8 +706,7 @@ class IssueCommentHandler:
         normalized_user = reviewed_user.lstrip("@").strip()
         if normalized_user.casefold() == self.github_webhook.parent_committer.casefold():
             return True
-        approvers = {a.lstrip("@").strip().casefold() for a in self.owners_file_handler.all_pull_request_approvers}
-        if normalized_user.casefold() in approvers:
+        if self._is_pull_request_approver(reviewed_user=reviewed_user):
             return True
         self.logger.debug(
             f"{self.log_prefix} {reviewed_user} is not the PR author or an approver, "

@@ -404,28 +404,19 @@ class OwnersFileHandler:
 
         data: dict[str, dict[str, Any]] = {}
 
-        changed_folders = {Path(cf).parent for cf in self.changed_files}
+        changed_folders = self.changed_folders
         self.logger.debug(f"{self.log_prefix} Changed folders: {changed_folders}")
 
         changed_folder_match: list[Path] = []
 
         require_root_approvers: bool | None = None
 
-        for owners_dir, owners_data in self.all_repository_approvers_and_reviewers.items():
-            if owners_dir == ".":
-                continue
-
-            _owners_dir = Path(owners_dir)
-
-            for changed_folder in changed_folders:
-                if changed_folder == _owners_dir or _owners_dir in changed_folder.parents:
-                    data[owners_dir] = owners_data
-                    changed_folder_match.append(_owners_dir)
-                    self.logger.debug(
-                        f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
-                    )
-                    if require_root_approvers is None:
-                        require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
+        for owners_dir, _owners_dir, owners_data in self._matched_owners_dirs():
+            data[owners_dir] = owners_data
+            changed_folder_match.append(_owners_dir)
+            self.logger.debug(f"{self.log_prefix} Matched owners dir: {owners_dir}")
+            if require_root_approvers is None:
+                require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
             self.logger.debug(f"{self.log_prefix} require root_approvers")
@@ -444,6 +435,92 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
 
         return data
+
+    @property
+    def changed_folders(self) -> set[Path]:
+        """Parent dirs of the PR's changed files."""
+        self._ensure_initialized()
+        return {Path(_changed_file).parent for _changed_file in self.changed_files}
+
+    def _matched_owners_dirs(self) -> list[tuple[str, Path, dict[str, Any]]]:
+        """Return sub-OWNERS dirs (dir key, dir path, OWNERS data) matching changed folders.
+
+        A dir matches when it is equal to, or an ancestor of, any changed folder (see
+        `changed_folders`). The root
+        `.` entry is excluded. Shared by `owners_data_for_changed_files` (approver
+        assignment) and `root_approvers_required_for_pr` (`/merge` authority) so the
+        folder-matching semantics are defined in exactly one place.
+        """
+        matched: list[tuple[str, Path, dict[str, Any]]] = []
+        changed_folders = self.changed_folders
+        for owners_dir, owners_data in self.all_repository_approvers_and_reviewers.items():
+            if owners_dir == ".":
+                continue
+            _owners_dir = Path(owners_dir)
+            if any(_folder == _owners_dir or _owners_dir in _folder.parents for _folder in changed_folders):
+                matched.append((owners_dir, _owners_dir, owners_data))
+        return matched
+
+    @functools.cached_property
+    async def root_approvers_required_for_pr(self) -> bool:
+        """Return whether the PR's changed files require root approvers.
+
+        True unless every changed folder is covered by a matched OWNERS dir that explicitly
+        sets `root-approvers: false`. This is deliberately stricter than the approver
+        assignment in `owners_data_for_changed_files` (which follows the first matched dir):
+        any matched dir without the explicit opt-out, or any changed folder without a
+        matching sub-OWNERS dir, keeps root approvers required. Gates `/merge` authority.
+        """
+        self._ensure_initialized()
+
+        changed_folders = self.changed_folders
+
+        # Root-level files can never be covered by a sub-OWNERS dir (the root `.` entry is
+        # excluded from matching), so root approvers are always required for them.
+        if any(_folder == Path(".") for _folder in changed_folders):
+            self.logger.debug(f"{self.log_prefix} Root-level changed files require root approvers")
+            return True
+
+        matched_dirs = self._matched_owners_dirs()
+
+        def _is_covered(folder: Path) -> bool:
+            return any(folder == _matched_dir or _matched_dir in folder.parents for _, _matched_dir, _ in matched_dirs)
+
+        root_approvers_required = not (
+            bool(matched_dirs)
+            and all(_is_covered(_folder) for _folder in changed_folders)
+            and all(_owners_data.get(ROOT_APPROVERS_KEY) is False for _, _, _owners_data in matched_dirs)
+        )
+        self.logger.debug(f"{self.log_prefix} Root approvers required for PR: {root_approvers_required}")
+        return root_approvers_required
+
+    async def get_root_approvers_required_for_pr(self) -> bool:
+        """Async accessor for the `root_approvers_required_for_pr` cached property."""
+        return await self.root_approvers_required_for_pr
+
+    @functools.cached_property
+    async def local_approvers_by_dir(self) -> dict[str, list[str]]:
+        """Return the approvers of each sub-OWNERS dir matching the changed files.
+
+        Maps the matched dir key (e.g. ``xx/yy``) to that OWNERS file's approvers. Excludes
+        the root `.` OWNERS approvers, unlike `all_pull_request_approvers` (which can
+        include them via the fallback in `owners_data_for_changed_files`). Gates `/merge`
+        authorization: the sender must be an approver of every matched dir, not of any one
+        of them (the union) — a PR touching dirs the sender cannot approve is not mergeable
+        by them.
+        """
+        self._ensure_initialized()
+
+        approvers_by_dir = {
+            _owners_dir: _owners_data.get("approvers", [])
+            for _owners_dir, _, _owners_data in self._matched_owners_dirs()
+        }
+        self.logger.debug(f"{self.log_prefix} Local approvers by dir: {approvers_by_dir}")
+        return approvers_by_dir
+
+    async def get_local_approvers_by_dir(self) -> dict[str, list[str]]:
+        """Async accessor for the `local_approvers_by_dir` cached property."""
+        return await self.local_approvers_by_dir
 
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()

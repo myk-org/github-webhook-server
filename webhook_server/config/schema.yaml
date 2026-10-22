@@ -192,6 +192,10 @@ properties:
     type: boolean
     description: Automatically verify cherry-picked PRs (default is true for backward compatibility)
     default: true
+  allow-merge-command:
+    type: boolean
+    description: Enable the `/merge` command for approvers (opt-in; default is false)
+    default: false
   create-issue-for-new-pr:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
@@ -504,6 +508,10 @@ properties:
           type: boolean
           description: Automatically verify cherry-picked PRs for this repository (default is true)
           default: true
+        allow-merge-command:
+          type: boolean
+          description: Enable the `/merge` command for approvers of this repository (opt-in; default is false)
+          default: false
         github-tokens:
           type: array
           items:

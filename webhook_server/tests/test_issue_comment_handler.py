@@ -3,18 +3,21 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github.GithubException import GithubException
 
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
     APPROVE_STR,
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
+    CAN_BE_MERGED_STR,
     CHERRY_PICK_LABEL_PREFIX,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_RETRY_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_MERGE_STR,
     COMMAND_REBASE_STR,
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
@@ -22,6 +25,7 @@ from webhook_server.utils.constants import (
     COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
     REACTIONS,
+    SUCCESS_STR,
     TOX_STR,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -50,6 +54,7 @@ class TestIssueCommentHandler:
         mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
         mock_webhook.cherry_pick_assign_to_pr_author = True
+        mock_webhook.allow_merge_command = True
         # Mock config for draft PR command filtering
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
@@ -742,6 +747,579 @@ class TestIssueCommentHandler:
             mock_add_label.assert_not_called()
             mock_remove_label.assert_not_called()
             mock_reaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_merge_dispatch(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge command is dispatched to process_merge_command."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler,
+                "process_merge_command",
+                new_callable=AsyncMock,
+            ) as mock_merge,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_MERGE_STR,
+                reviewed_user="approver1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_merge.assert_called_once_with(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False, command_args=""
+            )
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_merge_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge with arguments is forwarded for validation inside process_merge_command."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler,
+                "process_merge_command",
+                new_callable=AsyncMock,
+            ) as mock_merge,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_MERGE_STR} cancel",
+                reviewed_user="approver1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_merge.assert_called_once_with(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False, command_args="cancel"
+            )
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_merge_invalid_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge is not dispatched for a user not valid to run commands."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_user_valid_to_run_commands = AsyncMock(return_value=False)
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler,
+                "process_merge_command",
+                new_callable=AsyncMock,
+            ) as mock_merge,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_MERGE_STR,
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_merge.assert_not_called()
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_merge_draft_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge is not allowed on draft PRs (allow-commands-on-draft-prs not configured)."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler,
+                "process_merge_command",
+                new_callable=AsyncMock,
+            ) as mock_merge,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_MERGE_STR,
+                reviewed_user="approver1",
+                issue_comment_id=123,
+                is_draft=True,
+            )
+            mock_merge.assert_not_called()
+            mock_reaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_disabled(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge is rejected when allow-merge-command is not enabled for the repository."""
+        mock_pull_request = Mock()
+        issue_comment_handler.github_webhook.allow_merge_command = False
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            # Only the not-enabled rejection comment is posted; no permission checks, no merge
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert "not enabled" in mock_api.call_args.kwargs["body"]
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge with arguments is rejected, before any permission checks."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False, command_args="cancel"
+            )
+
+            assert len(mock_api.call_args_list) == 1
+            assert "takes no arguments" in mock_api.call_args.kwargs["body"]
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_disabled_draft_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test the not-enabled gate runs before the draft check."""
+        mock_pull_request = Mock()
+        issue_comment_handler.github_webhook.allow_merge_command = False
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=True
+            )
+
+            assert len(mock_api.call_args_list) == 1
+            assert "not enabled" in mock_api.call_args.kwargs["body"]
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_draft(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge rejects draft PRs unconditionally, before any permission checks."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=True
+            )
+
+            # Only the rejection comment is posted; no check-run fetch, no merge
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_success(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge by a local approver merges immediately when can-be-merged is green."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.return_value = [mock_check_run]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            assert merge_calls[0].kwargs.get("merge_method") == "SQUASH"
+            # Merge must be pinned to the validated head SHA
+            assert merge_calls[0].kwargs.get("sha") == issue_comment_handler.github_webhook.last_commit.sha
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_head_moved(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge handles 409 (head moved or conflict) with an actionable comment."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                [mock_check_run],
+                GithubException(409, {"message": "head moved"}, {}),
+                None,  # pull_request.update() refresh
+                False,  # PR not already merged
+                None,
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+            assert "Re-run `/check-can-merge`" in comment_calls[0].kwargs.get("body", "")
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_squash_disabled(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge explains that squash merges are disabled instead of suggesting a retry."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                [mock_check_run],
+                GithubException(405, {"message": "The base repository policy has disabled squash commits"}, {}),
+                None,  # pull_request.update() refresh
+                False,  # PR not already merged
+                None,
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+            assert "squash merges are disabled" in comment_calls[0].kwargs.get("body", "")
+            assert "Re-run `/check-can-merge`" not in comment_calls[0].kwargs.get("body", "")
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_already_merged(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge posts no failure comment when a parallel /merge already merged the PR."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                [mock_check_run],
+                GithubException(405, {"message": "Pull Request is not mergeable"}, {}),
+                None,  # pull_request.update() refresh
+                True,  # PR already merged by the parallel task
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            # The refresh must happen before reading `merged` (the shared object caches attributes)
+            update_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.update]
+            assert len(update_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_uses_latest_check_run(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge picks the latest can-be-merged run by id, not list order.
+
+        Every status update creates a new check run, so a stale green run can coexist
+        with a newer failed one (e.g. a hold label was added). The latest run decides.
+        """
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        stale_green_run = Mock()
+        stale_green_run.name = CAN_BE_MERGED_STR
+        stale_green_run.conclusion = SUCCESS_STR
+        stale_green_run.id = 100
+
+        newer_failed_run = Mock()
+        newer_failed_run.name = CAN_BE_MERGED_STR
+        newer_failed_run.conclusion = "failure"
+        newer_failed_run.id = 200
+
+        for check_runs in ([stale_green_run, newer_failed_run], [newer_failed_run, stale_green_run]):
+            mock_api = AsyncMock()
+            mock_api.return_value = check_runs
+            with patch("webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=mock_api):
+                await issue_comment_handler.process_merge_command(
+                    pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+                )
+
+                merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+                assert not merge_calls
+                comment_calls = [
+                    c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+                ]
+                assert len(comment_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_can_be_merged_not_green(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge does not merge and posts a comment when can-be-merged is not green."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = "failure"
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.return_value = [mock_check_run]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_no_can_be_merged_run(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge does not merge when no can-be-merged check run exists for the head SHA."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.return_value = []
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_root_approvers_required(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge is not allowed when the changed files require root approvers."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=True)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            # Only the rejection comment is posted; no check-run fetch, no merge
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_user_not_local_approver(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge is not allowed for a user who is not a local approver."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="random-commenter", is_draft=False
+            )
+
+            # Only the rejection comment is posted; no check-run fetch, no merge
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert "dir1" in mock_api.call_args.kwargs.get("body", "")
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_user_not_approver_of_every_dir(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge is not allowed for an approver of only some of the matched OWNERS dirs.
+
+        A user who can approve `xx/yy` but not `xx` cannot merge a PR touching both.
+        """
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"xx": ["other-user"], "xx/yy": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            # Only the rejection comment is posted, naming the dir the user does not cover
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            body = mock_api.call_args.kwargs.get("body", "")
+            assert "xx" in body
+            assert "xx/yy" not in body
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_approver_of_every_dir(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test /merge merges for a user who is an approver of every matched OWNERS dir."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"xx": ["approver1", "other-user"], "xx/yy": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.return_value = [mock_check_run]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_empty_approvers_list(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """A matched OWNERS dir with an empty approvers list blocks the merge (fail-closed)."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"xx": [], "xx/yy": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            # Only the rejection comment is posted, naming the dir with no approvers
+            assert len(mock_api.call_args_list) == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert "xx" in mock_api.call_args.kwargs.get("body", "")
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_merge_failure(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test /merge posts a failure comment when the merge API call fails."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        mock_check_run = Mock()
+        mock_check_run.name = CAN_BE_MERGED_STR
+        mock_check_run.conclusion = SUCCESS_STR
+        mock_check_run.id = 1
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                [mock_check_run],
+                GithubException(403, {"message": "forbidden"}, {}),
+                None,  # pull_request.update() refresh
+                False,  # PR not already merged
+                None,
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+            # Public comment must not leak raw exception internals
+            assert "check server logs" in comment_calls[0].kwargs.get("body", "")
 
     @pytest.mark.asyncio
     async def test_hold_command_allows_pr_author(self, issue_comment_handler: IssueCommentHandler) -> None:

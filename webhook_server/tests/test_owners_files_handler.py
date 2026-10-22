@@ -423,6 +423,124 @@ class TestOwnersFileHandler:
         assert result == expected
 
     @pytest.mark.asyncio
+    async def test_root_approvers_required_for_pr_false(self, owners_file_handler: OwnersFileHandler) -> None:
+        """root-approvers: false for every matched dir, all folders covered -> not required."""
+        owners_file_handler.changed_files = ["folder5/file1.py", "folder5/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder5": {
+                "root-approvers": False,
+                "approvers": ["folder5_approver1"],
+                "reviewers": ["folder5_reviewer1"],
+            },
+        }
+
+        assert await owners_file_handler.root_approvers_required_for_pr is False
+
+    @pytest.mark.asyncio
+    async def test_root_approvers_required_for_pr_default(self, owners_file_handler: OwnersFileHandler) -> None:
+        """No explicit root-approvers: false -> root approvers required (OWNERS default)."""
+        owners_file_handler.changed_files = ["folder1/file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+        }
+
+        assert await owners_file_handler.root_approvers_required_for_pr is True
+
+    @pytest.mark.asyncio
+    async def test_local_approvers_by_dir(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Approvers per matched sub-OWNERS dir; the root entry is never included."""
+        owners_file_handler.changed_files = ["folder1/file1.py", "folder5/file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder5": {
+                "root-approvers": False,
+                "approvers": ["folder5_approver1"],
+                "reviewers": ["folder5_reviewer1"],
+            },
+        }
+
+        assert await owners_file_handler.local_approvers_by_dir == {
+            "folder1": ["folder1_approver1"],
+            "folder5": ["folder5_approver1"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_local_approvers_by_dir_ancestor_dir_matched(self, owners_file_handler: OwnersFileHandler) -> None:
+        """An OWNERS dir matches when it covers any changed folder, incl. via ancestry.
+
+        A PR touching `xx/yy` and `xx` matches both OWNERS dirs, so the by-dir map keeps
+        them separate — the union is not enough for the /merge gate.
+        """
+        owners_file_handler.changed_files = ["xx/yy/file1.py", "xx/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "xx": {"approvers": ["xx_approver1"], "reviewers": ["xx_reviewer1"]},
+            "xx/yy": {"approvers": ["yy_approver1"], "reviewers": ["yy_reviewer1"]},
+        }
+
+        assert await owners_file_handler.local_approvers_by_dir == {
+            "xx": ["xx_approver1"],
+            "xx/yy": ["yy_approver1"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_root_approvers_required_for_pr_root_level_files(
+        self, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """Root-level changed files can never be covered by a sub-OWNERS dir."""
+        owners_file_handler.changed_files = ["README.md"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {
+                "root-approvers": False,
+                "approvers": ["root_approver1"],
+                "reviewers": ["root_reviewer1"],
+            },
+            "folder1": {
+                "root-approvers": False,
+                "approvers": ["folder1_approver1"],
+                "reviewers": ["folder1_reviewer1"],
+            },
+        }
+
+        assert await owners_file_handler.root_approvers_required_for_pr is True
+
+    @pytest.mark.asyncio
+    async def test_root_approvers_required_for_pr_mixed_dirs(self, owners_file_handler: OwnersFileHandler) -> None:
+        """One matched dir without the opt-out -> root approvers still required."""
+        owners_file_handler.changed_files = ["folder1/file1.py", "folder5/file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder5": {
+                "root-approvers": False,
+                "approvers": ["folder5_approver1"],
+                "reviewers": ["folder5_reviewer1"],
+            },
+        }
+
+        assert await owners_file_handler.root_approvers_required_for_pr is True
+
+    @pytest.mark.asyncio
+    async def test_root_approvers_required_for_pr_uncovered_folder(
+        self, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """A changed folder with no matching sub-OWNERS dir -> root approvers still required."""
+        owners_file_handler.changed_files = ["folder5/file1.py", "folder_with_no_owners/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder5": {
+                "root-approvers": False,
+                "approvers": ["folder5_approver1"],
+                "reviewers": ["folder5_reviewer1"],
+            },
+        }
+
+        assert await owners_file_handler.root_approvers_required_for_pr is True
+
+    @pytest.mark.asyncio
     async def test_owners_data_for_changed_files_caching(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test that owners_data_for_changed_files caches results using @functools.cached_property."""
         # Set up test data

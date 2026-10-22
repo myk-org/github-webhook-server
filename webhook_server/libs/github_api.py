@@ -1098,6 +1098,9 @@ class GithubWebhook:
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
         self.auto_verified_and_merged_users: list[str] = _auto_users if isinstance(_auto_users, list) else []
+        self.allow_merge_command: bool = self.config.get_value(
+            value="allow-merge-command", return_on_none=False, extra_dict=repository_config
+        )
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )

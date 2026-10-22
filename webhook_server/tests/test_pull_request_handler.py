@@ -98,6 +98,7 @@ def _create_mock_github_webhook() -> Mock:
     mock_webhook.token = TEST_GITHUB_TOKEN
     mock_webhook.auto_verify_cherry_picked_prs = True
     mock_webhook.cherry_pick_assign_to_pr_author = True
+    mock_webhook.allow_merge_command = False
     mock_webhook.last_commit = Mock()
     mock_webhook.ctx = None
     mock_webhook.enabled_labels = None

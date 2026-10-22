@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Run Pull Request Commands - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css?v=5a6efa51d2">
+    <link rel="stylesheet" href="assets/style.css?v=66bf87bdd9">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -364,6 +364,11 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <td>Approver</td>
 </tr>
 <tr>
+<td><code>/merge</code></td>
+<td>Squash-merges the PR immediately if <code>can-be-merged</code> is green (one-time, no label; opt-in via <code>allow-merge-command</code>)</td>
+<td>Approver of every matched <code>OWNERS</code> dir</td>
+</tr>
+<tr>
 <td><code>/build-and-push-container</code></td>
 <td>Builds and pushes the container image for the PR</td>
 <td>Anyone</td>
@@ -402,6 +407,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </table></div>
 <h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
 <p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list.
+Note: <code>/merge</code> is never allowed on draft PRs — it is rejected even when listed in <code>allow-commands-on-draft-prs</code>.
 Set it in <code>config.yaml</code>, either globally or under <code>repositories.&lt;repo&gt;</code> to override the global default for a single
 repository:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
@@ -517,6 +523,29 @@ that the user is not a collaborator.</p>
 <h4 id="check-can-merge"><code>/check-can-merge</code></h4>
 <p>Evaluates the merge requirements and reports which ones are still blocking the merge.</p>
 <div class="highlight"><pre><span></span><code>/check-can-merge
+</code></pre></div>
+
+<h4 id="merge"><code>/merge</code></h4>
+<p>Merges the PR immediately, <strong>without</strong> adding the <code>automerge</code> label, if the <code>can-be-merged</code> check run on the current
+head commit is green. It is a one-time action: the merge eligibility is evaluated only at the moment the command is
+sent. If <code>can-be-merged</code> is not green, the server comments that the PR cannot be merged and does nothing else — no
+label is added and no future merge is armed. Send <code>/merge</code> again once the check is green. The merge is pinned to the
+head commit whose <code>can-be-merged</code> run was validated — if new commits are pushed to the PR or the base branch advances
+before the merge lands, the merge is rejected and the server tells you to re-run <code>/check-can-merge</code> and send <code>/merge</code>
+again once it is green. The PR is always merged with
+the <strong>squash</strong> method — the merge strategy cannot be chosen. <code>/merge</code> takes no arguments (<code>/merge cancel</code> is rejected).</p>
+<p><code>/merge</code> is allowed only for approvers of <strong>every</strong> <code>OWNERS</code> dir covering the changed files — a PR touching dirs the
+sender cannot approve is not mergeable by them — and only when <strong>every</strong> matching entry sets <code>root-approvers: false</code>
+(see
+<a href="set-up-owners-and-reviewers.html">Set up owners and reviewers</a>). If any matched entry lacks the opt-out, a changed
+folder has no matching sub-<code>OWNERS</code>, or the sender is not an approver of some matched dir, the command is rejected
+with a comment explaining the requirement (and, for the approver case, naming the dirs the sender does not cover).
+It is not allowed on draft PRs.</p>
+<p><code>/merge</code> is <strong>opt-in</strong>: it works only when <code>allow-merge-command: true</code> is set in the server
+configuration — globally or for the specific repository (see
+<a href="configuration-reference.html">Configuration reference</a>). When not set, the command is rejected
+with a comment saying it is not enabled for the repository.</p>
+<div class="highlight"><pre><span></span><code>/merge
 </code></pre></div>
 
 <h4 id="add-allowed-user-username"><code>/add-allowed-user @username</code></h4>
@@ -739,14 +768,14 @@ command; those labels are managed by the server itself.</p>
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js?v=5a6efa51d2"></script>
+    <script src="assets/theme.js?v=66bf87bdd9"></script>
 
-    <script src="assets/search.js?v=5a6efa51d2"></script>
-    <script src="assets/copy.js?v=5a6efa51d2"></script>
-    <script src="assets/callouts.js?v=5a6efa51d2"></script>
-    <script src="assets/scrollspy.js?v=5a6efa51d2"></script>
-    <script src="assets/codelabels.js?v=5a6efa51d2"></script>
-    <script src="assets/github.js?v=5a6efa51d2"></script>
+    <script src="assets/search.js?v=66bf87bdd9"></script>
+    <script src="assets/copy.js?v=66bf87bdd9"></script>
+    <script src="assets/callouts.js?v=66bf87bdd9"></script>
+    <script src="assets/scrollspy.js?v=66bf87bdd9"></script>
+    <script src="assets/codelabels.js?v=66bf87bdd9"></script>
+    <script src="assets/github.js?v=66bf87bdd9"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');

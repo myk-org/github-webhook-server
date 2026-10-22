@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration Reference - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css?v=5a6efa51d2">
+    <link rel="stylesheet" href="assets/style.css?v=66bf87bdd9">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -499,6 +499,13 @@
 <td>Controls whether new PRs create a tracking issue by default.</td>
 </tr>
 <tr>
+<td><code>allow-merge-command</code></td>
+<td><code>boolean</code></td>
+<td><code>false</code></td>
+<td>Global opt-in for the <code>/merge</code> command.</td>
+<td>Enables the one-time <code>/merge</code> command for repositories that do not override it.</td>
+</tr>
+<tr>
 <td><code>cherry-pick-assign-to-pr-author</code></td>
 <td><code>boolean</code></td>
 <td><code>true</code></td>
@@ -521,6 +528,7 @@
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
 <span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">allow-merge-command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below).</span>
 <span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
@@ -748,6 +756,13 @@
 <td>inherits global; else <code>true</code></td>
 <td>Per-repo cherry-pick auto-verification setting.</td>
 <td>Controls whether eligible cherry-picked PRs are auto-verified.</td>
+</tr>
+<tr>
+<td><code>allow-merge-command</code></td>
+<td><code>boolean</code></td>
+<td>inherits global; else <code>false</code></td>
+<td>Per-repo opt-in for the <code>/merge</code> command.</td>
+<td>Enables or disables the one-time <code>/merge</code> command for this repository.</td>
 </tr>
 <tr>
 <td><code>set-auto-merge-prs</code></td>
@@ -1665,14 +1680,14 @@
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js?v=5a6efa51d2"></script>
+    <script src="assets/theme.js?v=66bf87bdd9"></script>
 
-    <script src="assets/search.js?v=5a6efa51d2"></script>
-    <script src="assets/copy.js?v=5a6efa51d2"></script>
-    <script src="assets/callouts.js?v=5a6efa51d2"></script>
-    <script src="assets/scrollspy.js?v=5a6efa51d2"></script>
-    <script src="assets/codelabels.js?v=5a6efa51d2"></script>
-    <script src="assets/github.js?v=5a6efa51d2"></script>
+    <script src="assets/search.js?v=66bf87bdd9"></script>
+    <script src="assets/copy.js?v=66bf87bdd9"></script>
+    <script src="assets/callouts.js?v=66bf87bdd9"></script>
+    <script src="assets/scrollspy.js?v=66bf87bdd9"></script>
+    <script src="assets/codelabels.js?v=66bf87bdd9"></script>
+    <script src="assets/github.js?v=66bf87bdd9"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');

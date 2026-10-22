@@ -53,6 +53,7 @@ Example — one comment, three commands:
 | `/assign-reviewer @user` | Requests a review from a specific collaborator | Approver |
 | `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Maintainer, Approver |
 | `/check-can-merge` | Runs the `can-be-merged` check and reports the merge blockers | Approver |
+| `/merge` | Squash-merges the PR immediately if `can-be-merged` is green (one-time, no label; opt-in via `allow-merge-command`) | Approver of every matched `OWNERS` dir |
 | `/build-and-push-container` | Builds and pushes the container image for the PR | Anyone |
 | `/cherry-pick <branch> [branch...]` | Cherry-picks the PR to one or more target branches | Approver |
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
@@ -64,6 +65,7 @@ Example — one comment, three commands:
 ## Commands on draft pull requests
 
 Draft PRs are blocked by default. The `allow-commands-on-draft-prs` configuration key controls the exception list.
+Note: `/merge` is never allowed on draft PRs — it is rejected even when listed in `allow-commands-on-draft-prs`.
 Set it in `config.yaml`, either globally or under `repositories.<repo>` to override the global default for a single
 repository:
 
@@ -207,6 +209,34 @@ Evaluates the merge requirements and reports which ones are still blocking the m
 
 ```text
 /check-can-merge
+```
+
+#### `/merge`
+
+Merges the PR immediately, **without** adding the `automerge` label, if the `can-be-merged` check run on the current
+head commit is green. It is a one-time action: the merge eligibility is evaluated only at the moment the command is
+sent. If `can-be-merged` is not green, the server comments that the PR cannot be merged and does nothing else — no
+label is added and no future merge is armed. Send `/merge` again once the check is green. The merge is pinned to the
+head commit whose `can-be-merged` run was validated — if new commits are pushed to the PR or the base branch advances
+before the merge lands, the merge is rejected and the server tells you to re-run `/check-can-merge` and send `/merge`
+again once it is green. The PR is always merged with
+the **squash** method — the merge strategy cannot be chosen. `/merge` takes no arguments (`/merge cancel` is rejected).
+
+`/merge` is allowed only for approvers of **every** `OWNERS` dir covering the changed files — a PR touching dirs the
+sender cannot approve is not mergeable by them — and only when **every** matching entry sets `root-approvers: false`
+(see
+[Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, a changed
+folder has no matching sub-`OWNERS`, or the sender is not an approver of some matched dir, the command is rejected
+with a comment explaining the requirement (and, for the approver case, naming the dirs the sender does not cover).
+It is not allowed on draft PRs.
+
+`/merge` is **opt-in**: it works only when `allow-merge-command: true` is set in the server
+configuration — globally or for the specific repository (see
+[Configuration reference](configuration-reference.html)). When not set, the command is rejected
+with a comment saying it is not enabled for the repository.
+
+```text
+/merge
 ```
 
 #### `/add-allowed-user @username`

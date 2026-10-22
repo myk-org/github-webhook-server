@@ -515,6 +515,7 @@ This pull request will be automatically processed with the following features:{a
 * `/assign-reviewers` - Assign reviewers based on OWNERS file
 * `/assign-reviewer @username` - Assign specific reviewer
 * `/check-can-merge` - Check if PR meets merge requirements
+{self._prepare_merge_command_line}\
 
 #### Testing & Validation
 {self._prepare_retest_welcome_comment}
@@ -860,6 +861,19 @@ For more information, please refer to the project documentation or contact the m
                 "* `/automerge` - Enable automatic merging when all requirements are met "
                 "(maintainers and approvers only)\n"
                 "* `/automerge cancel` - Remove automerge label (maintainers and approvers only)\n"
+            )
+        return ""
+
+    @property
+    def _prepare_merge_command_line(self) -> str:
+        """Prepare the /merge command line for the welcome comment.
+
+        Only shows the command when it is opted in via `allow-merge-command`.
+        """
+        if self.github_webhook.allow_merge_command:
+            return (
+                "* `/merge` - Squash-merge now if `can-be-merged` is green "
+                "(opt-in via `allow-merge-command`; approvers of all matched dirs, `root-approvers: false`)\n"
             )
         return ""
 

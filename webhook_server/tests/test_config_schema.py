@@ -357,6 +357,58 @@ class TestConfigSchema:
         assert repo_props["default-status-checks"]["type"] == "array"
         assert repo_props["default-status-checks"]["items"]["type"] == "string"
 
+    def test_allow_merge_command_default_disabled(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that allow-merge-command defaults to disabled (opt-in)."""
+        config = valid_minimal_config.copy()
+        config["repositories"] = {"repo1": {"name": "org/repo1"}}
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            repo_config = Config(repository="repo1")
+            assert not repo_config.get_value("allow-merge-command")
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_allow_merge_command_global_and_per_repo(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test global enablement and per-repo override of allow-merge-command."""
+        config = valid_minimal_config.copy()
+        config["allow-merge-command"] = True
+        config["repositories"] = {
+            "repo1": {"name": "org/repo1"},
+            "repo2": {"name": "org/repo2", "allow-merge-command": False},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            # Inherits the global opt-in
+            assert Config(repository="repo1").get_value("allow-merge-command") is True
+            # Per-repo value overrides the global one
+            assert Config(repository="repo2").get_value("allow-merge-command") is False
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_schema_defines_allow_merge_command(self) -> None:
+        """Test that schema.yaml defines allow-merge-command at both global and per-repo levels."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        global_props = schema["properties"]
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        for props in (global_props, repo_props):
+            assert "allow-merge-command" in props
+            assert props["allow-merge-command"]["type"] == "boolean"
+            assert props["allow-merge-command"]["default"] is False
+
     def test_tox_configuration_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
         """Test that tox configuration accepts both string and array values."""
         config = valid_minimal_config.copy()

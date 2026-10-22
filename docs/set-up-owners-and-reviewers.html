@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Set Up OWNERS and Review Rules - github-webhook-server</title>
     <meta name="description" content="Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows.">
-    <link rel="stylesheet" href="assets/style.css?v=5a6efa51d2">
+    <link rel="stylesheet" href="assets/style.css?v=66bf87bdd9">
     <script>try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
     <link rel="alternate" type="text/plain" title="LLM Documentation Index" href="llms.txt">
     <link rel="alternate" type="text/plain" title="LLM Full Documentation" href="llms-full.txt">
@@ -328,6 +328,18 @@ and ignored by the validator, with the exception of <code>root-approvers</code>,
 <p>Separately, <code>all_repository_approvers</code> is the union of approvers from <strong>every</strong> <code>OWNERS</code> file in
 the repository, regardless of what the PR touches. That repo-wide list is what makes a user
 eligible to run commands; it is not what gates <code>/approve</code>.</p>
+<p><code>root-approvers: false</code> also unlocks the <code>/merge</code> command for approvers of every matched
+<code>OWNERS</code> dir (see <a href="run-pull-request-commands.html">Pull request commands</a>): such an
+approver can merge the PR themselves — once, at the moment the command is sent — when
+<code>can-be-merged</code> is green.
+This requires <strong>every</strong> <code>OWNERS</code> dir matching the changed files to set <code>root-approvers: false</code>,
+and the sender must be an approver of <strong>every</strong> matched dir — intentionally stricter than the
+first-match rule used for approver assignment above (step 4): if any matched dir lacks the
+opt-out, a changed folder has no matching sub-<code>OWNERS</code>, or the sender is not an approver of
+some matched dir (e.g. they can approve <code>xx/yy</code> but the PR also touches <code>xx</code>),
+<code>/merge</code> stays disabled and root approvers remain required. On top of the <code>OWNERS</code> rules,
+<code>/merge</code> is opt-in at the server level: it must be enabled with <code>allow-merge-command: true</code>
+(globally or per repository) before any of this applies.</p>
 <h2 id="review-commands">Review commands</h2>
 <h3 id="approve"><code>/approve</code></h3>
 <ul>
@@ -531,14 +543,14 @@ approvers, <code>minimum-lgtm</code>, required labels, status checks — still a
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <script src="assets/theme.js?v=5a6efa51d2"></script>
+    <script src="assets/theme.js?v=66bf87bdd9"></script>
 
-    <script src="assets/search.js?v=5a6efa51d2"></script>
-    <script src="assets/copy.js?v=5a6efa51d2"></script>
-    <script src="assets/callouts.js?v=5a6efa51d2"></script>
-    <script src="assets/scrollspy.js?v=5a6efa51d2"></script>
-    <script src="assets/codelabels.js?v=5a6efa51d2"></script>
-    <script src="assets/github.js?v=5a6efa51d2"></script>
+    <script src="assets/search.js?v=66bf87bdd9"></script>
+    <script src="assets/copy.js?v=66bf87bdd9"></script>
+    <script src="assets/callouts.js?v=66bf87bdd9"></script>
+    <script src="assets/scrollspy.js?v=66bf87bdd9"></script>
+    <script src="assets/codelabels.js?v=66bf87bdd9"></script>
+    <script src="assets/github.js?v=66bf87bdd9"></script>
     <script>
 (function() {
     var toggle = document.getElementById('sidebar-toggle');
