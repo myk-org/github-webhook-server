@@ -166,7 +166,9 @@ class TestWelcomeMessageNewlineStructure:
 
         return PullRequestHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
 
-    def test_merge_command_line_shown_only_when_enabled(self, process_github_webhook, owners_file_handler):
+    def test_merge_command_line_shown_only_when_enabled(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
         """The /merge welcome line appears only when allow-merge-command is opted in."""
         handler = self._create_handler(process_github_webhook, owners_file_handler, allow_merge_command=True)
         welcome_msg = handler._prepare_welcome_comment()

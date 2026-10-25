@@ -530,9 +530,13 @@ that the user is not a collaborator.</p>
 head commit is green. It is a one-time action: the merge eligibility is evaluated only at the moment the command is
 sent. If <code>can-be-merged</code> is not green, the server comments that the PR cannot be merged and does nothing else — no
 label is added and no future merge is armed. Send <code>/merge</code> again once the check is green. The merge is pinned to the
-head commit whose <code>can-be-merged</code> run was validated — if new commits are pushed to the PR or the base branch advances
+head commit whose <code>can-be-merged</code> run was validated — the PR head is re-verified from GitHub at command time, and
+if new commits were pushed, or the base branch advances
 before the merge lands, the merge is rejected and the server tells you to re-run <code>/check-can-merge</code> and send <code>/merge</code>
-again once it is green. The PR is always merged with
+again once it is green. Only check runs created by the server's own GitHub App count as the <code>can-be-merged</code>
+verdict — a job on the PR branch named <code>can-be-merged</code> cannot unlock the merge. Required labels
+(<code>can-be-merged-required-labels</code>) are re-verified at merge time, so removing a required label after the check passed
+blocks the merge. The PR is always merged with
 the <strong>squash</strong> method — the merge strategy cannot be chosen. <code>/merge</code> takes no arguments (<code>/merge cancel</code> is rejected).</p>
 <p><code>/merge</code> is allowed only for approvers of <strong>every</strong> <code>OWNERS</code> dir covering the changed files — a PR touching dirs the
 sender cannot approve is not mergeable by them — and only when <strong>every</strong> matching entry sets <code>root-approvers: false</code>
@@ -543,7 +547,8 @@ with a comment explaining the requirement (and, for the approver case, naming th
 It is not allowed on draft PRs.</p>
 <p><code>/merge</code> is <strong>opt-in</strong>: it works only when <code>allow-merge-command: true</code> is set in the server
 configuration — globally or for the specific repository (see
-<a href="configuration-reference.html">Configuration reference</a>). When not set, the command is rejected
+<a href="configuration-reference.html">Configuration reference</a>); the repository-local
+<code>.github-webhook-server.yaml</code> cannot enable it. When not set, the command is rejected
 with a comment saying it is not enabled for the repository.</p>
 <div class="highlight"><pre><span></span><code>/merge
 </code></pre></div>

@@ -105,7 +105,7 @@ max-workers: 10
 | `auto-verified-and-merged-users` | `array<string>` | `[]` | Users whose PRs are treated as auto-verified. | Applies as the global fallback user list; API users from `github-tokens` are added at runtime. |
 | `auto-verify-cherry-picked-prs` | `boolean` | `true` | Global default for cherry-picked PR auto-verification. | Repo-level value can disable or re-enable automatic verification of cherry-picked PRs. |
 | `create-issue-for-new-pr` | `boolean` | `true` | Global default for PR issue creation. | Controls whether new PRs create a tracking issue by default. |
-| `allow-merge-command` | `boolean` | `false` | Global opt-in for the `/merge` command. | Enables the one-time `/merge` command for repositories that do not override it. |
+| `allow-merge-command` | `boolean` | `false` | Global opt-in for the `/merge` command. | Enables the one-time `/merge` command for repositories that do not override it. Not settable in the repository-local `.github-webhook-server.yaml`. |
 | `cherry-pick-assign-to-pr-author` | `boolean` | `true` | Global default for cherry-pick assignee behavior. | Controls whether cherry-pick PRs are assigned to the original PR author by default. |
 | `allow-commands-on-draft-prs` | `array<string>` | unset | Global draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, and a non-empty list allows only the listed commands. |
 

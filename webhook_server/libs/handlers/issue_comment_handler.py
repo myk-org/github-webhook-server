@@ -6,6 +6,7 @@ from asyncio import Task
 from collections.abc import Coroutine, Iterable
 from typing import TYPE_CHECKING, Any
 
+from github.CheckRun import CheckRun
 from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -589,17 +590,52 @@ class IssueCommentHandler:
             )
             return
 
-        check_runs = await github_api_call(
-            lambda: list(self.github_webhook.last_commit.get_check_runs()),
-            logger=self.logger,
-            log_prefix=self.log_prefix,
+        # Refresh the PR from GitHub and verify the head still matches the commit whose data
+        # the webhook loaded: commits pushed since then invalidate the can-be-merged evaluation,
+        # and the merge must never run against stale head data.
+        await github_api_call(pull_request.update, logger=self.logger, log_prefix=self.log_prefix)
+        current_head_sha = await github_api_call(
+            lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix
         )
-        # Every status update creates a new check run, so multiple `can-be-merged` runs can
-        # exist for one head SHA — pick the latest by id, independent of API ordering.
-        can_be_merged_runs = [_check_run for _check_run in check_runs if _check_run.name == CAN_BE_MERGED_STR]
-        latest_run = max(can_be_merged_runs, key=lambda _check_run: _check_run.id, default=None)
+        last_commit_sha = await github_api_call(
+            lambda: self.github_webhook.last_commit.sha, logger=self.logger, log_prefix=self.log_prefix
+        )
+        if current_head_sha != last_commit_sha:
+            msg = (
+                "New commits were pushed since the can-be-merged check. "
+                "Re-run `/check-can-merge` and send `/merge` again once green"
+            )
+            self.logger.info(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
 
-        if latest_run is None or latest_run.conclusion != SUCCESS_STR:
+        # Required labels are re-verified at merge time: the green check run is a snapshot,
+        # and removing a required label after it passed must not leave the PR mergeable.
+        required_labels = self.github_webhook.can_be_merged_required_labels
+        if required_labels:
+            current_labels = await github_api_call(
+                lambda: [_label.name for _label in pull_request.labels],
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            removed_labels = [_label for _label in required_labels if _label not in current_labels]
+            if removed_labels:
+                msg = (
+                    f"Required label(s) missing since the {CAN_BE_MERGED_STR} check: "
+                    f"{', '.join(removed_labels)}. Add them and re-run `/check-can-merge` before `/merge`"
+                )
+                self.logger.info(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+        latest_conclusion = await github_api_call(
+            self._latest_server_can_be_merged_conclusion, logger=self.logger, log_prefix=self.log_prefix
+        )
+        if latest_conclusion != SUCCESS_STR:
             msg = f"{CAN_BE_MERGED_STR} check is not green for the current head commit, not merging"
             self.logger.info(f"{self.log_prefix} {msg}")
             await github_api_call(
@@ -611,13 +647,27 @@ class IssueCommentHandler:
             # Pin the merge to the head SHA whose check runs were validated: GitHub rejects
             # the merge with 409 if the PR head has moved since, so commits pushed after the
             # can-be-merged evaluation can never be merged under a stale green run.
-            await github_api_call(
+            merge_status = await github_api_call(
                 pull_request.merge,
                 merge_method="SQUASH",
-                sha=self.github_webhook.last_commit.sha,
+                sha=last_commit_sha,
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
+            # A 200 response can still carry merged=false — treat that as a failure instead of
+            # reporting success just because no exception was raised.
+            merged = bool(merge_status) and bool(
+                await github_api_call(lambda: merge_status.merged, logger=self.logger, log_prefix=self.log_prefix)
+            )
+            if not merged:
+                msg = (
+                    "GitHub reported the merge as not completed — check the pull request state and send `/merge` again"
+                )
+                self.logger.warning(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
             self.logger.info(f"{self.log_prefix} Merged pull request #{pull_request.number} by /merge command")
         except Exception as ex:
             # A parallel /merge task (duplicate command lines in one comment) may have already
@@ -632,16 +682,24 @@ class IssueCommentHandler:
                 self.logger.exception(f"{self.log_prefix} Failed to check if pull request already merged")
 
             if isinstance(ex, GithubException) and ex.status in (405, 409):
-                # 409: head moved or a merge conflict from a base advance. 405: not mergeable —
-                # commonly a parallel /merge that won before the merged flag propagated to a
-                # fresh read. A 405 whose message mentions disabled squash commits is a
-                # repository policy problem instead: /merge always uses the squash method, so
-                # no retry can succeed there.
+                # 409: head moved or a merge conflict from a base advance. 405 covers several
+                # distinct causes that need different advice: a parallel /merge that won
+                # before the merged flag propagated to a fresh read; squash merges disabled by
+                # repository policy (/merge always uses the squash method, so no retry can
+                # succeed there); and branch protection (missing required reviews or status
+                # checks), which re-sending /merge alone cannot fix.
                 error_message = str(ex.data.get("message", "")) if isinstance(ex.data, dict) else ""
-                if "disabled squash" in error_message.lower():
+                if ex.status == 405 and "disabled squash" in error_message.lower():
                     msg = (
                         "Merge rejected — squash merges are disabled for this repository by its policy; "
                         "`/merge` always uses the squash method and cannot work here"
+                    )
+                elif ex.status == 405:
+                    msg = (
+                        "Merge rejected — GitHub refused the merge. This is commonly branch protection "
+                        "(missing required reviews or status checks) or a parallel merge that already "
+                        "completed. Check the pull request's merge requirements and send `/merge` again "
+                        "once they are met"
                     )
                 else:
                     msg = (
@@ -665,6 +723,40 @@ class IssueCommentHandler:
     def _normalized_login(user: str) -> str:
         """Normalize a GitHub login for comparison (strip @, trim, casefold)."""
         return user.lstrip("@").strip().casefold()
+
+    def _latest_server_can_be_merged_conclusion(self) -> str | None:
+        """Return the conclusion of the latest server-run can-be-merged check (plain value).
+
+        Must be called through github_api_call, so every PyGithub read below (check-run
+        listing, app identity, name, id, conclusion) is covered by the retry policy.
+        Every status update creates a new check run, so multiple `can-be-merged` runs can
+        exist for one head SHA — pick the latest by id, independent of API ordering. Only
+        runs created by this server's GitHub App count: a PR branch could otherwise add a
+        job named `can-be-merged` and unlock the merge under its own green run.
+        """
+        check_runs = list(self.github_webhook.last_commit.get_check_runs())
+        server_runs = [
+            _check_run
+            for _check_run in check_runs
+            if _check_run.name == CAN_BE_MERGED_STR and self._is_server_check_run(_check_run)
+        ]
+        latest_run = max(server_runs, key=lambda _check_run: _check_run.id, default=None)
+        return latest_run.conclusion if latest_run is not None else None
+
+    def _is_server_check_run(self, check_run: CheckRun) -> bool:
+        """Return True if the check run was created by this server's GitHub App.
+
+        Must be called inside a github_api_call-wrapped callable (it reads lazy PyGithub
+        attributes). A run whose app cannot be verified as the server's app is never
+        trusted: a PR branch can create its own check run named `can-be-merged`, and only
+        the creating app's identity separates the server's verdict from a self-made one.
+        """
+        try:
+            app = check_run.app
+            github_app_id = self.github_webhook.github_app_id
+            return app is not None and bool(github_app_id) and app.id == int(github_app_id)
+        except (AttributeError, TypeError, ValueError):
+            return False
 
     def _is_user_in_approvers(self, reviewed_user: str, approvers: Iterable[str]) -> bool:
         """Return True if the user is in the given approvers list (login-normalized)."""

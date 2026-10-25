@@ -1098,9 +1098,12 @@ class GithubWebhook:
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
         self.auto_verified_and_merged_users: list[str] = _auto_users if isinstance(_auto_users, list) else []
-        self.allow_merge_command: bool = self.config.get_value(
-            value="allow-merge-command", return_on_none=False, extra_dict=repository_config
-        )
+        # Server-side opt-in only: resolved WITHOUT the repository-local extra_dict
+        # (.github-webhook-server.yaml). That file is controlled by repository maintainers, and a
+        # repository-local `allow-merge-command: true` must never enable /merge when the server's
+        # global or per-repository configuration leaves it disabled — merging is a server trust
+        # decision, not a maintainer-controlled behaviour.
+        self.allow_merge_command: bool = self.config.get_value("allow-merge-command", return_on_none=False)
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )

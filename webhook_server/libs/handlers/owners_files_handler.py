@@ -30,6 +30,11 @@ class OwnersFileHandler:
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
 
+    @staticmethod
+    def _normalized_login(user: str) -> str:
+        """Normalize a GitHub login for comparison (strip @, trim, casefold)."""
+        return user.lstrip("@").strip().casefold()
+
     async def initialize(self) -> OwnersFileHandler:
         """Initialize handler with PR data (optimized with parallel operations).
 
@@ -570,13 +575,20 @@ Maintainers:
         valid_users = await self.valid_users_to_run_commands
         self.logger.debug(f"{self.log_prefix} Valid users to run commands: {valid_users}")
 
-        if reviewed_user not in valid_users:
+        # GitHub logins are case-insensitive, and OWNERS entries are hand-typed: compare
+        # case-insensitively so a casing mismatch cannot reject a valid approver.
+        if self._normalized_login(reviewed_user) not in {self._normalized_login(_user) for _user in valid_users}:
             issue_comments = await github_api_call(
                 lambda: list(pull_request.get_issue_comments()),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            for comment in [_comment for _comment in issue_comments if _comment.user.login in allowed_user_to_approve]:
+            for comment in [
+                _comment
+                for _comment in issue_comments
+                if self._normalized_login(_comment.user.login)
+                in {self._normalized_login(_u) for _u in allowed_user_to_approve}
+            ]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"

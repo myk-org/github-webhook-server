@@ -217,9 +217,13 @@ Merges the PR immediately, **without** adding the `automerge` label, if the `can
 head commit is green. It is a one-time action: the merge eligibility is evaluated only at the moment the command is
 sent. If `can-be-merged` is not green, the server comments that the PR cannot be merged and does nothing else — no
 label is added and no future merge is armed. Send `/merge` again once the check is green. The merge is pinned to the
-head commit whose `can-be-merged` run was validated — if new commits are pushed to the PR or the base branch advances
+head commit whose `can-be-merged` run was validated — the PR head is re-verified from GitHub at command time, and
+if new commits were pushed, or the base branch advances
 before the merge lands, the merge is rejected and the server tells you to re-run `/check-can-merge` and send `/merge`
-again once it is green. The PR is always merged with
+again once it is green. Only check runs created by the server's own GitHub App count as the `can-be-merged`
+verdict — a job on the PR branch named `can-be-merged` cannot unlock the merge. Required labels
+(`can-be-merged-required-labels`) are re-verified at merge time, so removing a required label after the check passed
+blocks the merge. The PR is always merged with
 the **squash** method — the merge strategy cannot be chosen. `/merge` takes no arguments (`/merge cancel` is rejected).
 
 `/merge` is allowed only for approvers of **every** `OWNERS` dir covering the changed files — a PR touching dirs the
@@ -232,7 +236,8 @@ It is not allowed on draft PRs.
 
 `/merge` is **opt-in**: it works only when `allow-merge-command: true` is set in the server
 configuration — globally or for the specific repository (see
-[Configuration reference](configuration-reference.html)). When not set, the command is rejected
+[Configuration reference](configuration-reference.html)); the repository-local
+`.github-webhook-server.yaml` cannot enable it. When not set, the command is rejected
 with a comment saying it is not enabled for the repository.
 
 ```text

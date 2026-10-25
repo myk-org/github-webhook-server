@@ -3820,6 +3820,46 @@ class TestLoadWelcomeExtraInfoFromFile:
         assert github_webhook.welcome_extra_info == "config value"
 
 
+class TestAllowMergeCommandConfig:
+    """Tests for the server-side-only resolution of allow-merge-command."""
+
+    @pytest.fixture()
+    def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
+        """Create a GithubWebhook instance for config resolution tests."""
+        return process_github_webhook
+
+    def test_allow_merge_command_ignores_repository_local_config(self, github_webhook: GithubWebhook) -> None:
+        """A repo-local .github-webhook-server.yaml `allow-merge-command: true` cannot enable /merge.
+
+        The opt-in is a server trust decision: it must resolve from the server's global and
+        per-repository configuration only, never from the maintainer-controlled local file.
+        """
+        local_config = {"allow-merge-command": True}
+        get_value_calls: list[tuple[str, dict[str, Any] | None]] = []
+
+        def fake_get_value(
+            value: str = "", return_on_none: Any = None, extra_dict: dict[str, Any] | None = None
+        ) -> Any:
+            get_value_calls.append((value, extra_dict))
+            if value == "allow-merge-command":
+                # Server configuration leaves the opt-in disabled
+                return False
+            return return_on_none
+
+        github_webhook.config.get_value = MagicMock(side_effect=fake_get_value)
+        github_webhook._repo_data_from_config(repository_config=local_config)
+
+        assert github_webhook.allow_merge_command is False
+        # The opt-in is resolved without the repository-local extra_dict...
+        merge_command_extra_dicts = [
+            extra_dict for value, extra_dict in get_value_calls if value == "allow-merge-command"
+        ]
+        assert merge_command_extra_dicts == [None]
+        # ...while maintainer-controlled keys still see the local config
+        verified_job_extra_dicts = [extra_dict for value, extra_dict in get_value_calls if value == "verified-job"]
+        assert verified_job_extra_dicts == [local_config]
+
+
 class TestWelcomeExtraInfoConfigGuard:
     """Tests for welcome-extra-info runtime guard in _repo_data_from_config."""
 
