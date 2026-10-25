@@ -1026,7 +1026,11 @@ class GithubWebhook:
     def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
         self.logger.debug(f"Read config for repository {self.repository_name}")
 
-        self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
+        # Server-side only: the app the server authenticates as is fixed by the server's
+        # configuration (the app JWT is server-held). Resolving this with the repository-local
+        # extra_dict would let a repo-local `github-app-id` override make `/merge` trust check
+        # runs created by a different app.
+        self.github_app_id: str = self.config.get_value("github-app-id")
         _pypi = self.config.get_value(value="pypi", extra_dict=repository_config)
         self.pypi: dict[str, str] = _pypi if isinstance(_pypi, dict) else {}
         self.verified_job: bool = self.config.get_value(

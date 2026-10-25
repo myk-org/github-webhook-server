@@ -3821,7 +3821,7 @@ class TestLoadWelcomeExtraInfoFromFile:
 
 
 class TestAllowMergeCommandConfig:
-    """Tests for the server-side-only resolution of allow-merge-command."""
+    """Tests for the server-side-only resolution of merge-security config keys."""
 
     @pytest.fixture()
     def github_webhook(self, process_github_webhook: GithubWebhook) -> GithubWebhook:
@@ -3858,6 +3858,31 @@ class TestAllowMergeCommandConfig:
         # ...while maintainer-controlled keys still see the local config
         verified_job_extra_dicts = [extra_dict for value, extra_dict in get_value_calls if value == "verified-job"]
         assert verified_job_extra_dicts == [local_config]
+
+    def test_github_app_id_ignores_repository_local_config(self, github_webhook: GithubWebhook) -> None:
+        """A repo-local github-app-id override must not change the server's app identity.
+
+        The app the server authenticates as is fixed by the server-held JWT; trusting a
+        repo-local override here would let a foreign app's check runs satisfy /merge.
+        """
+        local_config = {"github-app-id": 99999}
+        get_value_calls: list[tuple[str, dict[str, Any] | None]] = []
+
+        def fake_get_value(
+            value: str = "", return_on_none: Any = None, extra_dict: dict[str, Any] | None = None
+        ) -> Any:
+            get_value_calls.append((value, extra_dict))
+            if value == "github-app-id":
+                # Server configuration pins the app identity
+                return "12345"
+            return return_on_none
+
+        github_webhook.config.get_value = MagicMock(side_effect=fake_get_value)
+        github_webhook._repo_data_from_config(repository_config=local_config)
+
+        assert github_webhook.github_app_id == "12345"
+        app_id_extra_dicts = [extra_dict for value, extra_dict in get_value_calls if value == "github-app-id"]
+        assert app_id_extra_dicts == [None]
 
 
 class TestWelcomeExtraInfoConfigGuard:
