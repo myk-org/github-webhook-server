@@ -868,11 +868,12 @@ For more information, please refer to the project documentation or contact the m
     def _prepare_merge_command_line(self) -> str:
         """Prepare the /merge command line for the welcome comment.
 
-        Only shows the command when it is opted in via `allow-merge-command`.
+        Only shows the command when it is opted in via `allow-merge-command`, and names
+        the merge method configured via `merge-command-method`.
         """
         if self.github_webhook.allow_merge_command:
             return (
-                "* `/merge` - Squash-merge now if `can-be-merged` is green "
+                f"* `/merge` - Merge now via {self.github_webhook.merge_command_method} if `can-be-merged` is green "
                 "(opt-in via `allow-merge-command`; approvers of all matched dirs, `root-approvers: false`)\n"
             )
         return ""

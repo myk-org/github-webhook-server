@@ -112,7 +112,19 @@ class IssueCommentHandler:
                 )
 
                 tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+                # /merge is terminal and head-sensitive: it evaluates the PR's current head
+                # and merges it, so it must not race head-changing commands from the same
+                # comment (e.g. /rebase). Other commands run concurrently; /merge commands
+                # run afterwards, sequentially, in comment order.
+                scheduled_commands: list[str] = []
+                merge_commands: list[str] = []
                 for user_command in _user_commands:
+                    if user_command.split(" ", 1)[0] == COMMAND_MERGE_STR:
+                        merge_commands.append(user_command)
+                    else:
+                        scheduled_commands.append(user_command)
+
+                for user_command in scheduled_commands:
                     task = asyncio.create_task(
                         self.user_commands(
                             pull_request=pull_request,
@@ -124,13 +136,31 @@ class IssueCommentHandler:
                     )
                     tasks.append(task)
 
-                # Execute all commands concurrently
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Execute all non-merge commands concurrently
+                results = list(await asyncio.gather(*tasks, return_exceptions=True))
+
+                # Execute /merge commands sequentially after the others have settled
+                for user_command in merge_commands:
+                    try:
+                        await self.user_commands(
+                            pull_request=pull_request,
+                            command=user_command,
+                            reviewed_user=user_login,
+                            issue_comment_id=self.hook_data["comment"]["id"],
+                            is_draft=is_draft,
+                        )
+                        results.append(None)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as ex:
+                        results.append(ex)
+
+                executed_commands = scheduled_commands + merge_commands
 
                 # Check if any command failed
                 failed_commands: list[tuple[str, Exception]] = []
                 for idx, result in enumerate(results):
-                    user_command = _user_commands[idx]
+                    user_command = executed_commands[idx]
                     if isinstance(result, asyncio.CancelledError):
                         raise result
                     if isinstance(result, Exception):

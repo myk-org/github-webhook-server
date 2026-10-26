@@ -1090,7 +1090,7 @@ Example — one comment, three commands:
 | `/assign-reviewer @user` | Requests a review from a specific collaborator | Approver |
 | `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Maintainer, Approver |
 | `/check-can-merge` | Runs the `can-be-merged` check and reports the merge blockers | Approver |
-| `/merge` | Squash-merges the PR immediately if `can-be-merged` is green (one-time, no label; opt-in via `allow-merge-command`) | Approver of every matched `OWNERS` dir |
+| `/merge` | Merges the PR immediately if `can-be-merged` is green (one-time, no label; method via `merge-command-method`, default squash; opt-in via `allow-merge-command`) | Approver of every matched `OWNERS` dir |
 | `/build-and-push-container` | Builds and pushes the container image for the PR | Anyone |
 | `/cherry-pick <branch> [branch...]` | Cherry-picks the PR to one or more target branches | Approver |
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |

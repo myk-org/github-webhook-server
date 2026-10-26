@@ -244,6 +244,62 @@ class TestIssueCommentHandler:
             assert execution_overlap < 0.15, f"Execution overlap {execution_overlap:.3f}s suggests sequential execution"
 
     @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_merge_runs_after_other_commands(
+        self,
+        issue_comment_handler: IssueCommentHandler,
+    ) -> None:
+        """/merge waits for other commands from the same comment to settle first.
+
+        /merge evaluates the current head and merges it; running it concurrently with a
+        head-changing command (e.g. /rebase) from the same comment could merge the old
+        head or reject on a head that is about to move.
+        """
+        issue_comment_handler.hook_data["comment"]["body"] = "/rebase\n/merge"
+
+        execution_order: list[str] = []
+
+        async def mock_command(
+            pull_request: Mock,  # noqa: ARG001
+            command: str,
+            reviewed_user: str,  # noqa: ARG001
+            issue_comment_id: int,  # noqa: ARG001
+            is_draft: bool,  # noqa: ARG001
+        ) -> None:
+            if command == "rebase":
+                # /rebase is still running when /merge would start if it raced
+                await asyncio.sleep(0.05)
+            execution_order.append(command)
+
+        with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+
+        assert execution_order == ["rebase", "merge"]
+
+    @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_repeated_merge_commands(
+        self,
+        issue_comment_handler: IssueCommentHandler,
+    ) -> None:
+        """Repeated /merge lines run sequentially, in comment order."""
+        issue_comment_handler.hook_data["comment"]["body"] = "/merge\n/merge cancel"
+
+        execution_order: list[str] = []
+
+        async def mock_command(
+            pull_request: Mock,  # noqa: ARG001
+            command: str,
+            reviewed_user: str,  # noqa: ARG001
+            issue_comment_id: int,  # noqa: ARG001
+            is_draft: bool,  # noqa: ARG001
+        ) -> None:
+            execution_order.append(command)
+
+        with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+
+        assert execution_order == ["merge", "merge cancel"]
+
+    @pytest.mark.asyncio
     async def test_user_commands_unsupported_command(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with unsupported command."""
         mock_pull_request = Mock()

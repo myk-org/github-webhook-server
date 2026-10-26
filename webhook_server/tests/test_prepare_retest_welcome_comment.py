@@ -28,6 +28,7 @@ class HandlerConfig(TypedDict, total=False):
     issue_url_for_welcome_msg: str
     minimum_lgtm: int
     allow_merge_command: bool
+    merge_command_method: str
     pull_request: PullRequest | None
 
 
@@ -153,6 +154,7 @@ class TestWelcomeMessageNewlineStructure:
             "issue_url_for_welcome_msg": "https://github.com/test/repo/issues/1",
             "minimum_lgtm": 1,
             "allow_merge_command": False,
+            "merge_command_method": "squash",
             "pull_request": None,
         }
         defaults.update(config)
@@ -172,7 +174,13 @@ class TestWelcomeMessageNewlineStructure:
         """The /merge welcome line appears only when allow-merge-command is opted in."""
         handler = self._create_handler(process_github_webhook, owners_file_handler, allow_merge_command=True)
         welcome_msg = handler._prepare_welcome_comment()
-        assert "* `/merge` - Squash-merge now" in welcome_msg
+        assert "* `/merge` - Merge now via squash" in welcome_msg
+
+        handler = self._create_handler(
+            process_github_webhook, owners_file_handler, allow_merge_command=True, merge_command_method="rebase"
+        )
+        welcome_msg = handler._prepare_welcome_comment()
+        assert "* `/merge` - Merge now via rebase" in welcome_msg
 
         handler = self._create_handler(process_github_webhook, owners_file_handler, allow_merge_command=False)
         welcome_msg = handler._prepare_welcome_comment()
