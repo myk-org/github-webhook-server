@@ -55,6 +55,7 @@ class TestIssueCommentHandler:
         mock_webhook.custom_check_runs = []
         mock_webhook.cherry_pick_assign_to_pr_author = True
         mock_webhook.allow_merge_command = True
+        mock_webhook.merge_command_method = "squash"
         mock_webhook.can_be_merged_required_labels = []
         mock_webhook.last_commit = Mock(sha="head-sha-1")
         mock_webhook.github_app_id = "12345"
@@ -958,13 +959,45 @@ class TestIssueCommentHandler:
 
             merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
             assert len(merge_calls) == 1
-            assert merge_calls[0].kwargs.get("merge_method") == "SQUASH"
+            assert merge_calls[0].kwargs.get("merge_method") == "squash"
             # Merge must be pinned to the validated head SHA
             assert merge_calls[0].kwargs.get("sha") == "head-sha-1"
             comment_calls = [
                 c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
             ]
             assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_configured_method(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """The merge method comes from merge-command-method, with a lowercase API value."""
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.merge_command_method = "rebase"
+
+        merge_status = Mock(merged=True)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                merge_status,  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            assert merge_calls[0].kwargs.get("merge_method") == "rebase"
 
     @pytest.mark.asyncio
     async def test_process_merge_command_head_changed_since_webhook(

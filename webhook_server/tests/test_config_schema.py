@@ -409,6 +409,57 @@ class TestConfigSchema:
             assert props["allow-merge-command"]["type"] == "boolean"
             assert props["allow-merge-command"]["default"] is False
 
+    def test_merge_command_method_configuration(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test merge-command-method default, per-repo override, and enum validation."""
+        config = valid_minimal_config.copy()
+        config["merge-command-method"] = "rebase"
+        config["repositories"] = {
+            "repo1": {"name": "org/repo1"},
+            "repo2": {"name": "org/repo2", "merge-command-method": "merge"},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            # Inherits the global value
+            assert Config(repository="repo1").get_value("merge-command-method") == "rebase"
+            # Per-repo value overrides the global one
+            assert Config(repository="repo2").get_value("merge-command-method") == "merge"
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_merge_command_method_default_is_squash(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that merge-command-method defaults to squash when unset."""
+        config = valid_minimal_config.copy()
+        config["repositories"] = {"repo1": {"name": "org/repo1"}}
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            assert not Config(repository="repo1").get_value("merge-command-method")
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_schema_defines_merge_command_method(self) -> None:
+        """Test that schema.yaml defines merge-command-method at both levels with a lowercase enum."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        global_props = schema["properties"]
+        repo_props = schema["properties"]["repositories"]["additionalProperties"]["properties"]
+        for props in (global_props, repo_props):
+            assert props["merge-command-method"]["type"] == "string"
+            assert props["merge-command-method"]["enum"] == ["squash", "merge", "rebase"]
+            assert props["merge-command-method"]["default"] == "squash"
+
     def test_tox_configuration_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
         """Test that tox configuration accepts both string and array values."""
         config = valid_minimal_config.copy()

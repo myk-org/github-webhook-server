@@ -3884,6 +3884,26 @@ class TestAllowMergeCommandConfig:
         app_id_extra_dicts = [extra_dict for value, extra_dict in get_value_calls if value == "github-app-id"]
         assert app_id_extra_dicts == [None]
 
+    def test_merge_command_method_ignores_repository_local_config(self, github_webhook: GithubWebhook) -> None:
+        """A repo-local merge-command-method override must not change the server's merge policy."""
+        local_config = {"merge-command-method": "rebase"}
+        get_value_calls: list[tuple[str, dict[str, Any] | None]] = []
+
+        def fake_get_value(
+            value: str = "", return_on_none: Any = None, extra_dict: dict[str, Any] | None = None
+        ) -> Any:
+            get_value_calls.append((value, extra_dict))
+            if value == "merge-command-method":
+                return "squash"
+            return return_on_none
+
+        github_webhook.config.get_value = MagicMock(side_effect=fake_get_value)
+        github_webhook._repo_data_from_config(repository_config=local_config)
+
+        assert github_webhook.merge_command_method == "squash"
+        method_extra_dicts = [extra_dict for value, extra_dict in get_value_calls if value == "merge-command-method"]
+        assert method_extra_dicts == [None]
+
 
 class TestWelcomeExtraInfoConfigGuard:
     """Tests for welcome-extra-info runtime guard in _repo_data_from_config."""

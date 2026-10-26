@@ -530,7 +530,8 @@ class IssueCommentHandler:
         on the current head SHA is green, the PR is squash-merged immediately; otherwise a
         comment is posted and nothing else happens — no label is added and no future merge
         is armed. Never allowed on draft PRs. Opt-in: the command works only when
-        `allow-merge-command` is enabled for the repository (repo level or global).
+        `allow-merge-command` is enabled for the repository (repo level or global). The PR is
+        merged with the method configured via `merge-command-method` (default: squash).
         """
         if not self.github_webhook.allow_merge_command:
             msg = (
@@ -649,7 +650,7 @@ class IssueCommentHandler:
             # can-be-merged evaluation can never be merged under a stale green run.
             merge_status = await github_api_call(
                 pull_request.merge,
-                merge_method="SQUASH",
+                merge_method=self.github_webhook.merge_command_method,
                 sha=last_commit_sha,
                 logger=self.logger,
                 log_prefix=self.log_prefix,
@@ -684,15 +685,17 @@ class IssueCommentHandler:
             if isinstance(ex, GithubException) and ex.status in (405, 409):
                 # 409: head moved or a merge conflict from a base advance. 405 covers several
                 # distinct causes that need different advice: a parallel /merge that won
-                # before the merged flag propagated to a fresh read; squash merges disabled by
-                # repository policy (/merge always uses the squash method, so no retry can
-                # succeed there); and branch protection (missing required reviews or status
-                # checks), which re-sending /merge alone cannot fix.
+                # before the merged flag propagated to a fresh read; the configured merge
+                # method disabled by repository policy (no retry can succeed there); and
+                # branch protection (missing required reviews or status checks), which
+                # re-sending /merge alone cannot fix.
                 error_message = str(ex.data.get("message", "")) if isinstance(ex.data, dict) else ""
-                if ex.status == 405 and "disabled squash" in error_message.lower():
+                _method = self.github_webhook.merge_command_method
+                _error_lower = error_message.lower()
+                if ex.status == 405 and "disabled" in _error_lower and _method in _error_lower:
                     msg = (
-                        "Merge rejected — squash merges are disabled for this repository by its policy; "
-                        "`/merge` always uses the squash method and cannot work here"
+                        f"Merge rejected — {_method} merges are disabled for this repository by its policy; "
+                        f"`/merge` uses the {_method} method and cannot work here"
                     )
                 elif ex.status == 405:
                     msg = (

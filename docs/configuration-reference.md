@@ -106,6 +106,7 @@ max-workers: 10
 | `auto-verify-cherry-picked-prs` | `boolean` | `true` | Global default for cherry-picked PR auto-verification. | Repo-level value can disable or re-enable automatic verification of cherry-picked PRs. |
 | `create-issue-for-new-pr` | `boolean` | `true` | Global default for PR issue creation. | Controls whether new PRs create a tracking issue by default. |
 | `allow-merge-command` | `boolean` | `false` | Global opt-in for the `/merge` command. | Enables the one-time `/merge` command for repositories that do not override it. Not settable in the repository-local `.github-webhook-server.yaml`. |
+| `merge-command-method` | `string` | `squash` | Merge method used by `/merge`: `squash`, `merge`, or `rebase`. | Controls how the one-time `/merge` merges the PR. Not settable in the repository-local `.github-webhook-server.yaml`. |
 | `cherry-pick-assign-to-pr-author` | `boolean` | `true` | Global default for cherry-pick assignee behavior. | Controls whether cherry-pick PRs are assigned to the original PR author by default. |
 | `allow-commands-on-draft-prs` | `array<string>` | unset | Global draft-PR command allowlist. Use slash-command names without `/`. | Omitted blocks draft-PR commands, `[]` allows all, and a non-empty list allows only the listed commands. |
 
@@ -117,7 +118,8 @@ auto-verified-and-merged-users:
   - renovate[bot]
 auto-verify-cherry-picked-prs: true
 create-issue-for-new-pr: true
-allow-merge-command: false # Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below).
+allow-merge-command: false # Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below)
+merge-command-method: squash # squash | merge | rebase — method used by /merge
 cherry-pick-assign-to-pr-author: true
 allow-commands-on-draft-prs:
   - retest
@@ -212,6 +214,7 @@ Where: `Repo/local`
 | `auto-verified-and-merged-users` | `array<string>` | inherits global; else `[]` | Per-repo replacement for the auto-verified user list. | Limits auto-verification to the listed users for this repository. |
 | `auto-verify-cherry-picked-prs` | `boolean` | inherits global; else `true` | Per-repo cherry-pick auto-verification setting. | Controls whether eligible cherry-picked PRs are auto-verified. |
 | `allow-merge-command` | `boolean` | inherits global; else `false` | Per-repo opt-in for the `/merge` command. | Enables or disables the one-time `/merge` command for this repository. |
+| `merge-command-method` | `string` | inherits global; else `squash` | Per-repo merge method for `/merge`: `squash`, `merge`, or `rebase`. | Controls how `/merge` merges PRs in this repository. |
 | `set-auto-merge-prs` | `array<string>` | `[]` | Exact base branch names that should have auto-merge enabled. | If a PR targets a listed branch and becomes mergeable, the server enables GitHub auto-merge. |
 | `can-be-merged-required-labels` | `array<string>` | `[]` | Labels that must be present before a PR can be marked mergeable. | Adds extra label gates to the `can-be-merged` workflow. |
 | `conventional-title` | `string` | unset | Comma-separated allowed Conventional Commit types, or `*` for any valid type. | Enables the `conventional-title` check run for this repository. |

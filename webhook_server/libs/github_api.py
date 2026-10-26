@@ -1108,6 +1108,9 @@ class GithubWebhook:
         # global or per-repository configuration leaves it disabled — merging is a server trust
         # decision, not a maintainer-controlled behaviour.
         self.allow_merge_command: bool = self.config.get_value("allow-merge-command", return_on_none=False)
+        # Same server-side-only resolution: the merge method is a server policy decision,
+        # not a maintainer-controlled behaviour. Schema enum guarantees a lowercase value.
+        self.merge_command_method: str = self.config.get_value("merge-command-method", return_on_none="squash")
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )

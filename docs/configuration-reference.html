@@ -506,6 +506,13 @@
 <td>Enables the one-time <code>/merge</code> command for repositories that do not override it. Not settable in the repository-local <code>.github-webhook-server.yaml</code>.</td>
 </tr>
 <tr>
+<td><code>merge-command-method</code></td>
+<td><code>string</code></td>
+<td><code>squash</code></td>
+<td>Merge method used by <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>.</td>
+<td>Controls how the one-time <code>/merge</code> merges the PR. Not settable in the repository-local <code>.github-webhook-server.yaml</code>.</td>
+</tr>
+<tr>
 <td><code>cherry-pick-assign-to-pr-author</code></td>
 <td><code>boolean</code></td>
 <td><code>true</code></td>
@@ -528,7 +535,8 @@
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
 <span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">allow-merge-command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below).</span>
+<span class="nt">allow-merge-command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below)</span>
+<span class="nt">merge-command-method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">squash</span><span class="w"> </span><span class="c1"># squash | merge | rebase — method used by /merge</span>
 <span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
@@ -763,6 +771,13 @@
 <td>inherits global; else <code>false</code></td>
 <td>Per-repo opt-in for the <code>/merge</code> command.</td>
 <td>Enables or disables the one-time <code>/merge</code> command for this repository.</td>
+</tr>
+<tr>
+<td><code>merge-command-method</code></td>
+<td><code>string</code></td>
+<td>inherits global; else <code>squash</code></td>
+<td>Per-repo merge method for <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>.</td>
+<td>Controls how <code>/merge</code> merges PRs in this repository.</td>
 </tr>
 <tr>
 <td><code>set-auto-merge-prs</code></td>

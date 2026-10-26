@@ -223,8 +223,9 @@ before the merge lands, the merge is rejected and the server tells you to re-run
 again once it is green. Only check runs created by the server's own GitHub App count as the `can-be-merged`
 verdict — a job on the PR branch named `can-be-merged` cannot unlock the merge. Required labels
 (`can-be-merged-required-labels`) are re-verified at merge time, so removing a required label after the check passed
-blocks the merge. The PR is always merged with
-the **squash** method — the merge strategy cannot be chosen. `/merge` takes no arguments (`/merge cancel` is rejected).
+blocks the merge. The PR is merged with the method configured via `merge-command-method`
+(`squash`, `merge`, or `rebase`; default: squash, see
+[Configuration reference](configuration-reference.html)). `/merge` takes no arguments (`/merge cancel` is rejected).
 
 `/merge` is allowed only for approvers of **every** `OWNERS` dir covering the changed files — a PR touching dirs the
 sender cannot approve is not mergeable by them — and only when **every** matching entry sets `root-approvers: false`

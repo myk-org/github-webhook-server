@@ -35,6 +35,8 @@ create-issue-for-new-pr: true # Global default: create tracking issues for new P
 
 allow-merge-command: false # Default: false - /merge command is opt-in. Set true to enable it globally (or per-repo below)
 
+merge-command-method: squash # Merge method used by /merge: squash | merge | rebase (default: squash)
+
 cherry-pick-assign-to-pr-author: true # Default: true - assign cherry-pick PRs to the original PR author
 
 # Additional information to display at the end of PR welcome messages (markdown)
@@ -230,6 +232,8 @@ repositories:
     auto-verify-cherry-picked-prs: false # Disable auto-verification for cherry-picked PRs in this repository
 
     allow-merge-command: true # Enable the one-time /merge command for this repository
+
+    merge-command-method: merge # Use merge commits for /merge in this repository
 
     github-tokens: # override GitHub tokens per repository
       - <GITHUB TOKEN1>

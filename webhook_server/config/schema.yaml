@@ -196,6 +196,14 @@ properties:
     type: boolean
     description: Enable the `/merge` command for approvers (opt-in; default is false)
     default: false
+  merge-command-method:
+    type: string
+    description: Merge method used by the `/merge` command (default is squash)
+    enum:
+      - squash
+      - merge
+      - rebase
+    default: squash
   create-issue-for-new-pr:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
@@ -512,6 +520,14 @@ properties:
           type: boolean
           description: Enable the `/merge` command for approvers of this repository (opt-in; default is false)
           default: false
+        merge-command-method:
+          type: string
+          description: Merge method used by the `/merge` command for this repository (default is squash)
+          enum:
+            - squash
+            - merge
+            - rebase
+          default: squash
         github-tokens:
           type: array
           items:
