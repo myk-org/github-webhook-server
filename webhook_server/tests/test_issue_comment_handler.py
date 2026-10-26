@@ -1136,6 +1136,84 @@ class TestIssueCommentHandler:
             assert "Re-run `/check-can-merge`" not in comment_calls[0].kwargs.get("body", "")
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["merge", "rebase"])
+    async def test_process_merge_command_method_disabled(
+        self, issue_comment_handler: IssueCommentHandler, method: str
+    ) -> None:
+        """A 405 naming the configured method gets the method-specific no-retry message."""
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.merge_command_method = method
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                GithubException(405, {"message": f"The base repository policy has disabled {method} merges"}, {}),
+                None,  # pull_request.update() refresh
+                False,  # PR not already merged
+                None,  # rejection comment
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+            body = comment_calls[0].kwargs.get("body", "")
+            assert f"{method} merges are disabled" in body
+            assert f"`/merge` uses the {method} method" in body
+            assert "Re-run `/check-can-merge`" not in body
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_disabled_other_method_falls_through(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A 405 about a different disabled method falls through to the generic 405 message."""
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+        issue_comment_handler.github_webhook.merge_command_method = "rebase"
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                GithubException(405, {"message": "The base repository policy has disabled merge commits"}, {}),
+                None,  # pull_request.update() refresh
+                False,  # PR not already merged
+                None,  # rejection comment
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert len(comment_calls) == 1
+            body = comment_calls[0].kwargs.get("body", "")
+            assert "rebase merges are disabled" not in body
+            assert "branch protection" in body
+
+    @pytest.mark.asyncio
     async def test_process_merge_command_merge_not_completed(self, issue_comment_handler: IssueCommentHandler) -> None:
         """A 200 response with merged=false is reported as a failure, not a success."""
         mock_pull_request = Mock()
