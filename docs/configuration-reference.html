@@ -712,6 +712,12 @@
 
 <h3 id="repo-keys-read-from-configyaml-or-github-webhook-serveryaml">Repo Keys Read From <code>config.yaml</code> or <code>.github-webhook-server.yaml</code></h3>
 <p>Where: <code>Repo/local</code></p>
+<blockquote>
+<p><strong>Note:</strong> Keys marked <strong>Server <code>config.yaml</code> only</strong> are resolved exclusively from the server's
+configuration — a value set in the repository-local <code>.github-webhook-server.yaml</code> is silently
+ignored for them. This is deliberate for <code>/merge</code> settings: they gate who can merge, so they
+must stay under the server operator's control.</p>
+</blockquote>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -769,14 +775,14 @@
 <td><code>allow-merge-command</code></td>
 <td><code>boolean</code></td>
 <td>inherits global; else <code>false</code></td>
-<td>Per-repo opt-in for the <code>/merge</code> command.</td>
+<td>Per-repo opt-in for the <code>/merge</code> command. <strong>Server <code>config.yaml</code> only</strong> — the repository-local <code>.github-webhook-server.yaml</code> cannot set this key.</td>
 <td>Enables or disables the one-time <code>/merge</code> command for this repository.</td>
 </tr>
 <tr>
 <td><code>merge-command-method</code></td>
 <td><code>string</code></td>
 <td>inherits global; else <code>squash</code></td>
-<td>Per-repo merge method for <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>.</td>
+<td>Per-repo merge method for <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>. <strong>Server <code>config.yaml</code> only</strong> — the repository-local <code>.github-webhook-server.yaml</code> cannot set this key.</td>
 <td>Controls how <code>/merge</code> merges PRs in this repository.</td>
 </tr>
 <tr>
