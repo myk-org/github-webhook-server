@@ -1065,7 +1065,7 @@ Example — one comment, three commands:
 | --- | --- |
 | **Author** | The user who opened the pull request |
 | **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone a maintainer/approver has granted with `/add-allowed-user @user` |
-| **Maintainer** | Listed in the `root-approvers` configuration, or otherwise resolved as a repository maintainer |
+| **Maintainer** | Listed in the `root-approvers` configuration, or a direct repository collaborator with `admin` or `maintain` permission (org owners and members with access only via org base permissions or teams do not count) |
 | **Anyone** | Any user who can comment, no permission check |
 
 | Command | What it does | Who can run it |

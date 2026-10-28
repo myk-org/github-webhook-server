@@ -32,7 +32,7 @@ FastAPI-based GitHub webhook server automating repository management and PR work
 Handlers in `webhook_server/libs/handlers/` process events; config via YAML with schema validation.
 See `docs/` for architecture and configuration reference docs.
 
-- Stack: Python 3.13, FastAPI, PyGithub, gql, aiohttp
+- Stack: Python 3.14, FastAPI, PyGithub, gql, aiohttp
 - Internal APIs — no backward compat; only `config.yaml`, `.github-webhook-server.yaml`, `.github-webhook-server-welcome-message.md`, and webhook payloads are stable
 - Config: `webhook_server/libs/config.py` (schema: `webhook_server/config/schema.yaml`)
 - GitHub API: `webhook_server/libs/github_api.py` — PyGithub REST v3, multi-token failover
@@ -108,9 +108,9 @@ value = self.config.get_value("key")
 - Guarantees: `repository_data` always set before handlers; webhook `user.node_id`/`sender` always exist
 
 ### Patterns
-- Logging: `get_logger_with_params(name=, repository=, hook_id=)` — use `logger.exception()` for tracebacks
+- Logging: `get_logger_with_params(repository_name=, log_file_name=)` — use `logger.exception()` for tracebacks
 - Config: `Config(repository="org/repo").get_value("key", default)`
-- Pre-fetched data: `self.github_webhook.repository_data['collaborators']['edges']` — `dict[str, Any]`, never None
+- Collaborator data: nothing pre-fetched — use `OwnersFileHandler.get_all_repository_collaborators()` (REST via `github_api_call`). `Config.repository_data` is YAML config only, never GitHub data
 - Context tracking: `get_context()` → `start_step()` / `complete_step()` / `fail_step()` (see `app.py`)
 - Always re-raise `asyncio.CancelledError`
 - All imports at top — no in-function imports (`TYPE_CHECKING` conditional imports are OK)

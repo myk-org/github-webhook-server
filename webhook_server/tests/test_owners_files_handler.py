@@ -798,10 +798,11 @@ class TestOwnersFileHandler:
 
         with patch.object(
             owners_file_handler.repository, "get_collaborators", return_value=[mock_collaborator1, mock_collaborator2]
-        ):
+        ) as mock_get_collaborators:
             result = await owners_file_handler.get_all_repository_collaborators()
 
             assert result == ["collaborator1", "collaborator2"]
+            mock_get_collaborators.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_get_all_repository_maintainers(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -821,14 +822,27 @@ class TestOwnersFileHandler:
         mock_regular.permissions.admin = False
         mock_regular.permissions.maintain = False
 
+        mock_collaborators = [mock_admin, mock_maintainer, mock_regular]
         with patch.object(
             owners_file_handler.repository,
             "get_collaborators",
-            return_value=[mock_admin, mock_maintainer, mock_regular],
-        ):
+            return_value=mock_collaborators,
+        ) as mock_get_collaborators:
             result = await owners_file_handler.get_all_repository_maintainers()
 
             assert result == ["admin_user", "maintainer_user"]
+            mock_get_collaborators.assert_called_once_with(affiliation="direct")
+
+    @pytest.mark.asyncio
+    async def test_repository_direct_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test repository_direct_collaborators property fetches direct collaborators only."""
+        mock_collaborators = ["direct_collaborator1", "direct_collaborator2"]
+        owners_file_handler.repository.get_collaborators.return_value = mock_collaborators
+
+        result = await owners_file_handler.repository_direct_collaborators
+
+        assert result == mock_collaborators
+        owners_file_handler.repository.get_collaborators.assert_called_once_with(affiliation="direct")
 
     @pytest.mark.asyncio
     async def test_repository_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:

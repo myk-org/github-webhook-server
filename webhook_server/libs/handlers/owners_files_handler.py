@@ -634,7 +634,9 @@ Maintainers:
         maintainers: list[str] = []
 
         # Fix #1: Convert PaginatedList to list in thread pool to avoid blocking during iteration
-        collaborators = await self.repository_collaborators
+        # Direct collaborators only (affiliation="direct"): org owners, team-inherited members and
+        # members via org base permissions are excluded, see issue #1268.
+        collaborators = await self.repository_direct_collaborators
         collaborators_list = await github_api_call(
             lambda: list(collaborators), logger=self.logger, log_prefix=self.log_prefix
         )
@@ -656,6 +658,14 @@ Maintainers:
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:
         return await github_api_call(self.repository.get_collaborators, logger=self.logger, log_prefix=self.log_prefix)
+
+    @functools.cached_property
+    async def repository_direct_collaborators(self) -> PaginatedList[NamedUser]:
+        return await github_api_call(
+            lambda: self.repository.get_collaborators(affiliation="direct"),
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
 
     @functools.cached_property
     async def repository_contributors(self) -> PaginatedList[NamedUser]:
