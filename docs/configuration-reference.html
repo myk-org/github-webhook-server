@@ -499,6 +499,20 @@
 <td>Controls whether new PRs create a tracking issue by default.</td>
 </tr>
 <tr>
+<td><code>allow-merge-command</code></td>
+<td><code>boolean</code></td>
+<td><code>false</code></td>
+<td>Global opt-in for the <code>/merge</code> command.</td>
+<td>Enables the one-time <code>/merge</code> command for repositories that do not override it. Not settable in the repository-local <code>.github-webhook-server.yaml</code>.</td>
+</tr>
+<tr>
+<td><code>merge-command-method</code></td>
+<td><code>string</code></td>
+<td><code>squash</code></td>
+<td>Merge method used by <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>.</td>
+<td>Controls how the one-time <code>/merge</code> merges the PR. Not settable in the repository-local <code>.github-webhook-server.yaml</code>.</td>
+</tr>
+<tr>
 <td><code>cherry-pick-assign-to-pr-author</code></td>
 <td><code>boolean</code></td>
 <td><code>true</code></td>
@@ -521,6 +535,8 @@
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">renovate[bot]</span>
 <span class="nt">auto-verify-cherry-picked-prs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">create-issue-for-new-pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">allow-merge-command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"> </span><span class="c1"># Default: false - /merge is opt-in. Set true to enable it repo-wide (or per-repo below)</span>
+<span class="nt">merge-command-method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">squash</span><span class="w"> </span><span class="c1"># squash | merge | rebase — method used by /merge</span>
 <span class="nt">cherry-pick-assign-to-pr-author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">allow-commands-on-draft-prs</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retest</span>
@@ -696,6 +712,12 @@
 
 <h3 id="repo-keys-read-from-configyaml-or-github-webhook-serveryaml">Repo Keys Read From <code>config.yaml</code> or <code>.github-webhook-server.yaml</code></h3>
 <p>Where: <code>Repo/local</code></p>
+<blockquote>
+<p><strong>Note:</strong> Keys marked <strong>Server <code>config.yaml</code> only</strong> are resolved exclusively from the server's
+configuration — a value set in the repository-local <code>.github-webhook-server.yaml</code> is silently
+ignored for them. This is deliberate for <code>/merge</code> settings: they gate who can merge, so they
+must stay under the server operator's control.</p>
+</blockquote>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -748,6 +770,20 @@
 <td>inherits global; else <code>true</code></td>
 <td>Per-repo cherry-pick auto-verification setting.</td>
 <td>Controls whether eligible cherry-picked PRs are auto-verified.</td>
+</tr>
+<tr>
+<td><code>allow-merge-command</code></td>
+<td><code>boolean</code></td>
+<td>inherits global; else <code>false</code></td>
+<td>Per-repo opt-in for the <code>/merge</code> command. <strong>Server <code>config.yaml</code> only</strong> — the repository-local <code>.github-webhook-server.yaml</code> cannot set this key.</td>
+<td>Enables or disables the one-time <code>/merge</code> command for this repository.</td>
+</tr>
+<tr>
+<td><code>merge-command-method</code></td>
+<td><code>string</code></td>
+<td>inherits global; else <code>squash</code></td>
+<td>Per-repo merge method for <code>/merge</code>: <code>squash</code>, <code>merge</code>, or <code>rebase</code>. <strong>Server <code>config.yaml</code> only</strong> — the repository-local <code>.github-webhook-server.yaml</code> cannot set this key.</td>
+<td>Controls how <code>/merge</code> merges PRs in this repository.</td>
 </tr>
 <tr>
 <td><code>set-auto-merge-prs</code></td>

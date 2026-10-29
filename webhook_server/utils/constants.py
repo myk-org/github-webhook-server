@@ -50,6 +50,7 @@ COMMAND_REGENERATE_WELCOME_STR: str = "regenerate-welcome"
 COMMAND_TEST_ORACLE_STR: str = "test-oracle"
 COMMAND_CHERRY_PICK_RETRY_STR: str = "cherry-pick-retry"
 COMMAND_REBASE_STR: str = "rebase"
+COMMAND_MERGE_STR: str = "merge"
 AUTOMERGE_LABEL_STR: str = "automerge"
 ROOT_APPROVERS_KEY: str = "root-approvers"
 

@@ -1026,7 +1026,11 @@ class GithubWebhook:
     def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
         self.logger.debug(f"Read config for repository {self.repository_name}")
 
-        self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
+        # Server-side only: the app the server authenticates as is fixed by the server's
+        # configuration (the app JWT is server-held). Resolving this with the repository-local
+        # extra_dict would let a repo-local `github-app-id` override make `/merge` trust check
+        # runs created by a different app.
+        self.github_app_id: str = self.config.get_value("github-app-id")
         _pypi = self.config.get_value(value="pypi", extra_dict=repository_config)
         self.pypi: dict[str, str] = _pypi if isinstance(_pypi, dict) else {}
         self.verified_job: bool = self.config.get_value(
@@ -1098,6 +1102,15 @@ class GithubWebhook:
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
         self.auto_verified_and_merged_users: list[str] = _auto_users if isinstance(_auto_users, list) else []
+        # Server-side opt-in only: resolved WITHOUT the repository-local extra_dict
+        # (.github-webhook-server.yaml). That file is controlled by repository maintainers, and a
+        # repository-local `allow-merge-command: true` must never enable /merge when the server's
+        # global or per-repository configuration leaves it disabled — merging is a server trust
+        # decision, not a maintainer-controlled behaviour.
+        self.allow_merge_command: bool = self.config.get_value("allow-merge-command", return_on_none=False)
+        # Same server-side-only resolution: the merge method is a server policy decision,
+        # not a maintainer-controlled behaviour. Schema enum guarantees a lowercase value.
+        self.merge_command_method: str = self.config.get_value("merge-command-method", return_on_none="squash")
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )

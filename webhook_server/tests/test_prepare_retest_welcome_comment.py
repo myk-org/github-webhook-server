@@ -27,6 +27,8 @@ class HandlerConfig(TypedDict, total=False):
     create_issue_for_new_pr: bool
     issue_url_for_welcome_msg: str
     minimum_lgtm: int
+    allow_merge_command: bool
+    merge_command_method: str
     pull_request: PullRequest | None
 
 
@@ -151,6 +153,8 @@ class TestWelcomeMessageNewlineStructure:
             "create_issue_for_new_pr": False,
             "issue_url_for_welcome_msg": "https://github.com/test/repo/issues/1",
             "minimum_lgtm": 1,
+            "allow_merge_command": False,
+            "merge_command_method": "squash",
             "pull_request": None,
         }
         defaults.update(config)
@@ -163,6 +167,24 @@ class TestWelcomeMessageNewlineStructure:
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
 
         return PullRequestHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
+
+    def test_merge_command_line_shown_only_when_enabled(
+        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler
+    ) -> None:
+        """The /merge welcome line appears only when allow-merge-command is opted in."""
+        handler = self._create_handler(process_github_webhook, owners_file_handler, allow_merge_command=True)
+        welcome_msg = handler._prepare_welcome_comment()
+        assert "* `/merge` - Merge now via squash" in welcome_msg
+
+        handler = self._create_handler(
+            process_github_webhook, owners_file_handler, allow_merge_command=True, merge_command_method="rebase"
+        )
+        welcome_msg = handler._prepare_welcome_comment()
+        assert "* `/merge` - Merge now via rebase" in welcome_msg
+
+        handler = self._create_handler(process_github_webhook, owners_file_handler, allow_merge_command=False)
+        welcome_msg = handler._prepare_welcome_comment()
+        assert "`/merge`" not in welcome_msg
 
     def test_container_section_enabled_has_header_on_own_line(self, process_github_webhook, owners_file_handler):
         """When container operations are enabled, the header must start on its own line."""
