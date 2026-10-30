@@ -38,9 +38,24 @@ if TYPE_CHECKING:
 # whatever exceeds it. Characters are not bytes: a log with a single 3-byte glyph in it
 # is 2 bytes over budget at 65534 characters, which is how the end of a failing tox run
 # (and the closing code fence) used to disappear. Budget in bytes, with room to spare.
-MAX_OUTPUT_BYTES = 65_000
-SUMMARY_MAX_BYTES = 4_000
-SUMMARY_TAIL_LINES = 40
+MAX_OUTPUT_BYTES = 65_400
+SUMMARY_MAX_BYTES = 6_000
+SUMMARY_TAIL_LINES = 25
+# One pathological line - a 40000-glyph assertion message, a minified bundle - used to eat the
+# whole byte budget and push the failure identification out of the window. No single line may
+# take more than this, so the budget is spent on the log instead of on one blob.
+MAX_LINE_CHARS = 2_000
+ERROR_SECTION_MAX_BYTES = 28_000
+# A check's failure is identified by these; everything from the first match onwards is the error
+# section, which is kept even when it sits in the middle of the log and would be cut as tail.
+ERROR_ANCHORS = (
+    "==== FAILURES ====",
+    "==== ERRORS ====",
+    "Traceback (most recent call last):",
+    "error:",
+    "Error:",
+    "ERROR:",
+)
 
 
 def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
@@ -57,6 +72,84 @@ def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
     if len(encoded) <= max_bytes:
         return text, 0
     return encoded[-max_bytes:].decode(errors="ignore"), len(encoded) - max_bytes
+
+
+def _head_bytes(text: str, max_bytes: int) -> str:
+    """Fit text into max_bytes keeping only its head.
+
+    Used for the failure section: its tail necessarily overlaps the tail of the log that is kept
+    alongside it, so keeping it here would spend budget printing the same bytes twice.
+
+    Args:
+        text: Text to fit.
+        max_bytes: UTF-8 byte budget.
+
+    Returns:
+        Head of text within budget, with a marker naming how many bytes were cut.
+    """
+    encoded = text.encode()
+    if len(encoded) <= max_bytes:
+        return text
+    marker = f"\n...[failure section truncated: {len(encoded) - max_bytes} bytes]...\n"
+    available = max_bytes - len(marker.encode())
+    return encoded[:available].decode(errors="ignore") + marker
+
+
+def _cap_long_lines(text: str, max_chars: int = MAX_LINE_CHARS) -> str:
+    """Collapse individual lines that are longer than max_chars, keeping their ends.
+
+    Args:
+        text: Log text.
+        max_chars: Longest line to keep intact.
+
+    Returns:
+        Text where no line exceeds max_chars, each collapsed line marked in place.
+    """
+    lines: list[str] = []
+    for line in text.splitlines():
+        if len(line) > max_chars:
+            head = max_chars // 2
+            tail = max_chars - head
+            lines.append(f"{line[:head]}...[line {len(line)} chars]...{line[-tail:]}")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _error_start(text: str) -> int | None:
+    """Return the character offset of the first failure marker in a log.
+
+    Args:
+        text: Log text.
+
+    Returns:
+        Offset of the line that starts the failure section, or None when no marker is present.
+    """
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if any(anchor in line for anchor in ERROR_ANCHORS):
+            return offset
+        offset += len(line)
+    return None
+
+
+def _error_section(text: str, max_bytes: int) -> str:
+    """Extract the part of a log that identifies the failure.
+
+    Args:
+        text: Log text.
+        max_bytes: Byte budget for the extracted section.
+
+    Returns:
+        Text from the first failure anchor to the end of the log, head-capped, or "" when the
+        log contains no recognised failure marker. When the failure section is itself larger than
+        the budget only its head survives - its tail is the end of the log, which the caller keeps
+        anyway - and the cut is named in place.
+    """
+    start = _error_start(text)
+    if start is None:
+        return ""
+    return _head_bytes(text[start:], max_bytes)
 
 
 class CheckRunOutput(TypedDict, total=False):
@@ -271,59 +364,126 @@ class CheckRunHandler:
         return text
 
     def get_check_run_text(self, err: str, out: str) -> str:
-        # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI.
-        # Redact BEFORE truncation to prevent partial secret leaks at truncation boundaries.
-        body = f"{strip_ansi_codes(err)}\n\n{strip_ansi_codes(out)}".strip()
-        body = self._redact_output(body)
-        total_bytes = len(body.encode())
+        """Render the check log for output.text, within GitHub's 65535-byte limit.
 
-        kept, dropped = _tail_bytes(body, MAX_OUTPUT_BYTES)
-        if not dropped:
-            return self._redact_output(f"```\n{body}\n```")
-
-        # Log the full redacted output BEFORE truncation so server logs preserve the complete
-        # build output for debugging (the body is already redacted at this point).
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(
-                f"{self.log_prefix} Full check run output ({total_bytes} bytes, truncated to the "
-                f"last {len(kept.encode())} for GitHub):\n```\n{body}\n```"
-            )
-        self.logger.info(
-            f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
-            f"kept the last {len(kept.encode())} bytes, dropped {dropped}"
-        )
-
-        # The failure reason is the last thing a check prints, so keep the tail rather than an
-        # even head/tail split: the head is setup noise (venv creation, command echo) and the
-        # middle is thousands of passing-test lines.
-        marker = f"...[{dropped} bytes truncated from the start of the output]..."
-        # The wrapper is added after truncation so the closing fence can never be cut off
-        return self._redact_output(f"```\n{marker}\n\n{kept}\n```")
-
-    def get_check_run_summary(self, err: str, out: str) -> str:
-        """Render the end of the check output as a short markdown excerpt.
-
-        GitHub shows output.summary inline in the Checks tab and output.text only after a click
-        on 'Details', so a check that only fills in text fails silently as far as a reviewer is
-        concerned. The last lines are what state the reason, so they belong in the summary.
+        The failure comes first and everything after it follows, so a reader never has to scroll
+        past thousands of passing lines to find what broke.
 
         Args:
             err: Command stderr.
             out: Command stdout.
 
         Returns:
-            A fenced excerpt of the tail of each non-empty stream, or "" when both are empty.
+            A fenced log excerpt no larger than GitHub accepts.
         """
-        parts: list[str] = []
-        for label, stream in (("stdout", out), ("stderr", err)):
-            cleaned = self._redact_output(strip_ansi_codes(stream)).strip()
-            if cleaned:
-                parts.append(f"[{label}]\n" + "\n".join(cleaned.splitlines()[-SUMMARY_TAIL_LINES:]))
-        if not parts:
+        # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI.
+        # Redact BEFORE truncation to prevent partial secret leaks at truncation boundaries.
+        body = f"{strip_ansi_codes(err)}\n\n{strip_ansi_codes(out)}".strip()
+        body = _cap_long_lines(self._redact_output(body))
+        total_bytes = len(body.encode())
+
+        if total_bytes <= MAX_OUTPUT_BYTES:
+            return self._redact_output(f"```\n{body}\n```")
+
+        # Log the full redacted output BEFORE truncation so server logs preserve the complete
+        # build output for debugging (the body is already redacted at this point).
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"{self.log_prefix} Full check run output ({total_bytes} bytes, GitHub limit is "
+                f"{MAX_OUTPUT_BYTES}):\n```\n{body}\n```"
+            )
+
+        error_start = _error_start(body)
+        error_part = ""
+        if error_start is not None:
+            from_failure = body[error_start:]
+            from_failure_bytes = len(from_failure.encode())
+            if from_failure_bytes <= MAX_OUTPUT_BYTES:
+                # Everything from the failure onwards fits: anchor the window there instead of at
+                # the end of the log, so the failure is the first thing on the page.
+                dropped = total_bytes - from_failure_bytes
+                self.logger.info(
+                    f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
+                    f"kept everything from the failure onwards ({from_failure_bytes} bytes), dropped {dropped}"
+                )
+                marker = f"...[{dropped} bytes truncated from the start of the output]..."
+                return self._redact_output(f"```\n{marker}\n\n{from_failure}\n```")
+            error_part = _head_bytes(from_failure, min(ERROR_SECTION_MAX_BYTES, MAX_OUTPUT_BYTES // 2))
+
+        # The failure section is too large on its own, or there is none: keep its head plus as much
+        # of the end of the log as the remaining budget allows (the verdict lives there).
+        budget = MAX_OUTPUT_BYTES - len(error_part.encode()) - 80  # 80 = marker + blank line
+        kept, _ = _tail_bytes(body, budget)
+        dropped = total_bytes - len(error_part.encode()) - len(kept.encode())
+        self.logger.info(
+            f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
+            f"kept {len(error_part.encode())} bytes of failure section and the last "
+            f"{len(kept.encode())} bytes, dropped {dropped}"
+        )
+
+        prefix = f"{error_part}\n\n" if error_part else ""
+        marker = f"...[{dropped} bytes truncated from the start of the output]..."
+        # The wrapper is added after truncation so the closing fence can never be cut off
+        return self._redact_output(f"```\n{prefix}{marker}\n\n{kept}\n```")
+
+    def get_check_run_summary(self, err: str, out: str) -> str:
+        """Render the reason for a check result as a short markdown excerpt.
+
+        GitHub shows output.summary inline in the Checks tab and output.text only after a click
+        on 'Details', so a check that only fills in text fails silently as far as a reviewer is
+        concerned. The failure section comes first because it identifies the problem; the verdict
+        lines come last because they say how bad it was.
+
+        Args:
+            err: Command stderr.
+            out: Command stdout.
+
+        Returns:
+            A fenced excerpt of the failure and the verdict, or "" when both streams are empty.
+        """
+        body = _cap_long_lines(self._redact_output(f"{strip_ansi_codes(err)}\n{strip_ansi_codes(out)}".strip()))
+        if not body:
             return ""
-        excerpt, _ = _tail_bytes("\n\n".join(parts), SUMMARY_MAX_BYTES)
+
+        error_part = _error_section(body, SUMMARY_MAX_BYTES - 500)
+        verdict = "\n".join(body.splitlines()[-2:])
+        if error_part and verdict not in error_part:
+            excerpt = f"{error_part}\n\n{verdict}"
+        elif error_part:
+            excerpt = error_part
+        else:
+            excerpt = "\n".join(body.splitlines()[-SUMMARY_TAIL_LINES:])
+
+        excerpt, _ = _tail_bytes(excerpt, SUMMARY_MAX_BYTES)
         # Tildes, not backticks: command output routinely contains ``` and would break the fence
         return f"~~~\n{excerpt}\n~~~"
+
+    def get_check_run_title(self, fallback_title: str, err: str, out: str, *, passed: bool) -> str:
+        """Return a one-line heading for output.title.
+
+        GitHub renders output.title directly above the summary, while the check is already named
+        after the check itself - repeating that name ('Tox' over 'tox') just pushes the content
+        down the page. The heading therefore states the verdict, or the line that identifies the
+        failure.
+
+        Args:
+            fallback_title: Human name of the check, used when no verdict line is found.
+            err: Command stderr.
+            out: Command stdout.
+            passed: Whether the check succeeded.
+
+        Returns:
+            A redacted single line, at most 250 characters.
+        """
+        if passed:
+            return f"{fallback_title} passed"
+
+        body = strip_ansi_codes(f"{out}\n{err}")
+        for line in reversed(body.splitlines()):
+            candidate = line.strip()
+            if candidate.startswith(("FAILED ", "ERROR ")) or candidate.lower().startswith("error:"):
+                return self._redact_output(candidate)[:250]
+        return f"{fallback_title} failed"
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:

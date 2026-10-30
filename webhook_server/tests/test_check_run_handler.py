@@ -523,13 +523,74 @@ class TestCheckRunHandler:
         assert "bytes truncated from the start" in result
 
     def test_get_check_run_text_truncation_keeps_tail_not_head(self, check_run_handler: CheckRunHandler) -> None:
-        """The tail is the failure reason, so it is what survives; the head is setup noise."""
-        out = "SETUP-NOISE\n" + ("x" * 70000) + "\nREAL-FAILURE-REASON\n"
+        """The tail is the verdict, so it is what survives; setup noise at the head goes first."""
+        out = "SETUP-NOISE\n" + "\n".join(f"PASSED test_{i}" for i in range(6000)) + "\nREAL-FAILURE-REASON\n"
 
         result = check_run_handler.get_check_run_text("", out)
 
         assert "REAL-FAILURE-REASON" in result
         assert "SETUP-NOISE" not in result
+        assert "bytes truncated from the start" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_caps_a_single_huge_line(self, check_run_handler: CheckRunHandler) -> None:
+        """One pathological line must not eat the budget - it is collapsed in place instead.
+
+        A 70 000-character line used to consume the whole window, leaving room for nothing else.
+        """
+        out = "SETUP-NOISE\n" + ("x" * 70_000) + "\nREAL-FAILURE-REASON\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "[line 70000 chars]" in result
+        assert "REAL-FAILURE-REASON" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_keeps_failure_section_ahead_of_the_tail(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A failure section buried behind thousands of passing lines is kept, not truncated away."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(5000))
+            + "\n=================================== FAILURES ===================================\n"
+            + "_____________________ test_buried_failure _____________________\n"
+            + "tests/test_x.py:5: in test_buried_failure\n"
+            + "E   AssertionError: "
+            + "y" * 40_000
+            + "\n"
+            + "\n".join(f"COVERAGE-LINE {i}" for i in range(2000))
+            + "\nVERDICT-LINE\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert result.index("==== FAILURES ====") < 200, "failure section must come first"
+        assert "test_buried_failure" in result
+        assert "VERDICT-LINE" in result, "the verdict at the end must still be there"
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_failure_section_over_budget(self, check_run_handler: CheckRunHandler) -> None:
+        """When the failure section itself is over budget, keep its head and name the cut.
+
+        Its tail is the end of the log, which is kept anyway, so keeping it here would print the
+        same bytes twice.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i}" for i in range(20000))
+            + "\nVERDICT-LINE\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "failure section truncated:" in result
+        assert "==================== FAILURES ====================" in result
+        assert result.count("VERDICT-LINE") == 1, "the log tail must not be duplicated"
+
+        # The kept head must also appear exactly once - the old head+tail split printed it twice.
+        detail = next(line for line in result.splitlines() if line.startswith("failure detail "))
+        assert result.count(detail) == 1 or len(result.splitlines()) < 10
         assert len(result.encode("utf-8")) <= 65535
 
     def test_get_check_run_text_logs_full_redacted_output_before_truncation(
@@ -541,21 +602,19 @@ class TestCheckRunHandler:
         aggregation systems, and BEFORE truncation so the complete build output
         is preserved in server logs.
         """
-        long_err = "E" * 10000
-        long_out = "O" * 60000
+        long_err = "\n".join("E" * 200 for _ in range(50))
+        long_out = "\n".join("O" * 200 for _ in range(500))
 
         check_run_handler.get_check_run_text(long_err, long_out)
 
         # Verify debug was called with the full output
         debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
-        full_output_logged = any(
-            "Full check run output" in call and "truncated to the last" in call for call in debug_calls
-        )
+        full_output_logged = any("Full check run output" in call and "GitHub limit is" in call for call in debug_calls)
         assert full_output_logged, "Expected debug log with full output before truncation"
 
     def test_get_check_run_text_logs_truncation_size_at_info(self, check_run_handler: CheckRunHandler) -> None:
         """Truncation is recorded at INFO so the server log says what GitHub did not receive."""
-        check_run_handler.get_check_run_text("", "O" * 70000)
+        check_run_handler.get_check_run_text("", "\n".join("O" * 200 for _ in range(500)))
 
         info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
         assert any("exceeds the GitHub limit" in call for call in info_calls)
@@ -563,9 +622,7 @@ class TestCheckRunHandler:
 
     def test_get_check_run_text_full_log_has_secrets_redacted(self, check_run_handler: CheckRunHandler) -> None:
         """Test that the full output debug log redacts secrets before logging."""
-        # Build output that contains secrets and exceeds truncation threshold
-        # Total (err_clean + out_clean + WRAPPER_OVERHEAD=10) must exceed MAX_LEN=65534
-        long_out = "O" * 66000
+        long_out = "\n".join("O" * 200 for _ in range(500))
         err_with_secret = "Error: auth failed with token test-token and user test-user"  # pragma: allowlist secret
 
         check_run_handler.get_check_run_text(err_with_secret, long_out)
@@ -633,13 +690,43 @@ class TestCheckRunHandler:
         assert len(summary.encode("utf-8")) <= 65535
 
     def test_get_check_run_summary_includes_stderr(self, check_run_handler: CheckRunHandler) -> None:
-        """Both streams can carry the reason, so both appear, labelled."""
+        """Both streams can carry the reason, so the excerpt covers both."""
         summary = check_run_handler.get_check_run_summary("Traceback: boom", "collected 3 items")
 
-        assert "[stdout]" in summary
         assert "collected 3 items" in summary
-        assert "[stderr]" in summary
         assert "Traceback: boom" in summary
+
+    def test_get_check_run_summary_leads_with_the_failure_section(self, check_run_handler: CheckRunHandler) -> None:
+        """The inline summary must state the failure, not just the last lines of noise."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(300))
+            + "\n==================== FAILURES ====================\n"
+            + "_____________________ test_the_real_problem _____________________\n"
+            + "tests/test_x.py:9: in test_the_real_problem\n"
+            + "E   AssertionError: expected 1 got 2\n"
+            + "\n".join(f"coverage noise {i}" for i in range(200))
+            + "\n1 failed, 300 passed\n"
+        )
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert "test_the_real_problem" in summary
+        assert "expected 1 got 2" in summary
+        assert summary.index("FAILURES") < 200
+        assert "1 failed, 300 passed" in summary, "the verdict must still be visible"
+
+    def test_get_check_run_title_reports_the_verdict(self, check_run_handler: CheckRunHandler) -> None:
+        """The heading must not repeat the check name GitHub already shows above it."""
+        assert check_run_handler.get_check_run_title("Tox", "", "16 passed", passed=True) == "Tox passed"
+        assert check_run_handler.get_check_run_title("Tox", "", "boom", passed=False) == "Tox failed"
+
+    def test_get_check_run_title_uses_the_failure_line(self, check_run_handler: CheckRunHandler) -> None:
+        """On failure the heading names what failed."""
+        out = "PASSED a\nFAILED tests/test_x.py::test_y\n  evaluation failed :("
+
+        title = check_run_handler.get_check_run_title("Tox", "", out, passed=False)
+
+        assert title == "FAILED tests/test_x.py::test_y"
 
     def test_get_check_run_summary_redacts_secrets(self, check_run_handler: CheckRunHandler) -> None:
         """The summary is posted to GitHub, so it gets the same redaction as the text."""

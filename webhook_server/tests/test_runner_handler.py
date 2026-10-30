@@ -223,7 +223,7 @@ class TestRunnerHandler:
                         await runner_handler.run_tox(mock_pull_request)
                         mock_set_progress.assert_called_once_with(name=TOX_STR)
                         mock_set_failure.assert_called_once_with(
-                            name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                            name=TOX_STR, output={"title": "Tox failed", "summary": "", "text": "dummy output"}
                         )
 
     @pytest.mark.asyncio
@@ -252,7 +252,7 @@ class TestRunnerHandler:
                             await runner_handler.run_tox(mock_pull_request)
                             mock_set_progress.assert_called_once_with(name=TOX_STR)
                             mock_set_success.assert_called_once_with(
-                                name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                                name=TOX_STR, output={"title": "Tox passed", "summary": "", "text": "dummy output"}
                             )
 
     @pytest.mark.asyncio
@@ -277,7 +277,7 @@ class TestRunnerHandler:
                             await runner_handler.run_tox(mock_pull_request)
                             mock_set_progress.assert_called_once_with(name=TOX_STR)
                             mock_set_failure.assert_called_once_with(
-                                name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                                name=TOX_STR, output={"title": "Tox failed", "summary": "", "text": "dummy output"}
                             )
 
     @pytest.mark.asyncio
@@ -344,7 +344,7 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PRE_COMMIT_STR)
                             mock_set_success.assert_called_once_with(
                                 name=PRE_COMMIT_STR,
-                                output={"title": "Pre-Commit", "summary": "", "text": "dummy output"},
+                                output={"title": "Pre-Commit passed", "summary": "", "text": "dummy output"},
                             )
 
     @pytest.mark.asyncio
@@ -394,7 +394,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -428,7 +428,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -564,7 +564,11 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PYTHON_MODULE_INSTALL_STR)
                             mock_set_success.assert_called_once_with(
                                 name=PYTHON_MODULE_INSTALL_STR,
-                                output={"title": "Python module installation", "summary": "", "text": "dummy output"},
+                                output={
+                                    "title": "Python module installation passed",
+                                    "summary": "",
+                                    "text": "dummy output",
+                                },
                             )
 
     @pytest.mark.asyncio
@@ -592,7 +596,12 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PYTHON_MODULE_INSTALL_STR)
                             mock_set_failure.assert_called_once_with(
                                 name=PYTHON_MODULE_INSTALL_STR,
-                                output={"title": "Python module installation", "summary": "", "text": "dummy output"},
+                                output={
+                                    "title": "ERROR: Directory '/tmp/worktree-path' is not installable. "
+                                    "Neither 'setup.py' nor 'pyproject.toml' found.",
+                                    "summary": "",
+                                    "text": "dummy output",
+                                },
                             )
 
     @pytest.mark.asyncio
@@ -1522,7 +1531,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -1766,7 +1775,7 @@ class TestRunnerHandler:
                                 # Should set failure due to repo preparation failure
                                 mock_set_failure.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container failed", "summary": "", "text": "dummy output"},
                                 )
                                 # Should NOT call run_podman_command (early return)
                                 mock_run_podman.assert_not_called()

@@ -319,6 +319,9 @@ class RunnerHandler:
                     self.logger.error(f"{self.log_prefix} Repository preparation failed for {check_config.name}")
                     output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                    output["title"] = self.check_run_handler.get_check_run_title(
+                        check_config.title, err=err, out=out, passed=False
+                    )
                     return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
 
                 # Build command with worktree path substitution
@@ -340,6 +343,9 @@ class RunnerHandler:
 
                 output["summary"] = self.check_run_handler.get_check_run_summary(err=err, out=out)
                 output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                output["title"] = self.check_run_handler.get_check_run_title(
+                    check_config.title, err=err, out=out, passed=rc
+                )
 
                 if rc:
                     self.logger.info(f"{self.log_prefix} Check {check_config.name} completed successfully")
@@ -710,7 +716,11 @@ class RunnerHandler:
             }
 
             if not success:
+                output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                output["title"] = self.check_run_handler.get_check_run_title(
+                    "Build container", err=err, out=out, passed=False
+                )
                 if pull_request and set_check:
                     await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
                 return
@@ -763,6 +773,9 @@ class RunnerHandler:
             )
             output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
+            output["title"] = self.check_run_handler.get_check_run_title(
+                "Build container", err=build_err, out=build_out, passed=build_rc
+            )
 
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
