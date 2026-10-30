@@ -418,7 +418,6 @@ class CheckRunHandler:
             )
 
         error_start = _error_start(body)
-        error_part = ""
         if error_start is not None:
             from_failure = body[error_start:]
             from_failure_bytes = len(from_failure.encode())
@@ -432,29 +431,42 @@ class CheckRunHandler:
                 )
                 marker = f"...[{dropped} bytes truncated from the start of the output]..."
                 return self._redact_output(f"```\n{marker}\n\n{from_failure}\n```")
-            error_part = _head_bytes(from_failure, min(ERROR_SECTION_MAX_BYTES, MAX_OUTPUT_BYTES // 2))
 
-        # The failure section is too large on its own, or there is none: keep its head plus the
-        # end of the log, where the verdict lives. Prefer the failed-test list as the anchor so
-        # hundreds of failures stay countable instead of being cut mid-list by a byte-counted tail.
-        budget = MAX_OUTPUT_BYTES - len(error_part.encode()) - 80  # 80 = marker + blank line
+        # Over budget. Split the window between the two things a reader needs, in this order:
+        # 1. the failed-test list (every failed test named once), kept as a whole block
+        # 2. the failure section head, contiguous from the first marker, taking whatever is left
+        # so the budget is always filled instead of posting 28 KB of a 65 KB allowance.
+        budget = MAX_OUTPUT_BYTES - 80  # 80 = marker + blank line
+        list_block = ""
         tail_start = _failed_list_start(body)
-        anchored = ""
-        if tail_start is not None and len(body[tail_start:].encode()) <= budget:
-            anchored = body[tail_start:]
-        kept, _ = _tail_bytes(anchored if anchored else body, budget)
-        dropped = total_bytes - len(error_part.encode()) - len(kept.encode())
-        tail_description = "the complete failed-test list" if anchored else f"the last {len(kept.encode())} bytes"
+        if tail_start is not None and len(body[tail_start:].encode()) <= budget // 2:
+            list_block = body[tail_start:]
+
+        error_part = ""
+        remaining = budget - len(list_block.encode())
+        if error_start is not None:
+            # With a failed-test list kept, the verdict is already on the page, so the failure
+            # section may have everything that is left. Without one, leave room for the end of
+            # the log and its verdict line.
+            error_budget = remaining if list_block else min(ERROR_SECTION_MAX_BYTES, remaining)
+            error_part = _head_bytes(body[error_start:], error_budget)
+        leftover = remaining - len(error_part.encode())
+        kept = ""
+        if leftover > 1_000:
+            kept, _ = _tail_bytes(body, leftover)
+
+        dropped = total_bytes - len(error_part.encode()) - len(list_block.encode()) - len(kept.encode())
         self.logger.info(
-            f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
-            f"kept {len(error_part.encode())} bytes of failure section and {tail_description}, "
-            f"dropped {dropped}"
+            f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; kept "
+            f"{len(error_part.encode())} bytes of failure section, "
+            f"{len(list_block.encode())} bytes of failed-test list and {len(kept.encode())} bytes "
+            f"of log tail, dropped {dropped}"
         )
 
-        prefix = f"{error_part}\n\n" if error_part else ""
         marker = f"...[{dropped} bytes truncated from the start of the output]..."
+        parts = [part for part in (error_part, marker, kept, list_block) if part]
         # The wrapper is added after truncation so the closing fence can never be cut off
-        return self._redact_output(f"```\n{prefix}{marker}\n\n{kept}\n```")
+        return self._redact_output(f"```\n{chr(10).join(p + chr(10) for p in parts).rstrip()}\n```")
 
     def get_check_run_summary(self, err: str, out: str) -> str:
         """Render the reason for a check result as a short markdown excerpt.

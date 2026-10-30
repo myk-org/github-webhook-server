@@ -593,6 +593,31 @@ class TestCheckRunHandler:
         assert result.count(detail) == 1 or len(result.splitlines()) < 10
         assert len(result.encode("utf-8")) <= 65535
 
+    def test_get_check_run_text_fills_the_budget(self, check_run_handler: CheckRunHandler) -> None:
+        """A small failed-test list must not leave most of the allowance unused.
+
+        A 300 KB failure section plus a one-line failed list used to post 28 KB of a 65 KB
+        allowance because the failure section was capped independently of the list.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(1000))
+            + "\n==================== FAILURES ===================="
+            + "\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\n=========================== short test summary info ============================"
+            + "\nFAILED tests/test_one.py::test_it - AssertionError: boom"
+            + "\n1 failed, 1000 passed in 2.51s"
+            + "\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+        size = len(result.encode())
+
+        assert size <= 65535
+        assert size > 60_000, f"budget left unused: only {size} bytes posted"
+        assert result.startswith("```\n==================== FAILURES ====")
+        assert "FAILED tests/test_one.py::test_it" in result
+
     def test_get_check_run_text_logs_full_redacted_output_before_truncation(
         self, check_run_handler: CheckRunHandler
     ) -> None:
