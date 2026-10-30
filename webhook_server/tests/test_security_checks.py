@@ -74,9 +74,15 @@ class TestSecuritySuspiciousPaths:
 
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None]:
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
-            return_value="dummy output",
+        with (
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+                return_value="dummy output",
+            ),
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_summary",
+                return_value="",
+            ),
         ):
             yield
 
@@ -233,9 +239,15 @@ class TestSecurityCommitterIdentity:
 
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None]:
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
-            return_value="dummy output",
+        with (
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+                return_value="dummy output",
+            ),
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_summary",
+                return_value="",
+            ),
         ):
             yield
 
@@ -696,9 +708,15 @@ class TestSecurityRequiredStatusChecks:
 
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None]:
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
-            return_value="dummy output",
+        with (
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+                return_value="dummy output",
+            ),
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_summary",
+                return_value="",
+            ),
         ):
             yield
 

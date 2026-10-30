@@ -444,6 +444,59 @@ class TestCheckRunHandler:
                 assert call_count["count"] == 2
                 mock_debug.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_fallback_drops_rejected_output(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A payload GitHub rejected is retried without its detail so the check still completes.
+
+        Retrying the identical oversized output fails the same way and leaves the check stuck
+        in_progress with nothing reported.
+        """
+        attempts: list[dict[str, Any]] = []
+
+        def create_check_run_side_effect(*args: object, **kwargs: Any) -> None:
+            attempts.append(kwargs)
+            if len(attempts) == 1:
+                raise Exception("summary exceeds a maximum bytesize of 65535")
+            return None
+
+        with patch.object(
+            check_run_handler.github_webhook.repository_by_github_app,
+            "create_check_run",
+            side_effect=create_check_run_side_effect,
+        ):
+            await check_run_handler.set_check_run_status(
+                check_run="tox",
+                conclusion=FAILURE_STR,
+                output={"title": "Tox", "summary": "reason", "text": "x" * 70000},
+            )
+
+        assert len(attempts) == 2
+        assert attempts[1]["conclusion"] == FAILURE_STR
+        assert attempts[1]["status"] == "completed"
+        assert attempts[1]["output"] == {"title": "Tox", "summary": "reason"}
+        assert "text" not in attempts[1]["output"]
+
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_fallback_failure_is_raised(self, check_run_handler: CheckRunHandler) -> None:
+        """When both attempts fail the caller must learn that reporting failed."""
+
+        def create_check_run_side_effect(*args: object, **kwargs: Any) -> None:
+            raise Exception("API is down")
+
+        with patch.object(
+            check_run_handler.github_webhook.repository_by_github_app,
+            "create_check_run",
+            side_effect=create_check_run_side_effect,
+        ):
+            with patch.object(check_run_handler.logger, "exception") as mock_exception:
+                with pytest.raises(Exception, match="API is down"):
+                    await check_run_handler.set_check_run_status(
+                        check_run="tox", conclusion=FAILURE_STR, output={"title": "Tox"}
+                    )
+                assert mock_exception.call_count == 2
+
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""
         err = "Error message"
@@ -455,58 +508,327 @@ class TestCheckRunHandler:
         assert result == expected
 
     def test_get_check_run_text_long_length(self, check_run_handler: CheckRunHandler) -> None:
-        """Test getting check run text with length exceeding GitHub limit."""
-        # Create text that exceeds 65535 characters
-        long_err = "Error " * 10000
-        long_out = "Output " * 10000
+        """Output over the GitHub limit keeps the tail, the closing fence and an elision marker."""
+        # Every line carries a 3-byte glyph: at 65534 characters this used to take the payload
+        # over GitHub's 65535 *byte* cap, which silently ate the end of the log.
+        long_out = ("tox: OK \u2714 / FAIL \u2716\n" * 5000) + "FAILED test_x.py::test_y\n"
 
-        result = check_run_handler.get_check_run_text(long_err, long_out)
+        result = check_run_handler.get_check_run_text("Error line", long_out)
 
-        # Should be truncated to 65534 characters (GitHub limit safe margin)
-        assert len(result) == 65534
+        assert len(result.encode("utf-8")) <= 65535, "Payload must stay within GitHub's byte limit"
         assert result.startswith("```\n")
-        # Verify the fix: it should end with the code block closer
-        assert result.endswith("\n```")
+        assert result.endswith("\n```"), "Closing fence must never be truncated away"
+        assert "FAILED test_x.py::test_y" in result, "Tail of the log must survive truncation"
+        assert "bytes omitted" in result
+
+    def test_get_check_run_text_truncation_keeps_tail_not_head(self, check_run_handler: CheckRunHandler) -> None:
+        """The tail is the verdict, so it is what survives; setup noise at the head goes first."""
+        out = "SETUP-NOISE\n" + "\n".join(f"PASSED test_{i}" for i in range(6000)) + "\nREAL-FAILURE-REASON\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "REAL-FAILURE-REASON" in result
+        # Both anchors are pytest-less here, so the failure marker is the only one: the omitted
+        # range is the middle of the log.
+        assert "bytes omitted from the middle" in result or "bytes omitted before" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_caps_a_single_huge_line(self, check_run_handler: CheckRunHandler) -> None:
+        """One pathological line must not eat the budget - it is collapsed in place instead.
+
+        A 70 000-character line used to consume the whole window, leaving room for nothing else.
+        """
+        out = "SETUP-NOISE\n" + ("x" * 70_000) + "\nREAL-FAILURE-REASON\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "[line 70000 chars]" in result
+        assert "REAL-FAILURE-REASON" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_keeps_failure_section_ahead_of_the_tail(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A failure section buried behind thousands of passing lines is kept, not truncated away."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(5000))
+            + "\n=================================== FAILURES ===================================\n"
+            + "_____________________ test_buried_failure _____________________\n"
+            + "tests/test_x.py:5: in test_buried_failure\n"
+            + "E   AssertionError: "
+            + "y" * 40_000
+            + "\n"
+            + "\n".join(f"COVERAGE-LINE {i}" for i in range(2000))
+            + "\nVERDICT-LINE\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert result.index("==== FAILURES ====") < 200, "failure section must come first"
+        assert "test_buried_failure" in result
+        assert "VERDICT-LINE" in result, "the verdict at the end must still be there"
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_failure_section_over_budget(self, check_run_handler: CheckRunHandler) -> None:
+        """When the failure section itself is over budget, keep its head and name the cut.
+
+        Its tail is the end of the log, which is kept anyway, so keeping it here would print the
+        same bytes twice.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i}" for i in range(20000))
+            + "\nVERDICT-LINE\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "failure section truncated:" in result
+        assert "==================== FAILURES ====================" in result
+        assert result.count("VERDICT-LINE") == 1, "the log tail must not be duplicated"
+
+        # The kept head must also appear exactly once - the old head+tail split printed it twice.
+        detail = next(line for line in result.splitlines() if line.startswith("failure detail "))
+        assert result.count(detail) == 1 or len(result.splitlines()) < 10
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_prefers_failures_section_over_an_early_generic_error(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """An early generic 'error:' line must not anchor ahead of the real pytest failure block."""
+        out = (
+            "error: could not read optional config\n"
+            + "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "____ test_it ____\ntests/test_x.py:9: in test_it\nE   AssertionError: the diagnosis\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\n1 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "the diagnosis" in result, "the traceback must be inside the window"
+        assert "==== FAILURES ====" in result[:400]
+
+    def test_get_check_run_text_keeps_the_explanation_before_a_verdict(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A custom check often explains itself before printing FAILED; that explanation must stay."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(3000))
+            + "\nERROR: disk quota exceeded\n"
+            + "the volume holding /tmp has 0 bytes free\n"
+            + "FAILED\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\nexit status 1\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert "disk quota exceeded" in result
+        assert "0 bytes free" in result
+        assert result.index("disk quota exceeded") < 1500
+        assert "disk quota exceeded" in summary, "the inline summary must carry the explanation"
+        assert "0 bytes free" in summary
+
+    def test_get_check_run_text_keeps_an_early_custom_failure_over_a_later_error(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A later generic 'error:' must not supersede an earlier custom-check failure."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(3000))
+            + "\nFAILED - the real diagnosis is here\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\nerror: cleanup also reported a problem\n"
+            + "\nexit status 1\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "the real diagnosis is here" in result
+        assert result.index("the real diagnosis is here") < 1500
+
+    def test_get_check_run_text_prefers_the_failure_section_over_progress_lines(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A pytest progress line must not become the anchor and push the tracebacks out.
+
+        'tests/x.py::test FAILED [ 47%]' appears long before '==== FAILURES ===='; anchoring on the
+        progress line kept thousands of PASSED/FAILED lines and cut the tracebacks instead.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(500))
+            + "\ntests/test_x.py::test_it FAILED [ 47%]\n"
+            + "\n".join(f"PASSED test_{i}" for i in range(500, 3000))
+            + "\n==================== FAILURES ====================\n"
+            + "____ test_it ____\ntests/test_x.py:9: in test_it\nE   AssertionError: the diagnosis\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\n1 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        head = result[:400]
+        assert "==== FAILURES ====" in head or "the diagnosis" in head
+        assert "test_it FAILED [ 47%]" not in head, "the progress line must not be the anchor"
+
+    def test_get_check_run_text_anchors_on_a_bare_failed_line(self, check_run_handler: CheckRunHandler) -> None:
+        """A custom check prints 'FAILED ...' with no pytest section header and must still anchor."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(4000))
+            + "\nFAILED - the diagnosis is right here\n"
+            + "\n".join(f"noise {i}" for i in range(4000))
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "FAILED - the diagnosis is right here" in result
+        # The anchor reaches back over the explanation block, so the verdict is a few hundred bytes
+        # in rather than at byte 0 - still far from being buried in the log.
+        assert result.index("FAILED - the diagnosis") < 1500, "the verdict line must lead the page"
+
+    def test_get_check_run_text_marks_head_and_middle_gaps_separately(self, check_run_handler: CheckRunHandler) -> None:
+        """Bytes omitted before the failure and after it are different ranges and are both marked."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\nmore failure output\n"
+            + "\n".join(f"COVERAGE {i}" for i in range(2000))
+            + "\nVERDICT\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "bytes omitted before the failure" in result
+        assert "bytes omitted from the middle of the output" in result
+        assert "VERDICT" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_keeps_earlier_of_several_failed_lists(self, check_run_handler: CheckRunHandler) -> None:
+        """Multi-environment runs emit several summaries; earlier ones must not be discarded."""
+        first = "\n".join(f"FAILED tests/a.py::test_{i} - boom" for i in range(50))
+        second = "\n".join(f"FAILED tests/b.py::test_{i} - boom" for i in range(50))
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(2000))
+            + "\n=========================== short test summary info ============================\n"
+            + first
+            + "\n=========================== short test summary info ============================\n"
+            + second
+            + "\n100 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "FAILED tests/a.py::test_0" in result, "the earlier failed-test list must survive"
+        assert "FAILED tests/b.py::test_0" in result
+
+    def test_get_check_run_summary_fence_cannot_be_closed_by_output(self, check_run_handler: CheckRunHandler) -> None:
+        """A check that prints the fence characters must not be able to escape the code block."""
+        out = "before\n~~~\n**rendered as markdown, not a log**\n~~~\nafter"
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        fence = summary.splitlines()[0]
+        assert set(fence) == {"~"}
+        assert len(fence) > 3, "fence must be longer than anything in the excerpt"
+        assert summary.startswith(fence + "\n") and summary.endswith("\n" + fence)
+
+    def test_get_check_run_text_reserves_room_for_its_own_fence(self, check_run_handler: CheckRunHandler) -> None:
+        """A long fence must not push a near-limit payload over GitHub's cap.
+
+        Overshooting the limit sends an otherwise passing check through the rejected-payload
+        fallback, which reports failure with no text at all.
+        """
+        # A 2 000-backtick line survives the per-line cap and forces a 2 001-byte fence per end.
+        body = ("x" * 60 + "\n") * 1000 + "`" * 2000 + "\n"
+
+        result = check_run_handler.get_check_run_text("", body)
+        size = len(result.encode())
+
+        assert size <= 65535, f"payload is {size} bytes, over GitHub's limit"
+        fence = result.splitlines()[0]
+        assert len(fence) == 2001, "the fence must still out-run the content"
+
+    def test_get_check_run_text_fence_cannot_be_closed_by_output(self, check_run_handler: CheckRunHandler) -> None:
+        """Same for the details block: output containing ``` gets a longer fence."""
+        out = "\n".join(f"line {i}" for i in range(8000)) + "\n```\nfake fence\n```\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        fence = result.splitlines()[0]
+        assert set(fence) == {"`"}
+        assert len(fence) > 3
+        assert result.endswith("\n" + fence)
+
+    def test_get_check_run_text_fills_the_budget(self, check_run_handler: CheckRunHandler) -> None:
+        """A small failed-test list must not leave most of the allowance unused.
+
+        A 300 KB failure section plus a one-line failed list used to post 28 KB of a 65 KB
+        allowance because the failure section was capped independently of the list.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(1000))
+            + "\n==================== FAILURES ===================="
+            + "\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\n=========================== short test summary info ============================"
+            + "\nFAILED tests/test_one.py::test_it - AssertionError: boom"
+            + "\n1 failed, 1000 passed in 2.51s"
+            + "\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+        size = len(result.encode())
+
+        assert size <= 65535
+        assert size > 60_000, f"budget left unused: only {size} bytes posted"
+        assert result.index("==================== FAILURES") < 200, "failure section must lead the page"
+        assert "FAILED tests/test_one.py::test_it" in result
 
     def test_get_check_run_text_logs_full_redacted_output_before_truncation(
         self, check_run_handler: CheckRunHandler
     ) -> None:
-        """Test that full redacted output is logged via debug before truncation.
+        """The complete output reaches the server log at the default INFO level.
 
-        The debug log must fire AFTER redaction to avoid leaking secrets to log
-        aggregation systems, and BEFORE truncation so the complete build output
-        is preserved in server logs.
+        The GitHub payload only carries a window of it, so the log is the only place the rest can
+        survive (issue #1090) - a DEBUG-only dump is never written at the default log level.
         """
-        # Create text that exceeds 65534 characters to trigger truncation
-        long_err = "E" * 10000
-        long_out = "O" * 60000
+        long_err = "\n".join("E" * 200 for _ in range(50))
+        long_out = "\n".join("O" * 200 for _ in range(500))
 
         check_run_handler.get_check_run_text(long_err, long_out)
 
-        # Verify debug was called with the full output
-        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
-        full_output_logged = any(
-            "Full check run output" in call and "will be truncated" in call for call in debug_calls
-        )
-        assert full_output_logged, "Expected debug log with full output before truncation"
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        full_output_logged = any("Full check run output" in call and "GitHub limit is" in call for call in info_calls)
+        assert full_output_logged, "Expected an INFO log with the full output before truncation"
+
+    def test_get_check_run_text_logs_truncation_size_at_info(self, check_run_handler: CheckRunHandler) -> None:
+        """Truncation is recorded at INFO so the server log says what GitHub did not receive."""
+        check_run_handler.get_check_run_text("", "\n".join("O" * 200 for _ in range(500)))
+
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        assert any("exceeds the GitHub limit" in call for call in info_calls)
+        assert any("omitted" in call for call in info_calls)
 
     def test_get_check_run_text_full_log_has_secrets_redacted(self, check_run_handler: CheckRunHandler) -> None:
-        """Test that the full output debug log redacts secrets before logging."""
-        # Build output that contains secrets and exceeds truncation threshold
-        # Total (err_clean + out_clean + WRAPPER_OVERHEAD=10) must exceed MAX_LEN=65534
-        long_out = "O" * 66000
+        """The full-output log entry redacts secrets before writing."""
+        long_out = "\n".join("O" * 200 for _ in range(500))
         err_with_secret = "Error: auth failed with token test-token and user test-user"  # pragma: allowlist secret
 
         check_run_handler.get_check_run_text(err_with_secret, long_out)
 
-        # Verify the debug log does NOT contain the raw secrets
-        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
-        full_log_calls = [c for c in debug_calls if "Full check run output" in c]
-        assert full_log_calls, "Expected full output debug log"
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        full_log_calls = [c for c in info_calls if "Full check run output" in c]
+        assert full_log_calls, "Expected full output log entry"
         for call in full_log_calls:
-            assert "test-token" not in call, "Secret token leaked in debug log"
-            assert "test-user" not in call, "Username leaked in debug log"
-            assert "*****" in call, "Expected redacted placeholder in debug log"
+            assert "test-token" not in call, "Secret token leaked in the log"
+            assert "test-user" not in call, "Username leaked in the log"
+            assert "*****" in call, "Expected redacted placeholder in the log"
 
     def test_get_check_run_text_no_log_when_not_truncated(self, check_run_handler: CheckRunHandler) -> None:
         """Test that no full output debug log is emitted when output fits within limit."""
@@ -543,6 +865,107 @@ class TestCheckRunHandler:
         assert "test-user" not in result
         assert "test-pass" not in result
         assert "*****" in result
+
+    def test_get_check_run_summary_empty_streams(self, check_run_handler: CheckRunHandler) -> None:
+        """No output means no summary rather than an empty code fence."""
+        assert check_run_handler.get_check_run_summary("", "") == ""
+        assert check_run_handler.get_check_run_summary("   \n", "\n") == ""
+
+    def test_get_check_run_summary_is_tail_only(self, check_run_handler: CheckRunHandler) -> None:
+        """The summary is the end of each stream - the part that says why a check failed."""
+        out = "\n".join(f"PASSED test_{i}" for i in range(500)) + "\nFAILED test_last.py::test_x"
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert summary.startswith("~~~\n")
+        assert summary.endswith("\n~~~")
+        assert "FAILED test_last.py::test_x" in summary
+        assert "PASSED test_0" not in summary, "Summary must not carry the whole log"
+        assert len(summary.encode("utf-8")) <= 65535
+
+    def test_get_check_run_summary_includes_stderr(self, check_run_handler: CheckRunHandler) -> None:
+        """Both streams can carry the reason, so the excerpt covers both."""
+        summary = check_run_handler.get_check_run_summary("Traceback: boom", "collected 3 items")
+
+        assert "collected 3 items" in summary
+        assert "Traceback: boom" in summary
+
+    def test_get_check_run_summary_leads_with_the_failure_section(self, check_run_handler: CheckRunHandler) -> None:
+        """The inline summary must state the failure, not just the last lines of noise."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(300))
+            + "\n==================== FAILURES ====================\n"
+            + "_____________________ test_the_real_problem _____________________\n"
+            + "tests/test_x.py:9: in test_the_real_problem\n"
+            + "E   AssertionError: expected 1 got 2\n"
+            + "\n".join(f"coverage noise {i}" for i in range(200))
+            + "\n1 failed, 300 passed\n"
+        )
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert "test_the_real_problem" in summary
+        assert "expected 1 got 2" in summary
+        assert summary.index("FAILURES") < 200
+        assert "1 failed, 300 passed" in summary, "the verdict must still be visible"
+
+    def test_get_check_run_title_reports_the_verdict(self, check_run_handler: CheckRunHandler) -> None:
+        """The heading must not repeat the check name GitHub already shows above it."""
+        assert check_run_handler.get_check_run_title("Tox", "", "16 passed", passed=True) == "Tox passed"
+        assert check_run_handler.get_check_run_title("Tox", "", "boom", passed=False) == "Tox failed"
+
+    def test_get_check_run_title_uses_the_failure_line(self, check_run_handler: CheckRunHandler) -> None:
+        """On failure the heading names what failed."""
+        out = "PASSED a\nFAILED tests/test_x.py::test_y\n  evaluation failed :("
+
+        title = check_run_handler.get_check_run_title("Tox", "", out, passed=False)
+
+        assert title == "FAILED tests/test_x.py::test_y"
+
+    def test_get_check_run_title_counts_hundreds_of_failures(self, check_run_handler: CheckRunHandler) -> None:
+        """With more failures than the window can show, the count is the useful heading."""
+        out = "FAILED tests/test_x.py::test_0\nFAILED tests/test_x.py::test_399\n400 failed, 16 passed in 2.51s"
+
+        title = check_run_handler.get_check_run_title("Tox", "", out, passed=False)
+
+        assert title == "400 failed, 16 passed in 2.51s"
+
+    def test_get_check_run_text_keeps_the_whole_failed_list(self, check_run_handler: CheckRunHandler) -> None:
+        """Hundreds of failures: the list of what failed must survive whole, not cut mid-list."""
+        failures = "\n".join(
+            f"FAILED tests/test_many.py::test_failure_{i:03d} - AssertionError: E2E-FAIL-{i:03d}" for i in range(400)
+        )
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(2000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\n=========================== short test summary info ============================\n"
+            + failures
+            + "\n400 failed, 16 passed in 2.51s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert result.count("FAILED tests/test_many.py::test_failure_") == 400, "failed list must be complete"
+        assert "test_failure_000" in result and "test_failure_399" in result
+        assert "==== FAILURES ====" in result, "the first failure detail must lead the page"
+        assert "400 failed, 16 passed" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_summary_redacts_secrets(self, check_run_handler: CheckRunHandler) -> None:
+        """The summary is posted to GitHub, so it gets the same redaction as the text."""
+        summary = check_run_handler.get_check_run_summary("failed with token test-token", "")
+
+        assert "test-token" not in summary
+        assert "*****" in summary
+
+    def test_get_check_run_summary_survives_backtick_fences(self, check_run_handler: CheckRunHandler) -> None:
+        """Output containing ``` must not break the summary fence."""
+        summary = check_run_handler.get_check_run_summary("", "```\nnot a fence\n```")
+
+        assert summary.startswith("~~~\n")
+        assert summary.endswith("\n~~~")
+        assert "not a fence" in summary
 
     @pytest.mark.asyncio
     async def test_is_check_run_in_progress_true(self, check_run_handler: CheckRunHandler) -> None:

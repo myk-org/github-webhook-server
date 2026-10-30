@@ -14,6 +14,7 @@ from webhook_server.libs.ai_cli import AIResult
 from webhook_server.libs.handlers.runner_handler import CheckConfig, RunnerHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
+    CHECK_COMMAND_TIMEOUT_SECONDS,
     CONVENTIONAL_TITLE_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -107,9 +108,15 @@ class TestRunnerHandler:
 
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None]:
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
-            return_value="dummy output",
+        with (
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+                return_value="dummy output",
+            ),
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_summary",
+                return_value="",
+            ),
         ):
             yield
 
@@ -216,7 +223,7 @@ class TestRunnerHandler:
                         await runner_handler.run_tox(mock_pull_request)
                         mock_set_progress.assert_called_once_with(name=TOX_STR)
                         mock_set_failure.assert_called_once_with(
-                            name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                            name=TOX_STR, output={"title": "Tox failed", "summary": "", "text": "dummy output"}
                         )
 
     @pytest.mark.asyncio
@@ -245,7 +252,7 @@ class TestRunnerHandler:
                             await runner_handler.run_tox(mock_pull_request)
                             mock_set_progress.assert_called_once_with(name=TOX_STR)
                             mock_set_success.assert_called_once_with(
-                                name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                                name=TOX_STR, output={"title": "Tox passed", "summary": "", "text": "dummy output"}
                             )
 
     @pytest.mark.asyncio
@@ -270,7 +277,7 @@ class TestRunnerHandler:
                             await runner_handler.run_tox(mock_pull_request)
                             mock_set_progress.assert_called_once_with(name=TOX_STR)
                             mock_set_failure.assert_called_once_with(
-                                name=TOX_STR, output={"title": "Tox", "summary": "", "text": "dummy output"}
+                                name=TOX_STR, output={"title": "Tox failed", "summary": "", "text": "dummy output"}
                             )
 
     @pytest.mark.asyncio
@@ -337,7 +344,7 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PRE_COMMIT_STR)
                             mock_set_success.assert_called_once_with(
                                 name=PRE_COMMIT_STR,
-                                output={"title": "Pre-Commit", "summary": "", "text": "dummy output"},
+                                output={"title": "Pre-Commit passed", "summary": "", "text": "dummy output"},
                             )
 
     @pytest.mark.asyncio
@@ -387,7 +394,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -421,7 +428,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -557,7 +564,11 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PYTHON_MODULE_INSTALL_STR)
                             mock_set_success.assert_called_once_with(
                                 name=PYTHON_MODULE_INSTALL_STR,
-                                output={"title": "Python module installation", "summary": "", "text": "dummy output"},
+                                output={
+                                    "title": "Python module installation passed",
+                                    "summary": "",
+                                    "text": "dummy output",
+                                },
                             )
 
     @pytest.mark.asyncio
@@ -585,7 +596,12 @@ class TestRunnerHandler:
                             mock_set_progress.assert_called_once_with(name=PYTHON_MODULE_INSTALL_STR)
                             mock_set_failure.assert_called_once_with(
                                 name=PYTHON_MODULE_INSTALL_STR,
-                                output={"title": "Python module installation", "summary": "", "text": "dummy output"},
+                                output={
+                                    "title": "ERROR: Directory '/tmp/worktree-path' is not installable. "
+                                    "Neither 'setup.py' nor 'pyproject.toml' found.",
+                                    "summary": "",
+                                    "text": "dummy output",
+                                },
                             )
 
     @pytest.mark.asyncio
@@ -1515,7 +1531,7 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
                                 mock_set_success.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container passed", "summary": "", "text": "dummy output"},
                                 )
 
     @pytest.mark.asyncio
@@ -1759,7 +1775,7 @@ class TestRunnerHandler:
                                 # Should set failure due to repo preparation failure
                                 mock_set_failure.assert_awaited_once_with(
                                     name=BUILD_CONTAINER_STR,
-                                    output={"title": "Build container", "summary": "", "text": "dummy output"},
+                                    output={"title": "Build container failed", "summary": "", "text": "dummy output"},
                                 )
                                 # Should NOT call run_podman_command (early return)
                                 mock_run_podman.assert_not_called()
@@ -2824,6 +2840,9 @@ class TestRunCheck:
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.mask_sensitive = True
         mock_webhook.token = "test-token"
+        mock_webhook.pypi = {}
+        mock_webhook.container_repository_username = "test-user"
+        mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.ctx = None
         return mock_webhook
 
@@ -2901,6 +2920,83 @@ class TestRunCheck:
             await runner_handler.run_check(pull_request=mock_pull_request, check_config=check_config)
 
             runner_handler.check_run_handler.set_check_failure.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_check_failure_populates_summary(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A failing check must put the reason in summary, the field GitHub shows inline."""
+        check_config = CheckConfig(name="tox", command="tox", title="Tox")
+
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        out = "\n".join(f"PASSED test_{i}" for i in range(200)) + "\nFAILED test_last.py::test_x"
+
+        with (
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(False, out, "")),
+            ),
+            patch.object(
+                runner_handler.check_run_handler,
+                "get_check_run_summary",
+                wraps=runner_handler.check_run_handler.get_check_run_summary,
+            ),
+        ):
+            await runner_handler.run_check(pull_request=mock_pull_request, check_config=check_config)
+
+        output = runner_handler.check_run_handler.set_check_failure.call_args.kwargs["output"]
+        assert "FAILED test_last.py::test_x" in output["summary"]
+        assert "PASSED test_0" not in output["summary"]
+        assert output["summary"].startswith("~~~")
+
+    @pytest.mark.asyncio
+    async def test_run_check_passes_a_timeout_to_the_command(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Without a timeout a hung check holds its check run in_progress forever."""
+        check_config = CheckConfig(name="tox", command="tox", title="Tox")
+
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "", "")),
+            ) as mock_run,
+        ):
+            await runner_handler.run_check(pull_request=mock_pull_request, check_config=check_config)
+
+        assert mock_run.call_args.kwargs["timeout"] == CHECK_COMMAND_TIMEOUT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_run_check_timeout_is_reported_as_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A timed-out command lands in the normal failure path, so the reason is visible."""
+        check_config = CheckConfig(name="tox", command="tox", title="Tox")
+
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(False, "", "Command timed out after 3600s")),
+            ),
+        ):
+            await runner_handler.run_check(pull_request=mock_pull_request, check_config=check_config)
+
+        output = runner_handler.check_run_handler.set_check_failure.call_args.kwargs["output"]
+        assert "Command timed out after 3600s" in output["summary"]
 
     @pytest.mark.asyncio
     async def test_run_check_checkout_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -3194,6 +3290,7 @@ class TestBuildOciAnnotations:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ),
             patch.object(runner_handler.check_run_handler, "get_check_run_text", return_value="test output"),
+            patch.object(runner_handler.check_run_handler, "get_check_run_summary", return_value="test summary"),
             patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
         ):
@@ -3259,6 +3356,7 @@ class TestBuildOciAnnotations:
                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "ok", ""))
             ) as mock_cmd,
             patch.object(runner_handler.check_run_handler, "get_check_run_text", return_value="test output"),
+            patch.object(runner_handler.check_run_handler, "get_check_run_summary", return_value="test summary"),
         ):
             mock_checkout.return_value = AsyncMock()
             mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, str(tmp_path / "wt"), "", ""))
@@ -3629,9 +3727,15 @@ class TestCherryPickPreCommitAutoFix:
 
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None]:
-        with patch(
-            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
-            return_value="dummy output",
+        with (
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+                return_value="dummy output",
+            ),
+            patch(
+                "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_summary",
+                return_value="",
+            ),
         ):
             yield
 
