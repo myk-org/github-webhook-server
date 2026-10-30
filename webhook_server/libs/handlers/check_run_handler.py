@@ -49,20 +49,18 @@ ERROR_SECTION_MAX_BYTES = 28_000
 # Omission markers and the blank lines around them are written to GitHub but are not source output,
 # so the budget has to hold room for them or the payload lands over the byte limit.
 MARKER_RESERVE_BYTES = 300
-# Strong anchors identify the failure *section*. They are searched first, so a pytest run keeps its
-# '==== FAILURES ====' block (and the tracebacks inside it) at the top of the window.
-ERROR_ANCHORS = (
-    "==== FAILURES ====",
-    "==== ERRORS ====",
-    "Traceback (most recent call last):",
-    "error:",
-    "Error:",
-    "ERROR:",
-)
-# Weak anchors are the bare verdict lines a custom check prints with no section header. They are only
-# used when no section header exists: pytest also prints 'PASSED/FAILED' progress lines, and matching
-# one of those first would push the real failure block out of the retained head.
-WEAK_ERROR_ANCHORS = ("FAILED ", "ERROR ")
+# Failure anchors, most definitive first. `_error_start` uses the first tier that matches anywhere in
+# the log, so a section header never loses to an earlier generic 'error:' line, and a later generic
+# line never supersedes an earlier custom-check verdict.
+SECTION_ERROR_ANCHORS = ("==== FAILURES ====", "==== ERRORS ====")
+TRACEBACK_ANCHORS = ("Traceback (most recent call last):",)
+# A custom check has no section header; it prints a verdict, usually after its explanation, which is
+# why these matches back up over the preceding lines.
+VERDICT_ANCHORS = ("FAILED ", "ERROR ")
+GENERIC_ERROR_ANCHORS = ("error:", "Error:", "ERROR:")
+ERROR_ANCHOR_TIERS = (SECTION_ERROR_ANCHORS, TRACEBACK_ANCHORS, VERDICT_ANCHORS, GENERIC_ERROR_ANCHORS)
+# How far a verdict-line anchor reaches back for the explanation that precedes it.
+VERDICT_CONTEXT_LINES = 30
 # The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
 # failures stay countable instead of being cut in the middle by a byte-counted tail.
 FAILED_LIST_ANCHOR = "=== short test summary info ==="
@@ -143,20 +141,46 @@ def _cap_long_lines(text: str, max_chars: int = MAX_LINE_CHARS) -> str:
     return "\n".join(lines)
 
 
+def _context_start(text: str, offset: int, lines_back: int) -> int:
+    """Move an anchor offset back over the lines that explain it.
+
+    Args:
+        text: Log text.
+        offset: Offset of the anchor line.
+        lines_back: Maximum number of lines to reach back.
+
+    Returns:
+        Offset of the first line of the explanation block, stopping at a blank line so an unrelated
+        earlier section is not pulled in.
+    """
+    head = text[:offset]
+    lines = head.splitlines(keepends=True)
+    start = len(lines)
+    while start > 0 and len(lines) - start < lines_back:
+        previous = lines[start - 1]
+        if not previous.strip():
+            break
+        start -= 1
+    return sum(len(line) for line in lines[:start])
+
+
 def _error_start(text: str) -> int | None:
-    """Return the character offset of the first failure marker in a log.
+    """Return the character offset where the failure starts.
 
     Args:
         text: Log text.
 
     Returns:
-        Offset of the line that starts the failure section, or None when no marker is present.
-        A section header wins over a bare verdict line even when the verdict line comes first.
+        Offset of the failure block, or None when no marker is present. Tiers are tried from most to
+        least definitive, and the earliest match within the winning tier is used. A verdict line
+        reaches back over the explanation that precedes it.
     """
-    for anchors in (ERROR_ANCHORS, WEAK_ERROR_ANCHORS):
+    for anchors in ERROR_ANCHOR_TIERS:
         offset = 0
         for line in text.splitlines(keepends=True):
             if any(anchor in line for anchor in anchors):
+                if anchors is VERDICT_ANCHORS:
+                    return _context_start(text, offset, VERDICT_CONTEXT_LINES)
                 return offset
             offset += len(line)
     return None

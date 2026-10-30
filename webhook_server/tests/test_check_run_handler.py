@@ -593,6 +593,63 @@ class TestCheckRunHandler:
         assert result.count(detail) == 1 or len(result.splitlines()) < 10
         assert len(result.encode("utf-8")) <= 65535
 
+    def test_get_check_run_text_prefers_failures_section_over_an_early_generic_error(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """An early generic 'error:' line must not anchor ahead of the real pytest failure block."""
+        out = (
+            "error: could not read optional config\n"
+            + "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "____ test_it ____\ntests/test_x.py:9: in test_it\nE   AssertionError: the diagnosis\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\n1 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "the diagnosis" in result, "the traceback must be inside the window"
+        assert "==== FAILURES ====" in result[:400]
+
+    def test_get_check_run_text_keeps_the_explanation_before_a_verdict(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A custom check often explains itself before printing FAILED; that explanation must stay."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(3000))
+            + "\nERROR: disk quota exceeded\n"
+            + "the volume holding /tmp has 0 bytes free\n"
+            + "FAILED\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\nexit status 1\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert "disk quota exceeded" in result
+        assert "0 bytes free" in result
+        assert result.index("disk quota exceeded") < 1500
+        assert "disk quota exceeded" in summary, "the inline summary must carry the explanation"
+        assert "0 bytes free" in summary
+
+    def test_get_check_run_text_keeps_an_early_custom_failure_over_a_later_error(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A later generic 'error:' must not supersede an earlier custom-check failure."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(3000))
+            + "\nFAILED - the real diagnosis is here\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\nerror: cleanup also reported a problem\n"
+            + "\nexit status 1\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "the real diagnosis is here" in result
+        assert result.index("the real diagnosis is here") < 1500
+
     def test_get_check_run_text_prefers_the_failure_section_over_progress_lines(
         self, check_run_handler: CheckRunHandler
     ) -> None:
@@ -628,7 +685,9 @@ class TestCheckRunHandler:
         result = check_run_handler.get_check_run_text("", out)
 
         assert "FAILED - the diagnosis is right here" in result
-        assert result.index("FAILED - the diagnosis") < 300, "the verdict line must lead the page"
+        # The anchor reaches back over the explanation block, so the verdict is a few hundred bytes
+        # in rather than at byte 0 - still far from being buried in the log.
+        assert result.index("FAILED - the diagnosis") < 1500, "the verdict line must lead the page"
 
     def test_get_check_run_text_marks_head_and_middle_gaps_separately(self, check_run_handler: CheckRunHandler) -> None:
         """Bytes omitted before the failure and after it are different ranges and are both marked."""
