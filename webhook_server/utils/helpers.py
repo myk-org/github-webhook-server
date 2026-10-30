@@ -293,6 +293,11 @@ def get_github_repo_api(github_app_api: github.Github, repository: int | str) ->
     return github_app_api.get_repo(repository)
 
 
+# How long to keep reading a pipe after the command is gone. A background descendant can hold the
+# write end open forever, and the check runner must not hang before it reports a conclusion.
+PIPE_DRAIN_GRACE_SECONDS = 5
+
+
 async def _drain(reader: asyncio.StreamReader | None, sink: list[bytes]) -> None:
     """Read a process pipe into sink until EOF.
 
@@ -416,13 +421,25 @@ async def run_command(
                 _kill_process_tree(sub_process)
                 # Descendants are gone, so the pipes reach EOF and the readers return promptly;
                 # the deadline is only a backstop against a pipe that escapes the process group.
-                await asyncio.wait(readers, timeout=5)
+                await asyncio.wait(readers, timeout=PIPE_DRAIN_GRACE_SECONDS)
                 for reader in readers:
                     reader.cancel()
                 out_decoded = b"".join(out_chunks).decode(errors="ignore")
                 err_decoded = b"".join(err_chunks).decode(errors="ignore")
                 return False, out_decoded, f"{err_decoded}\nCommand timed out after {timeout}s"
-            await asyncio.gather(*readers)
+            # The command exited, but a background descendant can still hold stdout/stderr open, in
+            # which case the readers never see EOF and the check would hang before reporting its
+            # conclusion. Bound the drain and keep what already arrived.
+            try:
+                await asyncio.wait_for(asyncio.gather(*readers), timeout=PIPE_DRAIN_GRACE_SECONDS)
+            except TimeoutError:
+                logger.warning(
+                    f"{log_prefix} '{logged_command}' exited but a descendant keeps its output open; "
+                    f"returning {sum(len(chunk) for chunk in out_chunks)} stdout / "
+                    f"{sum(len(chunk) for chunk in err_chunks)} stderr bytes already read"
+                )
+                for reader in readers:
+                    reader.cancel()
             stdout = b"".join(out_chunks)
             stderr = b"".join(err_chunks)
         else:

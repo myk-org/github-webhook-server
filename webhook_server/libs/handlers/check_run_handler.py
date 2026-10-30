@@ -46,6 +46,9 @@ SUMMARY_TAIL_LINES = 25
 # take more than this, so the budget is spent on the log instead of on one blob.
 MAX_LINE_CHARS = 2_000
 ERROR_SECTION_MAX_BYTES = 28_000
+# Omission markers and the blank lines around them are written to GitHub but are not source output,
+# so the budget has to hold room for them or the payload lands over the byte limit.
+MARKER_RESERVE_BYTES = 300
 # A check's failure is identified by these; everything from the first match onwards is the error
 # section, which is kept even when it sits in the middle of the log and would be cut as tail.
 ERROR_ANCHORS = (
@@ -433,16 +436,21 @@ class CheckRunHandler:
         body = f"{strip_ansi_codes(err)}\n\n{strip_ansi_codes(out)}".strip()
         body = _cap_long_lines(self._redact_output(body))
         total_bytes = len(body.encode())
+        # The fence is sized from the body, so it is known before the budget is spent and its own
+        # bytes are reserved. Sizing it after the limit check pushed a near-limit payload over
+        # GitHub's cap, and the rejection path turned that into a failed check with no text.
+        fence = _fence(body, "`")
+        # Reserve the fence (both ends) and the omission markers, which are not source output but do
+        # count against GitHub's byte limit.
+        budget = MAX_OUTPUT_BYTES - (2 * len(fence.encode()) + 2) - MARKER_RESERVE_BYTES
 
-        if total_bytes <= MAX_OUTPUT_BYTES:
-            fence = _fence(body, "`")
+        if total_bytes <= budget:
             return self._redact_output(f"{fence}\n{body}\n{fence}")
 
         # Server logs keep the complete redacted output, because the GitHub payload carries only a
         # window of it and issue #1090 requires the full build output to survive somewhere. This is
         # an INFO record on purpose: the default log level is INFO, so a DEBUG-only dump is never
         # written and the oversized output would exist nowhere but in the truncated payload.
-        fence = _fence(body, "`")
         self.logger.info(
             f"{self.log_prefix} Full check run output ({total_bytes} bytes, GitHub limit is "
             f"{MAX_OUTPUT_BYTES}), redacted:\n{fence}\n{body}\n{fence}"
@@ -452,7 +460,7 @@ class CheckRunHandler:
         if error_start is not None:
             from_failure = body[error_start:]
             from_failure_bytes = len(from_failure.encode())
-            if from_failure_bytes <= MAX_OUTPUT_BYTES:
+            if from_failure_bytes <= budget:
                 # Everything from the failure onwards fits: anchor the window there instead of at
                 # the end of the log, so the failure is the first thing on the page.
                 dropped = total_bytes - from_failure_bytes
@@ -461,14 +469,12 @@ class CheckRunHandler:
                     f"kept everything from the failure onwards ({from_failure_bytes} bytes), dropped {dropped}"
                 )
                 layout = f"...[{dropped} bytes omitted before the failure]...\n\n{from_failure}"
-                post_fence = _fence(layout, "`")
-                return self._redact_output(f"{post_fence}\n{layout}\n{post_fence}")
+                return self._redact_output(f"{fence}\n{layout}\n{fence}")
 
         # Over budget. Split the window between the two things a reader needs, in this order:
         # 1. the failed-test list (every failed test named once), kept as a whole block
         # 2. the failure section head, contiguous from the first marker, taking whatever is left
         # so the budget is always filled instead of posting 28 KB of a 65 KB allowance.
-        budget = MAX_OUTPUT_BYTES - 80  # 80 = fence + blank lines
         list_start = _failed_list_start(body, budget // 2)
         list_block = body[list_start:] if list_start is not None else ""
 
@@ -515,9 +521,8 @@ class CheckRunHandler:
         for extra in (kept, list_block):
             if extra:
                 parts.append(extra)
-        # The fence is chosen after truncation and cannot be closed by the content
+        # The fence was sized from the whole body, so it is longer than anything the excerpt holds
         layout = "\n\n".join(parts)
-        fence = _fence(layout, "`")
         return self._redact_output(f"{fence}\n{layout}\n{fence}")
 
     def get_check_run_summary(self, err: str, out: str) -> str:

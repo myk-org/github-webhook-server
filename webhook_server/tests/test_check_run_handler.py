@@ -655,6 +655,22 @@ class TestCheckRunHandler:
         assert len(fence) > 3, "fence must be longer than anything in the excerpt"
         assert summary.startswith(fence + "\n") and summary.endswith("\n" + fence)
 
+    def test_get_check_run_text_reserves_room_for_its_own_fence(self, check_run_handler: CheckRunHandler) -> None:
+        """A long fence must not push a near-limit payload over GitHub's cap.
+
+        Overshooting the limit sends an otherwise passing check through the rejected-payload
+        fallback, which reports failure with no text at all.
+        """
+        # A 2 000-backtick line survives the per-line cap and forces a 2 001-byte fence per end.
+        body = ("x" * 60 + "\n") * 1000 + "`" * 2000 + "\n"
+
+        result = check_run_handler.get_check_run_text("", body)
+        size = len(result.encode())
+
+        assert size <= 65535, f"payload is {size} bytes, over GitHub's limit"
+        fence = result.splitlines()[0]
+        assert len(fence) == 2001, "the fence must still out-run the content"
+
     def test_get_check_run_text_fence_cannot_be_closed_by_output(self, check_run_handler: CheckRunHandler) -> None:
         """Same for the details block: output containing ``` gets a longer fence."""
         out = "\n".join(f"line {i}" for i in range(8000)) + "\n```\nfake fence\n```\n"

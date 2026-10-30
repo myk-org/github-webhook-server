@@ -753,6 +753,20 @@ class TestHelpers:
         assert not marker.exists(), "the background child outlived the killed process group"
 
     @pytest.mark.asyncio
+    async def test_run_command_returns_when_a_descendant_holds_the_pipe_open(self) -> None:
+        """A command that exits while a background child keeps stdout open must not hang.
+
+        The check runner cannot report its conclusion until this call returns, so an unbounded
+        reader wait left the check stuck in progress forever.
+        """
+        start = time.monotonic()
+        result = await run_command("bash -c '( sleep 30 ) & echo exited-already'", log_prefix="[TEST]", timeout=20)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 15, f"run_command blocked for {elapsed:.1f}s after the command exited"
+        assert "exited-already" in result[1]
+
+    @pytest.mark.asyncio
     async def test_run_command_timeout_cleanup(self) -> None:
         """Test that subprocess is properly cleaned up on timeout."""
         # Get initial zombie count
