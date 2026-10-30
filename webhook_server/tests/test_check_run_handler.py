@@ -444,6 +444,60 @@ class TestCheckRunHandler:
                 assert call_count["count"] == 2
                 mock_debug.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_fallback_drops_rejected_output(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A payload GitHub rejected is retried without its detail so the check still completes.
+
+        Retrying the identical oversized output fails the same way and leaves the check stuck
+        in_progress with nothing reported.
+        """
+        attempts: list[dict[str, Any]] = []
+
+        def create_check_run_side_effect(*args: object, **kwargs: Any) -> None:
+            attempts.append(kwargs)
+            if len(attempts) == 1:
+                raise Exception("summary exceeds a maximum bytesize of 65535")
+            return None
+
+        with patch.object(
+            check_run_handler.github_webhook.repository_by_github_app,
+            "create_check_run",
+            side_effect=create_check_run_side_effect,
+        ):
+            await check_run_handler.set_check_run_status(
+                check_run="tox",
+                conclusion=FAILURE_STR,
+                output={"title": "Tox", "summary": "reason", "text": "x" * 70000},
+            )
+
+        assert len(attempts) == 2
+        assert attempts[1]["conclusion"] == FAILURE_STR
+        assert attempts[1]["status"] == "completed"
+        assert attempts[1]["output"] == {"title": "Tox", "summary": "reason"}
+        assert "text" not in attempts[1]["output"]
+
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_fallback_failure_is_logged_not_raised(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """When even the stripped retry fails, the error is logged instead of blowing up the check."""
+
+        def create_check_run_side_effect(*args: object, **kwargs: Any) -> None:
+            raise Exception("API is down")
+
+        with patch.object(
+            check_run_handler.github_webhook.repository_by_github_app,
+            "create_check_run",
+            side_effect=create_check_run_side_effect,
+        ):
+            with patch.object(check_run_handler.logger, "exception") as mock_exception:
+                await check_run_handler.set_check_run_status(
+                    check_run="tox", conclusion=FAILURE_STR, output={"title": "Tox"}
+                )
+                assert mock_exception.call_count == 2
+
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""
         err = "Error message"
@@ -455,18 +509,28 @@ class TestCheckRunHandler:
         assert result == expected
 
     def test_get_check_run_text_long_length(self, check_run_handler: CheckRunHandler) -> None:
-        """Test getting check run text with length exceeding GitHub limit."""
-        # Create text that exceeds 65535 characters
-        long_err = "Error " * 10000
-        long_out = "Output " * 10000
+        """Output over the GitHub limit keeps the tail, the closing fence and an elision marker."""
+        # Every line carries a 3-byte glyph: at 65534 characters this used to take the payload
+        # over GitHub's 65535 *byte* cap, which silently ate the end of the log.
+        long_out = ("tox: OK \u2714 / FAIL \u2716\n" * 5000) + "FAILED test_x.py::test_y\n"
 
-        result = check_run_handler.get_check_run_text(long_err, long_out)
+        result = check_run_handler.get_check_run_text("Error line", long_out)
 
-        # Should be truncated to 65534 characters (GitHub limit safe margin)
-        assert len(result) == 65534
+        assert len(result.encode("utf-8")) <= 65535, "Payload must stay within GitHub's byte limit"
         assert result.startswith("```\n")
-        # Verify the fix: it should end with the code block closer
-        assert result.endswith("\n```")
+        assert result.endswith("\n```"), "Closing fence must never be truncated away"
+        assert "FAILED test_x.py::test_y" in result, "Tail of the log must survive truncation"
+        assert "bytes truncated from the start" in result
+
+    def test_get_check_run_text_truncation_keeps_tail_not_head(self, check_run_handler: CheckRunHandler) -> None:
+        """The tail is the failure reason, so it is what survives; the head is setup noise."""
+        out = "SETUP-NOISE\n" + ("x" * 70000) + "\nREAL-FAILURE-REASON\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "REAL-FAILURE-REASON" in result
+        assert "SETUP-NOISE" not in result
+        assert len(result.encode("utf-8")) <= 65535
 
     def test_get_check_run_text_logs_full_redacted_output_before_truncation(
         self, check_run_handler: CheckRunHandler
@@ -477,7 +541,6 @@ class TestCheckRunHandler:
         aggregation systems, and BEFORE truncation so the complete build output
         is preserved in server logs.
         """
-        # Create text that exceeds 65534 characters to trigger truncation
         long_err = "E" * 10000
         long_out = "O" * 60000
 
@@ -486,9 +549,17 @@ class TestCheckRunHandler:
         # Verify debug was called with the full output
         debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
         full_output_logged = any(
-            "Full check run output" in call and "will be truncated" in call for call in debug_calls
+            "Full check run output" in call and "truncated to the last" in call for call in debug_calls
         )
         assert full_output_logged, "Expected debug log with full output before truncation"
+
+    def test_get_check_run_text_logs_truncation_size_at_info(self, check_run_handler: CheckRunHandler) -> None:
+        """Truncation is recorded at INFO so the server log says what GitHub did not receive."""
+        check_run_handler.get_check_run_text("", "O" * 70000)
+
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        assert any("exceeds the GitHub limit" in call for call in info_calls)
+        assert any("dropped" in call for call in info_calls)
 
     def test_get_check_run_text_full_log_has_secrets_redacted(self, check_run_handler: CheckRunHandler) -> None:
         """Test that the full output debug log redacts secrets before logging."""
@@ -543,6 +614,47 @@ class TestCheckRunHandler:
         assert "test-user" not in result
         assert "test-pass" not in result
         assert "*****" in result
+
+    def test_get_check_run_summary_empty_streams(self, check_run_handler: CheckRunHandler) -> None:
+        """No output means no summary rather than an empty code fence."""
+        assert check_run_handler.get_check_run_summary("", "") == ""
+        assert check_run_handler.get_check_run_summary("   \n", "\n") == ""
+
+    def test_get_check_run_summary_is_tail_only(self, check_run_handler: CheckRunHandler) -> None:
+        """The summary is the end of each stream - the part that says why a check failed."""
+        out = "\n".join(f"PASSED test_{i}" for i in range(500)) + "\nFAILED test_last.py::test_x"
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        assert summary.startswith("~~~\n")
+        assert summary.endswith("\n~~~")
+        assert "FAILED test_last.py::test_x" in summary
+        assert "PASSED test_0" not in summary, "Summary must not carry the whole log"
+        assert len(summary.encode("utf-8")) <= 65535
+
+    def test_get_check_run_summary_includes_stderr(self, check_run_handler: CheckRunHandler) -> None:
+        """Both streams can carry the reason, so both appear, labelled."""
+        summary = check_run_handler.get_check_run_summary("Traceback: boom", "collected 3 items")
+
+        assert "[stdout]" in summary
+        assert "collected 3 items" in summary
+        assert "[stderr]" in summary
+        assert "Traceback: boom" in summary
+
+    def test_get_check_run_summary_redacts_secrets(self, check_run_handler: CheckRunHandler) -> None:
+        """The summary is posted to GitHub, so it gets the same redaction as the text."""
+        summary = check_run_handler.get_check_run_summary("failed with token test-token", "")
+
+        assert "test-token" not in summary
+        assert "*****" in summary
+
+    def test_get_check_run_summary_survives_backtick_fences(self, check_run_handler: CheckRunHandler) -> None:
+        """Output containing ``` must not break the summary fence."""
+        summary = check_run_handler.get_check_run_summary("", "```\nnot a fence\n```")
+
+        assert summary.startswith("~~~\n")
+        assert summary.endswith("\n~~~")
+        assert "not a fence" in summary
 
     @pytest.mark.asyncio
     async def test_is_check_run_in_progress_true(self, check_run_handler: CheckRunHandler) -> None:

@@ -34,6 +34,31 @@ if TYPE_CHECKING:
     from webhook_server.utils.context import WebhookContext
 
 
+# GitHub caps output.text and output.summary at 65535 UTF-8 *bytes* and silently drops
+# whatever exceeds it. Characters are not bytes: a log with a single 3-byte glyph in it
+# is 2 bytes over budget at 65534 characters, which is how the end of a failing tox run
+# (and the closing code fence) used to disappear. Budget in bytes, with room to spare.
+MAX_OUTPUT_BYTES = 65_000
+SUMMARY_MAX_BYTES = 4_000
+SUMMARY_TAIL_LINES = 40
+
+
+def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
+    """Keep the last max_bytes of UTF-8 encoded text.
+
+    Args:
+        text: Text to truncate.
+        max_bytes: UTF-8 byte budget.
+
+    Returns:
+        Tuple of (tail of text within budget, number of bytes dropped).
+    """
+    encoded = text.encode()
+    if len(encoded) <= max_bytes:
+        return text, 0
+    return encoded[-max_bytes:].decode(errors="ignore"), len(encoded) - max_bytes
+
+
 class CheckRunOutput(TypedDict, total=False):
     """TypedDict for check run output parameter."""
 
@@ -203,12 +228,26 @@ class CheckRunHandler:
             self.logger.exception(f"{self.log_prefix} Failed to set check run status for {check_run}")
             kwargs["conclusion"] = FAILURE_STR
             kwargs["status"] = "completed"
-            await github_api_call(
-                self.github_webhook.repository_by_github_app.create_check_run,
-                **kwargs,
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
+            # GitHub rejects a payload it does not like (most often oversized output). Retrying it
+            # verbatim fails the same way and leaves the check stuck in progress with nothing
+            # reported, so drop the detail and at least report the failure.
+            rejected_output = kwargs.pop("output", None)
+            if isinstance(rejected_output, dict):
+                kwargs["output"] = {
+                    "title": rejected_output.get("title", check_run),
+                    "summary": rejected_output.get("summary", ""),
+                }
+            try:
+                await github_api_call(
+                    self.github_webhook.repository_by_github_app.create_check_run,
+                    **kwargs,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            except asyncio.CancelledError:
+                raise  # Always re-raise CancelledError
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Failed to report check run {check_run} as failed")
 
     def _redact_output(self, text: str) -> str:
         """Replace sensitive tokens, passwords, and credentials with *****."""
@@ -232,66 +271,59 @@ class CheckRunHandler:
         return text
 
     def get_check_run_text(self, err: str, out: str) -> str:
-        # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI
-        err_clean = strip_ansi_codes(err)
-        out_clean = strip_ansi_codes(out)
+        # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI.
+        # Redact BEFORE truncation to prevent partial secret leaks at truncation boundaries.
+        body = f"{strip_ansi_codes(err)}\n\n{strip_ansi_codes(out)}".strip()
+        body = self._redact_output(body)
+        total_bytes = len(body.encode())
 
-        # Redact BEFORE truncation to prevent partial secret leaks at truncation boundaries
-        err_clean = self._redact_output(err_clean)
-        out_clean = self._redact_output(out_clean)
+        kept, dropped = _tail_bytes(body, MAX_OUTPUT_BYTES)
+        if not dropped:
+            return self._redact_output(f"```\n{body}\n```")
 
-        # GitHub limit is 65535 characters, but we use 65534 to be safe
-        # We reserve space for the markdown wrapper: ```\n{err}\n\n{out}\n```
-        # Wrapper overhead = len("```\n\n\n```") = 10 characters
-        MAX_LEN = 65534
-        WRAPPER_OVERHEAD = 10
-
-        # Check if truncation will be needed (using ANSI-stripped, redacted lengths)
-        full_clean_len = len(err_clean) + len(out_clean) + WRAPPER_OVERHEAD
-        will_truncate = full_clean_len > MAX_LEN
-
-        # Log the full redacted output BEFORE truncation so server logs preserve
-        # the complete build output for debugging.
-        # err_clean/out_clean are already redacted at this point.
-        if will_truncate and self.logger.isEnabledFor(logging.DEBUG):
-            full_output = f"```\n{err_clean}\n\n{out_clean}\n```"
+        # Log the full redacted output BEFORE truncation so server logs preserve the complete
+        # build output for debugging (the body is already redacted at this point).
+        if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
-                f"{self.log_prefix} Full check run output ({full_clean_len} chars, "
-                f"will be truncated to {MAX_LEN} for GitHub). "
-                f"Redacted full output:\n{full_output}"
+                f"{self.log_prefix} Full check run output ({total_bytes} bytes, truncated to the "
+                f"last {len(kept.encode())} for GitHub):\n```\n{body}\n```"
             )
+        self.logger.info(
+            f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
+            f"kept the last {len(kept.encode())} bytes, dropped {dropped}"
+        )
 
-        # Prepare error part first - we want to preserve it as much as possible
-        # If error itself is huge, we might need to truncate it too, but usually it's small
-        # If error + wrapper > MAX_LEN, we truncate error
-        if len(err_clean) + WRAPPER_OVERHEAD > MAX_LEN:
-            err_clean = err_clean[: MAX_LEN - WRAPPER_OVERHEAD - 3] + "..."
-            out_clean = ""  # No space for output
+        # The failure reason is the last thing a check prints, so keep the tail rather than an
+        # even head/tail split: the head is setup noise (venv creation, command echo) and the
+        # middle is thousands of passing-test lines.
+        marker = f"...[{dropped} bytes truncated from the start of the output]..."
+        # The wrapper is added after truncation so the closing fence can never be cut off
+        return self._redact_output(f"```\n{marker}\n\n{kept}\n```")
 
-        # Calculate remaining space for output
-        current_len = len(err_clean) + WRAPPER_OVERHEAD
-        remaining_space = MAX_LEN - current_len
+    def get_check_run_summary(self, err: str, out: str) -> str:
+        """Render the end of the check output as a short markdown excerpt.
 
-        if len(out_clean) > remaining_space:
-            # Truncate output: keep start and end
-            truncation_msg = "\n...[TRUNCATED]...\n"
-            msg_len = len(truncation_msg)
+        GitHub shows output.summary inline in the Checks tab and output.text only after a click
+        on 'Details', so a check that only fills in text fails silently as far as a reviewer is
+        concerned. The last lines are what state the reason, so they belong in the summary.
 
-            if remaining_space <= msg_len:
-                # Very little space, just take head
-                out_clean = out_clean[:remaining_space]
-            else:
-                # Keep head and tail
-                available_content = remaining_space - msg_len
-                head_len = available_content // 2
-                tail_len = available_content - head_len
-                out_clean = out_clean[:head_len] + truncation_msg + out_clean[-tail_len:]
+        Args:
+            err: Command stderr.
+            out: Command stdout.
 
-        _output = f"```\n{err_clean}\n\n{out_clean}\n```"
-
-        # Final redaction pass is idempotent but catches any secrets
-        # introduced by the markdown wrapper itself (defensive)
-        return self._redact_output(_output)
+        Returns:
+            A fenced excerpt of the tail of each non-empty stream, or "" when both are empty.
+        """
+        parts: list[str] = []
+        for label, stream in (("stdout", out), ("stderr", err)):
+            cleaned = self._redact_output(strip_ansi_codes(stream)).strip()
+            if cleaned:
+                parts.append(f"[{label}]\n" + "\n".join(cleaned.splitlines()[-SUMMARY_TAIL_LINES:]))
+        if not parts:
+            return ""
+        excerpt, _ = _tail_bytes("\n\n".join(parts), SUMMARY_MAX_BYTES)
+        # Tildes, not backticks: command output routinely contains ``` and would break the fence
+        return f"~~~\n{excerpt}\n~~~"
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:

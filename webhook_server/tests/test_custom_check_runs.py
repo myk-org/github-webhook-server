@@ -14,7 +14,6 @@ The custom check runs feature allows users to define custom checks via YAML conf
 - Custom checks are added to supported retest list
 """
 
-import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -26,6 +25,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, Chec
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
+    CHECK_COMMAND_TIMEOUT_SECONDS,
     FAILURE_STR,
     IN_PROGRESS_STR,
     QUEUED_STR,
@@ -413,6 +413,7 @@ class TestRunnerHandlerCustomCheck:
         handler.check_run_handler.set_check_success = AsyncMock()
         handler.check_run_handler.set_check_failure = AsyncMock()
         handler.check_run_handler.get_check_run_text = Mock(return_value="Mock output text")
+        handler.check_run_handler.get_check_run_summary = Mock(return_value="Mock summary")
         return handler
 
     @pytest.fixture
@@ -589,6 +590,7 @@ class TestCustomCheckRunsIntegration:
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Mock output")
+        runner_handler.check_run_handler.get_check_run_summary = Mock(return_value="Mock summary")
 
         check_config = mock_github_webhook.custom_check_runs[0]  # lint check
 
@@ -666,6 +668,7 @@ class TestCustomCheckRunsRetestCommand:
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Test output")
+        runner_handler.check_run_handler.get_check_run_summary = Mock(return_value="Test summary")
 
         mock_pull_request = Mock()
         mock_pull_request.number = 123
@@ -1061,12 +1064,17 @@ class TestCustomCheckRunsEdgeCases:
 
     @pytest.mark.asyncio
     async def test_custom_check_timeout_expiration(self, mock_github_webhook: Mock, tmp_path: Path) -> None:
-        """Test that timeout should be handled gracefully."""
+        """A timed-out check reports the timeout as its failure reason.
+
+        run_command does not raise on timeout - it returns rc=False with the notice appended to
+        stderr - so the timeout has to reach the check run through the normal failure path.
+        """
         runner_handler = RunnerHandler(mock_github_webhook)
         runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_failure = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Timeout")
+        runner_handler.check_run_handler.get_check_run_summary = Mock(return_value="Timeout summary")
 
         mock_pull_request = Mock()
         mock_pull_request.number = 123
@@ -1088,7 +1096,7 @@ class TestCustomCheckRunsEdgeCases:
             patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
             patch(
                 "webhook_server.libs.handlers.runner_handler.run_command",
-                new=AsyncMock(side_effect=asyncio.TimeoutError),
+                new=AsyncMock(return_value=(False, "", f"Command timed out after {CHECK_COMMAND_TIMEOUT_SECONDS}s")),
             ),
         ):
             # Should handle timeout gracefully by reporting failure
@@ -1108,6 +1116,7 @@ class TestCustomCheckRunsEdgeCases:
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Output")
+        runner_handler.check_run_handler.get_check_run_summary = Mock(return_value="Output summary")
 
         mock_pull_request = Mock()
         mock_pull_request.number = 123

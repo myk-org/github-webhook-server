@@ -10,6 +10,9 @@ SUCCESS_STR: str = "success"
 FAILURE_STR: str = "failure"
 IN_PROGRESS_STR: str = "in_progress"
 QUEUED_STR: str = "queued"
+# A check command has no timeout by default; without one a hung tox/pre-commit/custom check holds
+# its check run in_progress until someone notices. Generous so a genuinely slow suite still runs.
+CHECK_COMMAND_TIMEOUT_SECONDS: int = 3600
 ADD_STR: str = "add"
 DELETE_STR: str = "delete"
 CAN_BE_MERGED_STR: str = "can-be-merged"

@@ -23,7 +23,16 @@ Every check follows the same lifecycle, implemented in `webhook_server/libs/hand
 4. The command runs, stdout/stderr are stripped of ANSI codes and redacted, then posted to the check run output.
 5. `set_check_success` or `set_check_failure`.
 
-All check runs are written to `last_commit.sha`. Output is truncated to 65534 characters to stay under GitHub's limit, keeping the head and the tail, and the full redacted output stays in the server log. Secrets from `pypi.token`, the container registry username and password, and the GitHub token are replaced with `*****` before anything is posted.
+All check runs are written to `last_commit.sha`.
+
+GitHub caps both `output.summary` and `output.text` at 65,535 **UTF-8 bytes** (not characters) and silently discards whatever exceeds it. Both fields are therefore built byte-first:
+
+- **`summary`** carries the reason, because it is the only field GitHub renders inline in the Checks tab and on the pull request — `text` needs a click on *Details*. It holds the last 40 lines of stdout and of stderr, labelled and fenced with `~~~`, capped at 4,000 bytes. A failing check that only filled in `text` looked unexplained to a reviewer.
+- **`text`** carries the last 65,000 bytes of the combined stdout/stderr, prefixed with a `...[N bytes truncated from the start of the output]...` marker. The tail is kept rather than an even head/tail split: the head is setup noise (venv creation, command echo) and the middle is thousands of passing-test lines, while the failure is the last thing a check prints. The markdown fence is added *after* truncation, so it can never be cut off.
+
+When the output is truncated, one `INFO` line records the total size and how much was dropped, and the full redacted output is written to the server log at `DEBUG`. Secrets from `pypi.token`, the container registry username and password, and the GitHub token are replaced with `*****` before anything is posted or logged.
+
+Check commands run with a one-hour timeout (`CHECK_COMMAND_TIMEOUT_SECONDS`). A command that times out reports the timeout as its failure reason; the output it printed before the timeout is not recoverable, because `run_command` discards it when it cancels the process. If GitHub rejects a check-run payload, the status is retried once without `output.text` so the check still reaches a conclusion instead of staying `in_progress`.
 
 Built-in and custom command checks share one code path, `RunnerHandler.run_check()`. Each one is described by a small `CheckConfig` record: the check-run name, the command (which may contain the `{worktree_path}` placeholder), a display title, and whether the command runs with `cwd` set to the worktree.
 

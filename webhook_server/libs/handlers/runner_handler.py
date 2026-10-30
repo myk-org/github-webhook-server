@@ -23,6 +23,7 @@ from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
     AI_RESOLVED_CONFLICTS_LABEL,
     BUILD_CONTAINER_STR,
+    CHECK_COMMAND_TIMEOUT_SECONDS,
     CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     GITHUB_WEB_FLOW_LOGIN,
@@ -316,6 +317,7 @@ class RunnerHandler:
 
                 if not success:
                     self.logger.error(f"{self.log_prefix} Repository preparation failed for {check_config.name}")
+                    output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
 
@@ -326,18 +328,17 @@ class RunnerHandler:
 
                 # Execute command - use cwd if configured, otherwise command should include paths
                 cwd = worktree_path if check_config.use_cwd else None
-                try:
-                    rc, out, err = await run_command(
-                        command=cmd,
-                        log_prefix=self.log_prefix,
-                        mask_sensitive=self.github_webhook.mask_sensitive,
-                        cwd=cwd,
-                    )
-                except TimeoutError:
-                    self.logger.error(f"{self.log_prefix} Check {check_config.name} timed out")
-                    output["text"] = "Command execution timed out"
-                    return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+                # No TimeoutError handling below: run_command reports a timeout as rc=False with the
+                # notice appended to stderr, so it lands in summary/text like any other failure.
+                rc, out, err = await run_command(
+                    command=cmd,
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                    cwd=cwd,
+                    timeout=CHECK_COMMAND_TIMEOUT_SECONDS,
+                )
 
+                output["summary"] = self.check_run_handler.get_check_run_summary(err=err, out=out)
                 output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
                 if rc:
@@ -354,8 +355,8 @@ class RunnerHandler:
             self.logger.exception(f"{self.log_prefix} Check {check_config.name} failed with unexpected error")
             error_output: CheckRunOutput = {
                 "title": check_config.title,
-                "summary": "Unexpected error during check execution",
-                "text": f"Error: {ex}",
+                "summary": f"Unexpected error during check execution: {type(ex).__name__}: {ex}",
+                "text": f"Error: {type(ex).__name__}: {ex}",
             }
             await self.check_run_handler.set_check_failure(name=check_config.name, output=error_output)
             raise
@@ -760,6 +761,7 @@ class RunnerHandler:
             build_rc, build_out, build_err = await self.run_podman_command(
                 command=podman_build_cmd,
             )
+            output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
