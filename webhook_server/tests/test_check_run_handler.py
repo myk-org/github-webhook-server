@@ -593,6 +593,30 @@ class TestCheckRunHandler:
         assert result.count(detail) == 1 or len(result.splitlines()) < 10
         assert len(result.encode("utf-8")) <= 65535
 
+    def test_get_check_run_text_prefers_the_failure_section_over_progress_lines(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A pytest progress line must not become the anchor and push the tracebacks out.
+
+        'tests/x.py::test FAILED [ 47%]' appears long before '==== FAILURES ===='; anchoring on the
+        progress line kept thousands of PASSED/FAILED lines and cut the tracebacks instead.
+        """
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(500))
+            + "\ntests/test_x.py::test_it FAILED [ 47%]\n"
+            + "\n".join(f"PASSED test_{i}" for i in range(500, 3000))
+            + "\n==================== FAILURES ====================\n"
+            + "____ test_it ____\ntests/test_x.py:9: in test_it\nE   AssertionError: the diagnosis\n"
+            + "\n".join(f"detail {i} " + "z" * 60 for i in range(3000))
+            + "\n1 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        head = result[:400]
+        assert "==== FAILURES ====" in head or "the diagnosis" in head
+        assert "test_it FAILED [ 47%]" not in head, "the progress line must not be the anchor"
+
     def test_get_check_run_text_anchors_on_a_bare_failed_line(self, check_run_handler: CheckRunHandler) -> None:
         """A custom check prints 'FAILED ...' with no pytest section header and must still anchor."""
         out = (

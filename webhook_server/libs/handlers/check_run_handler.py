@@ -49,8 +49,8 @@ ERROR_SECTION_MAX_BYTES = 28_000
 # Omission markers and the blank lines around them are written to GitHub but are not source output,
 # so the budget has to hold room for them or the payload lands over the byte limit.
 MARKER_RESERVE_BYTES = 300
-# A check's failure is identified by these; everything from the first match onwards is the error
-# section, which is kept even when it sits in the middle of the log and would be cut as tail.
+# Strong anchors identify the failure *section*. They are searched first, so a pytest run keeps its
+# '==== FAILURES ====' block (and the tracebacks inside it) at the top of the window.
 ERROR_ANCHORS = (
     "==== FAILURES ====",
     "==== ERRORS ====",
@@ -58,11 +58,11 @@ ERROR_ANCHORS = (
     "error:",
     "Error:",
     "ERROR:",
-    # Custom checks have no pytest section header; a bare verdict line is all they print before the
-    # diagnosis, and get_check_run_title already treats these as failure identifiers.
-    "FAILED ",
-    "ERROR ",
 )
+# Weak anchors are the bare verdict lines a custom check prints with no section header. They are only
+# used when no section header exists: pytest also prints 'PASSED/FAILED' progress lines, and matching
+# one of those first would push the real failure block out of the retained head.
+WEAK_ERROR_ANCHORS = ("FAILED ", "ERROR ")
 # The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
 # failures stay countable instead of being cut in the middle by a byte-counted tail.
 FAILED_LIST_ANCHOR = "=== short test summary info ==="
@@ -151,12 +151,14 @@ def _error_start(text: str) -> int | None:
 
     Returns:
         Offset of the line that starts the failure section, or None when no marker is present.
+        A section header wins over a bare verdict line even when the verdict line comes first.
     """
-    offset = 0
-    for line in text.splitlines(keepends=True):
-        if any(anchor in line for anchor in ERROR_ANCHORS):
-            return offset
-        offset += len(line)
+    for anchors in (ERROR_ANCHORS, WEAK_ERROR_ANCHORS):
+        offset = 0
+        for line in text.splitlines(keepends=True):
+            if any(anchor in line for anchor in anchors):
+                return offset
+            offset += len(line)
     return None
 
 
