@@ -728,6 +728,36 @@ class TestCheckRunHandler:
 
         assert title == "FAILED tests/test_x.py::test_y"
 
+    def test_get_check_run_title_counts_hundreds_of_failures(self, check_run_handler: CheckRunHandler) -> None:
+        """With more failures than the window can show, the count is the useful heading."""
+        out = "FAILED tests/test_x.py::test_0\nFAILED tests/test_x.py::test_399\n400 failed, 16 passed in 2.51s"
+
+        title = check_run_handler.get_check_run_title("Tox", "", out, passed=False)
+
+        assert title == "400 failed, 16 passed in 2.51s"
+
+    def test_get_check_run_text_keeps_the_whole_failed_list(self, check_run_handler: CheckRunHandler) -> None:
+        """Hundreds of failures: the list of what failed must survive whole, not cut mid-list."""
+        failures = "\n".join(
+            f"FAILED tests/test_many.py::test_failure_{i:03d} - AssertionError: E2E-FAIL-{i:03d}" for i in range(400)
+        )
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(2000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\n=========================== short test summary info ============================\n"
+            + failures
+            + "\n400 failed, 16 passed in 2.51s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert result.count("FAILED tests/test_many.py::test_failure_") == 400, "failed list must be complete"
+        assert "test_failure_000" in result and "test_failure_399" in result
+        assert "==== FAILURES ====" in result, "the first failure detail must lead the page"
+        assert "400 failed, 16 passed" in result
+        assert len(result.encode("utf-8")) <= 65535
+
     def test_get_check_run_summary_redacts_secrets(self, check_run_handler: CheckRunHandler) -> None:
         """The summary is posted to GitHub, so it gets the same redaction as the text."""
         summary = check_run_handler.get_check_run_summary("failed with token test-token", "")

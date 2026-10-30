@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
@@ -56,6 +57,11 @@ ERROR_ANCHORS = (
     "Error:",
     "ERROR:",
 )
+# The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
+# failures stay countable instead of being cut in the middle by a byte-counted tail.
+FAILED_LIST_ANCHOR = "=== short test summary info ==="
+# pytest/pox count line, e.g. '===== 400 failed, 16 passed, 16 warnings in 2.51s ====='
+_VERDICT_COUNT_RE = re.compile(r"\b\d+ (?:failed|error|passed)")
 
 
 def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
@@ -131,6 +137,24 @@ def _error_start(text: str) -> int | None:
             return offset
         offset += len(line)
     return None
+
+
+def _failed_list_start(text: str) -> int | None:
+    """Return the character offset of the last 'short test summary info' block, if any.
+
+    Args:
+        text: Log text.
+
+    Returns:
+        Offset of the block that lists every failed test, or None when the log has no such block.
+    """
+    offset = 0
+    start: int | None = None
+    for line in text.splitlines(keepends=True):
+        if FAILED_LIST_ANCHOR in line:
+            start = offset
+        offset += len(line)
+    return start
 
 
 def _error_section(text: str, max_bytes: int) -> str:
@@ -410,15 +434,21 @@ class CheckRunHandler:
                 return self._redact_output(f"```\n{marker}\n\n{from_failure}\n```")
             error_part = _head_bytes(from_failure, min(ERROR_SECTION_MAX_BYTES, MAX_OUTPUT_BYTES // 2))
 
-        # The failure section is too large on its own, or there is none: keep its head plus as much
-        # of the end of the log as the remaining budget allows (the verdict lives there).
+        # The failure section is too large on its own, or there is none: keep its head plus the
+        # end of the log, where the verdict lives. Prefer the failed-test list as the anchor so
+        # hundreds of failures stay countable instead of being cut mid-list by a byte-counted tail.
         budget = MAX_OUTPUT_BYTES - len(error_part.encode()) - 80  # 80 = marker + blank line
-        kept, _ = _tail_bytes(body, budget)
+        tail_start = _failed_list_start(body)
+        anchored = ""
+        if tail_start is not None and len(body[tail_start:].encode()) <= budget:
+            anchored = body[tail_start:]
+        kept, _ = _tail_bytes(anchored if anchored else body, budget)
         dropped = total_bytes - len(error_part.encode()) - len(kept.encode())
+        tail_description = "the complete failed-test list" if anchored else f"the last {len(kept.encode())} bytes"
         self.logger.info(
             f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
-            f"kept {len(error_part.encode())} bytes of failure section and the last "
-            f"{len(kept.encode())} bytes, dropped {dropped}"
+            f"kept {len(error_part.encode())} bytes of failure section and {tail_description}, "
+            f"dropped {dropped}"
         )
 
         prefix = f"{error_part}\n\n" if error_part else ""
@@ -479,10 +509,15 @@ class CheckRunHandler:
             return f"{fallback_title} passed"
 
         body = strip_ansi_codes(f"{out}\n{err}")
-        for line in reversed(body.splitlines()):
-            candidate = line.strip()
-            if candidate.startswith(("FAILED ", "ERROR ")) or candidate.lower().startswith("error:"):
-                return self._redact_output(candidate)[:250]
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        # The count line says how bad it is ('400 failed, 16 passed') and is the most useful
+        # heading for a run with more failures than the log window can show.
+        for line in reversed(lines):
+            if _VERDICT_COUNT_RE.search(line) and ("failed" in line or "error" in line):
+                return self._redact_output(line.strip("= "))[:250]
+        for line in reversed(lines):
+            if line.startswith(("FAILED ", "ERROR ")) or line.lower().startswith("error:"):
+                return self._redact_output(line)[:250]
         return f"{fallback_title} failed"
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
