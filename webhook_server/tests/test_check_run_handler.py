@@ -479,10 +479,8 @@ class TestCheckRunHandler:
         assert "text" not in attempts[1]["output"]
 
     @pytest.mark.asyncio
-    async def test_set_check_run_status_fallback_failure_is_logged_not_raised(
-        self, check_run_handler: CheckRunHandler
-    ) -> None:
-        """When even the stripped retry fails, the error is logged instead of blowing up the check."""
+    async def test_set_check_run_status_fallback_failure_is_raised(self, check_run_handler: CheckRunHandler) -> None:
+        """When both attempts fail the caller must learn that reporting failed."""
 
         def create_check_run_side_effect(*args: object, **kwargs: Any) -> None:
             raise Exception("API is down")
@@ -493,9 +491,10 @@ class TestCheckRunHandler:
             side_effect=create_check_run_side_effect,
         ):
             with patch.object(check_run_handler.logger, "exception") as mock_exception:
-                await check_run_handler.set_check_run_status(
-                    check_run="tox", conclusion=FAILURE_STR, output={"title": "Tox"}
-                )
+                with pytest.raises(Exception, match="API is down"):
+                    await check_run_handler.set_check_run_status(
+                        check_run="tox", conclusion=FAILURE_STR, output={"title": "Tox"}
+                    )
                 assert mock_exception.call_count == 2
 
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
@@ -520,7 +519,7 @@ class TestCheckRunHandler:
         assert result.startswith("```\n")
         assert result.endswith("\n```"), "Closing fence must never be truncated away"
         assert "FAILED test_x.py::test_y" in result, "Tail of the log must survive truncation"
-        assert "bytes truncated from the start" in result
+        assert "bytes omitted" in result
 
     def test_get_check_run_text_truncation_keeps_tail_not_head(self, check_run_handler: CheckRunHandler) -> None:
         """The tail is the verdict, so it is what survives; setup noise at the head goes first."""
@@ -529,8 +528,9 @@ class TestCheckRunHandler:
         result = check_run_handler.get_check_run_text("", out)
 
         assert "REAL-FAILURE-REASON" in result
-        assert "SETUP-NOISE" not in result
-        assert "bytes truncated from the start" in result
+        # Both anchors are pytest-less here, so the failure marker is the only one: the omitted
+        # range is the middle of the log.
+        assert "bytes omitted from the middle" in result or "bytes omitted before" in result
         assert len(result.encode("utf-8")) <= 65535
 
     def test_get_check_run_text_caps_a_single_huge_line(self, check_run_handler: CheckRunHandler) -> None:
@@ -593,6 +593,79 @@ class TestCheckRunHandler:
         assert result.count(detail) == 1 or len(result.splitlines()) < 10
         assert len(result.encode("utf-8")) <= 65535
 
+    def test_get_check_run_text_anchors_on_a_bare_failed_line(self, check_run_handler: CheckRunHandler) -> None:
+        """A custom check prints 'FAILED ...' with no pytest section header and must still anchor."""
+        out = (
+            "\n".join(f"step {i} ok" for i in range(4000))
+            + "\nFAILED - the diagnosis is right here\n"
+            + "\n".join(f"noise {i}" for i in range(4000))
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "FAILED - the diagnosis is right here" in result
+        assert result.index("FAILED - the diagnosis") < 300, "the verdict line must lead the page"
+
+    def test_get_check_run_text_marks_head_and_middle_gaps_separately(self, check_run_handler: CheckRunHandler) -> None:
+        """Bytes omitted before the failure and after it are different ranges and are both marked."""
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(3000))
+            + "\nmore failure output\n"
+            + "\n".join(f"COVERAGE {i}" for i in range(2000))
+            + "\nVERDICT\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "bytes omitted before the failure" in result
+        assert "bytes omitted from the middle of the output" in result
+        assert "VERDICT" in result
+        assert len(result.encode("utf-8")) <= 65535
+
+    def test_get_check_run_text_keeps_earlier_of_several_failed_lists(self, check_run_handler: CheckRunHandler) -> None:
+        """Multi-environment runs emit several summaries; earlier ones must not be discarded."""
+        first = "\n".join(f"FAILED tests/a.py::test_{i} - boom" for i in range(50))
+        second = "\n".join(f"FAILED tests/b.py::test_{i} - boom" for i in range(50))
+        out = (
+            "\n".join(f"PASSED test_{i}" for i in range(3000))
+            + "\n==================== FAILURES ====================\n"
+            + "\n".join(f"failure detail {i} " + "z" * 60 for i in range(2000))
+            + "\n=========================== short test summary info ============================\n"
+            + first
+            + "\n=========================== short test summary info ============================\n"
+            + second
+            + "\n100 failed in 2s\n"
+        )
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        assert "FAILED tests/a.py::test_0" in result, "the earlier failed-test list must survive"
+        assert "FAILED tests/b.py::test_0" in result
+
+    def test_get_check_run_summary_fence_cannot_be_closed_by_output(self, check_run_handler: CheckRunHandler) -> None:
+        """A check that prints the fence characters must not be able to escape the code block."""
+        out = "before\n~~~\n**rendered as markdown, not a log**\n~~~\nafter"
+
+        summary = check_run_handler.get_check_run_summary("", out)
+
+        fence = summary.splitlines()[0]
+        assert set(fence) == {"~"}
+        assert len(fence) > 3, "fence must be longer than anything in the excerpt"
+        assert summary.startswith(fence + "\n") and summary.endswith("\n" + fence)
+
+    def test_get_check_run_text_fence_cannot_be_closed_by_output(self, check_run_handler: CheckRunHandler) -> None:
+        """Same for the details block: output containing ``` gets a longer fence."""
+        out = "\n".join(f"line {i}" for i in range(8000)) + "\n```\nfake fence\n```\n"
+
+        result = check_run_handler.get_check_run_text("", out)
+
+        fence = result.splitlines()[0]
+        assert set(fence) == {"`"}
+        assert len(fence) > 3
+        assert result.endswith("\n" + fence)
+
     def test_get_check_run_text_fills_the_budget(self, check_run_handler: CheckRunHandler) -> None:
         """A small failed-test list must not leave most of the allowance unused.
 
@@ -615,27 +688,25 @@ class TestCheckRunHandler:
 
         assert size <= 65535
         assert size > 60_000, f"budget left unused: only {size} bytes posted"
-        assert result.startswith("```\n==================== FAILURES ====")
+        assert result.index("==================== FAILURES") < 200, "failure section must lead the page"
         assert "FAILED tests/test_one.py::test_it" in result
 
     def test_get_check_run_text_logs_full_redacted_output_before_truncation(
         self, check_run_handler: CheckRunHandler
     ) -> None:
-        """Test that full redacted output is logged via debug before truncation.
+        """The complete output reaches the server log at the default INFO level.
 
-        The debug log must fire AFTER redaction to avoid leaking secrets to log
-        aggregation systems, and BEFORE truncation so the complete build output
-        is preserved in server logs.
+        The GitHub payload only carries a window of it, so the log is the only place the rest can
+        survive (issue #1090) - a DEBUG-only dump is never written at the default log level.
         """
         long_err = "\n".join("E" * 200 for _ in range(50))
         long_out = "\n".join("O" * 200 for _ in range(500))
 
         check_run_handler.get_check_run_text(long_err, long_out)
 
-        # Verify debug was called with the full output
-        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
-        full_output_logged = any("Full check run output" in call and "GitHub limit is" in call for call in debug_calls)
-        assert full_output_logged, "Expected debug log with full output before truncation"
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        full_output_logged = any("Full check run output" in call and "GitHub limit is" in call for call in info_calls)
+        assert full_output_logged, "Expected an INFO log with the full output before truncation"
 
     def test_get_check_run_text_logs_truncation_size_at_info(self, check_run_handler: CheckRunHandler) -> None:
         """Truncation is recorded at INFO so the server log says what GitHub did not receive."""
@@ -643,23 +714,22 @@ class TestCheckRunHandler:
 
         info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
         assert any("exceeds the GitHub limit" in call for call in info_calls)
-        assert any("dropped" in call for call in info_calls)
+        assert any("omitted" in call for call in info_calls)
 
     def test_get_check_run_text_full_log_has_secrets_redacted(self, check_run_handler: CheckRunHandler) -> None:
-        """Test that the full output debug log redacts secrets before logging."""
+        """The full-output log entry redacts secrets before writing."""
         long_out = "\n".join("O" * 200 for _ in range(500))
         err_with_secret = "Error: auth failed with token test-token and user test-user"  # pragma: allowlist secret
 
         check_run_handler.get_check_run_text(err_with_secret, long_out)
 
-        # Verify the debug log does NOT contain the raw secrets
-        debug_calls = [str(call) for call in check_run_handler.logger.debug.call_args_list]
-        full_log_calls = [c for c in debug_calls if "Full check run output" in c]
-        assert full_log_calls, "Expected full output debug log"
+        info_calls = [str(call) for call in check_run_handler.logger.info.call_args_list]
+        full_log_calls = [c for c in info_calls if "Full check run output" in c]
+        assert full_log_calls, "Expected full output log entry"
         for call in full_log_calls:
-            assert "test-token" not in call, "Secret token leaked in debug log"
-            assert "test-user" not in call, "Username leaked in debug log"
-            assert "*****" in call, "Expected redacted placeholder in debug log"
+            assert "test-token" not in call, "Secret token leaked in the log"
+            assert "test-user" not in call, "Username leaked in the log"
+            assert "*****" in call, "Expected redacted placeholder in the log"
 
     def test_get_check_run_text_no_log_when_not_truncated(self, check_run_handler: CheckRunHandler) -> None:
         """Test that no full output debug log is emitted when output fits within limit."""

@@ -9,6 +9,7 @@ import random
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -292,6 +293,43 @@ def get_github_repo_api(github_app_api: github.Github, repository: int | str) ->
     return github_app_api.get_repo(repository)
 
 
+async def _drain(reader: asyncio.StreamReader | None, sink: list[bytes]) -> None:
+    """Read a process pipe into sink until EOF.
+
+    Args:
+        reader: The pipe to read, or None when the stream was redirected elsewhere.
+        sink: List that receives every chunk, so partial output survives task cancellation.
+    """
+    if reader is None:
+        return
+    while chunk := await reader.read(65536):
+        sink.append(chunk)
+
+
+def _kill_process_tree(sub_process: asyncio.subprocess.Process) -> None:
+    """Kill a process and every descendant it started.
+
+    The subprocess is spawned in its own session, so a check's grandchildren (pytest workers, hooks,
+    podman) live in that session's process group. Killing only the direct child left them running
+    against the worktree after the check was already marked failed.
+
+    Args:
+        sub_process: The process to kill, together with its process group.
+    """
+    try:
+        os.killpg(os.getpgid(sub_process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass  # Already dead, or not a group leader - fall back below
+    except Exception:
+        pass
+    try:
+        sub_process.kill()
+    except ProcessLookupError:
+        pass  # Already dead
+    except Exception:
+        pass
+
+
 async def run_command(
     command: str,
     log_prefix: str,
@@ -343,6 +381,9 @@ async def run_command(
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
         command_list = shlex.split(command)
 
+        # Own session => own process group, so a timeout can kill the whole tree (fixes checks whose
+        # pytest workers kept running after the check was reported failed)
+        kwargs.setdefault("start_new_session", True)
         sub_process = await asyncio.create_subprocess_exec(
             *command_list,
             **kwargs,
@@ -354,19 +395,38 @@ async def run_command(
             stdin_bytes = stdin_input.encode("utf-8") if isinstance(stdin_input, str) else stdin_input
 
         # Execute with optional timeout
-        try:
-            if timeout:
-                stdout, stderr = await asyncio.wait_for(sub_process.communicate(input=stdin_bytes), timeout=timeout)
-            else:
-                stdout, stderr = await sub_process.communicate(input=stdin_bytes)
-        except TimeoutError:
-            logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
+        if timeout:
+            # Read the pipes ourselves instead of via communicate(): a cancelled communicate()
+            # discards what it already read, which is how a timed-out check lost the output that
+            # might explain the hang. Appending to these sinks keeps it.
+            out_chunks: list[bytes] = []
+            err_chunks: list[bytes] = []
+            readers = [
+                asyncio.create_task(_drain(sub_process.stdout, out_chunks)),
+                asyncio.create_task(_drain(sub_process.stderr, err_chunks)),
+            ]
             try:
-                sub_process.kill()
-                # Cleanup handled by finally block
-            except Exception:
-                pass  # Process may already be dead
-            return False, "", f"Command timed out after {timeout}s"
+                if stdin_bytes is not None and sub_process.stdin is not None:
+                    sub_process.stdin.write(stdin_bytes)
+                    await sub_process.stdin.drain()
+                    sub_process.stdin.close()
+                await asyncio.wait_for(sub_process.wait(), timeout=timeout)
+            except TimeoutError:
+                logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
+                _kill_process_tree(sub_process)
+                # Descendants are gone, so the pipes reach EOF and the readers return promptly;
+                # the deadline is only a backstop against a pipe that escapes the process group.
+                await asyncio.wait(readers, timeout=5)
+                for reader in readers:
+                    reader.cancel()
+                out_decoded = b"".join(out_chunks).decode(errors="ignore")
+                err_decoded = b"".join(err_chunks).decode(errors="ignore")
+                return False, out_decoded, f"{err_decoded}\nCommand timed out after {timeout}s"
+            await asyncio.gather(*readers)
+            stdout = b"".join(out_chunks)
+            stderr = b"".join(err_chunks)
+        else:
+            stdout, stderr = await sub_process.communicate(input=stdin_bytes)
         # Ensure we always have strings, never None or bytes
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else (stderr or "")

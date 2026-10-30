@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import re
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
@@ -56,6 +55,10 @@ ERROR_ANCHORS = (
     "error:",
     "Error:",
     "ERROR:",
+    # Custom checks have no pytest section header; a bare verdict line is all they print before the
+    # diagnosis, and get_check_run_title already treats these as failure identifiers.
+    "FAILED ",
+    "ERROR ",
 )
 # The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
 # failures stay countable instead of being cut in the middle by a byte-counted tail.
@@ -72,7 +75,7 @@ def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
         max_bytes: UTF-8 byte budget.
 
     Returns:
-        Tuple of (tail of text within budget, number of bytes dropped).
+        Tuple of (tail of text within budget, number of source bytes dropped).
     """
     encoded = text.encode()
     if len(encoded) <= max_bytes:
@@ -80,7 +83,21 @@ def _tail_bytes(text: str, max_bytes: int) -> tuple[str, int]:
     return encoded[-max_bytes:].decode(errors="ignore"), len(encoded) - max_bytes
 
 
-def _head_bytes(text: str, max_bytes: int) -> str:
+def _fence(text: str, char: str) -> str:
+    """Return a code fence that the content cannot close.
+
+    Args:
+        text: Content that will be fenced.
+        char: Fence character, '`' or '~'.
+
+    Returns:
+        A run of char longer than any run already present in the content.
+    """
+    longest = max((len(run) for run in re.findall(re.escape(char) + "+", text)), default=0)
+    return char * max(3, longest + 1)
+
+
+def _head_bytes(text: str, max_bytes: int) -> tuple[str, int]:
     """Fit text into max_bytes keeping only its head.
 
     Used for the failure section: its tail necessarily overlaps the tail of the log that is kept
@@ -91,14 +108,15 @@ def _head_bytes(text: str, max_bytes: int) -> str:
         max_bytes: UTF-8 byte budget.
 
     Returns:
-        Head of text within budget, with a marker naming how many bytes were cut.
+        Tuple of (head of text within budget with a marker naming the cut, number of source bytes
+        kept - the marker itself is not source output and must not count as retained).
     """
     encoded = text.encode()
     if len(encoded) <= max_bytes:
-        return text
+        return text, len(encoded)
     marker = f"\n...[failure section truncated: {len(encoded) - max_bytes} bytes]...\n"
     available = max_bytes - len(marker.encode())
-    return encoded[:available].decode(errors="ignore") + marker
+    return encoded[:available].decode(errors="ignore") + marker, available
 
 
 def _cap_long_lines(text: str, max_chars: int = MAX_LINE_CHARS) -> str:
@@ -139,22 +157,29 @@ def _error_start(text: str) -> int | None:
     return None
 
 
-def _failed_list_start(text: str) -> int | None:
-    """Return the character offset of the last 'short test summary info' block, if any.
+def _failed_list_start(text: str, max_bytes: int) -> int | None:
+    """Return the offset of the earliest failed-test list whose suffix fits the budget.
+
+    Custom checks and multi-environment runs can emit several summaries; taking the last one threw
+    away earlier lists even when keeping all of them would have fitted.
 
     Args:
         text: Log text.
+        max_bytes: Byte budget for everything from the chosen offset to the end of the log.
 
     Returns:
-        Offset of the block that lists every failed test, or None when the log has no such block.
+        Offset of the earliest summary block whose suffix fits, or None when no block fits.
     """
+    offsets: list[int] = []
     offset = 0
-    start: int | None = None
     for line in text.splitlines(keepends=True):
         if FAILED_LIST_ANCHOR in line:
-            start = offset
+            offsets.append(offset)
         offset += len(line)
-    return start
+    for candidate in offsets:
+        if len(text[candidate:].encode()) <= max_bytes:
+            return candidate
+    return None
 
 
 def _error_section(text: str, max_bytes: int) -> str:
@@ -173,7 +198,7 @@ def _error_section(text: str, max_bytes: int) -> str:
     start = _error_start(text)
     if start is None:
         return ""
-    return _head_bytes(text[start:], max_bytes)
+    return _head_bytes(text[start:], max_bytes)[0]
 
 
 class CheckRunOutput(TypedDict, total=False):
@@ -350,10 +375,10 @@ class CheckRunHandler:
             # reported, so drop the detail and at least report the failure.
             rejected_output = kwargs.pop("output", None)
             if isinstance(rejected_output, dict):
-                kwargs["output"] = {
-                    "title": rejected_output.get("title", check_run),
-                    "summary": rejected_output.get("summary", ""),
-                }
+                # The summary is byte-limited by GitHub too, and it can be built from an arbitrary
+                # exception string, so cap it rather than resending whatever was rejected.
+                summary, _ = _tail_bytes(str(rejected_output.get("summary") or ""), SUMMARY_MAX_BYTES)
+                kwargs["output"] = {"title": rejected_output.get("title", check_run), "summary": summary}
             try:
                 await github_api_call(
                     self.github_webhook.repository_by_github_app.create_check_run,
@@ -363,8 +388,11 @@ class CheckRunHandler:
                 )
             except asyncio.CancelledError:
                 raise  # Always re-raise CancelledError
-            except Exception:
+            except Exception as retry_error:
                 self.logger.exception(f"{self.log_prefix} Failed to report check run {check_run} as failed")
+                # Both attempts failed: the check will stay in_progress. Raising tells the caller
+                # that reporting failed instead of letting it return as if the status was sent.
+                raise retry_error
 
     def _redact_output(self, text: str) -> str:
         """Replace sensitive tokens, passwords, and credentials with *****."""
@@ -407,15 +435,18 @@ class CheckRunHandler:
         total_bytes = len(body.encode())
 
         if total_bytes <= MAX_OUTPUT_BYTES:
-            return self._redact_output(f"```\n{body}\n```")
+            fence = _fence(body, "`")
+            return self._redact_output(f"{fence}\n{body}\n{fence}")
 
-        # Log the full redacted output BEFORE truncation so server logs preserve the complete
-        # build output for debugging (the body is already redacted at this point).
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(
-                f"{self.log_prefix} Full check run output ({total_bytes} bytes, GitHub limit is "
-                f"{MAX_OUTPUT_BYTES}):\n```\n{body}\n```"
-            )
+        # Server logs keep the complete redacted output, because the GitHub payload carries only a
+        # window of it and issue #1090 requires the full build output to survive somewhere. This is
+        # an INFO record on purpose: the default log level is INFO, so a DEBUG-only dump is never
+        # written and the oversized output would exist nowhere but in the truncated payload.
+        fence = _fence(body, "`")
+        self.logger.info(
+            f"{self.log_prefix} Full check run output ({total_bytes} bytes, GitHub limit is "
+            f"{MAX_OUTPUT_BYTES}), redacted:\n{fence}\n{body}\n{fence}"
+        )
 
         error_start = _error_start(body)
         if error_start is not None:
@@ -429,44 +460,65 @@ class CheckRunHandler:
                     f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; "
                     f"kept everything from the failure onwards ({from_failure_bytes} bytes), dropped {dropped}"
                 )
-                marker = f"...[{dropped} bytes truncated from the start of the output]..."
-                return self._redact_output(f"```\n{marker}\n\n{from_failure}\n```")
+                layout = f"...[{dropped} bytes omitted before the failure]...\n\n{from_failure}"
+                post_fence = _fence(layout, "`")
+                return self._redact_output(f"{post_fence}\n{layout}\n{post_fence}")
 
         # Over budget. Split the window between the two things a reader needs, in this order:
         # 1. the failed-test list (every failed test named once), kept as a whole block
         # 2. the failure section head, contiguous from the first marker, taking whatever is left
         # so the budget is always filled instead of posting 28 KB of a 65 KB allowance.
-        budget = MAX_OUTPUT_BYTES - 80  # 80 = marker + blank line
-        list_block = ""
-        tail_start = _failed_list_start(body)
-        if tail_start is not None and len(body[tail_start:].encode()) <= budget // 2:
-            list_block = body[tail_start:]
+        budget = MAX_OUTPUT_BYTES - 80  # 80 = fence + blank lines
+        list_start = _failed_list_start(body, budget // 2)
+        list_block = body[list_start:] if list_start is not None else ""
 
         error_part = ""
+        error_kept = 0
         remaining = budget - len(list_block.encode())
         if error_start is not None:
             # With a failed-test list kept, the verdict is already on the page, so the failure
             # section may have everything that is left. Without one, leave room for the end of
             # the log and its verdict line.
             error_budget = remaining if list_block else min(ERROR_SECTION_MAX_BYTES, remaining)
-            error_part = _head_bytes(body[error_start:], error_budget)
+            error_part, error_kept = _head_bytes(body[error_start:], error_budget)
         leftover = remaining - len(error_part.encode())
         kept = ""
         if leftover > 1_000:
             kept, _ = _tail_bytes(body, leftover)
 
-        dropped = total_bytes - len(error_part.encode()) - len(list_block.encode()) - len(kept.encode())
+        # Report and mark every omitted range separately: a single 'truncated from the start'
+        # marker claimed all the missing bytes came from the head, while the gap between the
+        # failure section and the retained tail is a different range entirely. Offsets are
+        # converted to bytes first - a character offset is not a byte count.
+        head_gap = len(body[:error_start].encode()) if error_start is not None else 0
+        error_end = head_gap + error_kept
+        if list_start is not None:
+            next_start = len(body[:list_start].encode())
+        else:
+            next_start = total_bytes - len(kept.encode())
+        middle_gap = max(0, next_start - error_end)
+        dropped = head_gap + middle_gap
         self.logger.info(
             f"{self.log_prefix} Check run output {total_bytes} bytes exceeds the GitHub limit; kept "
-            f"{len(error_part.encode())} bytes of failure section, "
-            f"{len(list_block.encode())} bytes of failed-test list and {len(kept.encode())} bytes "
-            f"of log tail, dropped {dropped}"
+            f"{error_kept} bytes of failure section, {len(list_block.encode())} bytes of failed-test "
+            f"list and {len(kept.encode())} bytes of log tail; omitted {head_gap} bytes before the "
+            f"failure and {middle_gap} bytes after it"
         )
 
-        marker = f"...[{dropped} bytes truncated from the start of the output]..."
-        parts = [part for part in (error_part, marker, kept, list_block) if part]
-        # The wrapper is added after truncation so the closing fence can never be cut off
-        return self._redact_output(f"```\n{chr(10).join(p + chr(10) for p in parts).rstrip()}\n```")
+        parts: list[str] = []
+        if head_gap:
+            parts.append(f"...[{head_gap} bytes omitted before the failure]...")
+        if error_part:
+            parts.append(error_part)
+        if middle_gap:
+            parts.append(f"...[{middle_gap} bytes omitted from the middle of the output]...")
+        for extra in (kept, list_block):
+            if extra:
+                parts.append(extra)
+        # The fence is chosen after truncation and cannot be closed by the content
+        layout = "\n\n".join(parts)
+        fence = _fence(layout, "`")
+        return self._redact_output(f"{fence}\n{layout}\n{fence}")
 
     def get_check_run_summary(self, err: str, out: str) -> str:
         """Render the reason for a check result as a short markdown excerpt.
@@ -497,8 +549,11 @@ class CheckRunHandler:
             excerpt = "\n".join(body.splitlines()[-SUMMARY_TAIL_LINES:])
 
         excerpt, _ = _tail_bytes(excerpt, SUMMARY_MAX_BYTES)
-        # Tildes, not backticks: command output routinely contains ``` and would break the fence
-        return f"~~~\n{excerpt}\n~~~"
+        # Tildes, not backticks: command output routinely contains ``` and would break the fence.
+        # The run is chosen to be longer than anything in the excerpt, so a check that prints
+        # '~~~' cannot close the fence and have its output rendered as Markdown.
+        fence = _fence(excerpt, "~")
+        return f"{fence}\n{excerpt}\n{fence}"
 
     def get_check_run_title(self, fallback_title: str, err: str, out: str, *, passed: bool) -> str:
         """Return a one-line heading for output.title.

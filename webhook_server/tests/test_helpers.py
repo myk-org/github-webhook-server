@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import github
@@ -721,6 +722,35 @@ class TestHelpers:
                 assert futures[0].logged == "success"
                 assert futures[1].logged == "fail"
                 # futures[2] raised exception so no log attribute set
+
+    @pytest.mark.asyncio
+    async def test_run_command_timeout_keeps_partial_output(self) -> None:
+        """A timed-out command still reports what it printed before the kill.
+
+        That output is the only diagnostic explaining the hang, so it must survive the timeout
+        instead of being replaced by the notice alone.
+        """
+        result = await run_command("bash -c 'echo partial-output-here; sleep 30'", log_prefix="[TEST]", timeout=1)
+
+        assert result[0] is False
+        assert "partial-output-here" in result[1]
+        assert "timed out" in result[2].lower()
+
+    @pytest.mark.asyncio
+    async def test_run_command_timeout_kills_the_whole_process_tree(self, tmp_path: Path) -> None:
+        """Descendants must die with the command, or they keep writing to the worktree.
+
+        The command runs in its own session, so the timeout kills the process group rather than
+        only the direct child.
+        """
+        marker = tmp_path / "child-alive"
+        script = f"( sleep 30; touch {marker} ) & echo started; sleep 30"
+        result = await run_command(f"bash -c '{script}'", log_prefix="[TEST]", timeout=1)
+
+        assert result[0] is False
+        assert "started" in result[1]
+        await asyncio.sleep(2)
+        assert not marker.exists(), "the background child outlived the killed process group"
 
     @pytest.mark.asyncio
     async def test_run_command_timeout_cleanup(self) -> None:
