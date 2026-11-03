@@ -28,7 +28,7 @@ repos:
       - id: check-toml
 
   - repo: https://github.com/PyCQA/flake8
-    rev: 7.4.1
+    rev: 7.5.0
     hooks:
       - id: flake8
         args: [--config=.flake8]
@@ -41,7 +41,7 @@ repos:
       - id: detect-secrets
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.2
+    rev: v0.17.3
     hooks:
       - id: ruff
       - id: ruff-format
@@ -52,7 +52,7 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.4.0
+    rev: v2.4.1
     hooks:
       - id: mypy
         exclude: (tests/)
@@ -60,7 +60,7 @@ repos:
           [types-requests, types-PyYAML, types-colorama, types-aiofiles, types-Markdown]
 
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.13.0
+    rev: v10.14.0
     hooks:
       - id: eslint
         files: \.js$
