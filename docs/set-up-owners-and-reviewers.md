@@ -139,6 +139,9 @@ require the commenter to be in the union of:
 - the matched PR reviewers (`all_pull_request_reviewers`),
 - root `OWNERS` `allowed-users`.
 
+`/rebase` and `/security-override` additionally accept anyone with effective `admin` or `maintain` permission on the
+repository — org owners and team-inherited admins included, direct collaboration not required.
+
 Otherwise a maintainer or approver can grant access per-PR by commenting
 `/add-allowed-user @someone`. A `/hold` label is managed with a narrower maintainers-only gate.
 

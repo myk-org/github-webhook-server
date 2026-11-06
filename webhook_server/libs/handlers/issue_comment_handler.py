@@ -418,8 +418,10 @@ class IssueCommentHandler:
                 )
 
         elif _command == COMMAND_SECURITY_OVERRIDE_STR:
-            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
-            if reviewed_user not in maintainers:
+            if (
+                not await self.owners_file_handler.is_user_repository_maintainer(reviewed_user)
+                and reviewed_user not in self.owners_file_handler.all_repository_approvers
+            ):
                 msg = "Only maintainers can use `/security-override`"
                 self.logger.debug(f"{self.log_prefix} {msg}")
                 await github_api_call(

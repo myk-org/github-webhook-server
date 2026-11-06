@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.Permissions import Permissions
@@ -654,6 +654,20 @@ Maintainers:
 
         self.logger.debug(f"{self.log_prefix} Maintainers: {maintainers}")
         return maintainers
+
+    async def is_user_repository_maintainer(self, username: str) -> bool:
+        """Return True when the user effectively has admin/maintain on this repository.
+
+        Checks the effective permission, so org owners/admins and team-inherited admins count
+        too; `get_all_repository_maintainers` only lists direct collaborators (#1268).
+        """
+        try:
+            permission = await github_api_call(
+                self.repository.get_collaborator_permission, username, logger=self.logger, log_prefix=self.log_prefix
+            )
+        except UnknownObjectException:
+            return False
+        return permission in ("admin", "maintain")
 
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:

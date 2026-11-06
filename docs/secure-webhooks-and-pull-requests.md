@@ -119,14 +119,18 @@ security-checks:
 
 That is useful when one team needs a different rollout pace than the server-wide default. See [Configure Repositories](configure-repositories.html) for when to keep a setting in central `config.yaml` versus the repository-local file.
 
-If a mandatory security check blocks an expected automation flow, a maintainer can temporarily bypass it and later force a re-check:
+If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
+with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or an
+`OWNERS` approver can temporarily bypass it and later force a re-check:
 
 ```text
 /security-override
 /security-override cancel
 ```
 
-Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. If you need to define who counts as a maintainer, see [Set Up OWNERS and Review Rules](set-up-owners-and-reviewers.html).
+Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. For the exact
+permission rules see [Run Pull Request Commands](run-pull-request-commands.html#who-can-run-what); to decide who reviews
+and approves, see [Set Up OWNERS and Review Rules](set-up-owners-and-reviewers.html).
 
 If you want to start with visibility before enforcement, turn on the checks but make them advisory first:
 

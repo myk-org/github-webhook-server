@@ -249,6 +249,10 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <td>Listed in the <code>root-approvers</code> configuration, or a direct repository collaborator with <code>admin</code> or <code>maintain</code> permission (org owners and members with access only via org base permissions or teams do not count)</td>
 </tr>
 <tr>
+<td><strong>Effective maintainer</strong></td>
+<td>Anyone GitHub reports with <code>admin</code> or <code>maintain</code> permission on the repository — org owners/admins and team-inherited admins included, direct collaborators not required</td>
+</tr>
+<tr>
 <td><strong>Anyone</strong></td>
 <td>Any user who can comment, no permission check</td>
 </tr>
@@ -341,7 +345,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/rebase</code></td>
 <td>Rebases the PR branch onto its base branch and force-pushes</td>
-<td>Approver</td>
+<td>Approver, Effective maintainer</td>
 </tr>
 <tr>
 <td><code>/assign-reviewers</code></td>
@@ -396,12 +400,12 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/security-override</code></td>
 <td>Sets the security check runs to success</td>
-<td>Maintainer</td>
+<td>Effective maintainer, <code>OWNERS</code> approver</td>
 </tr>
 <tr>
 <td><code>/security-override cancel</code></td>
 <td>Re-runs the security checks to re-evaluate them</td>
-<td>Maintainer</td>
+<td>Effective maintainer, <code>OWNERS</code> approver</td>
 </tr>
 </tbody>
 </table></div>
@@ -641,8 +645,13 @@ immediately.</p>
 <ul>
 <li>The PR must be open.</li>
 <li>Fork PRs are rejected — the head branch lives in another repository, so the force-push cannot be scoped to this repo.</li>
-<li>For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or a
-  maintainer.</li>
+<li>
+<p>For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or an
+  effective maintainer.</p>
+</li>
+<li>
+<p>For user-owned PRs the requester must be the PR owner or an effective maintainer.</p>
+</li>
 </ul>
 <h4 id="cherry-pick-branch-branch"><code>/cherry-pick &lt;branch&gt; [branch...]</code></h4>
 <p>Cherry-picks the change to one or more target branches. Each branch that exists gets a <code>cherry-pick-&lt;branch&gt;</code> label.</p>
@@ -692,7 +701,8 @@ documents exactly which commands are active for the repository.</p>
 
 <h3 id="security">Security</h3>
 <h4 id="security-override-and-security-override-cancel"><code>/security-override</code> and <code>/security-override cancel</code></h4>
-<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, a maintainer can:</p>
+<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, an effective maintainer or an
+<code>OWNERS</code> approver can:</p>
 <ul>
 <li>
 <p><code>/security-override</code> — set the security check runs to <strong>success</strong>, annotated with the maintainer's name and a
@@ -708,7 +718,8 @@ documents exactly which commands are active for the repository.</p>
 <div class="highlight"><pre><span></span><code>/security-override cancel
 </code></pre></div>
 
-<p>Only maintainers may use these; anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
+<p>Only effective maintainers and <code>OWNERS</code> approvers may use these — an org owner or team-inherited admin who is not a
+direct collaborator qualifies. Anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
 check is enabled for the repository, the server replies <em>"No security checks are enabled — nothing to override."</em></p>
 <h3 id="generic-label-commands">Generic label commands</h3>
 <p>In addition to the commands above, the server's user-facing labels can be set and cleared directly:</p>

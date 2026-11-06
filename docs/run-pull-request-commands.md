@@ -29,6 +29,7 @@ Example — one comment, three commands:
 | **Author** | The user who opened the pull request |
 | **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone a maintainer/approver has granted with `/add-allowed-user @user` |
 | **Maintainer** | Listed in the `root-approvers` configuration, or a direct repository collaborator with `admin` or `maintain` permission (org owners and members with access only via org base permissions or teams do not count) |
+| **Effective maintainer** | Anyone GitHub reports with `admin` or `maintain` permission on the repository — org owners/admins and team-inherited admins included, direct collaborators not required |
 | **Anyone** | Any user who can comment, no permission check |
 
 | Command | What it does | Who can run it |
@@ -48,7 +49,7 @@ Example — one comment, three commands:
 | `/retest <test>` | Re-runs one or more configured checks | Approver |
 | `/retest all` | Re-runs every check configured for the repository | Approver |
 | `/reprocess` | Re-runs the complete PR processing workflow from scratch | Approver |
-| `/rebase` | Rebases the PR branch onto its base branch and force-pushes | Approver |
+| `/rebase` | Rebases the PR branch onto its base branch and force-pushes | Approver, Effective maintainer |
 | `/assign-reviewers` | Assigns reviewers according to the repository `OWNERS` file | Approver |
 | `/assign-reviewer @user` | Requests a review from a specific collaborator | Approver |
 | `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Maintainer, Approver |
@@ -59,8 +60,8 @@ Example — one comment, three commands:
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
 | `/regenerate-welcome` | Re-renders the welcome comment with the current configuration | Approver |
 | `/test-oracle` | Sends the PR to the configured PR Test Oracle service | Approver |
-| `/security-override` | Sets the security check runs to success | Maintainer |
-| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Maintainer |
+| `/security-override` | Sets the security check runs to success | Effective maintainer, `OWNERS` approver |
+| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, `OWNERS` approver |
 
 ## Commands on draft pull requests
 
@@ -332,8 +333,9 @@ Restrictions enforced by the server:
 
 - The PR must be open.
 - Fork PRs are rejected — the head branch lives in another repository, so the force-push cannot be scoped to this repo.
-- For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or a
-  maintainer.
+- For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or an
+  effective maintainer.
+- For user-owned PRs the requester must be the PR owner or an effective maintainer.
 
 #### `/cherry-pick <branch> [branch...]`
 
@@ -396,7 +398,8 @@ documents exactly which commands are active for the repository.
 
 #### `/security-override` and `/security-override cancel`
 
-When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, a maintainer can:
+When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or an
+`OWNERS` approver can:
 
 - `/security-override` — set the security check runs to **success**, annotated with the maintainer's name and a
   reminder to use `cancel` to undo it.
@@ -410,7 +413,8 @@ When the security checks (`security-suspicious-paths`, `security-committer-ident
 /security-override cancel
 ```
 
-Only maintainers may use these; anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
+Only effective maintainers and `OWNERS` approvers may use these — an org owner or team-inherited admin who is not a
+direct collaborator qualifies. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
 check is enabled for the repository, the server replies *"No security checks are enabled — nothing to override."*
 
 ### Generic label commands

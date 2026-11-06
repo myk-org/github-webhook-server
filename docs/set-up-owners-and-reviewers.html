@@ -378,6 +378,8 @@ require the commenter to be in the union of:</p>
 <li>the matched PR reviewers (<code>all_pull_request_reviewers</code>),</li>
 <li>root <code>OWNERS</code> <code>allowed-users</code>.</li>
 </ul>
+<p><code>/rebase</code> and <code>/security-override</code> additionally accept anyone with effective <code>admin</code> or <code>maintain</code> permission on the
+repository — org owners and team-inherited admins included, direct collaboration not required.</p>
 <p>Otherwise a maintainer or approver can grant access per-PR by commenting
 <code>/add-allowed-user @someone</code>. A <code>/hold</code> label is managed with a narrower maintainers-only gate.</p>
 <p><code>/assign-reviewers</code> adds every matched reviewer as a review request (the PR author is skipped).</p>

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 import yaml
-from github.GithubException import GithubException
+from github.GithubException import GithubException, UnknownObjectException
 
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 
@@ -832,6 +832,44 @@ class TestOwnersFileHandler:
 
             assert result == ["admin_user", "maintainer_user"]
             mock_get_collaborators.assert_called_once_with(affiliation="direct")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("permission", "expected"),
+        [
+            ("admin", True),
+            ("maintain", True),
+            ("write", False),
+            ("none", False),
+        ],
+    )
+    async def test_is_user_repository_maintainer(
+        self, owners_file_handler: OwnersFileHandler, permission: str, expected: bool
+    ) -> None:
+        """Effective admin/maintain permission counts, anything lower does not."""
+        owners_file_handler.repository.get_collaborator_permission = Mock(return_value=permission)
+        api_call = AsyncMock(side_effect=lambda fn, *a, **k: fn(*a))
+
+        with patch("webhook_server.libs.handlers.owners_files_handler.github_api_call", new=api_call):
+            result = await owners_file_handler.is_user_repository_maintainer("some-user")
+
+        assert result is expected
+        # The blocking PyGithub call must be delegated to github_api_call (thread pool), not awaited directly
+        api_call.assert_awaited_once()
+        assert api_call.await_args.args[0] == owners_file_handler.repository.get_collaborator_permission
+        owners_file_handler.repository.get_collaborator_permission.assert_called_once_with("some-user")
+
+    @pytest.mark.asyncio
+    async def test_is_user_repository_maintainer_unknown_user(self, owners_file_handler: OwnersFileHandler) -> None:
+        """A user GitHub does not know for this repo is not a maintainer."""
+        owners_file_handler.repository.get_collaborator_permission = Mock(
+            side_effect=UnknownObjectException(status=404, data={}, headers={})
+        )
+
+        with patch("asyncio.to_thread", new=AsyncMock(side_effect=lambda f, *a, **k: f(*a, **k))):
+            result = await owners_file_handler.is_user_repository_maintainer("ghost-user")
+
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_repository_direct_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:

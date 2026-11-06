@@ -800,10 +800,10 @@ class TestSecurityOverrideCommand:
 
     @pytest.mark.asyncio
     async def test_security_override_by_maintainer(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
-        """Maintainers can set security check runs to success."""
+        """Effective maintainers can set security check runs to success."""
 
         mock_owners = Mock()
-        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.is_user_repository_maintainer = AsyncMock(return_value=True)
         mock_owners.all_repository_approvers = ["approver1"]
         mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
 
@@ -820,24 +820,25 @@ class TestSecurityOverrideCommand:
             await handler.user_commands(
                 pull_request=mock_pull_request,
                 command=COMMAND_SECURITY_OVERRIDE_STR,
-                reviewed_user="maintainer-user",
+                reviewed_user="org-admin-user",
                 issue_comment_id=1,
                 is_draft=False,
             )
 
+            mock_owners.is_user_repository_maintainer.assert_awaited_once_with("org-admin-user")
             # Both security check runs should be set to success
             success_names = [c.kwargs["name"] for c in mock_success.call_args_list]
             assert SECURITY_SUSPICIOUS_PATHS_STR in success_names
             assert SECURITY_COMMITTER_IDENTITY_STR in success_names
 
     @pytest.mark.asyncio
-    async def test_security_override_rejected_for_non_maintainer(
+    async def test_security_override_by_owners_approver(
         self, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Non-maintainers cannot use /security-override."""
+        """OWNERS approvers can override even without effective maintain permission."""
 
         mock_owners = Mock()
-        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.is_user_repository_maintainer = AsyncMock(return_value=False)
         mock_owners.all_repository_approvers = ["approver1"]
         mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
 
@@ -850,6 +851,39 @@ class TestSecurityOverrideCommand:
                 "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
                 new=AsyncMock(),
             ),
+        ):
+            await handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_SECURITY_OVERRIDE_STR,
+                reviewed_user="approver1",
+                issue_comment_id=1,
+                is_draft=False,
+            )
+
+            success_names = [c.kwargs["name"] for c in mock_success.call_args_list]
+            assert SECURITY_SUSPICIOUS_PATHS_STR in success_names
+            assert SECURITY_COMMITTER_IDENTITY_STR in success_names
+
+    @pytest.mark.asyncio
+    async def test_security_override_rejected_for_non_maintainer(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Neither a maintainer nor an OWNERS approver can use /security-override."""
+
+        mock_owners = Mock()
+        mock_owners.is_user_repository_maintainer = AsyncMock(return_value=False)
+        mock_owners.all_repository_approvers = ["approver1"]
+        mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+
+        handler = IssueCommentHandler(mock_github_webhook, mock_owners)
+
+        with (
+            patch.object(handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success,
+            patch.object(handler, "create_comment_reaction", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
+                new=AsyncMock(),
+            ) as mock_api_call,
         ):
             await handler.user_commands(
                 pull_request=mock_pull_request,
@@ -861,13 +895,55 @@ class TestSecurityOverrideCommand:
 
             # Check runs should NOT be set to success
             mock_success.assert_not_awaited()
+            bodies = [c.kwargs.get("body") for c in mock_api_call.call_args_list]
+            assert "Only maintainers can use `/security-override`" in bodies
+
+    @pytest.mark.asyncio
+    async def test_security_override_org_owner_not_direct_collaborator_issue_1277(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Regression #1277: an org owner with effective admin but no direct collaborator entry can override.
+
+        `get_all_repository_maintainers` lists direct collaborators only, so before the fix an org
+        owner was rejected here.
+        """
+
+        mock_owners = Mock()
+        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=[])
+        mock_owners.is_user_repository_maintainer = AsyncMock(side_effect=lambda user: user == "org-owner")
+        mock_owners.all_repository_approvers = []
+        mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+
+        handler = IssueCommentHandler(mock_github_webhook, mock_owners)
+
+        with (
+            patch.object(handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_success,
+            patch.object(handler, "create_comment_reaction", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call",
+                new=AsyncMock(),
+            ) as mock_api_call,
+        ):
+            await handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_SECURITY_OVERRIDE_STR,
+                reviewed_user="org-owner",
+                issue_comment_id=1,
+                is_draft=False,
+            )
+
+            assert [c.kwargs["name"] for c in mock_success.call_args_list] == [
+                SECURITY_SUSPICIOUS_PATHS_STR,
+                SECURITY_COMMITTER_IDENTITY_STR,
+            ]
+            assert not any("Only maintainers can use" in str(c) for c in mock_api_call.call_args_list)
 
     @pytest.mark.asyncio
     async def test_security_override_cancel(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
         """/security-override cancel re-runs security checks."""
 
         mock_owners = Mock()
-        mock_owners.get_all_repository_maintainers = AsyncMock(return_value=["maintainer-user"])
+        mock_owners.is_user_repository_maintainer = AsyncMock(return_value=True)
         mock_owners.all_repository_approvers = ["approver1"]
         mock_owners.is_user_valid_to_run_commands = AsyncMock(return_value=True)
 
@@ -887,7 +963,7 @@ class TestSecurityOverrideCommand:
             await handler.user_commands(
                 pull_request=mock_pull_request,
                 command=f"{COMMAND_SECURITY_OVERRIDE_STR} cancel",
-                reviewed_user="maintainer-user",
+                reviewed_user="org-admin-user",
                 issue_comment_id=1,
                 is_draft=False,
             )
