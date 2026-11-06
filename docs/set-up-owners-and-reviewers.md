@@ -12,6 +12,7 @@ your repository and uses them to decide who must review a pull request, who coun
 | `reviewers` | Members of this scope who are eligible for reviewer auto-assignment; `/lgtm` is not gated by membership. |
 | `allowed-users` | Users (in addition to collaborators and contributors) who may run commands such as `/retest`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewers`. |
 | `root-approvers` | Optional boolean. Set to `false` to opt out of requiring an approval from the root `OWNERS` approvers. |
+| `dot-folders` | Root `OWNERS` only. Optional list of dot-directories whose `OWNERS` files should be read. Dot-directories are ignored by default. |
 
 ## File discovery rules
 
@@ -21,7 +22,8 @@ These are exact — the parser is strict.
   `.github/CODEOWNERS`, and `OWNERS_ALIASES` are **not** read.
 - Files are found recursively in the cloned repository, which is checked out at the **base
   branch** of the PR. An `OWNERS` file added only in the PR branch is ignored until merged.
-- Any path with a dot-prefixed directory component (`.git`, `.venv`, `.github`, ...) is skipped.
+- Any path with a dot-prefixed directory component (`.git`, `.venv`, `.github`, ...) is skipped,
+  unless the root `OWNERS` opts that dot-directory in with [`dot-folders`](#dot-folders).
 - At most 1000 `OWNERS` files are processed per PR.
 - Each file is keyed by its **parent directory**, not by file path. `webhook_server/OWNERS`
   is stored under `webhook_server`; the repo-root `OWNERS` is stored under `.`.
@@ -74,6 +76,35 @@ Notes on values:
   `OWNERS`** — an `allowed-users` list in a subdirectory is ignored.
 - `root-approvers` only affects a subdirectory file. Setting it in the root `OWNERS` has no
   effect, because the root entry is always included anyway.
+
+### `dot-folders`
+
+`OWNERS` files inside dot-directories are ignored by default. The root `OWNERS` can opt specific
+dot-directories in:
+
+```yaml
+approvers:
+  - myakove
+reviewers:
+  - myakove
+dot-folders:
+  - .github
+```
+
+A listed entry covers that dot-directory's whole subtree, exactly like a normal directory: `.github`
+makes both `.github/OWNERS` and `.github/workflows/OWNERS` load, so their approvers and reviewers
+count for reviewer assignment, approvals, `/approve`, `/lgtm`, `/automerge`, and `/merge`
+(per-directory approval and `root-approvers`).
+
+Entries name a dot-directory segment relative to the repository root: relative, dot-prefixed, no
+globs, no `..`. `.git` is never allowed. A non-list value or an invalid entry is logged and ignored.
+Like `allowed-users`, the key is read only from the repo-root `OWNERS`; a `dot-folders` list in a
+subdirectory is ignored.
+
+List the dot-directory itself, not a deeper path. An entry such as `.github/workflows` matches no
+directory and loads nothing — use `.github`, because the entry already enables the whole subtree.
+
+Without the key every dot-directory is ignored exactly as before.
 
 ## How owners are resolved for a PR
 

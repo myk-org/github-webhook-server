@@ -232,6 +232,10 @@ your repository and uses them to decide who must review a pull request, who coun
 <td><code>root-approvers</code></td>
 <td>Optional boolean. Set to <code>false</code> to opt out of requiring an approval from the root <code>OWNERS</code> approvers.</td>
 </tr>
+<tr>
+<td><code>dot-folders</code></td>
+<td>Root <code>OWNERS</code> only. Optional list of dot-directories whose <code>OWNERS</code> files should be read. Dot-directories are ignored by default.</td>
+</tr>
 </tbody>
 </table></div>
 <h2 id="file-discovery-rules">File discovery rules</h2>
@@ -246,9 +250,12 @@ your repository and uses them to decide who must review a pull request, who coun
   branch</strong> of the PR. An <code>OWNERS</code> file added only in the PR branch is ignored until merged.</p>
 </li>
 <li>
-<p>Any path with a dot-prefixed directory component (<code>.git</code>, <code>.venv</code>, <code>.github</code>, ...) is skipped.</p>
+<p>Any path with a dot-prefixed directory component (<code>.git</code>, <code>.venv</code>, <code>.github</code>, ...) is skipped,
+  unless the root <code>OWNERS</code> opts that dot-directory in with <a href="#dot-folders"><code>dot-folders</code></a>.</p>
 </li>
-<li>At most 1000 <code>OWNERS</code> files are processed per PR.</li>
+<li>
+<p>At most 1000 <code>OWNERS</code> files are processed per PR.</p>
+</li>
 <li>Each file is keyed by its <strong>parent directory</strong>, not by file path. <code>webhook_server/OWNERS</code>
   is stored under <code>webhook_server</code>; the repo-root <code>OWNERS</code> is stored under <code>.</code>.</li>
 </ul>
@@ -300,6 +307,28 @@ and ignored by the validator, with the exception of <code>root-approvers</code>,
   effect, because the root entry is always included anyway.</p>
 </li>
 </ul>
+<h3 id="dot-folders"><code>dot-folders</code></h3>
+<p><code>OWNERS</code> files inside dot-directories are ignored by default. The root <code>OWNERS</code> can opt specific
+dot-directories in:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">approvers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
+<span class="nt">reviewers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myakove</span>
+<span class="nt">dot-folders</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github</span>
+</code></pre></div>
+
+<p>A listed entry covers that dot-directory's whole subtree, exactly like a normal directory: <code>.github</code>
+makes both <code>.github/OWNERS</code> and <code>.github/workflows/OWNERS</code> load, so their approvers and reviewers
+count for reviewer assignment, approvals, <code>/approve</code>, <code>/lgtm</code>, <code>/automerge</code>, and <code>/merge</code>
+(per-directory approval and <code>root-approvers</code>).</p>
+<p>Entries name a dot-directory segment relative to the repository root: relative, dot-prefixed, no
+globs, no <code>..</code>. <code>.git</code> is never allowed. A non-list value or an invalid entry is logged and ignored.
+Like <code>allowed-users</code>, the key is read only from the repo-root <code>OWNERS</code>; a <code>dot-folders</code> list in a
+subdirectory is ignored.</p>
+<p>List the dot-directory itself, not a deeper path. An entry such as <code>.github/workflows</code> matches no
+directory and loads nothing — use <code>.github</code>, because the entry already enables the whole subtree.</p>
+<p>Without the key every dot-directory is ignored exactly as before.</p>
 <h2 id="how-owners-are-resolved-for-a-pr">How owners are resolved for a PR</h2>
 <ol>
 <li>
@@ -535,7 +564,10 @@ approvers, <code>minimum-lgtm</code>, required labels, status checks — still a
 <ul>
 <li><a href="#what-owners-controls">What OWNERS controls</a></li>
 <li><a href="#file-discovery-rules">File discovery rules</a></li>
-<li><a href="#supported-syntax">Supported syntax</a></li>
+<li><a href="#supported-syntax">Supported syntax</a><ul>
+<li><a href="#dot-folders">dot-folders</a></li>
+</ul>
+</li>
 <li><a href="#how-owners-are-resolved-for-a-pr">How owners are resolved for a PR</a></li>
 <li><a href="#review-commands">Review commands</a><ul>
 <li><a href="#approve">/approve</a></li>

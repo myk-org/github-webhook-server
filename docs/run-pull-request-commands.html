@@ -555,7 +555,9 @@ blocks the merge. The PR is merged with the method configured via <code>merge-co
 <p><code>/merge</code> is gated by two things. First, <strong>every</strong> <code>OWNERS</code> entry matching the changed files must set
 <code>root-approvers: false</code> (see
 <a href="set-up-owners-and-reviewers.html">Set up owners and reviewers</a>). If any matched entry lacks the opt-out, or a changed
-folder has no matching sub-<code>OWNERS</code>, the command is rejected for every sender — maintainers included.</p>
+folder has no matching sub-<code>OWNERS</code>, the command is rejected for every sender — maintainers included. For changes
+under a dot-directory (e.g. <code>.github/workflows/</code>) that sub-<code>OWNERS</code> only counts if the root <code>OWNERS</code> lists the
+dot-directory in <a href="set-up-owners-and-reviewers.html#dot-folders"><code>dot-folders</code></a>.</p>
 <p>Second, the sender must be authorized to merge that PR. That holds for:</p>
 <ul>
 <li>
