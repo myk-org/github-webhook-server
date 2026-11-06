@@ -239,6 +239,45 @@ class OwnersFileHandler:
             )
             return None
 
+    def _dot_folder_allowlist(self, content: Any) -> set[str]:
+        """Parse the root OWNERS `dot-folders` list into normalized dot-directory names.
+
+        Invalid entries are logged and skipped; `.git` is never allowed.
+        """
+        if not isinstance(content, dict) or "dot-folders" not in content:
+            return set()
+
+        dot_folders = content["dot-folders"]
+        if not isinstance(dot_folders, list):
+            self.logger.error(
+                f"{self.log_prefix} Invalid dot-folders value (must be a list): {type(dot_folders).__name__}"
+            )
+            return set()
+
+        allowlist: set[str] = set()
+        for entry in dot_folders:
+            if not isinstance(entry, str):
+                self.logger.error(f"{self.log_prefix} Invalid dot-folders entry (must be a string): {entry!r}")
+                continue
+
+            # Normalize: trim, drop trailing slash (a listed folder covers its whole subtree)
+            folder = entry.strip().rstrip("/")
+            if (
+                not folder.startswith(".")
+                or folder.startswith("/")
+                or ".." in folder
+                or any(char in folder for char in "*?[]")
+                or folder == ".git"
+                or folder.startswith(".git/")
+            ):
+                self.logger.error(f"{self.log_prefix} Ignoring invalid dot-folders entry: {entry!r}")
+                continue
+
+            allowlist.add(folder)
+
+        self.logger.debug(f"{self.log_prefix} dot-folders allowlist: {sorted(allowlist)}")
+        return allowlist
+
     async def get_all_repository_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
         """Get all repository approvers and reviewers from OWNERS files.
 
@@ -258,6 +297,26 @@ class OwnersFileHandler:
         # Clone is already checked out to base branch by _clone_repository
 
         clone_path = Path(self.github_webhook.clone_repo_dir)
+
+        # Root OWNERS may allow OWNERS files inside specific dot-directories.
+        # Missing or unparsable root OWNERS just means an empty allowlist.
+        root_owners_content: Any = None
+        try:
+            root_owners_content = yaml.safe_load(
+                await asyncio.to_thread((clone_path / "OWNERS").read_text, encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            root_owners_content = None
+
+        # An invalid root OWNERS must not enable dot-folder discovery, same as the scan below rejects it.
+        # Only validated when it actually declares `dot-folders`; without the key nothing is extracted.
+        dot_folders: set[str] = set()
+        if (
+            isinstance(root_owners_content, dict)
+            and "dot-folders" in root_owners_content
+            and self._validate_owners_content(root_owners_content, "OWNERS")
+        ):
+            dot_folders = self._dot_folder_allowlist(root_owners_content)
 
         # Find all OWNERS files via filesystem walk
         self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
@@ -288,11 +347,14 @@ class OwnersFileHandler:
 
         # Use rglob to recursively find all OWNERS files
         def find_owners_files() -> list[Path]:
-            return [
-                p
-                for p in clone_path.rglob("OWNERS")
-                if not any(part.startswith(".") for part in p.relative_to(clone_path).parts)
-            ]
+            owners_files: list[Path] = []
+            for path in clone_path.rglob("OWNERS"):
+                parts = path.relative_to(clone_path).parts
+                # Normal paths are always read; a path under a dot dir only when the root top-level
+                # component is allowlisted, so a `dot-folders` entry stays root-anchored.
+                if not any(part.startswith(".") for part in parts) or parts[0] in dot_folders:
+                    owners_files.append(path)
+            return owners_files
 
         owners_files = await asyncio.to_thread(find_owners_files)
 

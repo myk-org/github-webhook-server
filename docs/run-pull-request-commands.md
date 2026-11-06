@@ -243,7 +243,9 @@ blocks the merge. The PR is merged with the method configured via `merge-command
 `/merge` is gated by two things. First, **every** `OWNERS` entry matching the changed files must set
 `root-approvers: false` (see
 [Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, or a changed
-folder has no matching sub-`OWNERS`, the command is rejected for every sender — maintainers included.
+folder has no matching sub-`OWNERS`, the command is rejected for every sender — maintainers included. For changes
+under a dot-directory (e.g. `.github/workflows/`) that sub-`OWNERS` only counts if the root `OWNERS` lists the
+dot-directory in [`dot-folders`](set-up-owners-and-reviewers.html#dot-folders).
 
 Second, the sender must be authorized to merge that PR. That holds for:
 
