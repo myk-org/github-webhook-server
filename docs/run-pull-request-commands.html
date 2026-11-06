@@ -409,6 +409,12 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </tr>
 </tbody>
 </table></div>
+<h2 id="arguments-must-match-exactly">Arguments must match exactly</h2>
+<p>A command accepts only the arguments listed in the table above. Commands whose only argument is <code>cancel</code> refuse any
+other trailing text: <code>/wip please</code> is answered with <code>`/wip` takes no arguments other than `cancel`</code> and nothing
+runs — no label, no check, no build, no rebase. A command that needs an argument but gets none, or gets one it does not
+accept, is refused with that command's own message. A line that merely mentions a command inline is not executed:
+only lines starting with <code>/</code> are commands, one per line.</p>
 <h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
 <p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list.
 Note: <code>/merge</code> is never allowed on draft PRs — it is rejected even when listed in <code>allow-commands-on-draft-prs</code>.
@@ -778,6 +784,7 @@ command; those labels are managed by the server itself.</p>
 <ul>
 <li><a href="#how-commands-are-recognized">How commands are recognized</a></li>
 <li><a href="#who-can-run-what">Who can run what</a></li>
+<li><a href="#arguments-must-match-exactly">Arguments must match exactly</a></li>
 <li><a href="#commands-on-draft-pull-requests">Commands on draft pull requests</a></li>
 <li><a href="#command-details">Command details</a><ul>
 <li><a href="#pr-status">PR status</a></li>

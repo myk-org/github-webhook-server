@@ -54,6 +54,18 @@ if TYPE_CHECKING:
 
 _background_tasks: set[asyncio.Task[None]] = set()
 
+# Commands whose only accepted argument is exactly "cancel"; anything else is refused.
+_NO_ARGUMENT_COMMANDS: frozenset[str] = frozenset({
+    *USER_LABELS_DICT,
+    COMMAND_SECURITY_OVERRIDE_STR,
+    COMMAND_REPROCESS_STR,
+    COMMAND_REGENERATE_WELCOME_STR,
+    COMMAND_CHECK_CAN_MERGE_STR,
+    COMMAND_ASSIGN_REVIEWERS_STR,
+    COMMAND_REBASE_STR,
+    COMMAND_TEST_ORACLE_STR,
+})
+
 
 class IssueCommentHandler:
     def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler):
@@ -276,6 +288,14 @@ class IssueCommentHandler:
                 body=missing_command_arg_comment_msg,
                 logger=self.logger,
                 log_prefix=self.log_prefix,
+            )
+            return
+
+        if _command in _NO_ARGUMENT_COMMANDS and _args and _args != "cancel":
+            msg = f"`/{_command}` takes no arguments other than `cancel`"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
             )
             return
 

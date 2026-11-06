@@ -63,6 +63,14 @@ Example — one comment, three commands:
 | `/security-override` | Sets the security check runs to success | Effective maintainer, root `OWNERS` approver |
 | `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, root `OWNERS` approver |
 
+## Arguments must match exactly
+
+A command accepts only the arguments listed in the table above. Commands whose only argument is `cancel` refuse any
+other trailing text: `/wip please` is answered with `` `/wip` takes no arguments other than `cancel` `` and nothing
+runs — no label, no check, no build, no rebase. A command that needs an argument but gets none, or gets one it does not
+accept, is refused with that command's own message. A line that merely mentions a command inline is not executed:
+only lines starting with `/` are commands, one per line.
+
 ## Commands on draft pull requests
 
 Draft PRs are blocked by default. The `allow-commands-on-draft-prs` configuration key controls the exception list.
