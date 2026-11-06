@@ -750,15 +750,27 @@ class GithubWebhook:
                     "configured, processing issue_comment"
                 )
 
-            self.last_commit = await self._get_last_commit(pull_request=pull_request)
+            last_commit = await self._get_last_commit(pull_request=pull_request)
+            if last_commit is None:
+                # GitHub allows a PR whose head is level with the base branch: no commits, nothing to process.
+                self.logger.warning(f"{self.log_prefix} Pull request has no commits, nothing to process")
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"empty PR (skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            self.last_commit = last_commit
             self.parent_committer = pull_request.user.login
             self.last_committer = await github_api_call(
-                lambda: getattr(self.last_commit.committer, "login", "unknown") or "unknown",
+                lambda: getattr(last_commit.committer, "login", "unknown") or "unknown",
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
             self.last_committer_id = await github_api_call(
-                lambda: getattr(self.last_commit.committer, "id", 0),
+                lambda: getattr(last_commit.committer, "id", 0),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
@@ -1694,12 +1706,24 @@ class GithubWebhook:
 
         return unresolved_threads
 
-    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
+    async def _get_last_commit(self, pull_request: PullRequest) -> Commit | None:
+        """Return the last commit of the pull request, or None if it has no commits.
+
+        A PR whose head branch is level with its base branch can legitimately have zero
+        commits; callers must treat None as "nothing to process".
+        """
         commits = await github_api_call(
             lambda: list(pull_request.get_commits()),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
+        if not commits:
+            pr_number = await github_api_call(
+                lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+            )
+            self.logger.warning(f"{self.log_prefix} Pull request #{pr_number} has no commits")
+            return None
+
         return commits[-1]
 
     @staticmethod

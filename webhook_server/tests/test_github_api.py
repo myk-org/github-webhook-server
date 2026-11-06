@@ -17,6 +17,7 @@ from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 from webhook_server.utils.constants import SECURITY_COMMITTER_IDENTITY_STR, SECURITY_SUSPICIOUS_PATHS_STR
+from webhook_server.utils.context import WebhookContext
 from webhook_server.utils.helpers import TokenProbe
 
 
@@ -3723,6 +3724,145 @@ class TestGithubWebhook:
             "version": True,
             "title": True,
         }
+
+
+class TestPullRequestWithoutCommits:
+    """Issue #1283: a PR whose head branch is level with its base branch has zero commits."""
+
+    @pytest.fixture
+    def pull_request_payload(self) -> dict[str, Any]:
+        """Opened pull_request delivery for a commit-less PR."""
+        return {
+            "action": "opened",
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "pull_request": {
+                "number": 1283,
+                "title": "PR without commits",
+                "user": {"login": "testuser"},
+                "base": {"ref": "main", "sha": "base-sha-1283"},
+                "head": {"sha": "head-sha-1283"},
+            },
+        }
+
+    @staticmethod
+    def _pull_request(commits: list[Mock]) -> Mock:
+        """Build a non-draft PR mock whose get_commits() returns *commits*."""
+        pr = Mock()
+        pr.number = 1283
+        pr.title = "PR without commits"
+        pr.draft = False
+        pr.user.login = "testuser"
+        pr.base.sha = "base-sha-1283"
+        pr.head.sha = "head-sha-1283"
+        pr.get_commits.return_value = commits
+        return pr
+
+    @staticmethod
+    async def _to_thread_inline(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run the github_api_call body inline instead of in a thread."""
+        return fn(*args, **kwargs)
+
+    def _prepare_webhook(self, webhook: GithubWebhook, payload: dict[str, Any]) -> WebhookContext:
+        """Point the webhook at a pull_request delivery and attach a fresh context."""
+        webhook.hook_data = payload
+        webhook.github_event = "pull_request"
+        webhook.app_bot_login = "test-app[bot]"  # already resolved, skip the app-slug lookup
+        webhook.ctx = WebhookContext(
+            hook_id="test-delivery-1283",
+            event_type="pull_request",
+            repository="test-repo",
+            repository_full_name="my-org/test-repo",
+        )
+        return webhook.ctx
+
+    @pytest.mark.asyncio
+    async def test_process_skips_empty_pr(
+        self,
+        process_github_webhook: GithubWebhook,
+        pull_request_payload: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """process() returns None for a commit-less PR and touches nothing downstream."""
+        webhook = process_github_webhook
+        ctx = self._prepare_webhook(webhook, pull_request_payload)
+        mock_pr = self._pull_request([])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()) as mock_clone,
+            patch.object(webhook, "load_welcome_extra_info_from_file", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data",
+                new=AsyncMock(),
+            ) as mock_process_pr,
+            patch.object(OwnersFileHandler, "initialize", new=AsyncMock()),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await webhook.process()
+
+        assert result is None
+        # Nothing was resolved from a (non-existent) commit
+        assert webhook.last_committer == "unknown"
+        assert webhook.last_committer_id == 0
+        assert webhook.pr_base_sha == ""
+        assert webhook.pr_head_sha == ""
+        # No clone, no owners handling, no handlers
+        mock_clone.assert_not_awaited()
+        mock_process_pr.assert_not_awaited()
+        # The context step is closed so the delivery is logged as handled
+        assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
+        assert "Pull request #1283 has no commits" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_process_resolves_last_committer_from_commit(
+        self,
+        process_github_webhook: GithubWebhook,
+        pull_request_payload: dict[str, Any],
+    ) -> None:
+        """Regression guard: a PR with one commit still resolves the committer and runs handlers."""
+        webhook = process_github_webhook
+        self._prepare_webhook(webhook, pull_request_payload)
+
+        commit = Mock()
+        commit.committer.login = "commit-author"
+        commit.committer.id = 424242
+        mock_pr = self._pull_request([commit])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()),
+            patch.object(webhook, "load_welcome_extra_info_from_file", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data",
+                new=AsyncMock(),
+            ) as mock_process_pr,
+            patch.object(OwnersFileHandler, "initialize", new=AsyncMock()),
+        ):
+            assert await webhook._get_last_commit(pull_request=mock_pr) is commit
+            result = await webhook.process()
+
+        assert result is None
+        assert webhook.last_commit is commit
+        assert webhook.last_committer == "commit-author"
+        assert webhook.last_committer_id == 424242
+        mock_process_pr.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_get_last_commit_returns_none_without_commits(
+        self, process_github_webhook: GithubWebhook, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_get_last_commit() logs and returns None instead of raising IndexError."""
+        mock_pr = self._pull_request([])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            caplog.at_level(logging.WARNING),
+        ):
+            assert await process_github_webhook._get_last_commit(pull_request=mock_pr) is None
+
+        assert "Pull request #1283 has no commits" in caplog.text
 
 
 class TestLoadWelcomeExtraInfoFromFile:
