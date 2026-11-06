@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
-from github.GithubException import GithubException, UnknownObjectException
+from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.Permissions import Permissions
@@ -687,13 +687,19 @@ Maintainers:
 
         Uses `role_name` (admin/maintain/write/triage/read) rather than the legacy `permission`
         field, which reports the `maintain` role as "write".
+
+        A 404 (unknown login, or GitHub's "<login> is not a user" for a non-existent
+        account) means not a maintainer. Any other status (rate limit, 5xx, auth) is a
+        real error and propagates.
         """
         try:
             role = await github_api_call(
                 self.repository.get_collaborator_role_name, username, logger=self.logger, log_prefix=self.log_prefix
             )
-        except UnknownObjectException:
-            return False
+        except GithubException as ex:
+            if ex.status == 404:
+                return False
+            raise
         return role in ("admin", "maintain")
 
     @functools.cached_property

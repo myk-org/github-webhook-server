@@ -1121,16 +1121,55 @@ class TestOwnersFileHandler:
         owners_file_handler.repository.get_collaborator_role_name.assert_called_once_with("some-user")
 
     @pytest.mark.asyncio
-    async def test_is_user_repository_maintainer_unknown_user(self, owners_file_handler: OwnersFileHandler) -> None:
-        """A user GitHub does not know for this repo is not a maintainer."""
-        owners_file_handler.repository.get_collaborator_role_name = Mock(
-            side_effect=UnknownObjectException(status=404, data={}, headers={})
-        )
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            UnknownObjectException(status=404, data={"message": "Not Found"}, headers={}),
+            # Exact e2e shape: PyGithub raises a plain GithubException for a login that is not a user
+            GithubException(status=404, data={"message": "test-approver is not a user"}, headers={}),
+        ],
+        ids=["unknown-object-404", "plain-github-exception-404"],
+    )
+    async def test_is_user_repository_maintainer_404_returns_false(
+        self, owners_file_handler: OwnersFileHandler, exc: GithubException
+    ) -> None:
+        """Both 404 shapes mean "not a maintainer" rather than an error.
 
-        with patch("asyncio.to_thread", new=AsyncMock(side_effect=lambda f, *a, **k: f(*a, **k))):
+        `UnknownObjectException` subclasses `GithubException`, so catching the base class must
+        still cover it, and must also cover GitHub's `"<login> is not a user"` plain exception.
+        """
+        owners_file_handler.repository.get_collaborator_role_name = Mock(side_effect=exc)
+        api_call = AsyncMock(side_effect=lambda fn, *a, **k: fn(*a, **k))
+
+        with patch("webhook_server.libs.handlers.owners_files_handler.github_api_call", new=api_call):
             result = await owners_file_handler.is_user_repository_maintainer("ghost-user")
 
         assert result is False
+        api_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            GithubException(status=500, data={"message": "boom"}, headers={}),
+            GithubException(status=403, data={"message": "API rate limit exceeded"}, headers={}),
+        ],
+        ids=["server-error-500", "rate-limit-403"],
+    )
+    async def test_is_user_repository_maintainer_other_github_errors_propagate(
+        self, owners_file_handler: OwnersFileHandler, exc: GithubException
+    ) -> None:
+        """Only a 404 means "not a maintainer"; 5xx and rate limits are real errors and propagate."""
+        owners_file_handler.repository.get_collaborator_role_name = Mock(side_effect=exc)
+        api_call = AsyncMock(side_effect=lambda fn, *a, **k: fn(*a, **k))
+
+        with (
+            patch("webhook_server.libs.handlers.owners_files_handler.github_api_call", new=api_call),
+            pytest.raises(GithubException) as exc_info,
+        ):
+            await owners_file_handler.is_user_repository_maintainer("some-user")
+
+        assert exc_info.value is exc
 
     @pytest.mark.parametrize(
         ("owners_entry", "sender"),
