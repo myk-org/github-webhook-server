@@ -754,6 +754,21 @@ class GithubWebhook:
             if last_commit is None:
                 # GitHub allows a PR whose head is level with the base branch: no commits, nothing to process.
                 self.logger.warning(f"{self.log_prefix} Pull request has no commits, nothing to process")
+                if self.github_event == "issue_comment":
+                    # Commands cannot run without commits, so tell the commenter instead of skipping silently.
+                    # Best-effort: a missing issue-write permission must not fail the webhook again.
+                    try:
+                        await github_api_call(
+                            pull_request.create_issue_comment,
+                            "This pull request has no commits, so commands are not processed.",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
+                    except GithubException as ex:
+                        self.logger.warning(
+                            f"{self.log_prefix} Could not post no-commits notice to the pull request "
+                            f"(status {ex.status}): {ex}"
+                        )
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
                     f"{self.log_prefix} Webhook processing completed successfully: "

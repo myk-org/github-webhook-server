@@ -3744,6 +3744,16 @@ class TestPullRequestWithoutCommits:
             },
         }
 
+    @pytest.fixture
+    def issue_comment_payload(self) -> dict[str, Any]:
+        """issue_comment delivery aiming a command at a commit-less PR."""
+        return {
+            "action": "created",
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "issue": {"number": 1283, "pull_request": {"url": "https://api.github.com/pr/1283"}},
+            "comment": {"body": "/review", "user": {"login": "testuser"}},
+        }
+
     @staticmethod
     def _pull_request(commits: list[Mock]) -> Mock:
         """Build a non-draft PR mock whose get_commits() returns *commits*."""
@@ -3755,6 +3765,7 @@ class TestPullRequestWithoutCommits:
         pr.base.sha = "base-sha-1283"
         pr.head.sha = "head-sha-1283"
         pr.get_commits.return_value = commits
+        pr.create_issue_comment = Mock()
         return pr
 
     @staticmethod
@@ -3762,14 +3773,16 @@ class TestPullRequestWithoutCommits:
         """Run the github_api_call body inline instead of in a thread."""
         return fn(*args, **kwargs)
 
-    def _prepare_webhook(self, webhook: GithubWebhook, payload: dict[str, Any]) -> WebhookContext:
-        """Point the webhook at a pull_request delivery and attach a fresh context."""
+    def _prepare_webhook(
+        self, webhook: GithubWebhook, payload: dict[str, Any], event_type: str = "pull_request"
+    ) -> WebhookContext:
+        """Point the webhook at *event_type* delivery and attach a fresh context."""
         webhook.hook_data = payload
-        webhook.github_event = "pull_request"
+        webhook.github_event = event_type
         webhook.app_bot_login = "test-app[bot]"  # already resolved, skip the app-slug lookup
         webhook.ctx = WebhookContext(
             hook_id="test-delivery-1283",
-            event_type="pull_request",
+            event_type=event_type,
             repository="test-repo",
             repository_full_name="my-org/test-repo",
         )
@@ -3813,6 +3826,83 @@ class TestPullRequestWithoutCommits:
         # The context step is closed so the delivery is logged as handled
         assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
         assert "Pull request #1283 has no commits" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_process_issue_comment_on_empty_pr_posts_notice(
+        self,
+        process_github_webhook: GithubWebhook,
+        issue_comment_payload: dict[str, Any],
+    ) -> None:
+        """A command on a commit-less PR gets one explanatory comment and no command handling."""
+        webhook = process_github_webhook
+        ctx = self._prepare_webhook(webhook, issue_comment_payload, event_type="issue_comment")
+        mock_pr = self._pull_request([])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()) as mock_clone,
+            patch("webhook_server.libs.github_api.IssueCommentHandler") as mock_issue_comment_handler,
+        ):
+            assert await webhook.process() is None
+
+        mock_pr.create_issue_comment.assert_called_once_with(
+            "This pull request has no commits, so commands are not processed."
+        )
+        mock_issue_comment_handler.assert_not_called()
+        mock_clone.assert_not_awaited()
+        assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_process_issue_comment_notice_failure_is_logged(
+        self,
+        process_github_webhook: GithubWebhook,
+        issue_comment_payload: dict[str, Any],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A missing issue-write permission must not fail the webhook delivery."""
+        webhook = process_github_webhook
+        ctx = self._prepare_webhook(webhook, issue_comment_payload, event_type="issue_comment")
+        mock_pr = self._pull_request([])
+        mock_pr.create_issue_comment = Mock(
+            side_effect=GithubException(403, {"message": "Resource not accessible"}, {})
+        )
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()),
+            caplog.at_level(logging.WARNING),
+        ):
+            assert await webhook.process() is None
+
+        mock_pr.create_issue_comment.assert_called_once()
+        assert "Could not post no-commits notice" in caplog.text
+        assert "403" in caplog.text
+        assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_process_non_issue_comment_event_posts_no_notice(
+        self,
+        process_github_webhook: GithubWebhook,
+        pull_request_payload: dict[str, Any],
+    ) -> None:
+        """Non-command events on a commit-less PR stay silent, as before."""
+        webhook = process_github_webhook
+        ctx = self._prepare_webhook(webhook, pull_request_payload)
+        mock_pr = self._pull_request([])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()),
+            patch("webhook_server.libs.github_api.IssueCommentHandler") as mock_issue_comment_handler,
+        ):
+            assert await webhook.process() is None
+
+        mock_pr.create_issue_comment.assert_not_called()
+        mock_issue_comment_handler.assert_not_called()
+        assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_process_resolves_last_committer_from_commit(
