@@ -795,6 +795,75 @@ class TestOwnersFileHandler:
                             mock_is_maintainer.assert_awaited_once_with("org-admin")
 
     @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_repeated_vouches_one_lookup(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Repeated `/add-allowed-user` comments from the same unauthorized author cost one
+        permission lookup, not one per comment."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
+        owners_file_handler.all_repository_approvers = ["rootapprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        comments = []
+        for _ in range(3):
+            comment = Mock()
+            comment.user.login = "repeater"
+            comment.body = "/add-allowed-user @newuser"
+            comments.append(comment)
+
+        with (
+            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
+            patch.object(
+                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
+            ) as mock_is_maintainer,
+            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
+            patch.object(mock_pull_request, "create_issue_comment"),
+        ):
+            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
+
+            assert result is False
+            assert mock_is_maintainer.await_count == 1
+            mock_is_maintainer.assert_awaited_once_with("repeater")
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_vouch_after_unauthorized_author(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """A repeated unauthorized author is looked up once; the next, authorized author is
+        looked up too and stops the loop."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
+        owners_file_handler.all_repository_approvers = ["rootapprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        comments = []
+        for login in ("repeater", "repeater", "org-admin"):
+            comment = Mock()
+            comment.user.login = login
+            comment.body = "/add-allowed-user @newuser"
+            comments.append(comment)
+
+        async def _is_maintainer(login: str) -> bool:
+            return login == "org-admin"
+
+        with (
+            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
+            patch.object(
+                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(side_effect=_is_maintainer)
+            ) as mock_is_maintainer,
+            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
+        ):
+            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
+
+            assert result is True
+            assert mock_is_maintainer.await_args_list == [call("repeater"), call("org-admin")]
+
+    @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_owners_approver_not_maintainer_allowed(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:

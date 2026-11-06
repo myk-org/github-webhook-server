@@ -589,11 +589,16 @@ Maintainers:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            # Filter by command text first so the per-comment permission lookup stays bounded.
+            # Filter by command text first, and resolve each author once: permission lookup costs an API call,
+            # so repeated comments by the same user must not multiply it.
+            author_is_allowed: dict[str, bool] = {}
             for comment in [_comment for _comment in issue_comments if allow_user_comment in _comment.body]:
-                if await self.is_root_approver(comment.user.login) or await self.is_user_repository_maintainer(
-                    comment.user.login
-                ):
+                author = self._normalized_login(comment.user.login)
+                if author not in author_is_allowed:
+                    author_is_allowed[author] = await self.is_root_approver(
+                        comment.user.login
+                    ) or await self.is_user_repository_maintainer(comment.user.login)
+                if author_is_allowed[author]:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
                     )
