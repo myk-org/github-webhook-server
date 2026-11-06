@@ -5,7 +5,52 @@ import pytest
 import yaml
 from github.GithubException import GithubException, UnknownObjectException
 
-from webhook_server.libs.handlers.owners_files_handler import _MAX_VOUCH_AUTHOR_LOOKUPS, OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+
+
+def _named_user(login: str, *, admin: bool = False, maintain: bool = False) -> Mock:
+    """A `NamedUser` stand-in carrying the permissions the collaborator listing reports."""
+    user = Mock()
+    user.login = login
+    user.permissions.admin = admin
+    user.permissions.maintain = maintain
+    return user
+
+
+def _vouch_comment(login: str, body: str = "/add-allowed-user @newuser") -> Mock:
+    comment = Mock()
+    comment.user.login = login
+    comment.body = body
+    return comment
+
+
+async def _run_vouch(
+    handler: OwnersFileHandler,
+    pull_request: Mock,
+    *,
+    comments: list[Mock],
+    collaborators: list[Mock] | None = None,
+    root_approvers: list[str] | None = None,
+    owners: dict[str, dict[str, list[str]]] | None = None,
+    reviewed_user: str = "newuser",
+) -> tuple[bool, Mock]:
+    """Run the vouch path against a fake collaborator listing; returns (result, comment mock)."""
+    handler.changed_files = ["file1.py"]
+    handler.all_repository_approvers_and_reviewers = (
+        owners if owners is not None else {".": {"approvers": root_approvers or []}}
+    )
+    handler.all_repository_approvers = root_approvers or []
+    handler.all_pull_request_reviewers = []
+    with (
+        patch.object(handler, "get_all_repository_maintainers", return_value=[]),
+        patch.object(handler, "get_all_repository_collaborators", return_value=[]),
+        patch.object(handler, "get_all_repository_contributors", return_value=[]),
+        patch.object(handler.repository, "get_collaborators", return_value=collaborators or []),
+        patch.object(pull_request, "get_issue_comments", return_value=comments),
+        patch.object(pull_request, "create_issue_comment") as create_comment,
+    ):
+        result = await handler.is_user_valid_to_run_commands(pull_request, reviewed_user)
+    return result, create_comment
 
 
 class TestOwnersFileHandler:
@@ -652,6 +697,11 @@ class TestOwnersFileHandler:
             pytest.param("/ADD-Allowed-User @NewUser", True, id="different-casing"),
             pytest.param("  /add-allowed-user @newuser  ", True, id="surrounding-whitespace"),
             pytest.param("/add-allowed-user @newuser\nthanks", True, id="own-line-with-other-lines"),
+            pytest.param("/add-allowed-user  @newuser", True, id="double-space"),
+            pytest.param("/add-allowed-user\t@newuser", True, id="tab-separated"),
+            pytest.param("/add-allowed-user @newuser   ", True, id="trailing-whitespace"),
+            pytest.param("/add-allowed-user @newuser please", False, id="extra-tokens"),
+            pytest.param("/add-allowed-user @newuser and @other-user", False, id="extra-mention"),
             pytest.param("please run /add-allowed-user @newuser later", False, id="inline-mention"),
             pytest.param("> /add-allowed-user @newuser", False, id="blockquote"),
             pytest.param("```\n/add-allowed-user @newuser\n```", False, id="backtick-fence"),
@@ -660,7 +710,8 @@ class TestOwnersFileHandler:
         ],
     )
     def test_has_vouch_command(self, body: str, grants: bool) -> None:
-        """Only a whole line outside fenced code blocks grants: a mention or quote must not."""
+        """Only a whole line outside fenced code blocks grants, whatever its whitespace runs:
+        a mention, quote, or a line with extra tokens must not."""
         assert OwnersFileHandler._has_vouch_command(body, "/add-allowed-user @newuser") is grants
 
     @pytest.mark.asyncio
@@ -681,377 +732,192 @@ class TestOwnersFileHandler:
                         result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "user1")
                         assert result is True
 
+    @pytest.mark.parametrize(
+        ("admin", "maintain"),
+        [
+            pytest.param(True, False, id="admin"),
+            pytest.param(False, True, id="maintain"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_invalid_user_with_approval(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    async def test_is_user_valid_to_run_commands_collaborator_listing_vouch(
+        self,
+        owners_file_handler: OwnersFileHandler,
+        mock_pull_request: Mock,
+        admin: bool,
+        maintain: bool,
     ) -> None:
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
-        owners_file_handler.all_repository_approvers = ["approver1"]
-        owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+        """A commenter listed with admin or maintain can vouch for the target user."""
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[_vouch_comment("Voucher")],
+            collaborators=[_named_user("voucher", admin=admin, maintain=maintain)],
+        )
 
-        with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
-            with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
-                with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                    with patch.object(
-                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=True)
-                    ) as mock_is_maintainer:
-                        mock_maintainers.return_value = ["maintainer1"]
-                        mock_collaborators.return_value = []
-                        mock_contributors.return_value = []
+        assert result is True
+        mock_create_comment.assert_not_called()
 
-                        mock_comment = Mock()
-                        mock_comment.user.login = "maintainer1"
-                        mock_comment.body = "/add-allowed-user @invalid_user"
+    @pytest.mark.parametrize(
+        "collaborators",
+        [
+            pytest.param([], id="not-a-collaborator"),
+            pytest.param([_named_user("voucher")], id="write-only-collaborator"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_non_maintainer_vouch_rejected(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, collaborators: list[Mock]
+    ) -> None:
+        """An author who is not admin/maintain in the listing, or not listed at all, cannot vouch."""
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[_vouch_comment("voucher")],
+            collaborators=collaborators,
+        )
 
-                        with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                            mock_get_comments.return_value = [mock_comment]
-
-                            result = await owners_file_handler.is_user_valid_to_run_commands(
-                                mock_pull_request, "invalid_user"
-                            )
-
-                            assert result is True
-                            mock_is_maintainer.assert_awaited_once_with("maintainer1")
+        assert result is False
+        mock_create_comment.assert_called_once()
+        assert "newuser is not allowed to run commands" in mock_create_comment.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_root_approver_vouch(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         """A root OWNERS approver's `/add-allowed-user` comment is honoured, case-insensitively."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["RootApprover"]}}
-        owners_file_handler.all_repository_approvers = ["RootApprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[_vouch_comment("rootapprover")],
+            root_approvers=["RootApprover"],
+        )
 
-        mock_comment = Mock()
-        mock_comment.user.login = "rootapprover"
-        mock_comment.body = "/add-allowed-user @newuser"
-
-        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
-            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
-                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
-                    with patch.object(
-                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-                    ) as mock_is_maintainer:
-                        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
-                            result = await owners_file_handler.is_user_valid_to_run_commands(
-                                mock_pull_request, "newuser"
-                            )
-
-                            assert result is True
-                            # Root approver match short-circuits the permission lookup.
-                            mock_is_maintainer.assert_not_awaited()
+        assert result is True
+        mock_create_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_own_line_vouch(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
-        """The command on its own line, in any casing, validates the target user."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["RootApprover"]}}
-        owners_file_handler.all_repository_approvers = ["RootApprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+        """The command on its own line, whatever its casing and whitespace runs, validates the user."""
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[_vouch_comment("rootapprover", "  /ADD-ALLOWED-USER\t @NewUser  ")],
+            root_approvers=["RootApprover"],
+        )
 
-        mock_comment = Mock()
-        mock_comment.user.login = "rootapprover"
-        mock_comment.body = "  /ADD-ALLOWED-USER @NewUser  "
-
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]),
-            patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
-
-            assert result is True
-            mock_create_comment.assert_not_called()
+        assert result is True
+        mock_create_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_inline_mention_not_a_vouch(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
-        """An authorized author who only mentions the command inline does not vouch for the target."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+        """Even an authorized author only mentioning the command inline does not vouch."""
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[
+                _vouch_comment("rootapprover", "I will run /add-allowed-user @newuser later"),
+                _vouch_comment("org-admin", "/add-allowed-user @newuser please"),
+            ],
+            collaborators=[_named_user("org-admin", admin=True)],
+            root_approvers=["rootapprover"],
+        )
 
-        mock_comment = Mock()
-        mock_comment.user.login = "rootapprover"
-        mock_comment.body = "I will run /add-allowed-user @newuser later"
-
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-            ) as mock_is_maintainer,
-            patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]),
-            patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
-
-            assert result is False
-            # The inline mention is filtered out before any permission lookup.
-            mock_is_maintainer.assert_not_awaited()
-            mock_create_comment.assert_called_once()
-            assert "newuser is not allowed to run commands" in mock_create_comment.call_args[0][0]
+        assert result is False
+        mock_create_comment.assert_called_once()
+        assert "newuser is not allowed to run commands" in mock_create_comment.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_sub_directory_approver_vouch_rejected(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         """A sub-directory approver is not a root approver, so their vouch is not honoured."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {},
-            "pkg": {"approvers": ["subapprover"]},
-        }
-        owners_file_handler.all_repository_approvers = ["subapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=[_vouch_comment("subapprover")],
+            owners={".": {}, "pkg": {"approvers": ["subapprover"]}},
+        )
 
-        mock_comment = Mock()
-        mock_comment.user.login = "subapprover"
-        mock_comment.body = "/add-allowed-user @newuser"
-
-        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
-            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
-                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
-                    with patch.object(
-                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-                    ):
-                        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
-                            with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
-                                result = await owners_file_handler.is_user_valid_to_run_commands(
-                                    mock_pull_request, "newuser"
-                                )
-
-                                assert result is False
-                                mock_create_comment.assert_called_once()
-                                message = mock_create_comment.call_args[0][0]
-                                assert "newuser is not allowed to run commands" in message
-                                assert "subapprover" not in message
+        assert result is False
+        mock_create_comment.assert_called_once()
+        message = mock_create_comment.call_args[0][0]
+        assert "newuser is not allowed to run commands" in message
+        assert "subapprover" not in message
 
     @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_effective_maintainer_vouch(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
-    ) -> None:
-        """A commenter with effective admin, absent from both lists, can vouch; permission is
-        looked up only for comments that contain the command."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+    async def test_effective_maintainer_logins(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Only admin/maintain entries of the full (`affiliation="all"`) listing count, normalized."""
+        owners_file_handler.repository.get_collaborators = Mock(
+            return_value=[
+                _named_user("Org-Admin", admin=True),
+                _named_user("Maintainer", maintain=True),
+                _named_user("Writer"),
+            ]
+        )
+        api_call = AsyncMock(side_effect=lambda fn, *a, **k: fn(*a))
 
-        plain_comment = Mock()
-        plain_comment.user.login = "org-admin"
-        plain_comment.body = "just a regular comment"
-        command_comment = Mock()
-        command_comment.user.login = "org-admin"
-        command_comment.body = "/add-allowed-user @newuser"
+        with patch("webhook_server.libs.handlers.owners_files_handler.github_api_call", new=api_call):
+            logins = await owners_file_handler.effective_maintainer_logins
+            assert logins == {"org-admin", "maintainer"}
+            # affiliation="all": org owners and team-inherited maintainers count too (#1268)
+            owners_file_handler.repository.get_collaborators.assert_called_once_with()
 
-        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
-            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
-                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
-                    with patch.object(
-                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=True)
-                    ) as mock_is_maintainer:
-                        with patch.object(
-                            mock_pull_request, "get_issue_comments", return_value=[plain_comment, command_comment]
-                        ):
-                            result = await owners_file_handler.is_user_valid_to_run_commands(
-                                mock_pull_request, "newuser"
-                            )
-
-                            assert result is True
-                            mock_is_maintainer.assert_awaited_once_with("org-admin")
+            # Cached: a second access reuses the listing instead of issuing more API calls.
+            assert await owners_file_handler.effective_maintainer_logins == logins
+            owners_file_handler.repository.get_collaborators.assert_called_once_with()
 
     @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_repeated_vouches_one_lookup(
+    async def test_is_user_valid_to_run_commands_vouch_uses_single_collaborator_listing(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
-        """Repeated `/add-allowed-user` comments from the same unauthorized author cost one
-        permission lookup, not one per comment."""
+        """Many vouching commenters cost one collaborator listing, not one permission call each."""
         owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
+        owners_file_handler.all_repository_approvers = []
         owners_file_handler.all_pull_request_reviewers = []
-
-        comments = []
-        for _ in range(3):
-            comment = Mock()
-            comment.user.login = "repeater"
-            comment.body = "/add-allowed-user @newuser"
-            comments.append(comment)
+        owners_file_handler.repository.get_collaborators = Mock(return_value=[])
+        comments = [_vouch_comment(f"commenter{index}") for index in range(30)]
 
         with (
             patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
             patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
             patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-            ) as mock_is_maintainer,
-            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
-            patch.object(mock_pull_request, "create_issue_comment"),
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
-
-            assert result is False
-            assert mock_is_maintainer.await_count == 1
-            mock_is_maintainer.assert_awaited_once_with("repeater")
-
-    @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_vouch_after_unauthorized_author(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
-    ) -> None:
-        """Newest-first walk: a repeated unauthorized author is looked up once, then the older
-        authorized author is looked up too and stops the loop."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
-
-        comments = []
-        for login in ("org-admin", "repeater", "repeater"):
-            comment = Mock()
-            comment.user.login = login
-            comment.body = "/add-allowed-user @newuser"
-            comments.append(comment)
-
-        async def _is_maintainer(login: str) -> bool:
-            return login == "org-admin"
-
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(side_effect=_is_maintainer)
-            ) as mock_is_maintainer,
-            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
-
-            assert result is True
-            # Newest (repeater) first, deduped, then the older org-admin vouch authorizes the target.
-            assert mock_is_maintainer.await_args_list == [call("repeater"), call("org-admin")]
-
-    @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_vouch_lookup_cap(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
-    ) -> None:
-        """Distinct unauthorized vouchers cannot trigger unbounded permission lookups: the cap is
-        spent, the remaining authors are refused without an API call, and the target stays refused."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
-
-        comments = []
-        for index in range(_MAX_VOUCH_AUTHOR_LOOKUPS + 5):
-            comment = Mock()
-            comment.user.login = f"commenter{index}"
-            comment.body = "/add-allowed-user @newuser"
-            comments.append(comment)
-
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-            ) as mock_is_maintainer,
             patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
             patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
         ):
             result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
 
-            assert result is False
-            assert mock_is_maintainer.await_count == _MAX_VOUCH_AUTHOR_LOOKUPS
-            mock_create_comment.assert_called_once()
-            assert "newuser is not allowed to run commands" in mock_create_comment.call_args[0][0]
+        assert result is False
+        owners_file_handler.repository.get_collaborators.assert_called_once()
+        mock_create_comment.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_root_approver_older_than_cap(
+    async def test_is_user_valid_to_run_commands_authorized_vouch_survives_many_later_vouches(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
-        """Root approver detection is free, so an older root-approver vouch still grants after
-        more than the cap of unauthorized commenters have been walked."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
+        """REGRESSION: an authorized vouch posted before many unauthorized ones still grants.
 
-        root_comment = Mock()
-        root_comment.user.login = "rootapprover"
-        root_comment.body = "/add-allowed-user @newuser"
-        comments = [root_comment]
-        for index in range(_MAX_VOUCH_AUTHOR_LOOKUPS + 5):
-            comment = Mock()
-            comment.user.login = f"commenter{index}"
-            comment.body = "/add-allowed-user @newuser"
-            comments.append(comment)
+        The previous implementation walked comments newest-first and spent its lookup cap on the
+        unauthorized commenters, so the older authorized vouch was never resolved and the target
+        stayed refused.
+        """
+        comments = [_vouch_comment("org-admin")]
+        comments.extend(_vouch_comment(f"commenter{index}") for index in range(30))
 
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
-            ) as mock_is_maintainer,
-            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
-            patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
+        result, mock_create_comment = await _run_vouch(
+            owners_file_handler,
+            mock_pull_request,
+            comments=comments,
+            collaborators=[_named_user("org-admin", admin=True)],
+        )
 
-            assert result is True
-            # Every non-root author still costs a lookup up to the cap, then the free root check wins.
-            assert mock_is_maintainer.await_count == _MAX_VOUCH_AUTHOR_LOOKUPS
-            mock_create_comment.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_is_user_valid_to_run_commands_newest_authorized_vouch_wins_over_cap(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
-    ) -> None:
-        """Comments are walked newest first, so an authorized vouch posted after more than the cap
-        of unauthorized ones grants immediately instead of being lost behind the cap."""
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
-        owners_file_handler.all_repository_approvers = ["rootapprover"]
-        owners_file_handler.all_pull_request_reviewers = []
-
-        comments = []
-        for index in range(_MAX_VOUCH_AUTHOR_LOOKUPS + 5):
-            comment = Mock()
-            comment.user.login = f"commenter{index}"
-            comment.body = "/add-allowed-user @newuser"
-            comments.append(comment)
-        authorized_comment = Mock()
-        authorized_comment.user.login = "org-admin"
-        authorized_comment.body = "/add-allowed-user @newuser"
-        comments.append(authorized_comment)
-
-        async def _is_maintainer(login: str) -> bool:
-            return login == "org-admin"
-
-        with (
-            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
-            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
-            patch.object(
-                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(side_effect=_is_maintainer)
-            ) as mock_is_maintainer,
-            patch.object(mock_pull_request, "get_issue_comments", return_value=comments),
-        ):
-            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
-
-            assert result is True
-            # The newest comment is resolved first and stops the walk.
-            mock_is_maintainer.assert_awaited_once_with("org-admin")
+        assert result is True
+        mock_create_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_owners_approver_not_maintainer_allowed(
@@ -1099,20 +965,21 @@ class TestOwnersFileHandler:
                     mock_comment.user.login = "maintainer1"
                     mock_comment.body = "Some other comment"
 
-                    with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                        with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
-                            mock_get_comments.return_value = [mock_comment]
+                    with patch.object(owners_file_handler.repository, "get_collaborators", return_value=[]):
+                        with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
+                            with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
+                                mock_get_comments.return_value = [mock_comment]
 
-                            result = await owners_file_handler.is_user_valid_to_run_commands(
-                                mock_pull_request, "invalid_user"
-                            )
+                                result = await owners_file_handler.is_user_valid_to_run_commands(
+                                    mock_pull_request, "invalid_user"
+                                )
 
-                            assert result is False
-                            mock_create_comment.assert_called_once()
-                            message = mock_create_comment.call_args[0][0]
-                            assert "invalid_user is not allowed to run commands" in message
-                            assert "maintainer1" in message
-                            assert "rootapprover" in message
+                                assert result is False
+                                mock_create_comment.assert_called_once()
+                                message = mock_create_comment.call_args[0][0]
+                                assert "invalid_user is not allowed to run commands" in message
+                                assert "maintainer1" in message
+                                assert "rootapprover" in message
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_owners_allowed_users(

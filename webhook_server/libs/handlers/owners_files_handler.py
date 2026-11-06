@@ -22,10 +22,6 @@ from webhook_server.utils.helpers import run_command
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
-# Caps the collaborator-role API calls one command can trigger when many distinct
-# commenters have vouched for the same user.
-_MAX_VOUCH_AUTHOR_LOOKUPS = 20
-
 
 class OwnersFileHandler:
     def __init__(self, github_webhook: GithubWebhook) -> None:
@@ -571,14 +567,18 @@ class OwnersFileHandler:
 
     @staticmethod
     def _has_vouch_command(body: str, allow_user_comment: str) -> bool:
-        """Only a whole line outside fenced code blocks grants: a mention or quote must not."""
+        """Only a whole line outside fenced code blocks grants, whitespace-normalized.
+
+        A mention, quote, or a line with extra tokens must not match.
+        """
+        normalized_command = " ".join(allow_user_comment.split()).casefold()
         in_fence = False
         for line in body.splitlines():
             stripped = line.strip()
             if stripped.startswith(("```", "~~~")):
                 in_fence = not in_fence
                 continue
-            if not in_fence and stripped.casefold() == allow_user_comment.casefold():
+            if not in_fence and " ".join(stripped.split()).casefold() == normalized_command:
                 return True
         return False
 
@@ -606,25 +606,14 @@ Maintainers:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            # Newest first: the latest grant is authoritative. Filter by command text first, and
-            # resolve each author once: permission lookup costs an API call, so repeated comments
-            # by the same user must not multiply it, and the total is capped.
-            author_is_allowed: dict[str, bool] = {}
-            author_lookups = 0
-            for comment in reversed([
+            # One collaborator listing per handler instance instead of a permission call per
+            # comment author: any voucher with admin/maintain (or root approver) grants.
+            root_approvers = {self._normalized_login(_approver) for _approver in self.root_approvers}
+            maintainers = await self.effective_maintainer_logins
+            for comment in [
                 _comment for _comment in issue_comments if self._has_vouch_command(_comment.body, allow_user_comment)
-            ]):
-                author = self._normalized_login(comment.user.login)
-                if author not in author_is_allowed:
-                    if await self.is_root_approver(comment.user.login):
-                        author_is_allowed[author] = True
-                    elif author_lookups < _MAX_VOUCH_AUTHOR_LOOKUPS:
-                        author_lookups += 1
-                        author_is_allowed[author] = await self.is_user_repository_maintainer(comment.user.login)
-                    else:
-                        # No budget left to verify this author, so it cannot vouch.
-                        author_is_allowed[author] = False
-                if author_is_allowed[author]:
+            ]:
+                if self._normalized_login(comment.user.login) in root_approvers | maintainers:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
                     )
@@ -706,6 +695,25 @@ Maintainers:
         except UnknownObjectException:
             return False
         return role in ("admin", "maintain")
+
+    @functools.cached_property
+    async def effective_maintainer_logins(self) -> set[str]:
+        """Admin/maintain logins from the full collaborator listing (affiliation="all").
+
+        Includes org owners and team-inherited members; `get_all_repository_maintainers`
+        stays narrow for display (#1268). One listing per handler instance — the vouch path
+        must not issue a permission call per comment author.
+        """
+        collaborators = await self.repository_collaborators
+        users = await github_api_call(lambda: list(collaborators), logger=self.logger, log_prefix=self.log_prefix)
+        logins: set[str] = set()
+        for user in users:
+            permissions = await github_api_call(
+                lambda u=user: u.permissions, logger=self.logger, log_prefix=self.log_prefix
+            )
+            if permissions.admin or permissions.maintain:
+                logins.add(self._normalized_login(user.login))
+        return logins
 
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:
