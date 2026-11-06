@@ -242,11 +242,15 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 </tr>
 <tr>
 <td><strong>Approver</strong></td>
-<td>A repository collaborator/contributor, an approver listed in <code>OWNERS</code>, a maintainer, <strong>or</strong> anyone a maintainer/approver has granted with <code>/add-allowed-user @user</code></td>
+<td>A repository collaborator/contributor, an approver listed in <code>OWNERS</code>, a maintainer, <strong>or</strong> anyone an effective maintainer or root <code>OWNERS</code> approver has granted with <code>/add-allowed-user @user</code></td>
 </tr>
 <tr>
 <td><strong>Maintainer</strong></td>
 <td>Listed in the <code>root-approvers</code> configuration, or a direct repository collaborator with <code>admin</code> or <code>maintain</code> permission (org owners and members with access only via org base permissions or teams do not count)</td>
+</tr>
+<tr>
+<td><strong>Effective maintainer</strong></td>
+<td>Anyone GitHub reports with <code>admin</code> or <code>maintain</code> permission on the repository — org owners/admins and team-inherited admins included, direct collaborators not required</td>
 </tr>
 <tr>
 <td><strong>Anyone</strong></td>
@@ -316,12 +320,12 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/automerge</code></td>
 <td>Adds the <code>automerge</code> label; the PR merges automatically once all requirements are met</td>
-<td>Maintainer, Approver</td>
+<td>Maintainer, Approver, Effective maintainer</td>
 </tr>
 <tr>
 <td><code>/automerge cancel</code></td>
 <td>Removes the <code>automerge</code> label</td>
-<td>Maintainer, Approver</td>
+<td>Maintainer, Approver, Effective maintainer</td>
 </tr>
 <tr>
 <td><code>/retest &lt;test&gt;</code></td>
@@ -341,7 +345,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/rebase</code></td>
 <td>Rebases the PR branch onto its base branch and force-pushes</td>
-<td>Approver</td>
+<td>Approver, Effective maintainer</td>
 </tr>
 <tr>
 <td><code>/assign-reviewers</code></td>
@@ -356,7 +360,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/add-allowed-user @user</code></td>
 <td>Grants an arbitrary commenter permission to run approver commands</td>
-<td>Maintainer, Approver</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver</td>
 </tr>
 <tr>
 <td><code>/check-can-merge</code></td>
@@ -366,7 +370,7 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/merge</code></td>
 <td>Merges the PR immediately if <code>can-be-merged</code> is green (one-time, no label; method via <code>merge-command-method</code>, default squash; opt-in via <code>allow-merge-command</code>)</td>
-<td>Approver of every matched <code>OWNERS</code> dir</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver, or approver of every matched <code>OWNERS</code> dir</td>
 </tr>
 <tr>
 <td><code>/build-and-push-container</code></td>
@@ -396,15 +400,21 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/security-override</code></td>
 <td>Sets the security check runs to success</td>
-<td>Maintainer</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver</td>
 </tr>
 <tr>
 <td><code>/security-override cancel</code></td>
 <td>Re-runs the security checks to re-evaluate them</td>
-<td>Maintainer</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver</td>
 </tr>
 </tbody>
 </table></div>
+<h2 id="arguments-must-match-exactly">Arguments must match exactly</h2>
+<p>A command accepts only the arguments listed in the table above. Commands whose only argument is <code>cancel</code> refuse any
+other trailing text: <code>/wip please</code> is answered with <code>`/wip` takes no arguments other than `cancel`</code> and nothing
+runs — no label, no check, no build, no rebase. A command that needs an argument but gets none, or gets one it does not
+accept, is refused with that command's own message. A line that merely mentions a command inline is not executed:
+only lines starting with <code>/</code> are commands, one per line.</p>
 <h2 id="commands-on-draft-pull-requests">Commands on draft pull requests</h2>
 <p>Draft PRs are blocked by default. The <code>allow-commands-on-draft-prs</code> configuration key controls the exception list.
 Note: <code>/merge</code> is never allowed on draft PRs — it is rejected even when listed in <code>allow-commands-on-draft-prs</code>.
@@ -507,8 +517,11 @@ merges the PR on its own. <code>/automerge cancel</code> removes the label.</p>
 <div class="highlight"><pre><span></span><code>/automerge cancel
 </code></pre></div>
 
-<p>Both are restricted to maintainers and approvers; anyone else gets the comment
+<p>Both accept maintainers, every approver in the repository, and effective maintainers; anyone else gets the comment
 <em>"Only maintainers or approvers can set pull request to auto-merge"</em>.</p>
+<p>No approver loses access: the approver path is unchanged, so <code>/automerge</code> still works for anyone who was already an
+approver of the repository <code>OWNERS</code> files. The effective-maintainer rule only adds people GitHub reports as having
+<code>admin</code> or <code>maintain</code> permission — org owners and team-inherited admins included, direct collaboration not required.</p>
 <h4 id="assign-reviewers"><code>/assign-reviewers</code></h4>
 <p>Assigns reviewers to the pull request based on the <code>OWNERS</code> file in the repository.</p>
 <div class="highlight"><pre><span></span><code>/assign-reviewers
@@ -539,13 +552,25 @@ verdict — a job on the PR branch named <code>can-be-merged</code> cannot unloc
 blocks the merge. The PR is merged with the method configured via <code>merge-command-method</code>
 (<code>squash</code>, <code>merge</code>, or <code>rebase</code>; default: squash, see
 <a href="configuration-reference.html">Configuration reference</a>). <code>/merge</code> takes no arguments (<code>/merge cancel</code> is rejected).</p>
-<p><code>/merge</code> is allowed only for approvers of <strong>every</strong> <code>OWNERS</code> dir covering the changed files — a PR touching dirs the
-sender cannot approve is not mergeable by them — and only when <strong>every</strong> matching entry sets <code>root-approvers: false</code>
-(see
-<a href="set-up-owners-and-reviewers.html">Set up owners and reviewers</a>). If any matched entry lacks the opt-out, a changed
-folder has no matching sub-<code>OWNERS</code>, or the sender is not an approver of some matched dir, the command is rejected
-with a comment explaining the requirement (and, for the approver case, naming the dirs the sender does not cover).
-It is not allowed on draft PRs.</p>
+<p><code>/merge</code> is gated by two things. First, <strong>every</strong> <code>OWNERS</code> entry matching the changed files must set
+<code>root-approvers: false</code> (see
+<a href="set-up-owners-and-reviewers.html">Set up owners and reviewers</a>). If any matched entry lacks the opt-out, or a changed
+folder has no matching sub-<code>OWNERS</code>, the command is rejected for every sender — maintainers included.</p>
+<p>Second, the sender must be authorized to merge that PR. That holds for:</p>
+<ul>
+<li>
+<p>an <strong>effective maintainer</strong> — anyone GitHub reports with <code>admin</code> or <code>maintain</code> permission, org owners and
+  team-inherited admins included — whether or not they approve the matched <code>OWNERS</code> dirs;</p>
+</li>
+<li>
+<p>a <strong>root <code>OWNERS</code> approver</strong> — an approver listed in the repository root <code>.</code> <code>OWNERS</code> file — on the same terms;</p>
+</li>
+<li>otherwise an approver of <strong>every</strong> <code>OWNERS</code> dir covering the changed files, sub-directory and SIG approvers
+  included. This path is unchanged, so a repository with no maintainers can still merge its own pull requests through
+  its own approvers, and a PR touching dirs the sender cannot approve is not mergeable by them.</li>
+</ul>
+<p>Anyone else is rejected with a comment explaining the requirement — for the approver case, naming the dirs the sender
+does not cover. It is not allowed on draft PRs.</p>
 <p><code>/merge</code> is <strong>opt-in</strong>: it works only when <code>allow-merge-command: true</code> is set in the server
 configuration — globally or for the specific repository (see
 <a href="configuration-reference.html">Configuration reference</a>); the repository-local
@@ -555,12 +580,18 @@ with a comment saying it is not enabled for the repository.</p>
 </code></pre></div>
 
 <h4 id="add-allowed-user-username"><code>/add-allowed-user @username</code></h4>
-<p>Lets a maintainer or approver grant command permission to someone who is not otherwise a collaborator — for example an
-external contributor working on a PR. The grant is per pull request: the server looks for a comment containing
-<code>/add-allowed-user @username</code> posted by a maintainer or approver.</p>
+<p>Lets an effective maintainer or a root <code>OWNERS</code> approver grant command permission to someone who is not otherwise a
+collaborator — for example an external contributor working on a PR. The grant is per pull request: the server looks for
+a comment containing <code>/add-allowed-user @username</code> whose <strong>author</strong> is an effective maintainer or a root <code>OWNERS</code>
+approver.</p>
 <div class="highlight"><pre><span></span><code>/add-allowed-user @external-contributor
 </code></pre></div>
 
+<p>Vouching follows the same rule as <code>/security-override</code>: "root <code>OWNERS</code> approver" means an approver listed in the
+repository root <code>.</code> OWNERS file. An approver listed only in a sub-directory <code>OWNERS</code> file can no longer vouch for a
+user repo-wide, and a user who was granted access this way cannot pass the grant on. The server still replies
+<em>"@external-contributor is now allowed to run commands"</em> to any <code>/add-allowed-user</code> comment, so that reply alone does
+not mean the grant takes effect.</p>
 <p>The user can then run approver-level commands such as <code>/retest</code> or <code>/reprocess</code> on that PR.</p>
 <h3 id="testing-and-validation">Testing and validation</h3>
 <h4 id="retest-test-test-and-retest-all"><code>/retest &lt;test&gt; [test...]</code> and <code>/retest all</code></h4>
@@ -641,8 +672,13 @@ immediately.</p>
 <ul>
 <li>The PR must be open.</li>
 <li>Fork PRs are rejected — the head branch lives in another repository, so the force-push cannot be scoped to this repo.</li>
-<li>For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or a
-  maintainer.</li>
+<li>
+<p>For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or an
+  effective maintainer.</p>
+</li>
+<li>
+<p>For user-owned PRs the requester must be the PR owner or an effective maintainer.</p>
+</li>
 </ul>
 <h4 id="cherry-pick-branch-branch"><code>/cherry-pick &lt;branch&gt; [branch...]</code></h4>
 <p>Cherry-picks the change to one or more target branches. Each branch that exists gets a <code>cherry-pick-&lt;branch&gt;</code> label.</p>
@@ -692,7 +728,8 @@ documents exactly which commands are active for the repository.</p>
 
 <h3 id="security">Security</h3>
 <h4 id="security-override-and-security-override-cancel"><code>/security-override</code> and <code>/security-override cancel</code></h4>
-<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, a maintainer can:</p>
+<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, an effective maintainer or a
+root <code>OWNERS</code> approver can:</p>
 <ul>
 <li>
 <p><code>/security-override</code> — set the security check runs to <strong>success</strong>, annotated with the maintainer's name and a
@@ -708,7 +745,10 @@ documents exactly which commands are active for the repository.</p>
 <div class="highlight"><pre><span></span><code>/security-override cancel
 </code></pre></div>
 
-<p>Only maintainers may use these; anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
+<p>Only effective maintainers and root <code>OWNERS</code> approvers may use these — an org owner or team-inherited admin who is not
+a direct collaborator qualifies. "Root <code>OWNERS</code> approver" means an approver listed in the repository root <code>.</code> OWNERS
+file; approvers listed only in a sub-directory OWNERS file are not accepted, because the override applies to the whole
+repository. Anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
 check is enabled for the repository, the server replies <em>"No security checks are enabled — nothing to override."</em></p>
 <h3 id="generic-label-commands">Generic label commands</h3>
 <p>In addition to the commands above, the server's user-facing labels can be set and cleared directly:</p>
@@ -744,6 +784,7 @@ command; those labels are managed by the server itself.</p>
 <ul>
 <li><a href="#how-commands-are-recognized">How commands are recognized</a></li>
 <li><a href="#who-can-run-what">Who can run what</a></li>
+<li><a href="#arguments-must-match-exactly">Arguments must match exactly</a></li>
 <li><a href="#commands-on-draft-pull-requests">Commands on draft pull requests</a></li>
 <li><a href="#command-details">Command details</a><ul>
 <li><a href="#pr-status">PR status</a></li>

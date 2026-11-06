@@ -27,8 +27,9 @@ Example — one comment, three commands:
 | Who | Meaning |
 | --- | --- |
 | **Author** | The user who opened the pull request |
-| **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone a maintainer/approver has granted with `/add-allowed-user @user` |
+| **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone an effective maintainer or root `OWNERS` approver has granted with `/add-allowed-user @user` |
 | **Maintainer** | Listed in the `root-approvers` configuration, or a direct repository collaborator with `admin` or `maintain` permission (org owners and members with access only via org base permissions or teams do not count) |
+| **Effective maintainer** | Anyone GitHub reports with `admin` or `maintain` permission on the repository — org owners/admins and team-inherited admins included, direct collaborators not required |
 | **Anyone** | Any user who can comment, no permission check |
 
 | Command | What it does | Who can run it |
@@ -43,24 +44,32 @@ Example — one comment, three commands:
 | `/lgtm cancel` | Removes the `lgtm-<user>` label | Anyone (ignored on your own PR) |
 | `/approve` | Adds `approved-<user>`, removes `changes-requested-<user>`, and triggers the AI test oracle | Approver |
 | `/approve cancel` | Removes `approved-<user>` | Approver |
-| `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver |
-| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver |
+| `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver, Effective maintainer |
+| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver, Effective maintainer |
 | `/retest <test>` | Re-runs one or more configured checks | Approver |
 | `/retest all` | Re-runs every check configured for the repository | Approver |
 | `/reprocess` | Re-runs the complete PR processing workflow from scratch | Approver |
-| `/rebase` | Rebases the PR branch onto its base branch and force-pushes | Approver |
+| `/rebase` | Rebases the PR branch onto its base branch and force-pushes | Approver, Effective maintainer |
 | `/assign-reviewers` | Assigns reviewers according to the repository `OWNERS` file | Approver |
 | `/assign-reviewer @user` | Requests a review from a specific collaborator | Approver |
-| `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Maintainer, Approver |
+| `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Effective maintainer, root `OWNERS` approver |
 | `/check-can-merge` | Runs the `can-be-merged` check and reports the merge blockers | Approver |
-| `/merge` | Merges the PR immediately if `can-be-merged` is green (one-time, no label; method via `merge-command-method`, default squash; opt-in via `allow-merge-command`) | Approver of every matched `OWNERS` dir |
+| `/merge` | Merges the PR immediately if `can-be-merged` is green (one-time, no label; method via `merge-command-method`, default squash; opt-in via `allow-merge-command`) | Effective maintainer, root `OWNERS` approver, or approver of every matched `OWNERS` dir |
 | `/build-and-push-container` | Builds and pushes the container image for the PR | Anyone |
 | `/cherry-pick <branch> [branch...]` | Cherry-picks the PR to one or more target branches | Approver |
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
 | `/regenerate-welcome` | Re-renders the welcome comment with the current configuration | Approver |
 | `/test-oracle` | Sends the PR to the configured PR Test Oracle service | Approver |
-| `/security-override` | Sets the security check runs to success | Maintainer |
-| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Maintainer |
+| `/security-override` | Sets the security check runs to success | Effective maintainer, root `OWNERS` approver |
+| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, root `OWNERS` approver |
+
+## Arguments must match exactly
+
+A command accepts only the arguments listed in the table above. Commands whose only argument is `cancel` refuse any
+other trailing text: `/wip please` is answered with `` `/wip` takes no arguments other than `cancel` `` and nothing
+runs — no label, no check, no build, no rebase. A command that needs an argument but gets none, or gets one it does not
+accept, is refused with that command's own message. A line that merely mentions a command inline is not executed:
+only lines starting with `/` are commands, one per line.
 
 ## Commands on draft pull requests
 
@@ -183,8 +192,12 @@ merges the PR on its own. `/automerge cancel` removes the label.
 /automerge cancel
 ```
 
-Both are restricted to maintainers and approvers; anyone else gets the comment
+Both accept maintainers, every approver in the repository, and effective maintainers; anyone else gets the comment
 *"Only maintainers or approvers can set pull request to auto-merge"*.
+
+No approver loses access: the approver path is unchanged, so `/automerge` still works for anyone who was already an
+approver of the repository `OWNERS` files. The effective-maintainer rule only adds people GitHub reports as having
+`admin` or `maintain` permission — org owners and team-inherited admins included, direct collaboration not required.
 
 #### `/assign-reviewers`
 
@@ -227,13 +240,22 @@ blocks the merge. The PR is merged with the method configured via `merge-command
 (`squash`, `merge`, or `rebase`; default: squash, see
 [Configuration reference](configuration-reference.html)). `/merge` takes no arguments (`/merge cancel` is rejected).
 
-`/merge` is allowed only for approvers of **every** `OWNERS` dir covering the changed files — a PR touching dirs the
-sender cannot approve is not mergeable by them — and only when **every** matching entry sets `root-approvers: false`
-(see
-[Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, a changed
-folder has no matching sub-`OWNERS`, or the sender is not an approver of some matched dir, the command is rejected
-with a comment explaining the requirement (and, for the approver case, naming the dirs the sender does not cover).
-It is not allowed on draft PRs.
+`/merge` is gated by two things. First, **every** `OWNERS` entry matching the changed files must set
+`root-approvers: false` (see
+[Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, or a changed
+folder has no matching sub-`OWNERS`, the command is rejected for every sender — maintainers included.
+
+Second, the sender must be authorized to merge that PR. That holds for:
+
+- an **effective maintainer** — anyone GitHub reports with `admin` or `maintain` permission, org owners and
+  team-inherited admins included — whether or not they approve the matched `OWNERS` dirs;
+- a **root `OWNERS` approver** — an approver listed in the repository root `.` `OWNERS` file — on the same terms;
+- otherwise an approver of **every** `OWNERS` dir covering the changed files, sub-directory and SIG approvers
+  included. This path is unchanged, so a repository with no maintainers can still merge its own pull requests through
+  its own approvers, and a PR touching dirs the sender cannot approve is not mergeable by them.
+
+Anyone else is rejected with a comment explaining the requirement — for the approver case, naming the dirs the sender
+does not cover. It is not allowed on draft PRs.
 
 `/merge` is **opt-in**: it works only when `allow-merge-command: true` is set in the server
 configuration — globally or for the specific repository (see
@@ -247,13 +269,20 @@ with a comment saying it is not enabled for the repository.
 
 #### `/add-allowed-user @username`
 
-Lets a maintainer or approver grant command permission to someone who is not otherwise a collaborator — for example an
-external contributor working on a PR. The grant is per pull request: the server looks for a comment containing
-`/add-allowed-user @username` posted by a maintainer or approver.
+Lets an effective maintainer or a root `OWNERS` approver grant command permission to someone who is not otherwise a
+collaborator — for example an external contributor working on a PR. The grant is per pull request: the server looks for
+a comment containing `/add-allowed-user @username` whose **author** is an effective maintainer or a root `OWNERS`
+approver.
 
 ```text
 /add-allowed-user @external-contributor
 ```
+
+Vouching follows the same rule as `/security-override`: "root `OWNERS` approver" means an approver listed in the
+repository root `.` OWNERS file. An approver listed only in a sub-directory `OWNERS` file can no longer vouch for a
+user repo-wide, and a user who was granted access this way cannot pass the grant on. The server still replies
+*"@external-contributor is now allowed to run commands"* to any `/add-allowed-user` comment, so that reply alone does
+not mean the grant takes effect.
 
 The user can then run approver-level commands such as `/retest` or `/reprocess` on that PR.
 
@@ -332,8 +361,9 @@ Restrictions enforced by the server:
 
 - The PR must be open.
 - Fork PRs are rejected — the head branch lives in another repository, so the force-push cannot be scoped to this repo.
-- For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or a
-  maintainer.
+- For bot-owned PRs (such as cherry-pick PRs) the requester must be the cherry-pick initiator (the PR assignee) or an
+  effective maintainer.
+- For user-owned PRs the requester must be the PR owner or an effective maintainer.
 
 #### `/cherry-pick <branch> [branch...]`
 
@@ -396,7 +426,8 @@ documents exactly which commands are active for the repository.
 
 #### `/security-override` and `/security-override cancel`
 
-When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, a maintainer can:
+When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or a
+root `OWNERS` approver can:
 
 - `/security-override` — set the security check runs to **success**, annotated with the maintainer's name and a
   reminder to use `cancel` to undo it.
@@ -410,7 +441,10 @@ When the security checks (`security-suspicious-paths`, `security-committer-ident
 /security-override cancel
 ```
 
-Only maintainers may use these; anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
+Only effective maintainers and root `OWNERS` approvers may use these — an org owner or team-inherited admin who is not
+a direct collaborator qualifies. "Root `OWNERS` approver" means an approver listed in the repository root `.` OWNERS
+file; approvers listed only in a sub-directory OWNERS file are not accepted, because the override applies to the whole
+repository. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
 check is enabled for the repository, the server replies *"No security checks are enabled — nothing to override."*
 
 ### Generic label commands

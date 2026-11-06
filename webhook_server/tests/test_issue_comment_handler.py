@@ -1,5 +1,6 @@
 import asyncio
 import time
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICK_LABEL_PREFIX,
+    COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
@@ -22,8 +24,10 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
+    COMMAND_SECURITY_OVERRIDE_STR,
     COMMAND_TEST_ORACLE_STR,
     HOLD_LABEL_STR,
+    LGTM_STR,
     REACTIONS,
     SUCCESS_STR,
     TOX_STR,
@@ -70,6 +74,10 @@ class TestIssueCommentHandler:
         mock_handler = Mock()
         mock_handler.all_pull_request_approvers = ["approver1", "approver2"]
         mock_handler.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+        # Merge/automerge authorization adds effective-permission checks; default to "no permission"
+        # so tests exercise the paths they stub explicitly.
+        mock_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        mock_handler.is_root_approver = AsyncMock(return_value=False)
         return mock_handler
 
     @pytest.fixture
@@ -713,6 +721,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
@@ -748,6 +757,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
@@ -781,10 +791,13 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
-            patch("webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
             patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
             patch.object(
                 issue_comment_handler.labels_handler,
@@ -807,6 +820,240 @@ class TestIssueCommentHandler:
             mock_add_label.assert_not_called()
             mock_remove_label.assert_not_called()
             mock_reaction.assert_not_called()
+            assert mock_api.call_args.kwargs["body"] == (
+                "Only maintainers or approvers can set pull request to auto-merge"
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_effective_maintainer(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective admin/maintain (org admin, not a direct collaborator) can set auto-merge (#1277)."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(return_value=[])
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=AUTOMERGE_LABEL_STR,
+                reviewed_user="org-admin",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_reaction.assert_called_once()
+            # Effective permission short-circuits, so the narrow maintainer list is not fetched.
+            issue_comment_handler.owners_file_handler.get_all_repository_maintainers.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_owners_approver(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """An OWNERS approver who is not a repository maintainer can still set auto-merge."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(return_value=[])
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=AUTOMERGE_LABEL_STR,
+                reviewed_user="approver1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_unauthorized_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A user who is neither a root OWNERS approver nor an effective maintainer cannot
+        allow a user to run commands; the ack must not be posted (#1277)."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["Only effective maintainers or root OWNERS approvers can allow a user to run commands"]
+            assert not any("is now allowed" in body for body in bodies)
+            # The reaction is ack-ed before the authorization gate, so it still fires.
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("random-commenter")
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "random-commenter"
+            )
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param("@bob please", id="extra-tokens"),
+            pytest.param("bob", id="missing-at"),
+            pytest.param("@bob.extra!", id="invalid-characters"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_invalid_argument(
+        self, issue_comment_handler: IssueCommentHandler, args: str
+    ) -> None:
+        """Only a single `@<login>` argument is accepted: the vouch scan would ignore anything
+        else, so the command is rejected before any author permission check or grant ack."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} {args}",
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == [f"`{COMMAND_ADD_ALLOWED_USER_STR}` takes exactly one argument: `@<github-login>`"]
+            # The ok reaction is posted before the argument gate; only the grant ack is withheld.
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("author", "is_root", "is_maintainer"),
+        [
+            pytest.param("root-approver", True, False, id="root-approver-author"),
+            pytest.param("org-admin", False, True, id="effective-maintainer-author"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_authorized_author_echoes_clean_arg(
+        self,
+        issue_comment_handler: IssueCommentHandler,
+        author: str,
+        is_root: bool,
+        is_maintainer: bool,
+    ) -> None:
+        """An authorized author gets the grant ack, echoing the stripped `@<login>` argument."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=is_root)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=is_maintainer)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR}  @bob ",
+                reviewed_user=author,
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@bob is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with(author)
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_root_approver_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A root OWNERS approver may allow a user to run commands."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="root-approver",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@newuser is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("root-approver")
+            # Root approver short-circuits the permission lookup.
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_effective_maintainer_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective maintainer (org admin, absent from the maintainer list) may allow a user."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="org-admin",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@newuser is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
 
     @pytest.mark.asyncio
     async def test_user_commands_merge_dispatch(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -1022,6 +1269,190 @@ class TestIssueCommentHandler:
                 c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
             ]
             assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_owners_approver_not_maintainer(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Guard: an OWNERS approver who is neither a maintainer nor a root approver can `/merge`.
+
+        The per-dir approver path is the deliberate SIG-owner merge route; a future narrowing
+        to maintainers only must not silently drop it.
+        """
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["sig-owner"], "dir2": ["sig-owner"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="sig-owner", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_awaited_once()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_effective_maintainer_skips_per_dir_check(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective maintainer merges without per-dir approval (#1277).
+
+        The per-dir lookup would report dirs the maintainer cannot approve; the identity
+        bypass must short-circuit before it and still reach the merge.
+        """
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["someone-else"], "dir2": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="org-admin", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_root_approver_skips_per_dir_check(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A root OWNERS approver merges without per-dir approval (#1277)."""
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="root-approver", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("root-approver")
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_other_user_missing_dir_rejected(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Guard: the identity bypass must not open `/merge` to everyone else.
+
+        A user who is neither a maintainer nor a root approver and cannot approve one of the
+        matched dirs is still rejected, with the per-dir message.
+        """
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"], "dir2": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_awaited_once()
+            assert mock_api.call_count == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert mock_api.call_args.kwargs["body"] == (
+                "`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
+                "approver1 is not an approver of: dir2"
+            )
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_maintainer_refused_when_root_approvers_required(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """`root-approvers: false` is still required, even for an effective maintainer."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["org-admin"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=True)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="org-admin", is_draft=False
+            )
+
+            assert mock_api.call_count == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert mock_api.call_args.kwargs["body"] == (
+                "`/merge` is allowed only when `root-approvers: false` is set "
+                "for every OWNERS dir covering the changed files"
+            )
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
 
     @pytest.mark.asyncio
     async def test_process_merge_command_configured_method(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -2492,7 +2923,7 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_user_commands_reprocess_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test reprocess command with additional arguments (should ignore args)."""
+        """Test reprocess command refuses arguments other than cancel."""
         mock_pull_request = Mock()
 
         mock_reprocess = AsyncMock()
@@ -2507,9 +2938,11 @@ class TestIssueCommentHandler:
                 "process_command_reprocess",
                 new=mock_reprocess,
             ),
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
         ):
-            # Command with args (should be processed but args ignored)
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
                 command=f"{COMMAND_REPROCESS_STR} some-args",
@@ -2517,8 +2950,12 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            # Verify reprocess was called (args are ignored)
-            mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
+            mock_api.assert_awaited_once()
+            assert mock_api.call_args.kwargs["body"] == (
+                f"`/{COMMAND_REPROCESS_STR}` takes no arguments other than `cancel`"
+            )
+            mock_reprocess.assert_not_awaited()
+            mock_reaction.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_user_commands_reprocess_reaction_added(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -2605,7 +3042,7 @@ class TestIssueCommentHandler:
         self,
         issue_comment_handler: IssueCommentHandler,
     ) -> None:
-        """Test regenerate-welcome command ignores additional arguments."""
+        """Test regenerate-welcome command refuses arguments other than cancel."""
         mock_pull_request = Mock()
 
         with (
@@ -2614,9 +3051,11 @@ class TestIssueCommentHandler:
                 "regenerate_welcome_message",
                 new=AsyncMock(),
             ) as mock_regenerate,
-            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
         ):
-            # Command with args (should be processed but args ignored)
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
                 command=f"{COMMAND_REGENERATE_WELCOME_STR} some-args",
@@ -2624,8 +3063,12 @@ class TestIssueCommentHandler:
                 issue_comment_id=123,
                 is_draft=False,
             )
-            # Verify regenerate was called (args are ignored)
-            mock_regenerate.assert_awaited_once_with(pull_request=mock_pull_request)
+            mock_api.assert_awaited_once()
+            assert mock_api.call_args.kwargs["body"] == (
+                f"`/{COMMAND_REGENERATE_WELCOME_STR}` takes no arguments other than `cancel`"
+            )
+            mock_regenerate.assert_not_awaited()
+            mock_reaction.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_user_commands_draft_pr_command_blocked(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -3509,3 +3952,158 @@ class TestIssueCommentHandler:
             )
             mock_is_valid.assert_awaited_once()
             mock_rebase.assert_not_awaited()
+
+    # --- No-argument commands: junk arguments must be refused (#1277) ---
+
+    # Every helper a no-argument command can dispatch to. Junk arguments must reach none of them.
+    _ACTION_TARGETS: tuple[tuple[str | None, str], ...] = (
+        ("labels_handler", "_add_label"),
+        ("labels_handler", "_remove_label"),
+        ("labels_handler", "label_by_user_comment"),
+        ("check_run_handler", "set_check_success"),
+        ("check_run_handler", "set_check_queued"),
+        ("pull_request_handler", "check_if_can_be_merged"),
+        ("pull_request_handler", "process_command_reprocess"),
+        ("pull_request_handler", "regenerate_welcome_message"),
+        ("owners_file_handler", "assign_reviewers"),
+        ("runner_handler", "rebase_pr"),
+        ("runner_handler", "run_security_suspicious_paths"),
+        ("runner_handler", "run_security_committer_identity"),
+        ("runner_handler", "run_build_container"),
+        (None, "_can_manage_pr_status_label"),
+        (None, "_can_manage_hold_label"),
+        (None, "create_comment_reaction"),
+    )
+
+    # command -> (helper awaited for bare `/cmd`, helper awaited for `/cmd cancel`)
+    _NORMAL_AND_CANCEL_ACTIONS: dict[str, tuple[str, str]] = {
+        COMMAND_SECURITY_OVERRIDE_STR: ("set_check_success", "run_security_suspicious_paths"),
+        AUTOMERGE_LABEL_STR: ("_add_label", "_remove_label"),
+        VERIFIED_LABEL_STR: ("_add_label", "_remove_label"),
+        WIP_STR: ("_add_label", "_remove_label"),
+        HOLD_LABEL_STR: ("_add_label", "_remove_label"),
+        LGTM_STR: ("label_by_user_comment", "label_by_user_comment"),
+        COMMAND_REPROCESS_STR: ("process_command_reprocess", "process_command_reprocess"),
+        COMMAND_REGENERATE_WELCOME_STR: ("regenerate_welcome_message", "regenerate_welcome_message"),
+        COMMAND_CHECK_CAN_MERGE_STR: ("check_if_can_be_merged", "check_if_can_be_merged"),
+        COMMAND_REBASE_STR: ("rebase_pr", "rebase_pr"),
+    }
+
+    @staticmethod
+    def _patch_actions(handler: IssueCommentHandler) -> tuple[ExitStack, dict[str, AsyncMock]]:
+        """Patch every helper a no-argument command can reach; asserts run before the stack closes."""
+        stack = ExitStack()
+        mocks = {
+            name: stack.enter_context(
+                patch.object(handler if owner is None else getattr(handler, owner), name, new_callable=AsyncMock)
+            )
+            for owner, name in TestIssueCommentHandler._ACTION_TARGETS
+        }
+        return stack, mocks
+
+    @staticmethod
+    def _prepare_command(handler: IssueCommentHandler, command: str) -> None:
+        """Grant the authorization each command needs so the test reaches its dispatch, not a permission guard."""
+        if command == AUTOMERGE_LABEL_STR:
+            handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        elif command == COMMAND_SECURITY_OVERRIDE_STR:
+            handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+            handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+            handler.github_webhook.security_suspicious_paths = True
+            handler.github_webhook.security_committer_identity_check = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("junk_args", ["thanks", "please", "@test-user"])
+    @pytest.mark.parametrize("command", list(_NORMAL_AND_CANCEL_ACTIONS))
+    async def test_no_argument_command_refuses_junk_args(
+        self, issue_comment_handler: IssueCommentHandler, command: str, junk_args: str
+    ) -> None:
+        """Junk arguments on a no-argument command post the refusal and take no action."""
+        mock_pull_request = Mock()
+        stack, actions = self._patch_actions(issue_comment_handler)
+        with (
+            stack,
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{command} {junk_args}",
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            mock_api.assert_awaited_once()
+            assert mock_api.call_args.kwargs["body"] == f"`/{command}` takes no arguments other than `cancel`"
+            for name, action in actions.items():
+                assert not action.await_count, f"{name} must not run for `/{command} {junk_args}`"
+                assert not action.called, f"{name} must not run for `/{command} {junk_args}`"
+            mock_pull_request.create_issue_comment.assert_not_called()
+
+    @staticmethod
+    def _passthrough_api_call() -> AsyncMock:
+        """Patch target for github_api_call that runs the wrapped callable, so wrapped lambdas return real values."""
+
+        def _run(func: Mock, *args: object, **_ignored: object) -> object:
+            return func(*args)
+
+        return AsyncMock(side_effect=_run)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("command", list(_NORMAL_AND_CANCEL_ACTIONS))
+    async def test_no_argument_command_cancel_reaches_cancel_path(
+        self, issue_comment_handler: IssueCommentHandler, command: str
+    ) -> None:
+        """`/cmd cancel` is not refused and still reaches the command's cancel path."""
+        self._prepare_command(issue_comment_handler, command)
+        expected_cancel_action = self._NORMAL_AND_CANCEL_ACTIONS[command][1]
+        stack, actions = self._patch_actions(issue_comment_handler)
+        with (
+            stack,
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=self._passthrough_api_call()
+            ) as mock_api,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=Mock(title="WIP: Test PR"),
+                command=f"{command} cancel",
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            refusal = f"`/{command}` takes no arguments other than `cancel`"
+            assert refusal not in [call.kwargs.get("body") for call in mock_api.call_args_list]
+            assert actions[expected_cancel_action].await_count, (
+                f"`/{command} cancel` must reach {expected_cancel_action}"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("command", list(_NORMAL_AND_CANCEL_ACTIONS))
+    async def test_no_argument_command_without_args_reaches_normal_path(
+        self, issue_comment_handler: IssueCommentHandler, command: str
+    ) -> None:
+        """Bare `/cmd` is not refused and still reaches the command's normal path."""
+        self._prepare_command(issue_comment_handler, command)
+        expected_action = self._NORMAL_AND_CANCEL_ACTIONS[command][0]
+        stack, actions = self._patch_actions(issue_comment_handler)
+        with (
+            stack,
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=self._passthrough_api_call()
+            ) as mock_api,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=Mock(title="WIP: Test PR"),
+                command=command,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            refusal = f"`/{command}` takes no arguments other than `cancel`"
+            assert refusal not in [call.kwargs.get("body") for call in mock_api.call_args_list]
+            assert actions[expected_action].await_count, f"`/{command}` must reach {expected_action}"
+            actions["create_comment_reaction"].assert_awaited_once()

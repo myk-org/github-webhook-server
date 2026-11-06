@@ -296,7 +296,7 @@
 <tbody>
 <tr>
 <td><code>mandatory: true</code></td>
-<td>Security checks block merge readiness until they pass or are overridden by a maintainer</td>
+<td>Security checks block merge readiness until they pass or are overridden by an effective maintainer or root <code>OWNERS</code> approver</td>
 </tr>
 <tr>
 <td><code>mandatory: false</code></td>
@@ -345,12 +345,18 @@
 </code></pre></div>
 
 <p>That is useful when one team needs a different rollout pace than the server-wide default. See <a href="configure-repositories.html">Configure Repositories</a> for when to keep a setting in central <code>config.yaml</code> versus the repository-local file.</p>
-<p>If a mandatory security check blocks an expected automation flow, a maintainer can temporarily bypass it and later force a re-check:</p>
+<p>If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
+with <code>admin</code> or <code>maintain</code> permission on the repository, org owners and team-inherited admins included — or a root
+<code>OWNERS</code> approver can temporarily bypass it and later force a re-check. Only the root OWNERS approvers count: the
+approvers listed in the repository root <code>.</code> OWNERS file, not the approvers of a sub-directory OWNERS file, since the
+override applies repo-wide.</p>
 <div class="highlight"><pre><span></span><code>/security-override
 /security-override cancel
 </code></pre></div>
 
-<p>Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. If you need to define who counts as a maintainer, see <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a>.</p>
+<p>Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. For the exact
+permission rules see <a href="run-pull-request-commands.html#who-can-run-what">Run Pull Request Commands</a>; to decide who reviews
+and approves, see <a href="set-up-owners-and-reviewers.html">Set Up OWNERS and Review Rules</a>.</p>
 <p>If you want to start with visibility before enforcement, turn on the checks but make them advisory first:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">security-checks</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">mandatory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>

@@ -57,7 +57,7 @@ A maintainer can clear the block with a PR comment:
 /security-override
 ```
 
-That sets the `security-suspicious-paths` check run to success, and `set_pull_request_automerge()` then allows auto-merge through. `/security-override cancel` re-runs the security checks. Only maintainers can use the command.
+That sets the `security-suspicious-paths` check run to success, and `set_pull_request_automerge()` then allows auto-merge through. `/security-override cancel` re-runs the security checks. Only effective maintainers (anyone with `admin` or `maintain` permission) and root `OWNERS` approvers can use the command — the approvers listed in the repository root `.` OWNERS file, not the approvers of a sub-directory OWNERS file.
 
 Narrow the prefixes per repository when a repo legitimately owns these paths:
 

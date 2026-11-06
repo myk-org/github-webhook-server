@@ -83,6 +83,12 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
+    async def is_root_approver(self, username: str) -> bool:
+        """Case-insensitive: OWNERS logins are hand-written, GitHub logins are not case-sensitive."""
+        return self._normalized_login(username) in {
+            self._normalized_login(_approver) for _approver in self.root_approvers
+        }
+
     @property
     def allowed_users(self) -> list[str]:
         self._ensure_initialized()
@@ -559,10 +565,27 @@ class OwnersFileHandler:
                     )
                     failed_count += 1
 
+    @staticmethod
+    def _has_vouch_command(body: str, allow_user_comment: str) -> bool:
+        """Only a whole line outside fenced code blocks grants, whitespace-normalized.
+
+        A mention, quote, or a line with extra tokens must not match.
+        """
+        normalized_command = " ".join(allow_user_comment.split()).casefold()
+        in_fence = False
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if not in_fence and " ".join(stripped.split()).casefold() == normalized_command:
+                return True
+        return False
+
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()
 
-        _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
+        _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.root_approvers
         allowed_user_to_approve = list(set(_allowed_user_to_approve))
         allow_user_comment = f"/{COMMAND_ADD_ALLOWED_USER_STR} @{reviewed_user}"
 
@@ -583,13 +606,14 @@ Maintainers:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
+            # One collaborator listing per handler instance instead of a permission call per
+            # comment author: any voucher with admin/maintain (or root approver) grants.
+            root_approvers = {self._normalized_login(_approver) for _approver in self.root_approvers}
+            maintainers = await self.effective_maintainer_logins
             for comment in [
-                _comment
-                for _comment in issue_comments
-                if self._normalized_login(_comment.user.login)
-                in {self._normalized_login(_u) for _u in allowed_user_to_approve}
+                _comment for _comment in issue_comments if self._has_vouch_command(_comment.body, allow_user_comment)
             ]:
-                if allow_user_comment in comment.body:
+                if self._normalized_login(comment.user.login) in root_approvers | maintainers:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
                     )
@@ -654,6 +678,48 @@ Maintainers:
 
         self.logger.debug(f"{self.log_prefix} Maintainers: {maintainers}")
         return maintainers
+
+    async def is_user_repository_maintainer(self, username: str) -> bool:
+        """Return True when the user effectively has admin/maintain on this repository.
+
+        Checks the effective role, so org owners/admins and team-inherited admins count
+        too; `get_all_repository_maintainers` only lists direct collaborators (#1268).
+
+        Uses `role_name` (admin/maintain/write/triage/read) rather than the legacy `permission`
+        field, which reports the `maintain` role as "write".
+
+        A 404 (unknown login, or GitHub's "<login> is not a user" for a non-existent
+        account) means not a maintainer. Any other status (rate limit, 5xx, auth) is a
+        real error and propagates.
+        """
+        try:
+            role = await github_api_call(
+                self.repository.get_collaborator_role_name, username, logger=self.logger, log_prefix=self.log_prefix
+            )
+        except GithubException as ex:
+            if ex.status == 404:
+                return False
+            raise
+        return role in ("admin", "maintain")
+
+    @functools.cached_property
+    async def effective_maintainer_logins(self) -> set[str]:
+        """Admin/maintain logins from the full collaborator listing (affiliation="all").
+
+        Includes org owners and team-inherited members; `get_all_repository_maintainers`
+        stays narrow for display (#1268). One listing per handler instance — the vouch path
+        must not issue a permission call per comment author.
+        """
+        collaborators = await self.repository_collaborators
+        users = await github_api_call(lambda: list(collaborators), logger=self.logger, log_prefix=self.log_prefix)
+        logins: set[str] = set()
+        for user in users:
+            permissions = await github_api_call(
+                lambda u=user: u.permissions, logger=self.logger, log_prefix=self.log_prefix
+            )
+            if permissions.admin or permissions.maintain:
+                logins.add(self._normalized_login(user.login))
+        return logins
 
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:

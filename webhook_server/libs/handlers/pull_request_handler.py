@@ -859,8 +859,8 @@ For more information, please refer to the project documentation or contact the m
         if self.labels_handler.is_label_enabled(AUTOMERGE_LABEL_STR):
             return (
                 "* `/automerge` - Enable automatic merging when all requirements are met "
-                "(maintainers and approvers only)\n"
-                "* `/automerge cancel` - Remove automerge label (maintainers and approvers only)\n"
+                "(effective maintainers and approvers only)\n"
+                "* `/automerge cancel` - Remove automerge label (effective maintainers and approvers only)\n"
             )
         return ""
 
@@ -874,7 +874,8 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.allow_merge_command:
             return (
                 f"* `/merge` - Merge now via {self.github_webhook.merge_command_method} if `can-be-merged` is green "
-                "(opt-in via `allow-merge-command`; approvers of all matched dirs, `root-approvers: false`)\n"
+                "(opt-in via `allow-merge-command`; effective maintainers, root approvers, or approvers of every "
+                "matched dir — and `root-approvers: false` for all of them)\n"
             )
         return ""
 

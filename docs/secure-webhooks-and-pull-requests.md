@@ -70,7 +70,7 @@ Use `suspicious-paths` for path prefixes that should trigger extra review, and k
 
 | Setting | Result |
 | --- | --- |
-| `mandatory: true` | Security checks block merge readiness until they pass or are overridden by a maintainer |
+| `mandatory: true` | Security checks block merge readiness until they pass or are overridden by an effective maintainer or root `OWNERS` approver |
 | `mandatory: false` | Security checks still run, but they do not block merge readiness |
 
 > **Note:** `trusted-committers` is best for expected automation identities. The server already trusts the GitHub App bot, GitHub `web-flow`, and GitHub API users tied to your configured `github-tokens`, so you usually only need to add extra bots or org-specific service accounts.
@@ -119,14 +119,20 @@ security-checks:
 
 That is useful when one team needs a different rollout pace than the server-wide default. See [Configure Repositories](configure-repositories.html) for when to keep a setting in central `config.yaml` versus the repository-local file.
 
-If a mandatory security check blocks an expected automation flow, a maintainer can temporarily bypass it and later force a re-check:
+If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
+with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or a root
+`OWNERS` approver can temporarily bypass it and later force a re-check. Only the root OWNERS approvers count: the
+approvers listed in the repository root `.` OWNERS file, not the approvers of a sub-directory OWNERS file, since the
+override applies repo-wide.
 
 ```text
 /security-override
 /security-override cancel
 ```
 
-Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. If you need to define who counts as a maintainer, see [Set Up OWNERS and Review Rules](set-up-owners-and-reviewers.html).
+Use this sparingly. The override is intended for reviewed exceptions, not for normal day-to-day merging. For the exact
+permission rules see [Run Pull Request Commands](run-pull-request-commands.html#who-can-run-what); to decide who reviews
+and approves, see [Set Up OWNERS and Review Rules](set-up-owners-and-reviewers.html).
 
 If you want to start with visibility before enforcement, turn on the checks but make them advisory first:
 

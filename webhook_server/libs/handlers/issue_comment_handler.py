@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import traceback
 from asyncio import Task
 from collections.abc import Coroutine, Iterable
@@ -52,6 +53,18 @@ if TYPE_CHECKING:
     from webhook_server.utils.context import WebhookContext
 
 _background_tasks: set[asyncio.Task[None]] = set()
+
+# Commands whose only accepted argument is exactly "cancel"; anything else is refused.
+_NO_ARGUMENT_COMMANDS: frozenset[str] = frozenset({
+    *USER_LABELS_DICT,
+    COMMAND_SECURITY_OVERRIDE_STR,
+    COMMAND_REPROCESS_STR,
+    COMMAND_REGENERATE_WELCOME_STR,
+    COMMAND_CHECK_CAN_MERGE_STR,
+    COMMAND_ASSIGN_REVIEWERS_STR,
+    COMMAND_REBASE_STR,
+    COMMAND_TEST_ORACLE_STR,
+})
 
 
 class IssueCommentHandler:
@@ -278,8 +291,18 @@ class IssueCommentHandler:
             )
             return
 
+        if _command in _NO_ARGUMENT_COMMANDS and _args and _args != "cancel":
+            msg = f"`/{_command}` takes no arguments other than `cancel`"
+            self.logger.debug(f"{self.log_prefix} {msg}")
+            await github_api_call(
+                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+            )
+            return
+
         if _command == AUTOMERGE_LABEL_STR:
-            if reviewed_user not in (
+            if not await self.owners_file_handler.is_user_repository_maintainer(
+                reviewed_user
+            ) and reviewed_user not in (
                 await self.owners_file_handler.get_all_repository_maintainers()
                 + self.owners_file_handler.all_repository_approvers
             ):
@@ -308,9 +331,30 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
+            # The vouch scan only honours `/add-allowed-user @<login>`, so reject extra tokens here
+            # instead of acking a grant that will never take effect.
+            allowed_user_arg = _args.strip()
+            if not re.fullmatch(r"@[A-Za-z0-9][A-Za-z0-9-]{0,38}", allowed_user_arg):
+                msg = f"`{_command}` takes exactly one argument: `@<github-login>`"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
+            if not await self.owners_file_handler.is_root_approver(
+                reviewed_user
+            ) and not await self.owners_file_handler.is_user_repository_maintainer(reviewed_user):
+                msg = "Only effective maintainers or root OWNERS approvers can allow a user to run commands"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
             await github_api_call(
                 pull_request.create_issue_comment,
-                body=f"{_args} is now allowed to run commands",
+                body=f"{allowed_user_arg} is now allowed to run commands",
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
@@ -418,8 +462,9 @@ class IssueCommentHandler:
                 )
 
         elif _command == COMMAND_SECURITY_OVERRIDE_STR:
-            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
-            if reviewed_user not in maintainers:
+            if not await self.owners_file_handler.is_user_repository_maintainer(
+                reviewed_user
+            ) and not await self.owners_file_handler.is_root_approver(reviewed_user):
                 msg = "Only maintainers can use `/security-override`"
                 self.logger.debug(f"{self.log_prefix} {msg}")
                 await github_api_call(
@@ -602,24 +647,28 @@ class IssueCommentHandler:
             )
             return
 
-        # The sender must be an approver of every matched OWNERS dir, not of any one of them
-        # (the union) — a PR touching dirs the sender cannot approve is not mergeable by them.
-        approvers_by_dir = await self.owners_file_handler.get_local_approvers_by_dir()
-        missing_dirs = [
-            _dir
-            for _dir, _approvers in approvers_by_dir.items()
-            if not self._is_user_in_approvers(reviewed_user=reviewed_user, approvers=_approvers)
-        ]
-        if missing_dirs:
-            msg = (
-                f"`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
-                f"{reviewed_user} is not an approver of: {', '.join(sorted(missing_dirs))}"
-            )
-            self.logger.debug(f"{self.log_prefix} {msg}")
-            await github_api_call(
-                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
-            )
-            return
+        # Maintainers and root approvers may merge regardless of per-dir ownership.
+        if not await self.owners_file_handler.is_user_repository_maintainer(
+            reviewed_user
+        ) and not await self.owners_file_handler.is_root_approver(reviewed_user):
+            # The sender must be an approver of every matched OWNERS dir, not of any one of them
+            # (the union) — a PR touching dirs the sender cannot approve is not mergeable by them.
+            approvers_by_dir = await self.owners_file_handler.get_local_approvers_by_dir()
+            missing_dirs = [
+                _dir
+                for _dir, _approvers in approvers_by_dir.items()
+                if not self._is_user_in_approvers(reviewed_user=reviewed_user, approvers=_approvers)
+            ]
+            if missing_dirs:
+                msg = (
+                    f"`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
+                    f"{reviewed_user} is not an approver of: {', '.join(sorted(missing_dirs))}"
+                )
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
 
         # Refresh the PR from GitHub and verify the head still matches the commit whose data
         # the webhook loaded: commits pushed since then invalidate the can-be-merged evaluation,

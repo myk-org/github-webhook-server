@@ -3435,7 +3435,10 @@ class TestRebasePr:
     def mock_owners_file_handler(self) -> Mock:
         mock_handler = Mock()
         mock_handler.is_user_valid_to_run_commands = AsyncMock(return_value=True)
-        mock_handler.get_all_repository_maintainers = AsyncMock(return_value=["maintainer1"])
+        # Effective permission: "org-admin" is an org admin with no direct collaborator entry
+        mock_handler.is_user_repository_maintainer = AsyncMock(
+            side_effect=lambda username: username in ("maintainer1", "org-admin")
+        )
         return mock_handler
 
     @pytest.fixture
@@ -3641,8 +3644,40 @@ class TestRebasePr:
         ):
             await runner_handler.rebase_pr(mock_pull_request, reviewed_user="random-user")
             mock_pull_request.create_issue_comment.assert_called_once()
-            call_body = str(mock_pull_request.create_issue_comment.call_args)
-            assert "not authorized" in call_body.lower()
+            assert mock_pull_request.create_issue_comment.call_args.args[0] == (
+                "@random-user is not authorized to rebase this PR.\nOnly the PR owner or maintainers can rebase."
+            )
+
+    @pytest.mark.asyncio
+    async def test_rebase_pr_effective_maintainer_allowed(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test rebase_pr allows an effective maintainer (org admin) on a user-owned PR."""
+        mock_pull_request.user.login = "pr-owner"
+        # org-admin is not a direct collaborator, so the old maintainer list would not contain it.
+        runner_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ),
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.rebase_pr(mock_pull_request, reviewed_user="org-admin")
+
+            runner_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with("org-admin")
+            runner_handler.owners_file_handler.get_all_repository_maintainers.assert_not_awaited()
+            assert any(
+                "successfully" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list
+            )
 
     @pytest.mark.asyncio
     async def test_rebase_pr_owner_allowed(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:

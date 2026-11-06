@@ -247,7 +247,7 @@
 <div class="highlight"><pre><span></span><code>/security-override
 </code></pre></div>
 
-<p>That sets the <code>security-suspicious-paths</code> check run to success, and <code>set_pull_request_automerge()</code> then allows auto-merge through. <code>/security-override cancel</code> re-runs the security checks. Only maintainers can use the command.</p>
+<p>That sets the <code>security-suspicious-paths</code> check run to success, and <code>set_pull_request_automerge()</code> then allows auto-merge through. <code>/security-override cancel</code> re-runs the security checks. Only effective maintainers (anyone with <code>admin</code> or <code>maintain</code> permission) and root <code>OWNERS</code> approvers can use the command — the approvers listed in the repository root <code>.</code> OWNERS file, not the approvers of a sub-directory OWNERS file.</p>
 <p>Narrow the prefixes per repository when a repo legitimately owns these paths:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
 <span class="nt">repositories</span><span class="p">:</span>

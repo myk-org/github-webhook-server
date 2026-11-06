@@ -2096,8 +2096,9 @@ Your team can configure additional types in the repository settings.
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            maintainers = await self.owners_file_handler.get_all_repository_maintainers()
-            if reviewed_user not in assignees and reviewed_user not in maintainers:
+            if reviewed_user not in assignees and not await self.owners_file_handler.is_user_repository_maintainer(
+                reviewed_user
+            ):
                 msg = (
                     f"@{reviewed_user} is not authorized to rebase this bot-owned PR.\n"
                     "Only the PR assignee (cherry-pick initiator) or maintainers can rebase."
@@ -2110,8 +2111,7 @@ Your team can configure additional types in the repository settings.
         else:
             # For user-owned PRs, only the PR owner or maintainers can rebase
             if reviewed_user != pr_user_login:
-                maintainers = await self.owners_file_handler.get_all_repository_maintainers()
-                if reviewed_user not in maintainers:
+                if not await self.owners_file_handler.is_user_repository_maintainer(reviewed_user):
                     msg = (
                         f"@{reviewed_user} is not authorized to rebase this PR.\n"
                         "Only the PR owner or maintainers can rebase."
