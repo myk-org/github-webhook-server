@@ -914,6 +914,84 @@ class TestIssueCommentHandler:
                 "random-commenter"
             )
 
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param("@bob please", id="extra-tokens"),
+            pytest.param("bob", id="missing-at"),
+            pytest.param("@bob.extra!", id="invalid-characters"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_invalid_argument(
+        self, issue_comment_handler: IssueCommentHandler, args: str
+    ) -> None:
+        """Only a single `@<login>` argument is accepted: the vouch scan would ignore anything
+        else, so the command is rejected before any author permission check or grant ack."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} {args}",
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == [f"`{COMMAND_ADD_ALLOWED_USER_STR}` takes exactly one argument: `@<github-login>`"]
+            # The ok reaction is posted before the argument gate; only the grant ack is withheld.
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("author", "is_root", "is_maintainer"),
+        [
+            pytest.param("root-approver", True, False, id="root-approver-author"),
+            pytest.param("org-admin", False, True, id="effective-maintainer-author"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_authorized_author_echoes_clean_arg(
+        self,
+        issue_comment_handler: IssueCommentHandler,
+        author: str,
+        is_root: bool,
+        is_maintainer: bool,
+    ) -> None:
+        """An authorized author gets the grant ack, echoing the stripped `@<login>` argument."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=is_root)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=is_maintainer)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR}  @bob ",
+                reviewed_user=author,
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@bob is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with(author)
+
     @pytest.mark.asyncio
     async def test_user_commands_add_allowed_user_root_approver_author(
         self, issue_comment_handler: IssueCommentHandler

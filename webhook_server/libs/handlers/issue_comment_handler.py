@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import traceback
 from asyncio import Task
 from collections.abc import Coroutine, Iterable
@@ -310,6 +311,17 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
+            # The vouch scan only honours `/add-allowed-user @<login>`, so reject extra tokens here
+            # instead of acking a grant that will never take effect.
+            allowed_user_arg = _args.strip()
+            if not re.fullmatch(r"@[A-Za-z0-9][A-Za-z0-9-]{0,38}", allowed_user_arg):
+                msg = f"`{_command}` takes exactly one argument: `@<github-login>`"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
             if not await self.owners_file_handler.is_root_approver(
                 reviewed_user
             ) and not await self.owners_file_handler.is_user_repository_maintainer(reviewed_user):
@@ -322,7 +334,7 @@ class IssueCommentHandler:
 
             await github_api_call(
                 pull_request.create_issue_comment,
-                body=f"{_args} is now allowed to run commands",
+                body=f"{allowed_user_arg} is now allowed to run commands",
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )

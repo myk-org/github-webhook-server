@@ -22,6 +22,10 @@ from webhook_server.utils.helpers import run_command
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
+# Caps the collaborator-role API calls one command can trigger when many distinct
+# commenters have vouched for the same user.
+_MAX_VOUCH_AUTHOR_LOOKUPS = 20
+
 
 class OwnersFileHandler:
     def __init__(self, github_webhook: GithubWebhook) -> None:
@@ -602,17 +606,24 @@ Maintainers:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            # Filter by command text first, and resolve each author once: permission lookup costs an API call,
-            # so repeated comments by the same user must not multiply it.
+            # Newest first: the latest grant is authoritative. Filter by command text first, and
+            # resolve each author once: permission lookup costs an API call, so repeated comments
+            # by the same user must not multiply it, and the total is capped.
             author_is_allowed: dict[str, bool] = {}
-            for comment in [
+            author_lookups = 0
+            for comment in reversed([
                 _comment for _comment in issue_comments if self._has_vouch_command(_comment.body, allow_user_comment)
-            ]:
+            ]):
                 author = self._normalized_login(comment.user.login)
                 if author not in author_is_allowed:
-                    author_is_allowed[author] = await self.is_root_approver(
-                        comment.user.login
-                    ) or await self.is_user_repository_maintainer(comment.user.login)
+                    if await self.is_root_approver(comment.user.login):
+                        author_is_allowed[author] = True
+                    elif author_lookups < _MAX_VOUCH_AUTHOR_LOOKUPS:
+                        author_lookups += 1
+                        author_is_allowed[author] = await self.is_user_repository_maintainer(comment.user.login)
+                    else:
+                        # No budget left to verify this author, so it cannot vouch.
+                        author_is_allowed[author] = False
                 if author_is_allowed[author]:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
