@@ -2392,6 +2392,72 @@ class TestGithubWebhook:
                             assert result == mock_commits[-1]
 
     @pytest.mark.asyncio
+    async def test_get_last_commit_no_commits(
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+    ) -> None:
+        """Test _get_last_commit returns None for a pull request with no commits."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            mock_pr = Mock()
+                            mock_pr.number = 1
+                            mock_pr.get_commits.return_value = []
+
+                            result = await gh._get_last_commit(mock_pr)
+                            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_with_no_commits_skips_cleanly(
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+    ) -> None:
+        """Test process() completes without raising when the pull request has no commits."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_data = {"test": "data"}
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", TokenProbe(login="apiuser", remaining=5000, limit=5000))
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            mock_pr = Mock()
+                            mock_pr.draft = False
+                            with patch.object(gh, "_get_last_commit", new=AsyncMock(return_value=None)) as mock_last:
+                                with patch.object(gh, "get_pull_request", new=AsyncMock(return_value=mock_pr)):
+                                    with patch.object(
+                                        gh, "_get_token_metrics", new=AsyncMock(return_value="mock-metrics")
+                                    ):
+                                        result = await gh.process()
+
+                                        assert result is None
+                                        mock_last.assert_awaited_once_with(pull_request=mock_pr)
+
+    @pytest.mark.asyncio
     async def test_clone_repository_success(
         self,
         minimal_hook_data: dict,

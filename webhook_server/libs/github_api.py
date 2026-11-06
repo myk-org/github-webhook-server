@@ -751,6 +751,15 @@ class GithubWebhook:
                 )
 
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
+            if self.last_commit is None:
+                self.logger.info(f"{self.log_prefix} Pull request has no commits, nothing to process")
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: PR with no commits (skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
             self.parent_committer = pull_request.user.login
             self.last_committer = await github_api_call(
                 lambda: getattr(self.last_commit.committer, "login", "unknown") or "unknown",
@@ -1694,12 +1703,17 @@ class GithubWebhook:
 
         return unresolved_threads
 
-    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
+    async def _get_last_commit(self, pull_request: PullRequest) -> Commit | None:
         commits = await github_api_call(
             lambda: list(pull_request.get_commits()),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
+        if not commits:
+            self.logger.warning(
+                f"{self.log_prefix} Pull request #{pull_request.number} has no commits, returning no last commit"
+            )
+            return None
         return commits[-1]
 
     @staticmethod
