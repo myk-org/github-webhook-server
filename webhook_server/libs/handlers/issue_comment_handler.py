@@ -310,6 +310,16 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
+            if not await self.owners_file_handler.is_root_approver(
+                reviewed_user
+            ) and not await self.owners_file_handler.is_user_repository_maintainer(reviewed_user):
+                msg = "Only effective maintainers or root OWNERS approvers can allow a user to run commands"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
+
             await github_api_call(
                 pull_request.create_issue_comment,
                 body=f"{_args} is now allowed to run commands",

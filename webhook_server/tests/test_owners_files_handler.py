@@ -645,6 +645,24 @@ class TestOwnersFileHandler:
                 mock_comment.assert_called_once()
                 assert "reviewer1 can not be added as reviewer" in mock_comment.call_args[0][0]
 
+    @pytest.mark.parametrize(
+        ("body", "grants"),
+        [
+            pytest.param("/add-allowed-user @newuser", True, id="own-line"),
+            pytest.param("/ADD-Allowed-User @NewUser", True, id="different-casing"),
+            pytest.param("  /add-allowed-user @newuser  ", True, id="surrounding-whitespace"),
+            pytest.param("/add-allowed-user @newuser\nthanks", True, id="own-line-with-other-lines"),
+            pytest.param("please run /add-allowed-user @newuser later", False, id="inline-mention"),
+            pytest.param("> /add-allowed-user @newuser", False, id="blockquote"),
+            pytest.param("```\n/add-allowed-user @newuser\n```", False, id="backtick-fence"),
+            pytest.param("~~~\n/add-allowed-user @newuser\n~~~", False, id="tilde-fence"),
+            pytest.param("```\ncode\n```\n/add-allowed-user @newuser", True, id="after-closed-fence"),
+        ],
+    )
+    def test_has_vouch_command(self, body: str, grants: bool) -> None:
+        """Only a whole line outside fenced code blocks grants: a mention or quote must not."""
+        assert OwnersFileHandler._has_vouch_command(body, "/add-allowed-user @newuser") is grants
+
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
@@ -724,6 +742,64 @@ class TestOwnersFileHandler:
                             assert result is True
                             # Root approver match short-circuits the permission lookup.
                             mock_is_maintainer.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_own_line_vouch(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """The command on its own line, in any casing, validates the target user."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["RootApprover"]}}
+        owners_file_handler.all_repository_approvers = ["RootApprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        mock_comment = Mock()
+        mock_comment.user.login = "rootapprover"
+        mock_comment.body = "  /ADD-ALLOWED-USER @NewUser  "
+
+        with (
+            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
+            patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]),
+            patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
+        ):
+            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
+
+            assert result is True
+            mock_create_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_inline_mention_not_a_vouch(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """An authorized author who only mentions the command inline does not vouch for the target."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
+        owners_file_handler.all_repository_approvers = ["rootapprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        mock_comment = Mock()
+        mock_comment.user.login = "rootapprover"
+        mock_comment.body = "I will run /add-allowed-user @newuser later"
+
+        with (
+            patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]),
+            patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]),
+            patch.object(
+                owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
+            ) as mock_is_maintainer,
+            patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]),
+            patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment,
+        ):
+            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "newuser")
+
+            assert result is False
+            # The inline mention is filtered out before any permission lookup.
+            mock_is_maintainer.assert_not_awaited()
+            mock_create_comment.assert_called_once()
+            assert "newuser is not allowed to run commands" in mock_create_comment.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_sub_directory_approver_vouch_rejected(

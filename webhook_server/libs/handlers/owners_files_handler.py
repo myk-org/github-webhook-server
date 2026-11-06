@@ -565,6 +565,19 @@ class OwnersFileHandler:
                     )
                     failed_count += 1
 
+    @staticmethod
+    def _has_vouch_command(body: str, allow_user_comment: str) -> bool:
+        """Only a whole line outside fenced code blocks grants: a mention or quote must not."""
+        in_fence = False
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if not in_fence and stripped.casefold() == allow_user_comment.casefold():
+                return True
+        return False
+
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()
 
@@ -592,7 +605,9 @@ Maintainers:
             # Filter by command text first, and resolve each author once: permission lookup costs an API call,
             # so repeated comments by the same user must not multiply it.
             author_is_allowed: dict[str, bool] = {}
-            for comment in [_comment for _comment in issue_comments if allow_user_comment in _comment.body]:
+            for comment in [
+                _comment for _comment in issue_comments if self._has_vouch_command(_comment.body, allow_user_comment)
+            ]:
                 author = self._normalized_login(comment.user.login)
                 if author not in author_is_allowed:
                     author_is_allowed[author] = await self.is_root_approver(

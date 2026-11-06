@@ -12,6 +12,7 @@ from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICK_LABEL_PREFIX,
+    COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
@@ -878,6 +879,100 @@ class TestIssueCommentHandler:
             )
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
             mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_unauthorized_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A user who is neither a root OWNERS approver nor an effective maintainer cannot
+        allow a user to run commands; the ack must not be posted (#1277)."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="random-commenter",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["Only effective maintainers or root OWNERS approvers can allow a user to run commands"]
+            assert not any("is now allowed" in body for body in bodies)
+            # The reaction is ack-ed before the authorization gate, so it still fires.
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("random-commenter")
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "random-commenter"
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_root_approver_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A root OWNERS approver may allow a user to run commands."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="root-approver",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@newuser is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("root-approver")
+            # Root approver short-circuits the permission lookup.
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_add_allowed_user_effective_maintainer_author(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective maintainer (org admin, absent from the maintainer list) may allow a user."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_ADD_ALLOWED_USER_STR} @newuser",
+                reviewed_user="org-admin",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+
+            bodies = [c.kwargs["body"] for c in mock_api.call_args_list if "body" in c.kwargs]
+            assert bodies == ["@newuser is now allowed to run commands"]
+            mock_reaction.assert_called_once()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
 
     @pytest.mark.asyncio
     async def test_user_commands_merge_dispatch(self, issue_comment_handler: IssueCommentHandler) -> None:
