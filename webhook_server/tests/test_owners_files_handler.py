@@ -675,29 +675,157 @@ class TestOwnersFileHandler:
         with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
             with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
                 with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                    mock_maintainers.return_value = ["maintainer1"]
-                    mock_collaborators.return_value = []
-                    mock_contributors.return_value = []
+                    with patch.object(
+                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=True)
+                    ) as mock_is_maintainer:
+                        mock_maintainers.return_value = ["maintainer1"]
+                        mock_collaborators.return_value = []
+                        mock_contributors.return_value = []
 
-                    mock_comment = Mock()
-                    mock_comment.user.login = "maintainer1"
-                    mock_comment.body = "/add-allowed-user @invalid_user"
+                        mock_comment = Mock()
+                        mock_comment.user.login = "maintainer1"
+                        mock_comment.body = "/add-allowed-user @invalid_user"
 
-                    with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                        mock_get_comments.return_value = [mock_comment]
+                        with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
+                            mock_get_comments.return_value = [mock_comment]
 
-                        result = await owners_file_handler.is_user_valid_to_run_commands(
-                            mock_pull_request, "invalid_user"
-                        )
+                            result = await owners_file_handler.is_user_valid_to_run_commands(
+                                mock_pull_request, "invalid_user"
+                            )
 
-                        assert result is True
+                            assert result is True
+                            mock_is_maintainer.assert_awaited_once_with("maintainer1")
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_root_approver_vouch(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """A root OWNERS approver's `/add-allowed-user` comment is honoured, case-insensitively."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["RootApprover"]}}
+        owners_file_handler.all_repository_approvers = ["RootApprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        mock_comment = Mock()
+        mock_comment.user.login = "rootapprover"
+        mock_comment.body = "/add-allowed-user @newuser"
+
+        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
+            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
+                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
+                    with patch.object(
+                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
+                    ) as mock_is_maintainer:
+                        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
+                            result = await owners_file_handler.is_user_valid_to_run_commands(
+                                mock_pull_request, "newuser"
+                            )
+
+                            assert result is True
+                            # Root approver match short-circuits the permission lookup.
+                            mock_is_maintainer.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_sub_directory_approver_vouch_rejected(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """A sub-directory approver is not a root approver, so their vouch is not honoured."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {},
+            "pkg": {"approvers": ["subapprover"]},
+        }
+        owners_file_handler.all_repository_approvers = ["subapprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        mock_comment = Mock()
+        mock_comment.user.login = "subapprover"
+        mock_comment.body = "/add-allowed-user @newuser"
+
+        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
+            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
+                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
+                    with patch.object(
+                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
+                    ):
+                        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
+                            with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
+                                result = await owners_file_handler.is_user_valid_to_run_commands(
+                                    mock_pull_request, "newuser"
+                                )
+
+                                assert result is False
+                                mock_create_comment.assert_called_once()
+                                message = mock_create_comment.call_args[0][0]
+                                assert "newuser is not allowed to run commands" in message
+                                assert "subapprover" not in message
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_effective_maintainer_vouch(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """A commenter with effective admin, absent from both lists, can vouch; permission is
+        looked up only for comments that contain the command."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
+        owners_file_handler.all_repository_approvers = ["rootapprover"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        plain_comment = Mock()
+        plain_comment.user.login = "org-admin"
+        plain_comment.body = "just a regular comment"
+        command_comment = Mock()
+        command_comment.user.login = "org-admin"
+        command_comment.body = "/add-allowed-user @newuser"
+
+        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
+            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
+                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
+                    with patch.object(
+                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=True)
+                    ) as mock_is_maintainer:
+                        with patch.object(
+                            mock_pull_request, "get_issue_comments", return_value=[plain_comment, command_comment]
+                        ):
+                            result = await owners_file_handler.is_user_valid_to_run_commands(
+                                mock_pull_request, "newuser"
+                            )
+
+                            assert result is True
+                            mock_is_maintainer.assert_awaited_once_with("org-admin")
+
+    @pytest.mark.asyncio
+    async def test_is_user_valid_to_run_commands_owners_approver_not_maintainer_allowed(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Guard: an OWNERS approver who is not a repository maintainer may still run commands
+        (the `/merge` gate for SIG owners), without any comment or permission lookup."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
+        owners_file_handler.all_repository_approvers = ["approver1"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        with patch.object(owners_file_handler, "get_all_repository_maintainers", return_value=[]):
+            with patch.object(owners_file_handler, "get_all_repository_collaborators", return_value=[]):
+                with patch.object(owners_file_handler, "get_all_repository_contributors", return_value=[]):
+                    with patch.object(
+                        owners_file_handler, "is_user_repository_maintainer", new=AsyncMock(return_value=False)
+                    ) as mock_is_maintainer:
+                        with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
+                            result = await owners_file_handler.is_user_valid_to_run_commands(
+                                mock_pull_request, "approver1"
+                            )
+
+                            assert result is True
+                            mock_get_comments.assert_not_called()
+                            mock_is_maintainer.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_invalid_user_no_approval(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
         owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {".": {}}
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["rootapprover"]}}
         owners_file_handler.all_repository_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
 
@@ -722,7 +850,10 @@ class TestOwnersFileHandler:
 
                             assert result is False
                             mock_create_comment.assert_called_once()
-                            assert "invalid_user is not allowed to run commands" in mock_create_comment.call_args[0][0]
+                            message = mock_create_comment.call_args[0][0]
+                            assert "invalid_user is not allowed to run commands" in message
+                            assert "maintainer1" in message
+                            assert "rootapprover" in message
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_owners_allowed_users(

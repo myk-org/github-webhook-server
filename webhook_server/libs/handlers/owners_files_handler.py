@@ -568,7 +568,7 @@ class OwnersFileHandler:
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()
 
-        _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
+        _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.root_approvers
         allowed_user_to_approve = list(set(_allowed_user_to_approve))
         allow_user_comment = f"/{COMMAND_ADD_ALLOWED_USER_STR} @{reviewed_user}"
 
@@ -589,13 +589,11 @@ Maintainers:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            for comment in [
-                _comment
-                for _comment in issue_comments
-                if self._normalized_login(_comment.user.login)
-                in {self._normalized_login(_u) for _u in allowed_user_to_approve}
-            ]:
-                if allow_user_comment in comment.body:
+            # Filter by command text first so the per-comment permission lookup stays bounded.
+            for comment in [_comment for _comment in issue_comments if allow_user_comment in _comment.body]:
+                if await self.is_root_approver(comment.user.login) or await self.is_user_repository_maintainer(
+                    comment.user.login
+                ):
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
                     )

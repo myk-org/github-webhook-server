@@ -70,7 +70,7 @@ Use `suspicious-paths` for path prefixes that should trigger extra review, and k
 
 | Setting | Result |
 | --- | --- |
-| `mandatory: true` | Security checks block merge readiness until they pass or are overridden by a maintainer |
+| `mandatory: true` | Security checks block merge readiness until they pass or are overridden by an effective maintainer or root `OWNERS` approver |
 | `mandatory: false` | Security checks still run, but they do not block merge readiness |
 
 > **Note:** `trusted-committers` is best for expected automation identities. The server already trusts the GitHub App bot, GitHub `web-flow`, and GitHub API users tied to your configured `github-tokens`, so you usually only need to add extra bots or org-specific service accounts.

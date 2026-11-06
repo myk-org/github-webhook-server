@@ -27,7 +27,7 @@ Example — one comment, three commands:
 | Who | Meaning |
 | --- | --- |
 | **Author** | The user who opened the pull request |
-| **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone a maintainer/approver has granted with `/add-allowed-user @user` |
+| **Approver** | A repository collaborator/contributor, an approver listed in `OWNERS`, a maintainer, **or** anyone an effective maintainer or root `OWNERS` approver has granted with `/add-allowed-user @user` |
 | **Maintainer** | Listed in the `root-approvers` configuration, or a direct repository collaborator with `admin` or `maintain` permission (org owners and members with access only via org base permissions or teams do not count) |
 | **Effective maintainer** | Anyone GitHub reports with `admin` or `maintain` permission on the repository — org owners/admins and team-inherited admins included, direct collaborators not required |
 | **Anyone** | Any user who can comment, no permission check |
@@ -44,15 +44,15 @@ Example — one comment, three commands:
 | `/lgtm cancel` | Removes the `lgtm-<user>` label | Anyone (ignored on your own PR) |
 | `/approve` | Adds `approved-<user>`, removes `changes-requested-<user>`, and triggers the AI test oracle | Approver |
 | `/approve cancel` | Removes `approved-<user>` | Approver |
-| `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver |
-| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver |
+| `/automerge` | Adds the `automerge` label; the PR merges automatically once all requirements are met | Maintainer, Approver, Effective maintainer |
+| `/automerge cancel` | Removes the `automerge` label | Maintainer, Approver, Effective maintainer |
 | `/retest <test>` | Re-runs one or more configured checks | Approver |
 | `/retest all` | Re-runs every check configured for the repository | Approver |
 | `/reprocess` | Re-runs the complete PR processing workflow from scratch | Approver |
 | `/rebase` | Rebases the PR branch onto its base branch and force-pushes | Approver, Effective maintainer |
 | `/assign-reviewers` | Assigns reviewers according to the repository `OWNERS` file | Approver |
 | `/assign-reviewer @user` | Requests a review from a specific collaborator | Approver |
-| `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Maintainer, Approver |
+| `/add-allowed-user @user` | Grants an arbitrary commenter permission to run approver commands | Effective maintainer, root `OWNERS` approver |
 | `/check-can-merge` | Runs the `can-be-merged` check and reports the merge blockers | Approver |
 | `/merge` | Merges the PR immediately if `can-be-merged` is green (one-time, no label; method via `merge-command-method`, default squash; opt-in via `allow-merge-command`) | Approver of every matched `OWNERS` dir |
 | `/build-and-push-container` | Builds and pushes the container image for the PR | Anyone |
@@ -184,8 +184,12 @@ merges the PR on its own. `/automerge cancel` removes the label.
 /automerge cancel
 ```
 
-Both are restricted to maintainers and approvers; anyone else gets the comment
+Both accept maintainers, every approver in the repository, and effective maintainers; anyone else gets the comment
 *"Only maintainers or approvers can set pull request to auto-merge"*.
+
+No approver loses access: the approver path is unchanged, so `/automerge` still works for anyone who was already an
+approver of the repository `OWNERS` files. The effective-maintainer rule only adds people GitHub reports as having
+`admin` or `maintain` permission — org owners and team-inherited admins included, direct collaboration not required.
 
 #### `/assign-reviewers`
 
@@ -228,13 +232,22 @@ blocks the merge. The PR is merged with the method configured via `merge-command
 (`squash`, `merge`, or `rebase`; default: squash, see
 [Configuration reference](configuration-reference.html)). `/merge` takes no arguments (`/merge cancel` is rejected).
 
-`/merge` is allowed only for approvers of **every** `OWNERS` dir covering the changed files — a PR touching dirs the
-sender cannot approve is not mergeable by them — and only when **every** matching entry sets `root-approvers: false`
-(see
-[Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, a changed
-folder has no matching sub-`OWNERS`, or the sender is not an approver of some matched dir, the command is rejected
-with a comment explaining the requirement (and, for the approver case, naming the dirs the sender does not cover).
-It is not allowed on draft PRs.
+`/merge` is gated by two things. First, **every** `OWNERS` entry matching the changed files must set
+`root-approvers: false` (see
+[Set up owners and reviewers](set-up-owners-and-reviewers.html)). If any matched entry lacks the opt-out, or a changed
+folder has no matching sub-`OWNERS`, the command is rejected for every sender — maintainers included.
+
+Second, the sender must be authorized to merge that PR. That holds for:
+
+- an **effective maintainer** — anyone GitHub reports with `admin` or `maintain` permission, org owners and
+  team-inherited admins included — whether or not they approve the matched `OWNERS` dirs;
+- a **root `OWNERS` approver** — an approver listed in the repository root `.` `OWNERS` file — on the same terms;
+- otherwise an approver of **every** `OWNERS` dir covering the changed files, sub-directory and SIG approvers
+  included. This path is unchanged, so a repository with no maintainers can still merge its own pull requests through
+  its own approvers, and a PR touching dirs the sender cannot approve is not mergeable by them.
+
+Anyone else is rejected with a comment explaining the requirement — for the approver case, naming the dirs the sender
+does not cover. It is not allowed on draft PRs.
 
 `/merge` is **opt-in**: it works only when `allow-merge-command: true` is set in the server
 configuration — globally or for the specific repository (see
@@ -248,13 +261,20 @@ with a comment saying it is not enabled for the repository.
 
 #### `/add-allowed-user @username`
 
-Lets a maintainer or approver grant command permission to someone who is not otherwise a collaborator — for example an
-external contributor working on a PR. The grant is per pull request: the server looks for a comment containing
-`/add-allowed-user @username` posted by a maintainer or approver.
+Lets an effective maintainer or a root `OWNERS` approver grant command permission to someone who is not otherwise a
+collaborator — for example an external contributor working on a PR. The grant is per pull request: the server looks for
+a comment containing `/add-allowed-user @username` whose **author** is an effective maintainer or a root `OWNERS`
+approver.
 
 ```text
 /add-allowed-user @external-contributor
 ```
+
+Vouching follows the same rule as `/security-override`: "root `OWNERS` approver" means an approver listed in the
+repository root `.` OWNERS file. An approver listed only in a sub-directory `OWNERS` file can no longer vouch for a
+user repo-wide, and a user who was granted access this way cannot pass the grant on. The server still replies
+*"@external-contributor is now allowed to run commands"* to any `/add-allowed-user` comment, so that reply alone does
+not mean the grant takes effect.
 
 The user can then run approver-level commands such as `/retest` or `/reprocess` on that PR.
 

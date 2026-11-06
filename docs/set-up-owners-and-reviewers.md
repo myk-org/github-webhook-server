@@ -94,16 +94,29 @@ Separately, `all_repository_approvers` is the union of approvers from **every** 
 the repository, regardless of what the PR touches. That repo-wide list is what makes a user
 eligible to run commands; it is not what gates `/approve`.
 
-`root-approvers: false` also unlocks the `/merge` command for approvers of every matched
-`OWNERS` dir (see [Pull request commands](run-pull-request-commands.html)): such an
-approver can merge the PR themselves — once, at the moment the command is sent — when
-`can-be-merged` is green.
-This requires **every** `OWNERS` dir matching the changed files to set `root-approvers: false`,
-and the sender must be an approver of **every** matched dir — intentionally stricter than the
-first-match rule used for approver assignment above (step 4): if any matched dir lacks the
-opt-out, a changed folder has no matching sub-`OWNERS`, or the sender is not an approver of
-some matched dir (e.g. they can approve `xx/yy` but the PR also touches `xx`),
-`/merge` stays disabled and root approvers remain required. On top of the `OWNERS` rules,
+`root-approvers: false` also unlocks the `/merge` command (see
+[Pull request commands](run-pull-request-commands.html)): an accepted sender can merge the PR
+themselves — once, at the moment the command is sent — when `can-be-merged` is green.
+
+The opt-out is the first condition and it is universal: **every** `OWNERS` dir matching the
+changed files must set `root-approvers: false`, for every sender, effective maintainers
+included. If any matched dir lacks the opt-out, or a changed folder has no matching
+sub-`OWNERS`, `/merge` stays disabled.
+
+When that holds, the sender is authorized if any of these is true:
+
+- they are an **effective maintainer** — anyone GitHub reports with `admin` or `maintain`
+  permission, org owners and team-inherited admins included — so they merge without approving
+  any of the matched dirs;
+- they are a **root `OWNERS` approver** — an approver listed in the repository root `.`
+  `OWNERS` file — on the same terms;
+- they are an approver of **every** `OWNERS` dir covering the changed files, sub-directory and
+  SIG approvers included. This path is unchanged, so a repository with no maintainers can still
+  merge its own pull requests through its own approvers. It is intentionally stricter than the
+  first-match rule used for approver assignment above (step 4): approving `xx/yy` is not enough
+  when the PR also touches `xx`.
+
+Anyone else is rejected and root approvers remain required. On top of the `OWNERS` rules,
 `/merge` is opt-in at the server level: it must be enabled with `allow-merge-command: true`
 (globally or per repository) before any of this applies.
 
@@ -130,7 +143,7 @@ some matched dir (e.g. they can approve `xx/yy` but the PR also touches `xx`),
 ### Who may run other commands
 
 `/retest`, `/reprocess`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewer(s)`,
-`/add-allowed-user`, `/regenerate-welcome`, `/build-and-push-container`
+`/regenerate-welcome`, `/build-and-push-container`
 require the commenter to be in the union of:
 
 - repository collaborators,
@@ -140,13 +153,17 @@ require the commenter to be in the union of:
 - root `OWNERS` `allowed-users`.
 
 `/rebase` and `/security-override` additionally accept anyone with effective `admin` or `maintain` permission on the
-repository — org owners and team-inherited admins included, direct collaboration not required. `/security-override` is
+repository — org owners and team-inherited admins included, direct collaboration not required. `/automerge` and
+`/automerge cancel` accept the same effective maintainers on top of their existing maintainer and approver path, and
+that path is unchanged, so no `OWNERS` approver loses the ability to set or cancel auto-merge. `/security-override` is
 narrower than the union above: besides effective maintainers, only root `OWNERS` approvers may run it — the approvers
 listed in the repository root `.` OWNERS file. Approvers of a sub-directory OWNERS file cannot override the security
 checks repo-wide.
 
-Otherwise a maintainer or approver can grant access per-PR by commenting
-`/add-allowed-user @someone`. A `/hold` label is managed with a narrower maintainers-only gate.
+Otherwise an effective maintainer or a root `OWNERS` approver can grant access per-PR by commenting
+`/add-allowed-user @someone`. Vouching follows the same rule as `/security-override`: only those two groups can vouch,
+so an approver listed only in a sub-directory OWNERS file can no longer grant access repo-wide. A `/hold` label is
+managed with a narrower maintainers-only gate.
 
 `/assign-reviewers` adds every matched reviewer as a review request (the PR author is skipped).
 

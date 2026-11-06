@@ -70,6 +70,10 @@ class TestIssueCommentHandler:
         mock_handler = Mock()
         mock_handler.all_pull_request_approvers = ["approver1", "approver2"]
         mock_handler.is_user_valid_to_run_commands = AsyncMock(return_value=True)
+        # Merge/automerge authorization adds effective-permission checks; default to "no permission"
+        # so tests exercise the paths they stub explicitly.
+        mock_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        mock_handler.is_root_approver = AsyncMock(return_value=False)
         return mock_handler
 
     @pytest.fixture
@@ -713,6 +717,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
@@ -748,6 +753,7 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
@@ -781,10 +787,13 @@ class TestIssueCommentHandler:
         issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(
             return_value=["maintainer1"]
         )
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
         issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
 
         with (
-            patch("webhook_server.libs.handlers.issue_comment_handler.github_api_call", new=AsyncMock()),
+            patch(
+                "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+            ) as mock_api,
             patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
             patch.object(
                 issue_comment_handler.labels_handler,
@@ -807,6 +816,68 @@ class TestIssueCommentHandler:
             mock_add_label.assert_not_called()
             mock_remove_label.assert_not_called()
             mock_reaction.assert_not_called()
+            assert mock_api.call_args.kwargs["body"] == (
+                "Only maintainers or approvers can set pull request to auto-merge"
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_effective_maintainer(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective admin/maintain (org admin, not a direct collaborator) can set auto-merge (#1277)."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(return_value=[])
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=AUTOMERGE_LABEL_STR,
+                reviewed_user="org-admin",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_reaction.assert_called_once()
+            # Effective permission short-circuits, so the narrow maintainer list is not fetched.
+            issue_comment_handler.owners_file_handler.get_all_repository_maintainers.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_automerge_owners_approver(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """An OWNERS approver who is not a repository maintainer can still set auto-merge."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.get_all_repository_maintainers = AsyncMock(return_value=[])
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.all_repository_approvers = ["approver1"]
+
+        with (
+            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
+            patch.object(
+                issue_comment_handler.labels_handler,
+                "_add_label",
+                new_callable=AsyncMock,
+            ) as mock_add_label,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=AUTOMERGE_LABEL_STR,
+                reviewed_user="approver1",
+                issue_comment_id=123,
+                is_draft=False,
+            )
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=AUTOMERGE_LABEL_STR)
+            mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_merge_dispatch(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -1022,6 +1093,190 @@ class TestIssueCommentHandler:
                 c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
             ]
             assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_owners_approver_not_maintainer(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Guard: an OWNERS approver who is neither a maintainer nor a root approver can `/merge`.
+
+        The per-dir approver path is the deliberate SIG-owner merge route; a future narrowing
+        to maintainers only must not silently drop it.
+        """
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["sig-owner"], "dir2": ["sig-owner"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="sig-owner", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_awaited_once()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_effective_maintainer_skips_per_dir_check(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """An effective maintainer merges without per-dir approval (#1277).
+
+        The per-dir lookup would report dirs the maintainer cannot approve; the identity
+        bypass must short-circuit before it and still reach the merge.
+        """
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["someone-else"], "dir2": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="org-admin", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.is_user_repository_maintainer.assert_awaited_once_with(
+                "org-admin"
+            )
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_root_approver_skips_per_dir_check(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """A root OWNERS approver merges without per-dir approval (#1277)."""
+        mock_pull_request = Mock()
+        mock_pull_request.head.sha = "head-sha-1"
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            mock_api.side_effect = [
+                None,  # pull_request.update() head refresh
+                "head-sha-1",  # pull_request.head.sha
+                "head-sha-1",  # last_commit.sha
+                SUCCESS_STR,  # latest can-be-merged conclusion
+                Mock(merged=True),  # pull_request.merge
+                True,  # merge_status.merged
+            ]
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="root-approver", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.is_root_approver.assert_awaited_once_with("root-approver")
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert len(merge_calls) == 1
+            comment_calls = [
+                c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.create_issue_comment
+            ]
+            assert not comment_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_other_user_missing_dir_rejected(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Guard: the identity bypass must not open `/merge` to everyone else.
+
+        A user who is neither a maintainer nor a root approver and cannot approve one of the
+        matched dirs is still rejected, with the per-dir message.
+        """
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["approver1"], "dir2": ["someone-else"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=False)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="approver1", is_draft=False
+            )
+
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_awaited_once()
+            assert mock_api.call_count == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert mock_api.call_args.kwargs["body"] == (
+                "`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
+                "approver1 is not an approver of: dir2"
+            )
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
+
+    @pytest.mark.asyncio
+    async def test_process_merge_command_maintainer_refused_when_root_approvers_required(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """`root-approvers: false` is still required, even for an effective maintainer."""
+        mock_pull_request = Mock()
+        issue_comment_handler.owners_file_handler.is_user_repository_maintainer = AsyncMock(return_value=True)
+        issue_comment_handler.owners_file_handler.is_root_approver = AsyncMock(return_value=False)
+        issue_comment_handler.owners_file_handler.get_local_approvers_by_dir = AsyncMock(
+            return_value={"dir1": ["org-admin"]}
+        )
+        issue_comment_handler.owners_file_handler.get_root_approvers_required_for_pr = AsyncMock(return_value=True)
+
+        with patch(
+            "webhook_server.libs.handlers.issue_comment_handler.github_api_call", new_callable=AsyncMock
+        ) as mock_api:
+            await issue_comment_handler.process_merge_command(
+                pull_request=mock_pull_request, reviewed_user="org-admin", is_draft=False
+            )
+
+            assert mock_api.call_count == 1
+            assert mock_api.call_args.args[0] is mock_pull_request.create_issue_comment
+            assert mock_api.call_args.kwargs["body"] == (
+                "`/merge` is allowed only when `root-approvers: false` is set "
+                "for every OWNERS dir covering the changed files"
+            )
+            issue_comment_handler.owners_file_handler.get_local_approvers_by_dir.assert_not_awaited()
+            merge_calls = [c for c in mock_api.call_args_list if c.args and c.args[0] is mock_pull_request.merge]
+            assert not merge_calls
 
     @pytest.mark.asyncio
     async def test_process_merge_command_configured_method(self, issue_comment_handler: IssueCommentHandler) -> None:

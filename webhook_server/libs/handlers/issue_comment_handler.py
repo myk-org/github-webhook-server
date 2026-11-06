@@ -279,7 +279,9 @@ class IssueCommentHandler:
             return
 
         if _command == AUTOMERGE_LABEL_STR:
-            if reviewed_user not in (
+            if not await self.owners_file_handler.is_user_repository_maintainer(
+                reviewed_user
+            ) and reviewed_user not in (
                 await self.owners_file_handler.get_all_repository_maintainers()
                 + self.owners_file_handler.all_repository_approvers
             ):
@@ -603,24 +605,28 @@ class IssueCommentHandler:
             )
             return
 
-        # The sender must be an approver of every matched OWNERS dir, not of any one of them
-        # (the union) — a PR touching dirs the sender cannot approve is not mergeable by them.
-        approvers_by_dir = await self.owners_file_handler.get_local_approvers_by_dir()
-        missing_dirs = [
-            _dir
-            for _dir, _approvers in approvers_by_dir.items()
-            if not self._is_user_in_approvers(reviewed_user=reviewed_user, approvers=_approvers)
-        ]
-        if missing_dirs:
-            msg = (
-                f"`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
-                f"{reviewed_user} is not an approver of: {', '.join(sorted(missing_dirs))}"
-            )
-            self.logger.debug(f"{self.log_prefix} {msg}")
-            await github_api_call(
-                pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
-            )
-            return
+        # Maintainers and root approvers may merge regardless of per-dir ownership.
+        if not await self.owners_file_handler.is_user_repository_maintainer(
+            reviewed_user
+        ) and not await self.owners_file_handler.is_root_approver(reviewed_user):
+            # The sender must be an approver of every matched OWNERS dir, not of any one of them
+            # (the union) — a PR touching dirs the sender cannot approve is not mergeable by them.
+            approvers_by_dir = await self.owners_file_handler.get_local_approvers_by_dir()
+            missing_dirs = [
+                _dir
+                for _dir, _approvers in approvers_by_dir.items()
+                if not self._is_user_in_approvers(reviewed_user=reviewed_user, approvers=_approvers)
+            ]
+            if missing_dirs:
+                msg = (
+                    f"`/merge` is allowed only for approvers of every OWNERS dir covering the changed files. "
+                    f"{reviewed_user} is not an approver of: {', '.join(sorted(missing_dirs))}"
+                )
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await github_api_call(
+                    pull_request.create_issue_comment, body=msg, logger=self.logger, log_prefix=self.log_prefix
+                )
+                return
 
         # Refresh the PR from GitHub and verify the head still matches the commit whose data
         # the webhook loaded: commits pushed since then invalidate the can-be-merged evaluation,
