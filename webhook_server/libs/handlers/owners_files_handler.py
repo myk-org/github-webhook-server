@@ -83,6 +83,12 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
+    async def is_root_approver(self, username: str) -> bool:
+        """Case-insensitive: OWNERS logins are hand-written, GitHub logins are not case-sensitive."""
+        return self._normalized_login(username) in {
+            self._normalized_login(_approver) for _approver in self.root_approvers
+        }
+
     @property
     def allowed_users(self) -> list[str]:
         self._ensure_initialized()
@@ -658,16 +664,19 @@ Maintainers:
     async def is_user_repository_maintainer(self, username: str) -> bool:
         """Return True when the user effectively has admin/maintain on this repository.
 
-        Checks the effective permission, so org owners/admins and team-inherited admins count
+        Checks the effective role, so org owners/admins and team-inherited admins count
         too; `get_all_repository_maintainers` only lists direct collaborators (#1268).
+
+        Uses `role_name` (admin/maintain/write/triage/read) rather than the legacy `permission`
+        field, which reports the `maintain` role as "write".
         """
         try:
-            permission = await github_api_call(
-                self.repository.get_collaborator_permission, username, logger=self.logger, log_prefix=self.log_prefix
+            role = await github_api_call(
+                self.repository.get_collaborator_role_name, username, logger=self.logger, log_prefix=self.log_prefix
             )
         except UnknownObjectException:
             return False
-        return permission in ("admin", "maintain")
+        return role in ("admin", "maintain")
 
     @functools.cached_property
     async def repository_collaborators(self) -> PaginatedList[NamedUser]:

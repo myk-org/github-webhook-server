@@ -835,19 +835,23 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("permission", "expected"),
+        ("role_name", "expected"),
         [
             ("admin", True),
             ("maintain", True),
             ("write", False),
+            ("triage", False),
             ("none", False),
         ],
     )
     async def test_is_user_repository_maintainer(
-        self, owners_file_handler: OwnersFileHandler, permission: str, expected: bool
+        self, owners_file_handler: OwnersFileHandler, role_name: str, expected: bool
     ) -> None:
-        """Effective admin/maintain permission counts, anything lower does not."""
-        owners_file_handler.repository.get_collaborator_permission = Mock(return_value=permission)
+        """Effective admin/maintain role counts, anything lower does not.
+
+        The legacy `permission` field reports `maintain` as "write", so `role_name` must be used.
+        """
+        owners_file_handler.repository.get_collaborator_role_name = Mock(return_value=role_name)
         api_call = AsyncMock(side_effect=lambda fn, *a, **k: fn(*a))
 
         with patch("webhook_server.libs.handlers.owners_files_handler.github_api_call", new=api_call):
@@ -856,13 +860,13 @@ class TestOwnersFileHandler:
         assert result is expected
         # The blocking PyGithub call must be delegated to github_api_call (thread pool), not awaited directly
         api_call.assert_awaited_once()
-        assert api_call.await_args.args[0] == owners_file_handler.repository.get_collaborator_permission
-        owners_file_handler.repository.get_collaborator_permission.assert_called_once_with("some-user")
+        assert api_call.await_args.args[0] == owners_file_handler.repository.get_collaborator_role_name
+        owners_file_handler.repository.get_collaborator_role_name.assert_called_once_with("some-user")
 
     @pytest.mark.asyncio
     async def test_is_user_repository_maintainer_unknown_user(self, owners_file_handler: OwnersFileHandler) -> None:
         """A user GitHub does not know for this repo is not a maintainer."""
-        owners_file_handler.repository.get_collaborator_permission = Mock(
+        owners_file_handler.repository.get_collaborator_role_name = Mock(
             side_effect=UnknownObjectException(status=404, data={}, headers={})
         )
 
@@ -870,6 +874,35 @@ class TestOwnersFileHandler:
             result = await owners_file_handler.is_user_repository_maintainer("ghost-user")
 
         assert result is False
+
+    @pytest.mark.parametrize(
+        ("owners_entry", "sender"),
+        [
+            ("MyAkove", "MyAkove"),
+            ("MyAkove", "myakove"),
+            ("@MyAkove", "myakove"),
+            ("  myakove  ", "myakove"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_is_root_approver(
+        self, owners_file_handler: OwnersFileHandler, owners_entry: str, sender: str
+    ) -> None:
+        """Hand-written OWNERS logins match the GitHub sender case-insensitively and without `@`."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": [owners_entry], "reviewers": []}
+        }
+
+        assert await owners_file_handler.is_root_approver(sender) is True
+
+    @pytest.mark.asyncio
+    async def test_is_root_approver_non_approver(self, owners_file_handler: OwnersFileHandler) -> None:
+        """A user that is not a root OWNERS approver is not a root approver."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {".": {"approvers": ["MyAkove"], "reviewers": []}}
+
+        assert await owners_file_handler.is_root_approver("someone-else") is False
 
     @pytest.mark.asyncio
     async def test_repository_direct_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:
