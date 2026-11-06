@@ -687,9 +687,16 @@ dot-directories in:
       - .github
 ```
 
-A listed entry covers that dot-directory's whole subtree, exactly like a normal directory: `.github`
-makes both `.github/OWNERS` and `.github/workflows/OWNERS` load, so their approvers and reviewers
-count for reviewer assignment, approvals, `/approve`, `/lgtm`, `/automerge`, and `/merge`
+**The entry names a dot-directory at the repository root.** It is matched against the first path
+component only, so `dot-folders: [.github]` loads `.github/OWNERS` and `.github/workflows/OWNERS`
+but **not** a nested `services/api/.github/OWNERS` — that path's first component is `services`, not
+`.github`. List the dot-directory itself, not a deeper path: an entry such as `.github/workflows`
+matches no directory and loads nothing.
+
+**Once a root dot-directory is enabled, its entire subtree is read, including deeper
+dot-directories.** With `dot-folders: [.github]`, the files `.github/OWNERS`,
+`.github/workflows/OWNERS`, and `.github/workflows/.release/OWNERS` all load, so their approvers and
+reviewers count for reviewer assignment, approvals, `/approve`, `/lgtm`, `/automerge`, and `/merge`
 (per-directory approval and `root-approvers`).
 
 Entries name a dot-directory segment relative to the repository root: relative, dot-prefixed, no
@@ -697,8 +704,9 @@ globs, no `..`. `.git` is never allowed. A non-list value or an invalid entry is
 Like `allowed-users`, the key is read only from the repo-root `OWNERS`; a `dot-folders` list in a
 subdirectory is ignored.
 
-List the dot-directory itself, not a deeper path. An entry such as `.github/workflows` matches no
-directory and loads nothing — use `.github`, because the entry already enables the whole subtree.
+**An invalid root `OWNERS` disables `dot-folders` entirely.** The root file must pass the same
+validation that rejects a bad `approvers`, `reviewers`, or `allowed-users` value; if it fails, the
+key is not honoured and every dot-directory stays ignored.
 
 Without the key every dot-directory is ignored exactly as before.
 

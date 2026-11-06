@@ -1471,3 +1471,88 @@ class TestOwnersFileHandler:
         )
 
         assert await owners_file_handler.root_approvers_required_for_pr is expected_root_approvers_required
+
+    def test_dot_folder_allowlist_empty_list_matches_absent_key(self, owners_file_handler: OwnersFileHandler) -> None:
+        """An empty dot-folders list behaves exactly like the absent key."""
+        assert owners_file_handler._dot_folder_allowlist({"dot-folders": []}) == set()
+
+    @pytest.mark.asyncio
+    async def test_dot_folders_empty_list_skips_all_dot_dirs(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """`dot-folders: []` discovers no dot dir, same as the key being absent."""
+        _prepare_clone(
+            tmp_path,
+            {
+                "OWNERS": {"dot-folders": [], "approvers": ["root_approver"]},
+                ".github/OWNERS": {"approvers": ["github_approver"]},
+                ".github/workflows/OWNERS": {"approvers": ["workflows_approver"]},
+            },
+        )
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
+        assert result == {".": {"dot-folders": [], "approvers": ["root_approver"]}}
+
+    @pytest.mark.asyncio
+    async def test_dot_folders_allowlist_is_root_anchored(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """A nested dot dir is not allowlisted by a root dot-folder entry."""
+        _prepare_clone(
+            tmp_path,
+            {
+                "OWNERS": {"dot-folders": [".github"], "approvers": ["root_approver"]},
+                ".github/OWNERS": {"approvers": ["github_approver"]},
+                "services/api/.github/OWNERS": {"approvers": ["nested_approver"]},
+            },
+        )
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
+        assert result == {
+            ".": {"dot-folders": [".github"], "approvers": ["root_approver"]},
+            ".github": {"approvers": ["github_approver"]},
+        }
+        assert "services/api/.github" not in result
+
+    @pytest.mark.asyncio
+    async def test_dot_folders_allowed_root_covers_deeper_dot_dirs(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """The whole subtree of an allowed root dot dir is loaded, deeper dot dirs included."""
+        _prepare_clone(
+            tmp_path,
+            {
+                "OWNERS": {"dot-folders": [".github"], "approvers": ["root_approver"]},
+                ".github/workflows/.release/OWNERS": {"approvers": ["release_approver"]},
+            },
+        )
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
+        assert result == {
+            ".": {"dot-folders": [".github"], "approvers": ["root_approver"]},
+            ".github/workflows/.release": {"approvers": ["release_approver"]},
+        }
+
+    @pytest.mark.asyncio
+    async def test_dot_folders_invalid_root_owners_ignored(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """An invalid root OWNERS cannot enable dot-dir discovery."""
+        _prepare_clone(
+            tmp_path,
+            {
+                "OWNERS": {"approvers": "not-a-list", "dot-folders": [".github"]},
+                ".github/OWNERS": {"approvers": ["github_approver"]},
+            },
+        )
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
+        assert result == {}

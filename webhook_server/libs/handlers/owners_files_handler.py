@@ -300,13 +300,23 @@ class OwnersFileHandler:
 
         # Root OWNERS may allow OWNERS files inside specific dot-directories.
         # Missing or unparsable root OWNERS just means an empty allowlist.
+        root_owners_content: Any = None
         try:
-            root_owners_content: Any = yaml.safe_load(
+            root_owners_content = yaml.safe_load(
                 await asyncio.to_thread((clone_path / "OWNERS").read_text, encoding="utf-8")
             )
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             root_owners_content = None
-        dot_folders = self._dot_folder_allowlist(root_owners_content)
+
+        # An invalid root OWNERS must not enable dot-folder discovery, same as the scan below rejects it.
+        # Only validated when it actually declares `dot-folders`; without the key nothing is extracted.
+        dot_folders: set[str] = set()
+        if (
+            isinstance(root_owners_content, dict)
+            and "dot-folders" in root_owners_content
+            and self._validate_owners_content(root_owners_content, "OWNERS")
+        ):
+            dot_folders = self._dot_folder_allowlist(root_owners_content)
 
         # Find all OWNERS files via filesystem walk
         self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
@@ -337,11 +347,14 @@ class OwnersFileHandler:
 
         # Use rglob to recursively find all OWNERS files
         def find_owners_files() -> list[Path]:
-            return [
-                p
-                for p in clone_path.rglob("OWNERS")
-                if not any(part.startswith(".") and part not in dot_folders for part in p.relative_to(clone_path).parts)
-            ]
+            owners_files: list[Path] = []
+            for path in clone_path.rglob("OWNERS"):
+                parts = path.relative_to(clone_path).parts
+                # Normal paths are always read; a path under a dot dir only when the root top-level
+                # component is allowlisted, so a `dot-folders` entry stays root-anchored.
+                if not any(part.startswith(".") for part in parts) or parts[0] in dot_folders:
+                    owners_files.append(path)
+            return owners_files
 
         owners_files = await asyncio.to_thread(find_owners_files)
 

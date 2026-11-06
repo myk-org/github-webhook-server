@@ -318,16 +318,23 @@ dot-directories in:</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github</span>
 </code></pre></div>
 
-<p>A listed entry covers that dot-directory's whole subtree, exactly like a normal directory: <code>.github</code>
-makes both <code>.github/OWNERS</code> and <code>.github/workflows/OWNERS</code> load, so their approvers and reviewers
-count for reviewer assignment, approvals, <code>/approve</code>, <code>/lgtm</code>, <code>/automerge</code>, and <code>/merge</code>
+<p><strong>The entry names a dot-directory at the repository root.</strong> It is matched against the first path
+component only, so <code>dot-folders: [.github]</code> loads <code>.github/OWNERS</code> and <code>.github/workflows/OWNERS</code>
+but <strong>not</strong> a nested <code>services/api/.github/OWNERS</code> — that path's first component is <code>services</code>, not
+<code>.github</code>. List the dot-directory itself, not a deeper path: an entry such as <code>.github/workflows</code>
+matches no directory and loads nothing.</p>
+<p><strong>Once a root dot-directory is enabled, its entire subtree is read, including deeper
+dot-directories.</strong> With <code>dot-folders: [.github]</code>, the files <code>.github/OWNERS</code>,
+<code>.github/workflows/OWNERS</code>, and <code>.github/workflows/.release/OWNERS</code> all load, so their approvers and
+reviewers count for reviewer assignment, approvals, <code>/approve</code>, <code>/lgtm</code>, <code>/automerge</code>, and <code>/merge</code>
 (per-directory approval and <code>root-approvers</code>).</p>
 <p>Entries name a dot-directory segment relative to the repository root: relative, dot-prefixed, no
 globs, no <code>..</code>. <code>.git</code> is never allowed. A non-list value or an invalid entry is logged and ignored.
 Like <code>allowed-users</code>, the key is read only from the repo-root <code>OWNERS</code>; a <code>dot-folders</code> list in a
 subdirectory is ignored.</p>
-<p>List the dot-directory itself, not a deeper path. An entry such as <code>.github/workflows</code> matches no
-directory and loads nothing — use <code>.github</code>, because the entry already enables the whole subtree.</p>
+<p><strong>An invalid root <code>OWNERS</code> disables <code>dot-folders</code> entirely.</strong> The root file must pass the same
+validation that rejects a bad <code>approvers</code>, <code>reviewers</code>, or <code>allowed-users</code> value; if it fails, the
+key is not honoured and every dot-directory stays ignored.</p>
 <p>Without the key every dot-directory is ignored exactly as before.</p>
 <h2 id="how-owners-are-resolved-for-a-pr">How owners are resolved for a PR</h2>
 <ol>
