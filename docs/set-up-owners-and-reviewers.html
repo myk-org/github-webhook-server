@@ -369,7 +369,7 @@ some matched dir (e.g. they can approve <code>xx/yy</code> but the PR also touch
 </ul>
 <h3 id="who-may-run-other-commands">Who may run other commands</h3>
 <p><code>/retest</code>, <code>/reprocess</code>, <code>/cherry-pick</code>, <code>/rebase</code>, <code>/check-can-merge</code>, <code>/assign-reviewer(s)</code>,
-<code>/add-allowed-user</code>, <code>/regenerate-welcome</code>, <code>/build-and-push-container</code>, <code>/security-override</code>
+<code>/add-allowed-user</code>, <code>/regenerate-welcome</code>, <code>/build-and-push-container</code>
 require the commenter to be in the union of:</p>
 <ul>
 <li>repository collaborators,</li>
@@ -379,7 +379,10 @@ require the commenter to be in the union of:</p>
 <li>root <code>OWNERS</code> <code>allowed-users</code>.</li>
 </ul>
 <p><code>/rebase</code> and <code>/security-override</code> additionally accept anyone with effective <code>admin</code> or <code>maintain</code> permission on the
-repository — org owners and team-inherited admins included, direct collaboration not required.</p>
+repository — org owners and team-inherited admins included, direct collaboration not required. <code>/security-override</code> is
+narrower than the union above: besides effective maintainers, only root <code>OWNERS</code> approvers may run it — the approvers
+listed in the repository root <code>.</code> OWNERS file. Approvers of a sub-directory OWNERS file cannot override the security
+checks repo-wide.</p>
 <p>Otherwise a maintainer or approver can grant access per-PR by commenting
 <code>/add-allowed-user @someone</code>. A <code>/hold</code> label is managed with a narrower maintainers-only gate.</p>
 <p><code>/assign-reviewers</code> adds every matched reviewer as a review request (the PR author is skipped).</p>

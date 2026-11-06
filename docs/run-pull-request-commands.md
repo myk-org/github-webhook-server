@@ -60,8 +60,8 @@ Example — one comment, three commands:
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
 | `/regenerate-welcome` | Re-renders the welcome comment with the current configuration | Approver |
 | `/test-oracle` | Sends the PR to the configured PR Test Oracle service | Approver |
-| `/security-override` | Sets the security check runs to success | Effective maintainer, `OWNERS` approver |
-| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, `OWNERS` approver |
+| `/security-override` | Sets the security check runs to success | Effective maintainer, root `OWNERS` approver |
+| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, root `OWNERS` approver |
 
 ## Commands on draft pull requests
 
@@ -398,8 +398,8 @@ documents exactly which commands are active for the repository.
 
 #### `/security-override` and `/security-override cancel`
 
-When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or an
-`OWNERS` approver can:
+When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or a
+root `OWNERS` approver can:
 
 - `/security-override` — set the security check runs to **success**, annotated with the maintainer's name and a
   reminder to use `cancel` to undo it.
@@ -413,8 +413,10 @@ When the security checks (`security-suspicious-paths`, `security-committer-ident
 /security-override cancel
 ```
 
-Only effective maintainers and `OWNERS` approvers may use these — an org owner or team-inherited admin who is not a
-direct collaborator qualifies. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
+Only effective maintainers and root `OWNERS` approvers may use these — an org owner or team-inherited admin who is not
+a direct collaborator qualifies. "Root `OWNERS` approver" means an approver listed in the repository root `.` OWNERS
+file; approvers listed only in a sub-directory OWNERS file are not accepted, because the override applies to the whole
+repository. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
 check is enabled for the repository, the server replies *"No security checks are enabled — nothing to override."*
 
 ### Generic label commands

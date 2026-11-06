@@ -346,8 +346,10 @@
 
 <p>That is useful when one team needs a different rollout pace than the server-wide default. See <a href="configure-repositories.html">Configure Repositories</a> for when to keep a setting in central <code>config.yaml</code> versus the repository-local file.</p>
 <p>If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
-with <code>admin</code> or <code>maintain</code> permission on the repository, org owners and team-inherited admins included — or an
-<code>OWNERS</code> approver can temporarily bypass it and later force a re-check:</p>
+with <code>admin</code> or <code>maintain</code> permission on the repository, org owners and team-inherited admins included — or a root
+<code>OWNERS</code> approver can temporarily bypass it and later force a re-check. Only the root OWNERS approvers count: the
+approvers listed in the repository root <code>.</code> OWNERS file, not the approvers of a sub-directory OWNERS file, since the
+override applies repo-wide.</p>
 <div class="highlight"><pre><span></span><code>/security-override
 /security-override cancel
 </code></pre></div>

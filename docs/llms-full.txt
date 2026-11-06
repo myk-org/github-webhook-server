@@ -726,7 +726,7 @@ some matched dir (e.g. they can approve `xx/yy` but the PR also touches `xx`),
 ### Who may run other commands
 
 `/retest`, `/reprocess`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewer(s)`,
-`/add-allowed-user`, `/regenerate-welcome`, `/build-and-push-container`, `/security-override`
+`/add-allowed-user`, `/regenerate-welcome`, `/build-and-push-container`
 require the commenter to be in the union of:
 
 - repository collaborators,
@@ -736,7 +736,10 @@ require the commenter to be in the union of:
 - root `OWNERS` `allowed-users`.
 
 `/rebase` and `/security-override` additionally accept anyone with effective `admin` or `maintain` permission on the
-repository — org owners and team-inherited admins included, direct collaboration not required.
+repository — org owners and team-inherited admins included, direct collaboration not required. `/security-override` is
+narrower than the union above: besides effective maintainers, only root `OWNERS` approvers may run it — the approvers
+listed in the repository root `.` OWNERS file. Approvers of a sub-directory OWNERS file cannot override the security
+checks repo-wide.
 
 Otherwise a maintainer or approver can grant access per-PR by commenting
 `/add-allowed-user @someone`. A `/hold` label is managed with a narrower maintainers-only gate.
@@ -1100,8 +1103,8 @@ Example — one comment, three commands:
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
 | `/regenerate-welcome` | Re-renders the welcome comment with the current configuration | Approver |
 | `/test-oracle` | Sends the PR to the configured PR Test Oracle service | Approver |
-| `/security-override` | Sets the security check runs to success | Effective maintainer, `OWNERS` approver |
-| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, `OWNERS` approver |
+| `/security-override` | Sets the security check runs to success | Effective maintainer, root `OWNERS` approver |
+| `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, root `OWNERS` approver |
 
 ## Commands on draft pull requests
 
@@ -1438,8 +1441,8 @@ documents exactly which commands are active for the repository.
 
 #### `/security-override` and `/security-override cancel`
 
-When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or an
-`OWNERS` approver can:
+When the security checks (`security-suspicious-paths`, `security-committer-identity`) fail, an effective maintainer or a
+root `OWNERS` approver can:
 
 - `/security-override` — set the security check runs to **success**, annotated with the maintainer's name and a
   reminder to use `cancel` to undo it.
@@ -1453,8 +1456,10 @@ When the security checks (`security-suspicious-paths`, `security-committer-ident
     /security-override cancel
 ```
 
-Only effective maintainers and `OWNERS` approvers may use these — an org owner or team-inherited admin who is not a
-direct collaborator qualifies. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
+Only effective maintainers and root `OWNERS` approvers may use these — an org owner or team-inherited admin who is not
+a direct collaborator qualifies. "Root `OWNERS` approver" means an approver listed in the repository root `.` OWNERS
+file; approvers listed only in a sub-directory OWNERS file are not accepted, because the override applies to the whole
+repository. Anyone else gets *"Only maintainers can use `/security-override`"*. If neither security
 check is enabled for the repository, the server replies *"No security checks are enabled — nothing to override."*
 
 ### Generic label commands
@@ -2148,8 +2153,10 @@ Use a repository-local override when maintainers should own the security policy 
 That is useful when one team needs a different rollout pace than the server-wide default. See [Configure Repositories](configure-repositories.html) for when to keep a setting in central `config.yaml` versus the repository-local file.
 
 If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
-with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or an
-`OWNERS` approver can temporarily bypass it and later force a re-check:
+with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or a root
+`OWNERS` approver can temporarily bypass it and later force a re-check. Only the root OWNERS approvers count: the
+approvers listed in the repository root `.` OWNERS file, not the approvers of a sub-directory OWNERS file, since the
+override applies repo-wide.
 
 ```text
     /security-override
@@ -2495,7 +2502,7 @@ A maintainer can clear the block with a PR comment:
     /security-override
 ```
 
-That sets the `security-suspicious-paths` check run to success, and `set_pull_request_automerge()` then allows auto-merge through. `/security-override cancel` re-runs the security checks. Only effective maintainers (anyone with `admin` or `maintain` permission) and `OWNERS` approvers can use the command.
+That sets the `security-suspicious-paths` check run to success, and `set_pull_request_automerge()` then allows auto-merge through. `/security-override cancel` re-runs the security checks. Only effective maintainers (anyone with `admin` or `maintain` permission) and root `OWNERS` approvers can use the command — the approvers listed in the repository root `.` OWNERS file, not the approvers of a sub-directory OWNERS file.
 
 Narrow the prefixes per repository when a repo legitimately owns these paths:
 

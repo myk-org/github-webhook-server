@@ -120,8 +120,10 @@ security-checks:
 That is useful when one team needs a different rollout pace than the server-wide default. See [Configure Repositories](configure-repositories.html) for when to keep a setting in central `config.yaml` versus the repository-local file.
 
 If a mandatory security check blocks an expected automation flow, an effective maintainer — anyone GitHub reports
-with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or an
-`OWNERS` approver can temporarily bypass it and later force a re-check:
+with `admin` or `maintain` permission on the repository, org owners and team-inherited admins included — or a root
+`OWNERS` approver can temporarily bypass it and later force a re-check. Only the root OWNERS approvers count: the
+approvers listed in the repository root `.` OWNERS file, not the approvers of a sub-directory OWNERS file, since the
+override applies repo-wide.
 
 ```text
 /security-override

@@ -130,7 +130,7 @@ some matched dir (e.g. they can approve `xx/yy` but the PR also touches `xx`),
 ### Who may run other commands
 
 `/retest`, `/reprocess`, `/cherry-pick`, `/rebase`, `/check-can-merge`, `/assign-reviewer(s)`,
-`/add-allowed-user`, `/regenerate-welcome`, `/build-and-push-container`, `/security-override`
+`/add-allowed-user`, `/regenerate-welcome`, `/build-and-push-container`
 require the commenter to be in the union of:
 
 - repository collaborators,
@@ -140,7 +140,10 @@ require the commenter to be in the union of:
 - root `OWNERS` `allowed-users`.
 
 `/rebase` and `/security-override` additionally accept anyone with effective `admin` or `maintain` permission on the
-repository — org owners and team-inherited admins included, direct collaboration not required.
+repository — org owners and team-inherited admins included, direct collaboration not required. `/security-override` is
+narrower than the union above: besides effective maintainers, only root `OWNERS` approvers may run it — the approvers
+listed in the repository root `.` OWNERS file. Approvers of a sub-directory OWNERS file cannot override the security
+checks repo-wide.
 
 Otherwise a maintainer or approver can grant access per-PR by commenting
 `/add-allowed-user @someone`. A `/hold` label is managed with a narrower maintainers-only gate.

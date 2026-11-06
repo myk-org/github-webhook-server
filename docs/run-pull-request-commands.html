@@ -400,12 +400,12 @@ adds the <code>wip</code> label and prefixes the title with <code>WIP:</code>.</
 <tr>
 <td><code>/security-override</code></td>
 <td>Sets the security check runs to success</td>
-<td>Effective maintainer, <code>OWNERS</code> approver</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver</td>
 </tr>
 <tr>
 <td><code>/security-override cancel</code></td>
 <td>Re-runs the security checks to re-evaluate them</td>
-<td>Effective maintainer, <code>OWNERS</code> approver</td>
+<td>Effective maintainer, root <code>OWNERS</code> approver</td>
 </tr>
 </tbody>
 </table></div>
@@ -701,8 +701,8 @@ documents exactly which commands are active for the repository.</p>
 
 <h3 id="security">Security</h3>
 <h4 id="security-override-and-security-override-cancel"><code>/security-override</code> and <code>/security-override cancel</code></h4>
-<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, an effective maintainer or an
-<code>OWNERS</code> approver can:</p>
+<p>When the security checks (<code>security-suspicious-paths</code>, <code>security-committer-identity</code>) fail, an effective maintainer or a
+root <code>OWNERS</code> approver can:</p>
 <ul>
 <li>
 <p><code>/security-override</code> — set the security check runs to <strong>success</strong>, annotated with the maintainer's name and a
@@ -718,8 +718,10 @@ documents exactly which commands are active for the repository.</p>
 <div class="highlight"><pre><span></span><code>/security-override cancel
 </code></pre></div>
 
-<p>Only effective maintainers and <code>OWNERS</code> approvers may use these — an org owner or team-inherited admin who is not a
-direct collaborator qualifies. Anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
+<p>Only effective maintainers and root <code>OWNERS</code> approvers may use these — an org owner or team-inherited admin who is not
+a direct collaborator qualifies. "Root <code>OWNERS</code> approver" means an approver listed in the repository root <code>.</code> OWNERS
+file; approvers listed only in a sub-directory OWNERS file are not accepted, because the override applies to the whole
+repository. Anyone else gets <em>"Only maintainers can use <code>/security-override</code>"</em>. If neither security
 check is enabled for the repository, the server replies <em>"No security checks are enabled — nothing to override."</em></p>
 <h3 id="generic-label-commands">Generic label commands</h3>
 <p>In addition to the commands above, the server's user-facing labels can be set and cleared directly:</p>
