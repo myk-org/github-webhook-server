@@ -1,0 +1,87 @@
+name: Docs Guard
+
+# Regeneration stays off the PR: main tracks docs sources only, and .github/workflows/docs.yml
+# builds and deploys the site after merge (#1280). Anything under docs/ that is not markdown or
+# nav.json is build output, and committing it re-creates the merge conflicts this rule exists to
+# remove.
+
+# `pull_request_target`, not `pull_request`: a `pull_request` workflow file comes from the PR's
+# merge revision, so a PR that adds generated docs could also edit this very file, keep the check
+# name, and skip the work. `pull_request_target` always runs the base branch's copy of the
+# workflow, so the check cannot be edited by the PR it judges. Nothing from the PR is executed
+# here — only the file names in its diff are read. The workflow must exist on the base branch to
+# run at all, so its first run is the first PR after it merges.
+on: pull_request_target
+
+permissions:
+  contents: read
+
+jobs:
+  no-generated-docs:
+    runs-on: ubuntu-latest
+    steps:
+      # Default ref of pull_request_target is the base branch. fetch-depth: 0 keeps its full
+      # history so the merge base with the PR head exists locally.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch the pull request head
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"
+      - name: Reject generated docs in the PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # A broken or unset BASE_SHA must fail the job, not pass it: without this the diff command
+          # would exit non-zero, the file would be empty, and an empty diff reads exactly like a
+          # clean one.
+          if [ -z "${BASE_SHA:-}" ]; then
+            echo "::error::BASE_SHA is empty — the diff base cannot be resolved."
+            exit 1
+          fi
+          # The head is the ref just fetched; resolving it separately keeps the diff from silently
+          # comparing the base branch with itself if that fetch ever changes.
+          head_sha="$(git rev-parse --verify FETCH_HEAD)"
+          # The diff is captured to a file first so its exit status is checked on its own: piping
+          # git into grep without pipefail reports "no match" when the diff never ran (missing base
+          # ref, shallow clone), so an absent check would look exactly like a passing one.
+          diff_file="$(mktemp)"
+          trap 'rm -f "$diff_file"' EXIT
+
+          # -z keeps git from quoting or escaping paths (that is core.quotePath and unrelated to
+          # the shell): quoted, an added docs/résumé.html arrives as
+          # "docs/r\303\251sum\303\251.html" and matches none of the patterns below — the guard
+          # would pass exactly the files it exists to reject.
+          git diff --name-status -z --diff-filter=AMR -M "${BASE_SHA}...${head_sha}" > "$diff_file"
+
+          # Only added/modified/renamed files are a violation. A DELETION is the migration itself
+          # (the cutover removes the committed output) and must pass, or the PR that fixes the rule
+          # can never satisfy it. Renames are checked on BOTH sides, so
+          # docs/foo.md -> docs/index.html is caught too.
+          # -z emits `status\0path\0` (`R100\0old\0new\0` for a rename), so the status tokens are
+          # dropped by shape, not by column — there is no column left after NUL splitting.
+          # The fields are matched as they arrive and never re-joined with newlines: a path CAN
+          # itself contain a newline, and converting NUL -> newline splits `docs/evil\nx.html`
+          # into two lines that match none of the patterns — the generated file would slip
+          # through. `read -d ''` fails at EOF, which only ends this while condition (set -e does
+          # not apply to a loop condition), so the last field is not dropped.
+          offenders=()
+          while IFS= read -r -d '' field; do
+            # Status tokens: no path under docs/ can look like one, they all start with `docs/`.
+            [[ "$field" =~ ^[ACDMRTUXB][0-9]*$ ]] && continue
+            [[ "$field" == docs/* ]] || continue
+            [[ "$field" == docs/nav.json ]] && continue
+            [[ "$field" =~ ^docs/(.*/)?[^/]+\.md$ ]] && continue
+            offenders+=("$field")
+          done < "$diff_file"
+
+          if [ "${#offenders[@]}" -gt 0 ]; then
+            echo "::error::Generated docs must not be committed — the site is built on main from the docs sources."
+            printf '%s\n' "${offenders[@]}"
+            echo "Everything under docs/ other than docs/**/*.md and docs/nav.json is build output of"
+            echo ".github/workflows/docs.yml — edit the markdown source instead."
+            exit 1
+          fi
+          echo "No generated docs in the diff."
