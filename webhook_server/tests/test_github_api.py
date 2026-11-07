@@ -3773,6 +3773,37 @@ class TestPullRequestWithoutCommits:
         """Run the github_api_call body inline instead of in a thread."""
         return fn(*args, **kwargs)
 
+    @staticmethod
+    def _issue_comment_payload(body: str, sender: str, action: str = "created") -> dict[str, Any]:
+        """issue_comment delivery with an explicit *body*, *sender* login and *action*."""
+        return {
+            "action": action,
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "issue": {"number": 1283, "pull_request": {"url": "https://api.github.com/pr/1283"}},
+            "comment": {"body": body, "user": {"login": sender}},
+            "sender": {"login": sender},
+        }
+
+    async def _process_empty_pr(
+        self, webhook: GithubWebhook, payload: dict[str, Any], event_type: str = "issue_comment"
+    ) -> Mock:
+        """Run process() on a commit-less PR and return the mocked pull request."""
+        ctx = self._prepare_webhook(webhook, payload, event_type=event_type)
+        mock_pr = self._pull_request([])
+
+        with (
+            patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
+            patch.object(webhook, "_clone_repository", new=AsyncMock()) as mock_clone,
+            patch("webhook_server.libs.github_api.IssueCommentHandler") as mock_issue_comment_handler,
+        ):
+            assert await webhook.process() is None
+
+        mock_clone.assert_not_awaited()
+        mock_issue_comment_handler.assert_not_called()
+        assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
+        return mock_pr
+
     def _prepare_webhook(
         self, webhook: GithubWebhook, payload: dict[str, Any], event_type: str = "pull_request"
     ) -> WebhookContext:
@@ -3879,7 +3910,135 @@ class TestPullRequestWithoutCommits:
         mock_pr.create_issue_comment.assert_called_once()
         assert "Could not post no-commits notice" in caplog.text
         assert "403" in caplog.text
+        # The traceback is what makes a swallowed GithubException debuggable
+        notice_records = [r for r in caplog.records if "Could not post no-commits notice" in r.getMessage()]
+        assert len(notice_records) == 1
+        assert notice_records[0].exc_info is not None
         assert ctx.workflow_steps["webhook_routing"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("action", "body", "sender", "expect_notice"),
+        [
+            # api_user is set to "myakove-bot" in the test body: another human still gets the notice
+            pytest.param("created", "/assign-reviewers", "myakove", True, id="command-from-other-human"),
+            pytest.param(
+                "created",
+                "This pull request has no commits, so commands are not processed.",
+                "myakove",
+                False,
+                id="loop-guard-prose-body-never-answered",
+            ),
+            pytest.param("created", "/assign-reviewers", "myakove-bot[bot]", False, id="app-bot-sender"),
+            # This deployment posts as "myakove-bot" - a token user with no "[bot]" suffix.
+            # Answering it would loop on our own notice, so the api_user login is excluded too.
+            pytest.param(
+                "created",
+                "/assign-reviewers",
+                "myakove-bot",
+                False,
+                id="sender-is-api-user-without-[bot]-suffix-is-not-answered",
+            ),
+            pytest.param("edited", "/assign-reviewers", "myakove", False, id="edited-comment"),
+            pytest.param("deleted", "/assign-reviewers", "myakove", False, id="deleted-comment"),
+        ],
+    )
+    async def test_process_empty_pr_notice_gate(
+        self,
+        process_github_webhook: GithubWebhook,
+        action: str,
+        body: str,
+        sender: str,
+        expect_notice: bool,
+    ) -> None:
+        """Only a freshly created command from someone other than us earns the no-commits notice."""
+        process_github_webhook.api_user = "myakove-bot"
+        payload = self._issue_comment_payload(body=body, sender=sender, action=action)
+
+        mock_pr = await self._process_empty_pr(process_github_webhook, payload)
+
+        if expect_notice:
+            mock_pr.create_issue_comment.assert_called_once_with(
+                "This pull request has no commits, so commands are not processed."
+            )
+        else:
+            mock_pr.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_event_with_command_body_posts_no_notice(
+        self,
+        process_github_webhook: GithubWebhook,
+        pull_request_payload: dict[str, Any],
+    ) -> None:
+        """A command-looking body on a non-issue_comment delivery is still not answered."""
+        payload = {**pull_request_payload, "comment": {"body": "/assign-reviewers"}}
+
+        mock_pr = await self._process_empty_pr(process_github_webhook, payload, event_type="pull_request")
+
+        mock_pr.create_issue_comment.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("event_type", "action", "body", "sender", "expected"),
+        [
+            pytest.param("issue_comment", "created", "/assign-reviewers", "myakove", True, id="all-conditions-met"),
+            pytest.param("pull_request", "created", "/assign-reviewers", "myakove", False, id="wrong-event"),
+            pytest.param("issue_comment", "edited", "/assign-reviewers", "myakove", False, id="not-created"),
+            pytest.param("issue_comment", "created", "  /review", "myakove", True, id="stripped-command"),
+            pytest.param("issue_comment", "created", "please /review", "myakove", False, id="prose-mentioning-command"),
+            pytest.param("issue_comment", "created", "", "myakove", False, id="empty-body"),
+            pytest.param("issue_comment", "created", "/review", "app[bot]", False, id="bot-sender"),
+            pytest.param("issue_comment", "created", "/review", "app-bot", True, id="bare-bot-name-is-not-a-bot"),
+        ],
+    )
+    def test_should_answer_empty_pr_command(
+        self,
+        process_github_webhook: GithubWebhook,
+        event_type: str,
+        action: str,
+        body: str,
+        sender: str,
+        expected: bool,
+    ) -> None:
+        """Each of the four gate conditions is load-bearing on its own."""
+        webhook = process_github_webhook
+        webhook.github_event = event_type
+        webhook.hook_data = self._issue_comment_payload(body=body, sender=sender, action=action)
+
+        assert webhook._should_answer_empty_pr_command() is expected
+
+    def test_should_answer_empty_pr_command_handles_payload_without_sender(
+        self, process_github_webhook: GithubWebhook, issue_comment_payload: dict[str, Any]
+    ) -> None:
+        """A delivery without a sender key is answered (login defaults to empty, not a bot)."""
+        process_github_webhook.github_event = "issue_comment"
+        process_github_webhook.hook_data = issue_comment_payload
+
+        assert process_github_webhook._should_answer_empty_pr_command() is True
+
+    @pytest.mark.parametrize(
+        ("api_user", "sender", "expected"),
+        [
+            pytest.param("myakove-bot", "myakove-bot", False, id="sender-is-api-user"),
+            pytest.param("myakove-bot", "MyAkove-Bot", False, id="sender-is-api-user-different-casing"),
+            pytest.param("myakove-bot", "myakove", True, id="sender-is-different-user"),
+            pytest.param("", "myakove-bot", True, id="empty-api-user-bare-bot-name-is-answered"),
+            pytest.param("", "app[bot]", False, id="empty-api-user-bot-suffix-still-decides"),
+        ],
+    )
+    def test_should_answer_empty_pr_command_never_answers_api_user(
+        self,
+        process_github_webhook: GithubWebhook,
+        api_user: str,
+        sender: str,
+        expected: bool,
+    ) -> None:
+        """The api_user login is treated as us, case-insensitively; empty api_user disables that rule."""
+        webhook = process_github_webhook
+        webhook.github_event = "issue_comment"
+        webhook.api_user = api_user
+        webhook.hook_data = self._issue_comment_payload(body="/review", sender=sender)
+
+        assert webhook._should_answer_empty_pr_command() is expected
 
     @pytest.mark.asyncio
     async def test_process_non_issue_comment_event_posts_no_notice(

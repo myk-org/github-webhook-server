@@ -754,7 +754,7 @@ class GithubWebhook:
             if last_commit is None:
                 # GitHub allows a PR whose head is level with the base branch: no commits, nothing to process.
                 self.logger.warning(f"{self.log_prefix} Pull request has no commits, nothing to process")
-                if self.github_event == "issue_comment":
+                if self._should_answer_empty_pr_command():
                     # Commands cannot run without commits, so tell the commenter instead of skipping silently.
                     # Best-effort: a missing issue-write permission must not fail the webhook again.
                     try:
@@ -767,7 +767,8 @@ class GithubWebhook:
                     except GithubException as ex:
                         self.logger.warning(
                             f"{self.log_prefix} Could not post no-commits notice to the pull request "
-                            f"(status {ex.status}): {ex}"
+                            f"(status {ex.status}): {ex}",
+                            exc_info=True,
                         )
                 token_metrics = await self._get_token_metrics()
                 self.logger.info(
@@ -1740,6 +1741,33 @@ class GithubWebhook:
             return None
 
         return commits[-1]
+
+    def _should_answer_empty_pr_command(self) -> bool:
+        """Return True when an empty PR's webhook should get a no-commits notice.
+
+        All four conditions are required:
+
+        1. ``self.github_event == "issue_comment"`` - only a comment can ask for something.
+        2. ``self.hook_data["action"] == "created"`` - edits and deletions are not commands.
+        3. the comment body (stripped) starts with ``/`` - only real commands are answered.
+        4. the sender is not us - our own comments must never be answered. Our notice is
+           itself a created ``issue_comment``, so answering it would loop until the API
+           quota burns (observed: 59 duplicated notices). Two identities count as us:
+           a login ending with ``[bot]`` (GitHub App comments) and a login equal to
+           ``self.api_user`` (token users, which carry no ``[bot]`` suffix).
+
+        The command and self exclusions are what stop that loop; the notice is skipped
+        silently for prose and for our own comments.
+        """
+        comment_body = self.hook_data.get("comment", {}).get("body") or ""
+        sender_login = str(self.hook_data.get("sender", {}).get("login", ""))
+        return (
+            self.github_event == "issue_comment"
+            and self.hook_data.get("action") == "created"
+            and comment_body.strip().startswith("/")
+            and not sender_login.endswith("[bot]")
+            and not (self.api_user and sender_login.lower() == self.api_user.lower())
+        )
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:
