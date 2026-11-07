@@ -151,6 +151,8 @@ class GithubWebhook:
         self.repository_by_github_app: Repository
         self.token: str
         self.api_user: str = ""
+        # Every configured token login (lowercased) — all of them are "us" when answering comments.
+        self.api_users: set[str] = set()
         self.current_pull_request_supported_retest: list[str] = []
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
@@ -634,6 +636,7 @@ class GithubWebhook:
 
         # Initialize auto-verified users from API users (async operation)
         api_users = await self.get_api_users()
+        self.api_users = {user.lower() for user in api_users if user}
         self.auto_verified_and_merged_users.extend(user for user in api_users if user is not None)
 
         # Initialize app bot login for bot-PR identification (async)
@@ -1753,8 +1756,9 @@ class GithubWebhook:
         4. the sender is not us - our own comments must never be answered. Our notice is
            itself a created ``issue_comment``, so answering it would loop until the API
            quota burns (observed: 59 duplicated notices). Two identities count as us:
-           a login ending with ``[bot]`` (GitHub App comments) and a login equal to
-           ``self.api_user`` (token users, which carry no ``[bot]`` suffix).
+           a login ending with ``[bot]`` (GitHub App comments) and any login in
+           ``self.api_users`` (every configured token identity, not just the one token
+           selected for this delivery by rate limit).
 
         The command and self exclusions are what stop that loop; the notice is skipped
         silently for prose and for our own comments.
@@ -1766,7 +1770,7 @@ class GithubWebhook:
             and self.hook_data.get("action") == "created"
             and comment_body.strip().startswith("/")
             and not sender_login.endswith("[bot]")
-            and not (self.api_user and sender_login.lower() == self.api_user.lower())
+            and sender_login.lower() not in self.api_users
         )
 
     @staticmethod

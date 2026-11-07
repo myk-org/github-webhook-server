@@ -3785,7 +3785,11 @@ class TestPullRequestWithoutCommits:
         }
 
     async def _process_empty_pr(
-        self, webhook: GithubWebhook, payload: dict[str, Any], event_type: str = "issue_comment"
+        self,
+        webhook: GithubWebhook,
+        payload: dict[str, Any],
+        event_type: str = "issue_comment",
+        api_users: tuple[str | None, ...] = (),
     ) -> Mock:
         """Run process() on a commit-less PR and return the mocked pull request."""
         ctx = self._prepare_webhook(webhook, payload, event_type=event_type)
@@ -3793,6 +3797,7 @@ class TestPullRequestWithoutCommits:
 
         with (
             patch("asyncio.to_thread", side_effect=self._to_thread_inline),
+            patch.object(webhook, "get_api_users", new=AsyncMock(return_value=list(api_users))),
             patch.object(webhook, "get_pull_request", new=AsyncMock(return_value=mock_pr)),
             patch.object(webhook, "_clone_repository", new=AsyncMock()) as mock_clone,
             patch("webhook_server.libs.github_api.IssueCommentHandler") as mock_issue_comment_handler,
@@ -3920,7 +3925,8 @@ class TestPullRequestWithoutCommits:
     @pytest.mark.parametrize(
         ("action", "body", "sender", "expect_notice"),
         [
-            # api_user is set to "myakove-bot" in the test body: another human still gets the notice
+            # api_users is set to {"myakove-bot", "deadlock1bot"} in the test body: another human
+            # still gets the notice
             pytest.param("created", "/assign-reviewers", "myakove", True, id="command-from-other-human"),
             pytest.param(
                 "created",
@@ -3931,13 +3937,22 @@ class TestPullRequestWithoutCommits:
             ),
             pytest.param("created", "/assign-reviewers", "myakove-bot[bot]", False, id="app-bot-sender"),
             # This deployment posts as "myakove-bot" - a token user with no "[bot]" suffix.
-            # Answering it would loop on our own notice, so the api_user login is excluded too.
+            # Answering it would loop on our own notice, so the api_users logins are excluded too.
             pytest.param(
                 "created",
                 "/assign-reviewers",
                 "myakove-bot",
                 False,
                 id="sender-is-api-user-without-[bot]-suffix-is-not-answered",
+            ),
+            # Regression: a second configured token must count as us even when the other
+            # token was the one selected for this delivery by rate limit.
+            pytest.param(
+                "created",
+                "/wip",
+                "deadlock1bot",
+                False,
+                id="sender-is-non-selected-token-user-is-not-answered",
             ),
             pytest.param("edited", "/assign-reviewers", "myakove", False, id="edited-comment"),
             pytest.param("deleted", "/assign-reviewers", "myakove", False, id="deleted-comment"),
@@ -3952,10 +3967,11 @@ class TestPullRequestWithoutCommits:
         expect_notice: bool,
     ) -> None:
         """Only a freshly created command from someone other than us earns the no-commits notice."""
-        process_github_webhook.api_user = "myakove-bot"
         payload = self._issue_comment_payload(body=body, sender=sender, action=action)
 
-        mock_pr = await self._process_empty_pr(process_github_webhook, payload)
+        mock_pr = await self._process_empty_pr(
+            process_github_webhook, payload, api_users=("myakove-bot", "deadlock1bot")
+        )
 
         if expect_notice:
             mock_pr.create_issue_comment.assert_called_once_with(
@@ -4016,26 +4032,32 @@ class TestPullRequestWithoutCommits:
         assert process_github_webhook._should_answer_empty_pr_command() is True
 
     @pytest.mark.parametrize(
-        ("api_user", "sender", "expected"),
+        ("api_users", "sender", "expected"),
         [
-            pytest.param("myakove-bot", "myakove-bot", False, id="sender-is-api-user"),
-            pytest.param("myakove-bot", "MyAkove-Bot", False, id="sender-is-api-user-different-casing"),
-            pytest.param("myakove-bot", "myakove", True, id="sender-is-different-user"),
-            pytest.param("", "myakove-bot", True, id="empty-api-user-bare-bot-name-is-answered"),
-            pytest.param("", "app[bot]", False, id="empty-api-user-bot-suffix-still-decides"),
+            pytest.param({"myakove-bot"}, "myakove-bot", False, id="sender-is-api-user"),
+            pytest.param({"myakove-bot"}, "MyAkove-Bot", False, id="sender-is-api-user-different-casing"),
+            pytest.param({"myakove-bot"}, "myakove", True, id="sender-is-different-user"),
+            pytest.param(
+                {"myakove-bot", "deadlock1bot"},
+                "deadlock1bot",
+                False,
+                id="sender-is-non-selected-token-user",
+            ),
+            pytest.param(set(), "myakove-bot", True, id="no-api-users-bare-bot-name-is-answered"),
+            pytest.param(set(), "app[bot]", False, id="no-api-users-bot-suffix-still-decides"),
         ],
     )
     def test_should_answer_empty_pr_command_never_answers_api_user(
         self,
         process_github_webhook: GithubWebhook,
-        api_user: str,
+        api_users: set[str],
         sender: str,
         expected: bool,
     ) -> None:
-        """The api_user login is treated as us, case-insensitively; empty api_user disables that rule."""
+        """Every configured token login is treated as us, case-insensitively."""
         webhook = process_github_webhook
         webhook.github_event = "issue_comment"
-        webhook.api_user = api_user
+        webhook.api_users = api_users
         webhook.hook_data = self._issue_comment_payload(body="/review", sender=sender)
 
         assert webhook._should_answer_empty_pr_command() is expected
