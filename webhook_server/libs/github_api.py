@@ -151,6 +151,8 @@ class GithubWebhook:
         self.repository_by_github_app: Repository
         self.token: str
         self.api_user: str = ""
+        # Every configured token login (lowercased) — all of them are "us" when answering comments.
+        self.api_users: set[str] = set()
         self.current_pull_request_supported_retest: list[str] = []
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
@@ -634,6 +636,7 @@ class GithubWebhook:
 
         # Initialize auto-verified users from API users (async operation)
         api_users = await self.get_api_users()
+        self.api_users = {user.lower() for user in api_users if user}
         self.auto_verified_and_merged_users.extend(user for user in api_users if user is not None)
 
         # Initialize app bot login for bot-PR identification (async)
@@ -750,15 +753,43 @@ class GithubWebhook:
                     "configured, processing issue_comment"
                 )
 
-            self.last_commit = await self._get_last_commit(pull_request=pull_request)
+            last_commit = await self._get_last_commit(pull_request=pull_request)
+            if last_commit is None:
+                # GitHub allows a PR whose head is level with the base branch: no commits, nothing to process.
+                self.logger.warning(f"{self.log_prefix} Pull request has no commits, nothing to process")
+                if self._should_answer_empty_pr_command():
+                    # Commands cannot run without commits, so tell the commenter instead of skipping silently.
+                    # Best-effort: a missing issue-write permission must not fail the webhook again.
+                    try:
+                        await github_api_call(
+                            pull_request.create_issue_comment,
+                            "This pull request has no commits, so commands are not processed.",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
+                    except GithubException as ex:
+                        self.logger.warning(
+                            f"{self.log_prefix} Could not post no-commits notice to the pull request "
+                            f"(status {ex.status}): {ex}",
+                            exc_info=True,
+                        )
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"empty PR (skipped) - {token_metrics}",
+                )
+                await self._update_context_metrics()
+                return None
+
+            self.last_commit = last_commit
             self.parent_committer = pull_request.user.login
             self.last_committer = await github_api_call(
-                lambda: getattr(self.last_commit.committer, "login", "unknown") or "unknown",
+                lambda: getattr(last_commit.committer, "login", "unknown") or "unknown",
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
             self.last_committer_id = await github_api_call(
-                lambda: getattr(self.last_commit.committer, "id", 0),
+                lambda: getattr(last_commit.committer, "id", 0),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
@@ -1694,13 +1725,53 @@ class GithubWebhook:
 
         return unresolved_threads
 
-    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
+    async def _get_last_commit(self, pull_request: PullRequest) -> Commit | None:
+        """Return the last commit of the pull request, or None if it has no commits.
+
+        A PR whose head branch is level with its base branch can legitimately have zero
+        commits; callers must treat None as "nothing to process".
+        """
         commits = await github_api_call(
             lambda: list(pull_request.get_commits()),
             logger=self.logger,
             log_prefix=self.log_prefix,
         )
+        if not commits:
+            pr_number = await github_api_call(
+                lambda: pull_request.number, logger=self.logger, log_prefix=self.log_prefix
+            )
+            self.logger.warning(f"{self.log_prefix} Pull request #{pr_number} has no commits")
+            return None
+
         return commits[-1]
+
+    def _should_answer_empty_pr_command(self) -> bool:
+        """Return True when an empty PR's webhook should get a no-commits notice.
+
+        All four conditions are required:
+
+        1. ``self.github_event == "issue_comment"`` - only a comment can ask for something.
+        2. ``self.hook_data["action"] == "created"`` - edits and deletions are not commands.
+        3. the comment body (stripped) starts with ``/`` - only real commands are answered.
+        4. the sender is not us - our own comments must never be answered. Our notice is
+           itself a created ``issue_comment``, so answering it would loop until the API
+           quota burns (observed: 59 duplicated notices). Two identities count as us:
+           a login ending with ``[bot]`` (GitHub App comments) and any login in
+           ``self.api_users`` (every configured token identity, not just the one token
+           selected for this delivery by rate limit).
+
+        The command and self exclusions are what stop that loop; the notice is skipped
+        silently for prose and for our own comments.
+        """
+        comment_body = self.hook_data.get("comment", {}).get("body") or ""
+        sender_login = str(self.hook_data.get("sender", {}).get("login", ""))
+        return (
+            self.github_event == "issue_comment"
+            and self.hook_data.get("action") == "created"
+            and comment_body.strip().startswith("/")
+            and not sender_login.endswith("[bot]")
+            and sender_login.lower() not in self.api_users
+        )
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:
