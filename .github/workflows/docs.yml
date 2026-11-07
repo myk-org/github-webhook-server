@@ -12,7 +12,9 @@ on:
       # Any docs change, not just .md: the migration that removes the committed output touches
       # only generated paths, and it must still deploy.
       - "docs/**"
-  # Manual run: re-deploy after a failed run, and kick a deploy when no push produced one.
+  # Manual re-run only — it is not how the first deploy happens: the merge that removes the
+  # committed output deletes docs/**, which matches the paths filter above, so that push deploys.
+  # This trigger exists for re-deploying after a failed run.
   workflow_dispatch:
 
 concurrency:
