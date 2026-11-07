@@ -12,6 +12,10 @@ on:
       # Any docs change, not just .md: the migration that removes the committed output touches
       # only generated paths, and it must still deploy.
       - "docs/**"
+      # The renderer pin lives in this file, so a pin bump touches neither `docs/**` nor a source
+      # page — without this entry that merge would deploy nothing and Pages would keep serving
+      # output from the previous renderer until some later docs change.
+      - ".github/workflows/docs.yml"
   # Manual re-run only — it is not how the first deploy happens: the merge that removes the
   # committed output deletes docs/**, which matches the paths filter above, so that push deploys.
   # This trigger exists for re-deploying after a failed run.
