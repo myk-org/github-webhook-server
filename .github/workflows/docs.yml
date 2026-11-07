@@ -53,7 +53,7 @@ jobs:
         run: >-
           uvx pi-docsite==4.18.0 --docs-dir docs
           --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
