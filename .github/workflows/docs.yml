@@ -12,11 +12,15 @@ on:
       # Any docs change, not just .md: the migration that removes the committed output touches
       # only generated paths, and it must still deploy.
       - "docs/**"
-  # The first deploy after Pages is switched to build_type=workflow has no push to ride on.
+  # Manual run: re-deploy after a failed run, and kick a deploy when no push produced one.
   workflow_dispatch:
 
 concurrency:
-  group: docs
+  # Scoped by ref, not a single `docs` group: `concurrency` is evaluated before the job-level
+  # main-only conditions, so a shared group let a `workflow_dispatch` on a branch cancel a live
+  # main deployment — and then skip both jobs, leaving the merged docs unpublished until the next
+  # run. A branch dispatch now only ever cancels itself.
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -25,8 +29,7 @@ permissions:
 jobs:
   build:
     # workflow_dispatch accepts any ref, so without this guard `gh workflow run docs.yml --ref
-    # some-branch` would publish that branch's docs/ to the live Pages site. Deploying is main-only;
-    # a manual run is still how the first deploy after the Pages switch is triggered.
+    # some-branch` would publish that branch's docs/ to the live Pages site. Deploying is main-only.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Building needs nothing but the sources: publish rights live on the deploy job alone, so
@@ -37,11 +40,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - name: Build site from docs/*.md
-        # Always the newest release: docs should not wait on a bump commit, and this job holds no
-        # publish rights (they are on `deploy`), so the blast radius of a bad upstream upload is a
-        # failed build, not a compromised deployment.
+        # Pinned, not `@latest`: this step's output is what `deploy` publishes, so the renderer is a
+        # build tool — an unpinned release lets a new (or compromised) upstream version replace the
+        # live site with no commit here to review, and it makes "a rebuild reproduces the site"
+        # untestable across versions. Bump the pin deliberately.
         run: >-
-          uvx pi-docsite@latest --docs-dir docs
+          uvx pi-docsite==4.18.0 --docs-dir docs
           --tagline "Keep GitHub pull requests moving with automated checks, approvals, labels, cherry-picks, and release workflows."
       - uses: actions/upload-pages-artifact@v3
         with:
