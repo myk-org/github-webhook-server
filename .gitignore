@@ -170,3 +170,12 @@ sidecar-helper/dist/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# pi-docsite build output — built and deployed by .github/workflows/docs.yml, never committed.
+# Only docs/**/*.md and docs/nav.json are sources; docs-guard.yml rejects the rest.
+docs/*.html
+docs/assets/
+docs/.nojekyll
+docs/llms.txt
+docs/llms-full.txt
+docs/search-index.json
