@@ -211,6 +211,8 @@ repositories:
       build-args: # build args to send to podman build command
         - my-build-arg1=1
         - my-build-arg2=2
+        # Placeholders: {revision}, {tag}, {created}, {repo}, {pr_number}
+        - GIT_COMMIT={revision}
       args: # args to send to podman build command
         - --format docker
       oci-annotations: # OCI image annotations (https://github.com/opencontainers/image-spec/blob/main/annotations.md)

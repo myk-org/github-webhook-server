@@ -334,6 +334,8 @@ Builds the container image for the PR and pushes it, tagged with the PR number. 
 /build-and-push-container --build-arg KEY=value
 ```
 
+Build-arg values may use the same placeholders as `container.build-args` — `{revision}`, `{tag}`, `{created}`, `{repo}`, `{pr_number}` — substituted with plain string replacement, never a shell.
+
 If the repository has no container build configured, the server replies
 *"No build-and-push-container configured for this repository"*. No permission check is applied.
 
