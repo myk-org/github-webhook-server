@@ -58,6 +58,7 @@ container:
   release: true # Push on new releases
   build-args:
     - "BUILD_ARG=value"
+    - "GIT_COMMIT={revision}" # Placeholders: {revision}, {tag}, {created}, {repo}, {pr_number}
   args:
     - "--platform=linux/amd64"
 

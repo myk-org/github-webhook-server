@@ -454,7 +454,10 @@ properties:
               type: array
               items:
                 type: string
-              description: Build arguments for container build
+              description: |
+                Build arguments for container build. Entries may contain the
+                placeholders {revision}, {tag}, {created}, {repo} and
+                {pr_number}, substituted without shell evaluation.
             args:
               type: array
               items:

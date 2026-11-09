@@ -211,6 +211,7 @@ repositories:
       release: true
       build-args:
         - PYTHON_VERSION=3.14
+        - GIT_COMMIT={revision}
       args:
         - --log-level=debug
       oci-annotations:
@@ -235,11 +236,23 @@ Keys, exactly as the server reads them:
 | `context` | `""` (repo root) | Build context subdirectory. Schema restricts it to `[a-zA-Z0-9._/-]*`. |
 | `tag` | `latest` | Tag for post-merge builds on the main branches. |
 | `release` | `false` | Build and push an image when a tag is pushed. |
-| `build-args` | `[]` | Each entry becomes a `--build-arg` flag. |
+| `build-args` | `[]` | Each entry becomes a `--build-arg` flag. Supports `{revision}`, `{tag}`, `{created}`, `{repo}` and `{pr_number}` placeholders. |
 | `args` | `[]` | Extra flags prepended to the `podman build` command. |
 | `oci-annotations` | disabled | See below. |
 
 `build-args` and `args` also accept a single string, which is split with `shlex`; anything that is neither a string nor a list is ignored. `username`, `password`, and `repository` are read as required keys — a `container` block missing any of them raises on load, so it is all-or-nothing. `dockerfile` is read by the server even though the schema does not list it, so set it there and it will be honoured.
+
+`build-args` entries — and values passed on `/build-and-push-container --build-arg` — may contain placeholders, resolved with plain string replacement (never a shell):
+
+| Placeholder | Value |
+| --- | --- |
+| `{revision}` | The PR head SHA, the merge SHA for a merged build, or the pushed commit SHA when neither applies. |
+| `{tag}` | The image tag being built (`pr-<number>`, the base branch, or the configured/release tag). |
+| `{created}` | The build timestamp, `YYYY-MM-DDTHH:MM:SSZ`, identical to the `created` OCI annotation. |
+| `{repo}` | Repository full name, `owner/name`. |
+| `{pr_number}` | PR number, empty when the build is not for a PR. |
+
+An unknown placeholder is left literal and logged as a warning, so a typo is visible in the build log instead of becoming an empty build arg. `$(...)`, backticks and `;` are passed through unchanged.
 
 Tag selection, from `container_repository_and_tag()`:
 

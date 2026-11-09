@@ -1,4 +1,5 @@
 import asyncio
+import re
 import shlex
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
@@ -4026,3 +4027,134 @@ class TestCherryPickPreCommitAutoFix:
             mock_set_failure.assert_called()
             mock_set_success.assert_not_called()
             assert any("git add" in str(call).lower() for call in mock_pull_request.create_issue_comment.call_args_list)
+
+
+class TestBuildArgPlaceholders:
+    """Test suite for container.build-args placeholder substitution."""
+
+    @staticmethod
+    def _handler() -> RunnerHandler:
+        webhook = Mock()
+        webhook.logger = Mock()
+        webhook.log_prefix = "[TEST]"
+        return RunnerHandler(webhook, Mock())
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("GIT_COMMIT={revision}", "GIT_COMMIT=sha-123"),
+            ("GIT_REF={tag} BUILT_AT={created}", "GIT_REF=v1.0 BUILT_AT=2024-01-01T00:00:00Z"),
+            ("REPO={repo} PR={pr_number}", "REPO=org/repo PR=42"),
+            ("CMD=$(id) `id` ; echo", "CMD=$(id) `id` ; echo"),
+        ],
+    )
+    def test_substitutes_known_placeholders_without_shell(self, value: str, expected: str) -> None:
+        handler = self._handler()
+
+        result = handler._substitute_build_arg_placeholders(
+            value,
+            {
+                "revision": "sha-123",
+                "tag": "v1.0",
+                "created": "2024-01-01T00:00:00Z",
+                "repo": "org/repo",
+                "pr_number": "42",
+            },
+        )
+
+        assert result == expected
+
+    def test_unknown_placeholder_stays_literal_and_logs_warning(self) -> None:
+        handler = self._handler()
+
+        result = handler._substitute_build_arg_placeholders("KEY={revison}", {"revision": "sha-123"})
+
+        assert result == "KEY={revison}"
+        handler.logger.warning.assert_called_once()
+        assert "{revison}" in handler.logger.warning.call_args.args[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("is_merged", "annotations_enabled", "expected_revision", "image_ref", "expected_tag"),
+        [
+            (False, True, "pr-head-sha", "registry/repo:pr-123", "pr-123"),
+            (True, True, "merge-sha", "registry/repo:main", "main"),
+            (False, False, "pr-head-sha", "registry/repo:pr-123", "pr-123"),
+        ],
+    )
+    async def test_build_command_gets_resolved_placeholders(
+        self,
+        is_merged: bool,
+        annotations_enabled: bool,
+        expected_revision: str,
+        image_ref: str,
+        expected_tag: str,
+    ) -> None:
+        webhook = Mock()
+        webhook.logger = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.repository_full_name = "org/repo"
+        webhook.dockerfile = "Dockerfile"
+        webhook.container_context = ""
+        webhook.container_build_args = [
+            "GIT_COMMIT={revision}",
+            "GIT_REF={tag}",
+            "REPO={repo}",
+            "PR={pr_number}",
+            "BUILT_AT={created}",
+        ]
+        webhook.container_command_args = []
+        webhook.pypi = {}
+        webhook.token = ""
+        webhook.container_repository_username = ""
+        webhook.container_repository_password = ""
+        webhook.container_oci_annotations_enabled = annotations_enabled
+        webhook.container_oci_static_annotations = {}
+        webhook.container_oci_auto_annotations = {
+            "created": True,
+            "source": True,
+            "revision": True,
+            "version": True,
+            "title": True,
+        }
+        webhook.container_repository_and_tag = Mock(return_value=image_ref)
+        handler = RunnerHandler(webhook, Mock())
+
+        pull_request = Mock()
+        pull_request.number = 123
+        pull_request.head.sha = "pr-head-sha"
+        pull_request.merge_commit_sha = "merge-sha"
+
+        checkout_cm = AsyncMock()
+        checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+        checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(handler, "_checkout_worktree", return_value=checkout_cm),
+            patch.object(
+                handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as run_podman,
+            patch(
+                "asyncio.to_thread", new=AsyncMock(side_effect=lambda fn, *a, **kw: fn(*a, **kw) if a or kw else fn())
+            ),
+        ):
+            await handler.run_build_container(
+                pull_request=pull_request,
+                is_merged=is_merged,
+                set_check=False,
+                command_args="--build-arg FROM_COMMAND={revision}",
+            )
+
+        command = run_podman.call_args.kwargs["command"]
+        assert f"--build-arg GIT_COMMIT={expected_revision}" in command
+        assert f"--build-arg GIT_REF={expected_tag}" in command
+        assert "--build-arg REPO=org/repo" in command
+        assert "--build-arg PR=123" in command
+        assert f"--build-arg FROM_COMMAND={expected_revision}" in command
+        if annotations_enabled:
+            assert f"org.opencontainers.image.revision={expected_revision}" in command
+            created_annotation = re.search(r"org\.opencontainers\.image\.created=(\S+)", command)
+            assert created_annotation is not None
+            assert f"BUILT_AT={created_annotation.group(1)}" in command
+        else:
+            assert "org.opencontainers.image" not in command

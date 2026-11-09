@@ -521,7 +521,7 @@ Where: `Repo/local`
 | `container.repository` | `string` | none | Full image repository name. Required when the `container` block is present. | Target image repository for builds and pushes. |
 | `container.tag` | `string` | `latest` | Default main/master release tag. | Used for merged PRs targeting `main` or `master`; PR builds use `pr-<number>`. |
 | `container.release` | `boolean` | `false` | Push images on release/tag workflows. | Enables publish behavior in release flows. |
-| `container.build-args` | `array<string>` | `[]` | Build arguments passed to the container build command. | Adds `--build-arg` inputs to the build. |
+| `container.build-args` | `array<string>` | `[]` | Build arguments passed to the container build command. Supports the `{revision}`, `{tag}`, `{created}`, `{repo}` and `{pr_number}` placeholders. | Adds `--build-arg` inputs to the build. |
 | `container.args` | `array<string>` | `[]` | Extra build command arguments. | Appends additional arguments such as `--platform` or `--pull`. |
 | `container.context` | `string` | empty string | Build context subdirectory, relative to repo root. Allowed characters: letters, numbers, `.`, `_`, `-`, `/`. | Uses the given subdirectory as the build context. |
 | `container.dockerfile` | `string` | `Dockerfile` | Dockerfile path. Supported by the runtime even though it is not declared in the schema. | Selects the Dockerfile used for the build. |
@@ -535,6 +535,8 @@ container:
   release: true
   build-args:
     - VERSION=1.2.3
+    - GIT_COMMIT={revision}
+    - GIT_REF={tag}
   args:
     - --platform=linux/amd64
   context: src/app

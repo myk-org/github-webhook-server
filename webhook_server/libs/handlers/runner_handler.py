@@ -45,6 +45,9 @@ if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
 
+_BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
 @dataclass(frozen=True, slots=True)
 class CheckConfig:
     """Configuration for a check run.
@@ -582,10 +585,27 @@ class RunnerHandler:
                 output={"title": "Security check error", "summary": "Unexpected error during check", "text": None},
             )
 
+    def _substitute_build_arg_placeholders(self, value: str, placeholders: dict[str, str]) -> str:
+        """Replace ``{name}`` placeholders in a build argument using plain string replacement.
+
+        No shell evaluation happens here: ``$(...)``, backticks and ``;`` stay literal.
+        An unknown placeholder is left as-is and logged, so a typo is visible in the
+        build log instead of silently becoming an empty build arg.
+        """
+        for unknown in _BUILD_ARG_PLACEHOLDER_RE.findall(value):
+            if unknown not in placeholders:
+                self.logger.warning(
+                    f"{self.log_prefix} Unknown container build-arg placeholder '{{{unknown}}}' left literal"
+                )
+        for name, replacement in placeholders.items():
+            value = value.replace(f"{{{name}}}", replacement)
+        return value
+
     def _build_oci_annotations(
         self,
         revision: str | None = None,
         tag: str = "",
+        created: str | None = None,
     ) -> str:
         """Build shell-quoted OCI annotation flags for a podman build command.
 
@@ -597,6 +617,8 @@ class RunnerHandler:
                 static revision annotation may override the generated revision.
             tag: Non-empty tag used as the OCI version only when automatic
                 version annotations are enabled.
+            created: Build timestamp shared with build-arg placeholders; defaults
+                to the current UTC time in OCI format.
 
         Returns:
             Space-separated, shell-quoted ``--annotation`` flags, or an empty
@@ -611,7 +633,9 @@ class RunnerHandler:
 
         # Auto-populated annotations
         if auto.get("created", True):
-            annotations["org.opencontainers.image.created"] = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            annotations["org.opencontainers.image.created"] = created or datetime.now(tz=UTC).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
 
         if auto.get("source", True):
             annotations["org.opencontainers.image.source"] = (
@@ -672,7 +696,10 @@ class RunnerHandler:
             and not has_static_revision
         )
         revision: str | None = None
-        if pull_request and (is_merged or auto_revision_enabled):
+        needs_revision = auto_revision_enabled or any(
+            "{revision}" in value for value in (*self.github_webhook.container_build_args, command_args)
+        )
+        if pull_request and (is_merged or needs_revision):
             revision = await github_api_call(
                 lambda: pull_request.merge_commit_sha if is_merged else pull_request.head.sha,
                 logger=self.logger,
@@ -702,6 +729,14 @@ class RunnerHandler:
             pull_request=pull_request, is_merged=is_merged, tag=tag
         )
         no_cache: str = " --no-cache" if is_merged else ""
+        created = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        build_arg_placeholders: dict[str, str] = {
+            "revision": revision or (self.github_webhook.hook_data.get("head_commit") or {}).get("id") or "",
+            "tag": _container_repository_and_tag.rsplit(":", 1)[-1] if _container_repository_and_tag else tag,
+            "created": created,
+            "repo": self.github_webhook.repository_full_name,
+            "pr_number": str(pull_request.number) if pull_request else "",
+        }
 
         async with self._checkout_worktree(
             pull_request=pull_request,
@@ -751,19 +786,24 @@ class RunnerHandler:
                 f"{build_context} -t {_container_repository_and_tag}"
             )
 
-            oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag)
+            oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag, created=created)
             if oci_annotation_flags:
                 build_cmd = f"{oci_annotation_flags} {build_cmd}"
 
             if self.github_webhook.container_build_args:
-                build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)
+                build_args = " ".join(
+                    f"--build-arg {self._substitute_build_arg_placeholders(arg, build_arg_placeholders)}"
+                    for arg in self.github_webhook.container_build_args
+                )
                 build_cmd = f"{build_args} {build_cmd}"
 
             if self.github_webhook.container_command_args:
                 build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
 
             if command_args:
-                build_cmd = f"{command_args} {build_cmd}"
+                build_cmd = (
+                    f"{self._substitute_build_arg_placeholders(command_args, build_arg_placeholders)} {build_cmd}"
+                )
 
             podman_build_cmd: str = f"podman build {build_cmd}"
             self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
