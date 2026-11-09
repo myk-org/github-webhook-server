@@ -4158,3 +4158,60 @@ class TestBuildArgPlaceholders:
             assert f"BUILT_AT={created_annotation.group(1)}" in command
         else:
             assert "org.opencontainers.image" not in command
+
+    def test_command_placeholders_only_in_build_arg_values(self) -> None:
+        handler = self._handler()
+
+        result = handler._substitute_command_build_args(
+            "--label example={tag} --build-arg KEY={tag} --build-arg=OTHER={tag}", {"tag": "pr-1"}
+        )
+
+        assert shlex.split(result) == [
+            "--label",
+            "example={tag}",
+            "--build-arg",
+            "KEY=pr-1",
+            "--build-arg=OTHER=pr-1",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_created_placeholder_matches_static_annotation(self) -> None:
+        webhook = Mock()
+        webhook.logger = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.repository_full_name = "org/repo"
+        webhook.repository_name = "repo"
+        webhook.hook_data = {}
+        webhook.dockerfile = "Dockerfile"
+        webhook.container_context = ""
+        webhook.container_build_args = ["AT={created}"]
+        webhook.container_command_args = []
+        webhook.pypi = {}
+        webhook.token = ""
+        webhook.container_repository_username = ""
+        webhook.container_repository_password = ""
+        webhook.container_oci_annotations_enabled = True
+        webhook.container_oci_static_annotations = {"org.opencontainers.image.created": "2020-01-01T00:00:00Z"}
+        webhook.container_oci_auto_annotations = {"created": True}
+        webhook.container_repository_and_tag = Mock(return_value="registry/repo:pr-123")
+        handler = RunnerHandler(webhook, Mock())
+
+        pull_request = Mock()
+        pull_request.number = 123
+        pull_request.head.sha = "pr-head-sha"
+
+        checkout_cm = AsyncMock()
+        checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+        checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(handler, "_checkout_worktree", return_value=checkout_cm),
+            patch.object(
+                handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as run_podman,
+        ):
+            await handler.run_build_container(pull_request=pull_request, set_check=False)
+
+        command = run_podman.call_args.kwargs["command"]
+        assert "--build-arg AT=2020-01-01T00:00:00Z" in command
+        assert "org.opencontainers.image.created=2020-01-01T00:00:00Z" in command
