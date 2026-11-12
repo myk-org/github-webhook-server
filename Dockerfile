@@ -7,7 +7,7 @@ COPY sidecar-helper/ .
 RUN npx tsc
 RUN npm prune --omit=dev
 
-FROM quay.io/podman/stable:v5
+FROM quay.io/podman/stable:v6
 
 EXPOSE 5000
 EXPOSE 5001
