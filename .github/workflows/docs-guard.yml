@@ -22,7 +22,7 @@ jobs:
     steps:
       # Default ref of pull_request_target is the base branch. fetch-depth: 0 keeps its full
       # history so the merge base with the PR head exists locally.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Fetch the pull request head
