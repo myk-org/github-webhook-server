@@ -41,7 +41,7 @@ repos:
       - id: detect-secrets
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.4
+    rev: v0.17.5
     hooks:
       - id: ruff
       - id: ruff-format
@@ -60,7 +60,7 @@ repos:
           [types-requests, types-PyYAML, types-colorama, types-aiofiles, types-Markdown]
 
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.14.0
+    rev: v10.15.0
     hooks:
       - id: eslint
         files: \.js$
