@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import fcntl
 import os
 import re
 import shlex
@@ -9,7 +10,8 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
 
 import shortuuid
 from github import GithubException
@@ -49,9 +51,16 @@ if TYPE_CHECKING:
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
+
 # (repository_full_name, pr_number) -> (sha, build task). A new commit for the same PR cancels the
 # build still running on the obsolete sha instead of letting both compete for CPU.
-_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, int], tuple[str, Task[None]]] = {}
+class _ActiveBuild(NamedTuple):
+    sha: str
+    task: Task[None]
+    push: bool = False
+
+
+_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, int], _ActiveBuild] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -704,6 +713,30 @@ class RunnerHandler:
         annotations = self._oci_annotation_values(revision=revision, tag=tag, created=created)
         return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
 
+    @staticmethod
+    def _build_lock_path(build_key: tuple[str, int]) -> str:
+        """Return the cross-worker lock path for one PR's container build."""
+        repository, pr_number = build_key
+        safe_repository = re.sub(r"[^A-Za-z0-9_.-]", "_", repository)
+        return f"/tmp/webhook-container-build-{safe_repository}-pr{pr_number}.lock"
+
+    @staticmethod
+    def _acquire_build_lock(lock_path: str) -> TextIO | None:
+        """Take the build lock without blocking; None means another worker holds it."""
+        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock_file.close()
+            return None
+        return lock_file
+
+    @staticmethod
+    def _release_build_lock(lock_file: TextIO) -> None:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
+
     async def _complete_queued_build_check(self) -> None:
         """Close every build-container check run queued on the current commit as neutral.
 
@@ -822,49 +855,78 @@ class RunnerHandler:
 
         build_key: tuple[str, int] | None = None
         build_sha: str = revision or ""
+        current_head_sha: str = ""
         if pull_request and not is_merged and not tag:
             build_key = (self.github_webhook.repository_full_name, pull_request.number)
+            head_sha: str = (
+                await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
+                or ""
+            )
+            current_head_sha = head_sha
             if not build_sha:
-                build_sha = (
-                    await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
-                    or ""
-                )
+                build_sha = head_sha
+            if not build_sha:
+                # Never let an unresolvable sha switch deduplication off silently
+                build_sha = self.github_webhook.last_commit.sha if self.github_webhook.last_commit else ""
+                if build_sha:
+                    self.logger.warning(
+                        f"{self.log_prefix} Could not resolve the PR head sha for #{pull_request.number}, "
+                        f"using the last commit {build_sha} for build deduplication"
+                    )
+                else:
+                    self.logger.warning(
+                        f"{self.log_prefix} Could not resolve any sha for #{pull_request.number}; "
+                        "build deduplication is disabled for this build"
+                    )
         current_task = asyncio.current_task()
         superseded_task: Task[None] | None = None
         # A push that cancels the active same-commit build takes over its check run: the cancelled
         # build leaves the run in_progress, so the surviving build has to conclude it.
         took_over_check = False
         skip_duplicate = False
-        # Read and claim happen in one event-loop turn (no await in between), so two events for the
-        # same PR cannot both pass the guard and overwrite each other's registry slot.
-        if build_key is not None and build_sha:
-            active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
-            if active is not None and not active[1].done():
-                active_sha, active_task = active
-                if active_sha == build_sha and not push:
-                    self.logger.info(
-                        f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
-                        "skipping duplicate build"
-                    )
-                    skip_duplicate = True
-                else:
-                    if active_sha == build_sha:
-                        self.logger.info(
-                            f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active_sha}: "
-                            "an explicit push was requested for the same commit"
-                        )
-                        took_over_check = True
-                    else:
-                        self.logger.info(
-                            f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
-                            f"{active_sha}, new commit is {build_sha}"
-                        )
-                    active_task.cancel()
-                    superseded_task = active_task
-            if not skip_duplicate and current_task is not None:
-                _ACTIVE_CONTAINER_BUILDS[build_key] = (build_sha, current_task)
-
+        build_lock: TextIO | None = None
         try:
+            # Read and claim happen in one event-loop turn (no await in between), so two events for
+            # the same PR cannot both pass the guard and overwrite each other's registry slot.
+            if build_key is not None and build_sha:
+                active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+                if active is not None and not active.task.done():
+                    is_current_head = not current_head_sha or build_sha == current_head_sha
+                    if not is_current_head:
+                        self.logger.info(
+                            f"{self.log_prefix} Event for {build_sha} is not the current head "
+                            f"({current_head_sha}), not cancelling the build for {active.sha}"
+                        )
+                        skip_duplicate = True
+                    elif active.push:
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} was started for an "
+                            "explicit push, not cancelling it"
+                        )
+                        skip_duplicate = True
+                    elif active.sha == build_sha and not push:
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
+                            "skipping duplicate build"
+                        )
+                        skip_duplicate = True
+                    else:
+                        if active.sha == build_sha:
+                            self.logger.info(
+                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active.sha}: "
+                                "an explicit push was requested for the same commit"
+                            )
+                            took_over_check = True
+                        else:
+                            self.logger.info(
+                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
+                                f"{active.sha}, new commit is {build_sha}"
+                            )
+                        active.task.cancel()
+                        superseded_task = active.task
+                if not skip_duplicate and current_task is not None:
+                    _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild(build_sha, current_task, push)
+
             if superseded_task is not None:
                 try:
                     await superseded_task
@@ -876,6 +938,20 @@ class RunnerHandler:
             if skip_duplicate:
                 await self._complete_queued_build_check()
                 return
+
+            # Cross-process claim, taken only once this process is about to build: another uvicorn
+            # worker holds the same flock while it builds, and flock conflicts with a second open()
+            # even in one process, so this must stay after the in-process supersede/takeover
+            # handling (which needs to see, and cancel, this process's own running build).
+            if build_key is not None and build_sha:
+                build_lock = self._acquire_build_lock(self._build_lock_path(build_key))
+                if build_lock is None:
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
+                        "another worker, skipping duplicate build"
+                    )
+                    await self._complete_queued_build_check()
+                    return
 
             if took_over_check:
                 set_check = True
@@ -1028,11 +1104,7 @@ class RunnerHandler:
                             )
 
                         if self.github_webhook.slack_webhook_url:
-                            message = f"""
-    ```
-    {self.github_webhook.repository_full_name} {push_msg}.
-    ```
-    """
+                            message = f"```\n{self.github_webhook.repository_full_name} {push_msg}.\n```\n"
                             send_slack_message(
                                 message=message,
                                 webhook_url=self.github_webhook.slack_webhook_url,
@@ -1058,11 +1130,7 @@ class RunnerHandler:
                             )
 
                         if self.github_webhook.slack_webhook_url:
-                            message = f"""
-    ```
-    {self.github_webhook.repository_full_name} {err_msg}.
-    ```
-                            """
+                            message = f"```\n{self.github_webhook.repository_full_name} {err_msg}.\n```\n"
                             send_slack_message(
                                 message=message,
                                 webhook_url=self.github_webhook.slack_webhook_url,
@@ -1080,8 +1148,10 @@ class RunnerHandler:
             # Only deregister ourselves: a cancelled build must not drop its replacement
             if build_key is not None:
                 stored = _ACTIVE_CONTAINER_BUILDS.get(build_key)
-                if stored is not None and stored[1] is current_task:
+                if stored is not None and stored.task is current_task:
                     del _ACTIVE_CONTAINER_BUILDS[build_key]
+            if build_lock is not None:
+                self._release_build_lock(build_lock)
 
     async def run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:

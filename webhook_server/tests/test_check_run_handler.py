@@ -1587,10 +1587,10 @@ class TestCheckRunHandler:
             assert result.count(BUILD_CONTAINER_STR) == 0
 
     @pytest.mark.asyncio
-    async def test_required_check_failed_or_no_status_in_progress_excluded(
+    async def test_required_check_failed_or_no_status_in_progress_blocks(
         self, check_run_handler: CheckRunHandler
     ) -> None:
-        """Test that checks in progress are excluded from failed checks list."""
+        """A required check still in progress blocks, and is reported as not started, not as failed."""
         mock_pull_request = Mock()
 
         # Setup: Failed check that is also in progress (being rerun)
@@ -1612,9 +1612,12 @@ class TestCheckRunHandler:
                 mock_pull_request, [mock_tox_check, mock_verified_check], [], check_runs_in_progress
             )
 
-            # Since tox is in progress, it should not appear in failed checks
-            # (it's being rerun, so we wait for new result)
-            assert result == "" or TOX_STR not in result
+            # The rerun blocks the merge: a merge must never slip through under a running check
+            assert "not started" in result
+            assert TOX_STR in result
+            # ...but it is not reported as a failure while the new result is pending
+            assert result.count(TOX_STR) == 1
+            assert VERIFIED_LABEL_STR not in result
 
     @pytest.mark.asyncio
     async def test_required_check_failed_or_no_status_can_be_merged_ignored(

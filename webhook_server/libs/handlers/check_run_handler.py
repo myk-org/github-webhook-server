@@ -61,13 +61,12 @@ GENERIC_ERROR_ANCHORS = ("error:", "Error:", "ERROR:")
 ERROR_ANCHOR_TIERS = (SECTION_ERROR_ANCHORS, TRACEBACK_ANCHORS, VERDICT_ANCHORS, GENERIC_ERROR_ANCHORS)
 # How far a verdict-line anchor reaches back for the explanation that precedes it.
 VERDICT_CONTEXT_LINES = 30
-# GitHub blocks a required check only on these conclusions; neutral and skipped are non-blocking, so
-# a build deduplicated as neutral must not gate the merge (a missing conclusion counts as blocking).
-BLOCKING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset({
-    FAILURE_STR,
-    "cancelled",
-    "timed_out",
-    "action_required",
+# A required check is satisfied only by these conclusions; every other value — including an
+# unfamiliar one such as `stale` — blocks the merge. A missing conclusion is blocking too.
+NON_BLOCKING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset({
+    SUCCESS_STR,
+    "neutral",
+    "skipped",
 })
 # The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
 # failures stay countable instead of being cut in the middle by a byte-counted tail.
@@ -710,9 +709,15 @@ class CheckRunHandler:
                 if check_run.name not in no_status_check_runs:
                     no_status_check_runs.append(check_run.name)
 
-            elif check_run.conclusion in BLOCKING_CHECK_CONCLUSIONS:
+            elif check_run.conclusion not in NON_BLOCKING_CHECK_CONCLUSIONS:
                 if check_run.name not in failed_check_runs:
                     failed_check_runs.append(check_run.name)
+
+        # A run still in progress always blocks, whatever other conclusion exists for the same
+        # name — a deduplicated duplicate must never let a merge through under a running build.
+        for in_progress_check in check_runs_in_progress:
+            if in_progress_check in required_checks and in_progress_check not in no_status_check_runs:
+                no_status_check_runs.append(in_progress_check)
 
         self.logger.debug(f"{self.log_prefix} no_status_check_runs after processing check runs: {no_status_check_runs}")
         self.logger.debug(f"{self.log_prefix} failed_check_runs after processing check runs: {failed_check_runs}")
