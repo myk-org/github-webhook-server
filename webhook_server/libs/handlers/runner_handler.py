@@ -8,7 +8,7 @@ import shlex
 import shutil
 import time
 from asyncio import Task
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -761,12 +761,24 @@ class RunnerHandler:
 
     @staticmethod
     def _pushed_marker_path(lock_path: str) -> str:
-        """Marker recording the commit a worker last published for this PR."""
+        """Marker recording what a worker last published for this PR."""
         return f"{lock_path}.pushed"
 
     @classmethod
-    def _was_pushed(cls, lock_path: str, build_sha: str) -> bool:
-        """True only for a recent push of this exact commit.
+    def _push_signature(cls, build_sha: str, command_args: str, container_build_args: Sequence[str]) -> str:
+        """Identify the image being published: the commit plus the extra build arguments.
+
+        ``command_args`` and the configured build args can change what is built from the same
+        commit, so a marker keyed on the sha alone would silently skip publishing a variant a
+        reviewer explicitly asked for.
+        """
+        extra_args = " ".join((*container_build_args, command_args))
+        digest = hashlib.sha1(extra_args.encode(), usedforsecurity=False).hexdigest()[:12]
+        return f"{build_sha}:{digest}"
+
+    @classmethod
+    def _was_pushed(cls, lock_path: str, signature: str) -> bool:
+        """True only for a recent push of this exact commit and build arguments.
 
         The marker expires after CONTAINER_COMMAND_TIMEOUT_SECONDS so a tag that was later pruned or
         overwritten in the registry can be published again instead of being skipped forever.
@@ -775,14 +787,14 @@ class RunnerHandler:
         try:
             if time.time() - marker.stat().st_mtime >= CONTAINER_COMMAND_TIMEOUT_SECONDS:
                 return False
-            return marker.read_text(encoding="utf-8").strip() == build_sha
+            return marker.read_text(encoding="utf-8").strip() == signature
         except OSError:
             return False
 
     @classmethod
-    def _record_pushed(cls, lock_path: str, build_sha: str) -> None:
+    def _record_pushed(cls, lock_path: str, signature: str) -> None:
         with contextlib.suppress(OSError):
-            Path(cls._pushed_marker_path(lock_path)).write_text(build_sha, encoding="utf-8")
+            Path(cls._pushed_marker_path(lock_path)).write_text(signature, encoding="utf-8")
 
     async def _acquire_build_lock_waiting(
         self, lock_path: str, timeout_seconds: int = CONTAINER_COMMAND_TIMEOUT_SECONDS
@@ -939,6 +951,7 @@ class RunnerHandler:
         current_task = asyncio.current_task()
         superseded_task: Task[None] | None = None
         wait_for_task: Task[None] | None = None
+        publish_wait_timed_out = False
         # A push that cancels the active same-commit build takes over its check run: the cancelled
         # build leaves the run in_progress, so the surviving build has to conclude it.
         took_over_check = False
@@ -1009,6 +1022,7 @@ class RunnerHandler:
                     # hang forever if it is stuck.
                     await asyncio.wait_for(asyncio.shield(wait_for_task), timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS)
                 except TimeoutError:
+                    publish_wait_timed_out = True
                     self.logger.error(
                         f"{self.log_prefix} The publishing {BUILD_CONTAINER_STR} did not finish within "
                         f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s; building {build_sha} anyway"
@@ -1027,36 +1041,42 @@ class RunnerHandler:
             # handling (which needs to see, and cancel, this process's own running build).
             if build_key is not None and build_sha:
                 build_lock = self._acquire_build_lock(self._build_lock_path(build_key))
-                if build_lock is None and (push or force):
-                    # An explicit push or retest must not be dropped just because another worker is
-                    # building: wait for it, then run ours.
+                if build_lock is None and (push or force or publish_wait_timed_out):
+                    # An explicit push/retest, or a build whose newer commit had to start after the
+                    # publishing build overran the wait, must not be dropped: wait for the lock.
                     self.logger.info(
                         f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
-                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run the requested "
-                        f"{'push' if push else 'retest'}"
+                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run "
+                        f"{'the requested push' if push else 'the requested retest' if force else 'this build'}"
                     )
                     build_lock = await self._acquire_build_lock_waiting(self._build_lock_path(build_key))
                 if build_lock is None:
-                    if push or force:
-                        # A requested push/retest that could not get the lock in time must fail
-                        # loudly: neutralising its check while nobody builds or pushes hides it.
-                        self.logger.error(
-                            f"{self.log_prefix} Timed out waiting for the running {BUILD_CONTAINER_STR} to "
-                            f"finish; the requested {'push' if push else 'retest'} for {build_sha} was not run"
+                    if push or force or publish_wait_timed_out:
+                        # A requested push/retest (or a build that was told to proceed) that could not
+                        # get the lock must fail loudly: neutralising its check while nobody builds or
+                        # pushes hides the failure from the requester.
+                        notify: str = (
+                            f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the build "
+                            f"already running for this PR; "
+                            f"{'the requested push' if push else 'the requested retest' if force else 'this build'} "
+                            f"for {build_sha} was not run"
                         )
+                        self.logger.error(f"{self.log_prefix} {notify}")
+                        if pull_request:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                notify,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
                         if pull_request and set_check:
                             await self.check_run_handler.set_check_failure(
                                 name=BUILD_CONTAINER_STR,
-                                output={
-                                    "title": "Build container",
-                                    "summary": "",
-                                    "text": (
-                                        f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the "
-                                        f"build already running for this PR; the requested "
-                                        f"{'push' if push else 'retest'} was not run"
-                                    ),
-                                },
+                                output={"title": "Build container", "summary": "", "text": notify},
                             )
+                        # The run this event queued must not stay queued forever, whichever check
+                        # conclusion (if any) was reported above.
+                        await self._complete_queued_build_check()
                         return
                     self.logger.info(
                         f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
@@ -1065,7 +1085,10 @@ class RunnerHandler:
                     await self._complete_queued_build_check()
                     return
 
-                if push and self._was_pushed(self._build_lock_path(build_key), build_sha):
+                if push and self._was_pushed(
+                    self._build_lock_path(build_key),
+                    self._push_signature(build_sha, command_args, self.github_webhook.container_build_args),
+                ):
                     # Another worker already published this exact commit while we waited.
                     self.logger.info(
                         f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was already "
@@ -1220,7 +1243,10 @@ class RunnerHandler:
                     if push_rc:
                         push_msg: str = f"New container for {_container_repository_and_tag} published"
                         if build_key is not None and build_sha:
-                            self._record_pushed(self._build_lock_path(build_key), build_sha)
+                            self._record_pushed(
+                                self._build_lock_path(build_key),
+                                self._push_signature(build_sha, command_args, self.github_webhook.container_build_args),
+                            )
                         if pull_request:
                             await github_api_call(
                                 pull_request.create_issue_comment,
