@@ -33,6 +33,9 @@ from webhook_server.utils.constants import (
 )
 from webhook_server.utils.helpers import run_command
 
+# Where a pushed-marker signature points when a test only cares that it differs or stays stable
+PUSH_DESTINATION = "ghcr.io/org/repo:latest:"
+
 
 @pytest.fixture(autouse=True)
 def clear_active_container_builds() -> Generator[None]:
@@ -124,6 +127,8 @@ class TestRunnerHandler:
         mock_webhook.build_and_push_container = True
         mock_webhook.pypi = {"token": "dummy"}
         mock_webhook.conventional_title = "feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert"
+        mock_webhook.container_repository = "ghcr.io/test/repo"
+        mock_webhook.container_tag = "latest"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
@@ -1239,24 +1244,27 @@ class TestRunnerHandler:
     def test_was_pushed_is_false_without_a_marker(self, tmp_path: Path, real_pushed_marker: None) -> None:
         """No marker on disk means the commit was not published yet."""
         lock_path = str(tmp_path / "pr-4.lock")
-        signature = RunnerHandler._push_signature("sha-wanted", "", [])
+        signature = RunnerHandler._push_signature("sha-wanted", "", [], PUSH_DESTINATION)
 
         assert RunnerHandler._was_pushed(lock_path, signature) is False
 
     def test_was_pushed_compares_the_recorded_signature(self, tmp_path: Path, real_pushed_marker: None) -> None:
         """The marker only matches the commit and build args it holds, so a newer commit is still pushed."""
         lock_path = str(tmp_path / "pr-5.lock")
-        recorded = RunnerHandler._push_signature("sha-recorded", "", [])
+        recorded = RunnerHandler._push_signature("sha-recorded", "", [], PUSH_DESTINATION)
 
         RunnerHandler._record_pushed(lock_path, recorded)
 
         assert RunnerHandler._was_pushed(lock_path, recorded) is True
-        assert RunnerHandler._was_pushed(lock_path, RunnerHandler._push_signature("sha-newer", "", [])) is False
+        assert (
+            RunnerHandler._was_pushed(lock_path, RunnerHandler._push_signature("sha-newer", "", [], PUSH_DESTINATION))
+            is False
+        )
 
     def test_was_pushed_is_false_for_an_expired_marker(self, tmp_path: Path, real_pushed_marker: None) -> None:
         """A marker older than the build timeout expires, so a pruned or overwritten tag is published again."""
         lock_path = str(tmp_path / "pr-6.lock")
-        signature = RunnerHandler._push_signature("sha-old", "", [])
+        signature = RunnerHandler._push_signature("sha-old", "", [], PUSH_DESTINATION)
         RunnerHandler._record_pushed(lock_path, signature)
         assert RunnerHandler._was_pushed(lock_path, signature) is True
 
@@ -1268,12 +1276,31 @@ class TestRunnerHandler:
 
     def test_push_signature_distinguishes_build_args(self) -> None:
         """The same commit built with different args is a different image, so it needs a different marker."""
-        base = RunnerHandler._push_signature("sha-same", "", [])
+        base = RunnerHandler._push_signature("sha-same", "", [], PUSH_DESTINATION)
 
-        assert base == RunnerHandler._push_signature("sha-same", "", [])
-        assert base != RunnerHandler._push_signature("sha-same", "--extra-arg", [])
-        assert base != RunnerHandler._push_signature("sha-same", "", ["ARG1=1"])
-        assert base != RunnerHandler._push_signature("sha-other", "", [])
+        assert base == RunnerHandler._push_signature("sha-same", "", [], PUSH_DESTINATION)
+        assert base != RunnerHandler._push_signature("sha-same", "--extra-arg", [], PUSH_DESTINATION)
+        assert base != RunnerHandler._push_signature("sha-same", "", ["ARG1=1"], PUSH_DESTINATION)
+        assert base != RunnerHandler._push_signature("sha-other", "", [], PUSH_DESTINATION)
+
+    def test_push_signature_distinguishes_the_destination(self) -> None:
+        """The same commit aimed at another repository or tag publishes a different image."""
+        base = RunnerHandler._push_signature("sha-same", "", [], PUSH_DESTINATION)
+
+        assert base != RunnerHandler._push_signature("sha-same", "", [], "ghcr.io/org/other:latest:")
+        assert base != RunnerHandler._push_signature("sha-same", "", [], "ghcr.io/org/repo:v1:")
+
+    def test_push_destination_is_built_from_the_configured_repository_and_tag(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """The signature destination follows the webhook config, so a config change re-publishes."""
+        runner_handler.github_webhook.container_repository = "ghcr.io/org/repo"
+        runner_handler.github_webhook.container_tag = "v1"
+        runner_handler.github_webhook.dockerfile = "docker/Dockerfile.custom"
+
+        # The Dockerfile is part of the destination: changing it changes the image, so it must not
+        # match an earlier publication of the same commit.
+        assert runner_handler._push_destination() == "ghcr.io/org/repo:v1:docker/Dockerfile.custom"
 
     @pytest.mark.asyncio
     async def test_acquire_build_lock_waiting_returns_none_after_timeout(self, runner_handler: RunnerHandler) -> None:
@@ -1529,7 +1556,9 @@ class TestRunnerHandler:
         ):
             await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
 
-        mock_was_pushed.assert_called_once_with(lock_path, RunnerHandler._push_signature("sha-pushed", "", []))
+        mock_was_pushed.assert_called_once_with(
+            lock_path, RunnerHandler._push_signature("sha-pushed", "", [], runner_handler._push_destination())
+        )
         mock_podman.assert_not_awaited()
         mock_checkout.assert_not_called()
         mock_success.assert_awaited_once_with(
@@ -1568,7 +1597,9 @@ class TestRunnerHandler:
 
         commands = [call.kwargs["command"] for call in mock_podman.await_args_list]
         assert len([cmd for cmd in commands if cmd.startswith("podman push")]) == 1
-        mock_record_pushed.assert_called_once_with(lock_path, RunnerHandler._push_signature("sha-published", "", []))
+        mock_record_pushed.assert_called_once_with(
+            lock_path, RunnerHandler._push_signature("sha-published", "", [], runner_handler._push_destination())
+        )
 
     @pytest.mark.parametrize(
         "variant",
@@ -1582,7 +1613,7 @@ class TestRunnerHandler:
         """A push for the same sha with different args publishes a different image, so it is built and pushed."""
         mock_pull_request.head.sha = "sha-pushed"
         runner_handler.github_webhook.container_build_args = variant.get("container_build_args", [])
-        published = RunnerHandler._push_signature("sha-pushed", "", [])
+        published = RunnerHandler._push_signature("sha-pushed", "", [], runner_handler._push_destination())
 
         with (
             patch.object(RunnerHandler, "_was_pushed", side_effect=lambda _, signature: signature == published),
@@ -1731,6 +1762,74 @@ class TestRunnerHandler:
         mock_failure.assert_awaited_once_with(
             name=BUILD_CONTAINER_STR, output={"title": "Build container", "summary": "", "text": notify}
         )
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_push_after_a_destination_change_is_not_skipped(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A marker recorded for the old repository/tag must not stand in for a push to the new one."""
+        mock_pull_request.head.sha = "sha-dest"
+        previously_published = RunnerHandler._push_signature("sha-dest", "", [], "ghcr.io/old/repo:latest:")
+        runner_handler.github_webhook.container_repository = "ghcr.io/new/repo"
+        runner_handler.github_webhook.container_tag = "latest"
+
+        with (
+            patch.object(
+                RunnerHandler, "_was_pushed", side_effect=lambda _, signature: signature == previously_published
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="ghcr.io/new/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        commands = [call.kwargs["command"] for call in mock_podman.await_args_list]
+        assert len([cmd for cmd in commands if cmd.startswith("podman build")]) == 1
+        assert len([cmd for cmd in commands if cmd.startswith("podman push")]) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_lock_timeout_comment_failure_still_fails_the_check(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A rejected timeout comment must not strand the check run or the queued duplicate run."""
+        mock_pull_request.head.sha = "sha-locked"
+        queued_run = Mock(id=31, spec=["id", "name", "status", "edit"])
+        queued_run.name = BUILD_CONTAINER_STR
+        queued_run.status = QUEUED_STR
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[queued_run]))
+        notify = (
+            f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the build already running "
+            f"for this PR; the requested push for sha-locked was not run"
+        )
+        mock_pull_request.create_issue_comment = Mock(side_effect=GithubException(403, "API error", {}))
+
+        with (
+            patch("webhook_server.libs.handlers.runner_handler.github_api_call", new=inline_github_api_call),
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(return_value=None)),
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        mock_pull_request.create_issue_comment.assert_called_once_with(notify)
+        mock_failure.assert_awaited_once_with(
+            name=BUILD_CONTAINER_STR, output={"title": "Build container", "summary": "", "text": notify}
+        )
+        runner_handler.logger.exception.assert_any_call("[TEST] Failed to report the container build timeout on the PR")
+        queued_run.edit.assert_called_once()
+        mock_podman.assert_not_awaited()
         assert _ACTIVE_CONTAINER_BUILDS == {}
 
     @pytest.mark.asyncio

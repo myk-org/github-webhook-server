@@ -765,14 +765,21 @@ class RunnerHandler:
         return f"{lock_path}.pushed"
 
     @classmethod
-    def _push_signature(cls, build_sha: str, command_args: str, container_build_args: Sequence[str]) -> str:
-        """Identify the image being published: the commit plus the extra build arguments.
+    def _push_signature(
+        cls,
+        build_sha: str,
+        command_args: str,
+        container_build_args: Sequence[str],
+        destination: str,
+    ) -> str:
+        """Identify the image being published.
 
-        ``command_args`` and the configured build args can change what is built from the same
-        commit, so a marker keyed on the sha alone would silently skip publishing a variant a
-        reviewer explicitly asked for.
+        Keyed on the commit, the destination image and every extra build argument: any of them can
+        change what an explicit push produces from the same commit, so a marker keyed on the sha
+        alone would silently skip publishing a variant a reviewer asked for, or one aimed at a
+        newly configured repository.
         """
-        extra_args = " ".join((*container_build_args, command_args))
+        extra_args = " ".join((destination, *container_build_args, command_args))
         digest = hashlib.sha1(extra_args.encode(), usedforsecurity=False).hexdigest()[:12]
         return f"{build_sha}:{digest}"
 
@@ -795,6 +802,18 @@ class RunnerHandler:
     def _record_pushed(cls, lock_path: str, signature: str) -> None:
         with contextlib.suppress(OSError):
             Path(cls._pushed_marker_path(lock_path)).write_text(signature, encoding="utf-8")
+
+    def _push_destination(self) -> str:
+        """Identify where an explicit push publishes: repository, tag and Dockerfile.
+
+        Part of the pushed-marker signature, so a changed image destination cannot be mistaken for
+        an image that was already published from the same commit.
+        """
+        return (
+            f"{self.github_webhook.container_repository}:"
+            f"{self.github_webhook.container_tag}:"
+            f"{self.github_webhook.dockerfile}"
+        )
 
     async def _acquire_build_lock_waiting(
         self, lock_path: str, timeout_seconds: int = CONTAINER_COMMAND_TIMEOUT_SECONDS
@@ -1063,12 +1082,21 @@ class RunnerHandler:
                         )
                         self.logger.error(f"{self.log_prefix} {notify}")
                         if pull_request:
-                            await github_api_call(
-                                pull_request.create_issue_comment,
-                                notify,
-                                logger=self.logger,
-                                log_prefix=self.log_prefix,
-                            )
+                            try:
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    notify,
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                # A rejected comment must not strand the check: the conclusion and
+                                # the queued-run cleanup below still have to happen.
+                                self.logger.exception(
+                                    f"{self.log_prefix} Failed to report the container build timeout on the PR"
+                                )
                         if pull_request and set_check:
                             await self.check_run_handler.set_check_failure(
                                 name=BUILD_CONTAINER_STR,
@@ -1087,7 +1115,12 @@ class RunnerHandler:
 
                 if push and self._was_pushed(
                     self._build_lock_path(build_key),
-                    self._push_signature(build_sha, command_args, self.github_webhook.container_build_args),
+                    self._push_signature(
+                        build_sha,
+                        command_args,
+                        self.github_webhook.container_build_args,
+                        self._push_destination(),
+                    ),
                 ):
                     # Another worker already published this exact commit while we waited.
                     self.logger.info(
@@ -1245,7 +1278,12 @@ class RunnerHandler:
                         if build_key is not None and build_sha:
                             self._record_pushed(
                                 self._build_lock_path(build_key),
-                                self._push_signature(build_sha, command_args, self.github_webhook.container_build_args),
+                                self._push_signature(
+                                    build_sha,
+                                    command_args,
+                                    self.github_webhook.container_build_args,
+                                    self._push_destination(),
+                                ),
                             )
                         if pull_request:
                             await github_api_call(
