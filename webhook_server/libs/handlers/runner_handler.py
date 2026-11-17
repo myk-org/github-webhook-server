@@ -1,15 +1,19 @@
 import asyncio
 import contextlib
+import fcntl
+import hashlib
 import os
 import re
 import shlex
 import shutil
+import time
 from asyncio import Task
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
 
 import shortuuid
 from github import GithubException
@@ -25,12 +29,14 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHECK_COMMAND_TIMEOUT_SECONDS,
     CHERRY_PICKED_LABEL,
+    CONTAINER_COMMAND_TIMEOUT_SECONDS,
     CONVENTIONAL_TITLE_STR,
     GITHUB_WEB_FLOW_LOGIN,
     GITHUB_WEB_FLOW_USER_ID,
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     SECURITY_COMMITTER_IDENTITY_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
@@ -46,6 +52,17 @@ if TYPE_CHECKING:
 
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+# (repository_full_name, pr_number) -> (sha, build task). A new commit for the same PR cancels the
+# build still running on the obsolete sha instead of letting both compete for CPU.
+class _ActiveBuild(NamedTuple):
+    sha: str
+    task: Task[None]
+    push: bool = False
+
+
+_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, int], _ActiveBuild] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,12 +286,18 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
+    async def run_podman_command(
+        self,
+        command: str,
+        redact_secrets: list[str] | None = None,
+        timeout: int = CONTAINER_COMMAND_TIMEOUT_SECONDS,
+    ) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
             command=command,
             log_prefix=self.log_prefix,
             redact_secrets=redact_secrets,
             mask_sensitive=self.github_webhook.mask_sensitive,
+            timeout=timeout,
         )
 
         if rc:
@@ -287,6 +310,7 @@ class RunnerHandler:
                 log_prefix=self.log_prefix,
                 redact_secrets=redact_secrets,
                 mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=timeout,
             )
 
         return rc, out, err
@@ -691,6 +715,172 @@ class RunnerHandler:
         annotations = self._oci_annotation_values(revision=revision, tag=tag, created=created)
         return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
 
+    @staticmethod
+    def _build_lock_path(build_key: tuple[str, int]) -> str:
+        """Return the cross-worker lock path for one PR's container build.
+
+        The repository is hashed, so two different repositories can never collide on a
+        sanitised name (``org/repo-a`` vs ``org_repo/a``) and no path separator leaks in.
+        """
+        repository, pr_number = build_key
+        digest = hashlib.sha1(repository.encode(), usedforsecurity=False).hexdigest()[:12]
+        return f"/tmp/webhook-container-build-{digest}-pr{pr_number}.lock"
+
+    @staticmethod
+    def _acquire_build_lock(lock_path: str) -> TextIO | None:
+        """Take the build lock without blocking; None means another worker holds it."""
+        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock_file.close()
+            return None
+        return lock_file
+
+    @staticmethod
+    def _release_build_lock(lock_file: TextIO) -> None:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
+
+    @staticmethod
+    def _acquire_build_lock_blocking(lock_path: str, timeout_seconds: int) -> TextIO | None:
+        """Wait up to ``timeout_seconds`` for the build lock; runs in a worker thread."""
+        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                if time.monotonic() >= deadline:
+                    lock_file.close()
+                    return None
+                time.sleep(0.5)
+                continue
+            return lock_file
+
+    @staticmethod
+    def _pushed_marker_path(lock_path: str) -> str:
+        """Marker recording what a worker last published for this PR."""
+        return f"{lock_path}.pushed"
+
+    @classmethod
+    def _push_signature(
+        cls,
+        build_sha: str,
+        command_args: str,
+        container_build_args: Sequence[str],
+        destination: str,
+    ) -> str:
+        """Identify the image being published.
+
+        Keyed on the commit, the destination image and every extra build argument: any of them can
+        change what an explicit push produces from the same commit, so a marker keyed on the sha
+        alone would silently skip publishing a variant a reviewer asked for, or one aimed at a
+        newly configured repository.
+        """
+        extra_args = " ".join((destination, *container_build_args, command_args))
+        digest = hashlib.sha1(extra_args.encode(), usedforsecurity=False).hexdigest()[:12]
+        return f"{build_sha}:{digest}"
+
+    @classmethod
+    def _was_pushed(cls, lock_path: str, signature: str) -> bool:
+        """True only for a recent push of this exact commit and build arguments.
+
+        The marker expires after CONTAINER_COMMAND_TIMEOUT_SECONDS so a tag that was later pruned or
+        overwritten in the registry can be published again instead of being skipped forever.
+        """
+        marker = Path(cls._pushed_marker_path(lock_path))
+        try:
+            if time.time() - marker.stat().st_mtime >= CONTAINER_COMMAND_TIMEOUT_SECONDS:
+                return False
+            return marker.read_text(encoding="utf-8").strip() == signature
+        except OSError:
+            return False
+
+    @classmethod
+    def _record_pushed(cls, lock_path: str, signature: str) -> None:
+        with contextlib.suppress(OSError):
+            Path(cls._pushed_marker_path(lock_path)).write_text(signature, encoding="utf-8")
+
+    def _push_destination(self) -> str:
+        """Identify where an explicit push publishes: repository, tag and Dockerfile.
+
+        Part of the pushed-marker signature, so a changed image destination cannot be mistaken for
+        an image that was already published from the same commit.
+        """
+        return (
+            f"{self.github_webhook.container_repository}:"
+            f"{self.github_webhook.container_tag}:"
+            f"{self.github_webhook.dockerfile}"
+        )
+
+    async def _acquire_build_lock_waiting(
+        self, lock_path: str, timeout_seconds: int = CONTAINER_COMMAND_TIMEOUT_SECONDS
+    ) -> TextIO | None:
+        """Wait for another worker's build to finish before running an explicit request.
+
+        Used for a requested push and for a retest: dropping those because a build is running
+        elsewhere would silently lose the user's request. Runs in a thread, so the event loop keeps
+        serving other webhooks while it waits.
+        """
+        return await asyncio.to_thread(self._acquire_build_lock_blocking, lock_path, timeout_seconds)
+
+    async def _complete_queued_build_check(self) -> None:
+        """Close every build-container check run queued on the current commit as neutral.
+
+        The PR pipeline queues every check run before CI starts, so the runs created for duplicate
+        events would stay queued forever once the duplicate guard returns (#1302). All queued runs are
+        completed, not just the newest: concurrent duplicate handlers would otherwise each complete
+        the same run and leave another one queued. Reporting is best-effort: a failed lookup or edit
+        must not undo the deduplication decision.
+        """
+        if not self.github_webhook.last_commit:
+            return
+        try:
+            check_runs = await github_api_call(
+                lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to look up the queued {BUILD_CONTAINER_STR} check runs")
+            return
+
+        queued_runs = [run for run in check_runs if run.name == BUILD_CONTAINER_STR and run.status == QUEUED_STR]
+        for queued_run in queued_runs:
+            try:
+                await github_api_call(
+                    partial(
+                        queued_run.edit,
+                        status="completed",
+                        conclusion="neutral",
+                        output={
+                            "title": "Build container",
+                            "summary": (
+                                f"A {BUILD_CONTAINER_STR} build for this commit is already in progress; "
+                                "this run supersedes nothing."
+                            ),
+                        },
+                    ),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to complete queued {BUILD_CONTAINER_STR} check run "
+                    f"{queued_run.id} as neutral"
+                )
+                continue
+            self.logger.info(
+                f"{self.log_prefix} Completed queued {BUILD_CONTAINER_STR} check run {queued_run.id} as neutral, "
+                "a build for this commit is already in progress"
+            )
+
     async def run_build_container(
         self,
         pull_request: PullRequest | None = None,
@@ -700,7 +890,14 @@ class RunnerHandler:
         tag: str = "",
         command_args: str = "",
         reviewed_user: str | None = None,
+        force: bool = False,
     ) -> None:
+        """Build (and optionally push) the PR container image.
+
+        Args:
+            force: Bypass the ``in_progress`` check-run guard, which a dead worker can leave behind
+                (the in-memory build registry empties on restart). Used by ``/retest build-container``.
+        """
         if not self.github_webhook.build_and_push_container:
             return
 
@@ -745,167 +942,406 @@ class RunnerHandler:
                 )
             return
 
-        if pull_request and set_check:
-            if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
-                self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
+        build_key: tuple[str, int] | None = None
+        build_sha: str = revision or ""
+        current_head_sha: str = ""
+        if pull_request and not is_merged and not tag:
+            build_key = (self.github_webhook.repository_full_name, pull_request.number)
+            head_sha: str = (
+                await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
+                or ""
+            )
+            current_head_sha = head_sha
+            if not build_sha:
+                build_sha = head_sha
+            if not build_sha:
+                # Never let an unresolvable sha switch deduplication off silently
+                build_sha = self.github_webhook.last_commit.sha if self.github_webhook.last_commit else ""
+                if build_sha:
+                    self.logger.warning(
+                        f"{self.log_prefix} Could not resolve the PR head sha for #{pull_request.number}, "
+                        f"using the last commit {build_sha} for build deduplication"
+                    )
+                else:
+                    self.logger.warning(
+                        f"{self.log_prefix} Could not resolve any sha for #{pull_request.number}; "
+                        "build deduplication is disabled for this build"
+                    )
+        current_task = asyncio.current_task()
+        superseded_task: Task[None] | None = None
+        wait_for_task: Task[None] | None = None
+        publish_wait_timed_out = False
+        # A push that cancels the active same-commit build takes over its check run: the cancelled
+        # build leaves the run in_progress, so the surviving build has to conclude it.
+        took_over_check = False
+        skip_duplicate = False
+        build_lock: TextIO | None = None
+        try:
+            # Read and claim happen in one event-loop turn (no await in between), so two events for
+            # the same PR cannot both pass the guard and overwrite each other's registry slot.
+            if build_key is not None and build_sha:
+                active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+                if active is not None and not active.task.done():
+                    is_current_head = not current_head_sha or build_sha == current_head_sha
+                    if not is_current_head:
+                        self.logger.info(
+                            f"{self.log_prefix} Event for {build_sha} is not the current head "
+                            f"({current_head_sha}), not cancelling the build for {active.sha}"
+                        )
+                        skip_duplicate = True
+                    elif active.push and active.sha == build_sha:
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} was started for an "
+                            "explicit push, not cancelling it"
+                        )
+                        skip_duplicate = True
+                    elif active.push:
+                        # The push build must publish the image; the newer commit waits for it rather
+                        # than running a second build on the same storage (the contention this change
+                        # exists to remove). It is never cancelled.
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} is publishing; waiting "
+                            f"for it before building {build_sha}"
+                        )
+                        wait_for_task = active.task
+                    elif active.sha == build_sha and not push:
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
+                            "skipping duplicate build"
+                        )
+                        skip_duplicate = True
+                    else:
+                        if active.sha == build_sha:
+                            self.logger.info(
+                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active.sha}: "
+                                "an explicit push was requested for the same commit"
+                            )
+                            took_over_check = True
+                        else:
+                            self.logger.info(
+                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
+                                f"{active.sha}, new commit is {build_sha}"
+                            )
+                        active.task.cancel()
+                        superseded_task = active.task
+                if not skip_duplicate and current_task is not None:
+                    _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild(build_sha, current_task, push)
 
-        if set_check:
-            await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
+            if superseded_task is not None:
+                try:
+                    await superseded_task
+                except asyncio.CancelledError:
+                    # Only our own cancellation propagates; the superseded build's is expected
+                    if current_task is not None and current_task.cancelling():
+                        raise
 
-        _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
-            pull_request=pull_request, is_merged=is_merged, tag=tag
-        )
-        no_cache: str = " --no-cache" if is_merged else ""
-        now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        annotations = self._oci_annotation_values(revision=revision, tag=tag, created=now)
-        build_arg_placeholders: dict[str, str] = {
-            "revision": revision or (self.github_webhook.hook_data.get("head_commit") or {}).get("id") or "",
-            "tag": _container_repository_and_tag.rsplit(":", 1)[-1] if _container_repository_and_tag else tag,
-            "created": annotations.get("org.opencontainers.image.created", now),
-            "repo": self.github_webhook.repository_full_name,
-            "pr_number": str(pull_request.number) if pull_request else "",
-        }
+            if wait_for_task is not None and not wait_for_task.done():
+                try:
+                    # Shielded: the publishing build must not be cancelled, and this wait must not
+                    # hang forever if it is stuck.
+                    await asyncio.wait_for(asyncio.shield(wait_for_task), timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    publish_wait_timed_out = True
+                    self.logger.error(
+                        f"{self.log_prefix} The publishing {BUILD_CONTAINER_STR} did not finish within "
+                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s; building {build_sha} anyway"
+                    )
+                except asyncio.CancelledError:
+                    if current_task is not None and current_task.cancelling():
+                        raise
 
-        async with self._checkout_worktree(
-            pull_request=pull_request,
-            is_merged=is_merged,
-            checkout=revision or "",
-            tag_name=tag,
-        ) as (success, worktree_path, out, err):
-            output: CheckRunOutput = {
-                "title": "Build container",
-                "summary": "",
-                "text": None,
-            }
-
-            if not success:
-                output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                output["title"] = self.check_run_handler.get_check_run_title(
-                    "Build container", err=err, out=out, passed=False
-                )
-                if pull_request and set_check:
-                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+            if skip_duplicate:
+                await self._complete_queued_build_check()
                 return
 
-            # Build container build command with worktree path
-            # Use configured context subdirectory for build context (default: repo root)
-            _context = self.github_webhook.container_context
-            if _context:
-                resolved_context = os.path.realpath(os.path.join(worktree_path, _context))
-                resolved_worktree = os.path.realpath(worktree_path)
-                is_under_worktree = resolved_context.startswith(resolved_worktree + os.sep)
-                if not is_under_worktree and resolved_context != resolved_worktree:
-                    self.logger.error(
-                        f"{self.log_prefix} Container context '{_context}' resolves outside "
-                        f"worktree ({resolved_context}), rejecting for security"
+            # Cross-process claim, taken only once this process is about to build: another uvicorn
+            # worker holds the same flock while it builds, and flock conflicts with a second open()
+            # even in one process, so this must stay after the in-process supersede/takeover
+            # handling (which needs to see, and cancel, this process's own running build).
+            if build_key is not None and build_sha:
+                build_lock = self._acquire_build_lock(self._build_lock_path(build_key))
+                if build_lock is None and (push or force or publish_wait_timed_out):
+                    # An explicit push/retest, or a build whose newer commit had to start after the
+                    # publishing build overran the wait, must not be dropped: wait for the lock.
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
+                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run "
+                        f"{'the requested push' if push else 'the requested retest' if force else 'this build'}"
                     )
-                    output["text"] = f"Container build context '{_context}' escapes repository root"
+                    build_lock = await self._acquire_build_lock_waiting(self._build_lock_path(build_key))
+                if build_lock is None:
+                    if push or force or publish_wait_timed_out:
+                        # A requested push/retest (or a build that was told to proceed) that could not
+                        # get the lock must fail loudly: neutralising its check while nobody builds or
+                        # pushes hides the failure from the requester.
+                        notify: str = (
+                            f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the build "
+                            f"already running for this PR; "
+                            f"{'the requested push' if push else 'the requested retest' if force else 'this build'} "
+                            f"for {build_sha} was not run"
+                        )
+                        self.logger.error(f"{self.log_prefix} {notify}")
+                        if pull_request:
+                            try:
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    notify,
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                # A rejected comment must not strand the check: the conclusion and
+                                # the queued-run cleanup below still have to happen.
+                                self.logger.exception(
+                                    f"{self.log_prefix} Failed to report the container build timeout on the PR"
+                                )
+                        if pull_request and set_check:
+                            await self.check_run_handler.set_check_failure(
+                                name=BUILD_CONTAINER_STR,
+                                output={"title": "Build container", "summary": "", "text": notify},
+                            )
+                        # The run this event queued must not stay queued forever, whichever check
+                        # conclusion (if any) was reported above.
+                        await self._complete_queued_build_check()
+                        return
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
+                        "another worker, skipping duplicate build"
+                    )
+                    await self._complete_queued_build_check()
+                    return
+
+                if push and self._was_pushed(
+                    self._build_lock_path(build_key),
+                    self._push_signature(
+                        build_sha,
+                        command_args,
+                        self.github_webhook.container_build_args,
+                        self._push_destination(),
+                    ),
+                ):
+                    # Another worker already published this exact commit while we waited.
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was already "
+                        "pushed by a concurrent request; not rebuilding it"
+                    )
+                    if pull_request and set_check:
+                        return await self.check_run_handler.set_check_success(
+                            name=BUILD_CONTAINER_STR, output={"title": "Build container", "summary": "", "text": None}
+                        )
+                    return
+
+            if took_over_check:
+                set_check = True
+
+            if (
+                pull_request
+                and set_check
+                and not is_merged
+                and not force
+                # The run found below belongs to the build just cancelled, so it is stale for us
+                and not took_over_check
+                and await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
+            ):
+                self.logger.info(
+                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is already in progress for this PR, "
+                    "skipping duplicate build"
+                )
+                # The in-progress run may belong to another worker process, so this event skips;
+                # the queued run its own event created still needs a conclusion.
+                await self._complete_queued_build_check()
+                return
+
+            if set_check:
+                await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
+
+            _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
+                pull_request=pull_request, is_merged=is_merged, tag=tag
+            )
+            no_cache: str = " --no-cache" if is_merged else ""
+            now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            annotations = self._oci_annotation_values(revision=revision, tag=tag, created=now)
+            build_arg_placeholders: dict[str, str] = {
+                "revision": revision or (self.github_webhook.hook_data.get("head_commit") or {}).get("id") or "",
+                "tag": _container_repository_and_tag.rsplit(":", 1)[-1] if _container_repository_and_tag else tag,
+                "created": annotations.get("org.opencontainers.image.created", now),
+                "repo": self.github_webhook.repository_full_name,
+                "pr_number": str(pull_request.number) if pull_request else "",
+            }
+
+            async with self._checkout_worktree(
+                pull_request=pull_request,
+                is_merged=is_merged,
+                checkout=revision or "",
+                tag_name=tag,
+            ) as (success, worktree_path, out, err):
+                output: CheckRunOutput = {
+                    "title": "Build container",
+                    "summary": "",
+                    "text": None,
+                }
+
+                if not success:
+                    output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
+                    output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                    output["title"] = self.check_run_handler.get_check_run_title(
+                        "Build container", err=err, out=out, passed=False
+                    )
                     if pull_request and set_check:
                         await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
                     return
-                build_context: str = resolved_context
-            else:
-                build_context = worktree_path
 
-            build_cmd: str = (
-                f"--network=host {no_cache} -f "
-                f"{worktree_path}/{self.github_webhook.dockerfile} "
-                f"{build_context} -t {_container_repository_and_tag}"
-            )
-
-            oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag, created=now)
-            if oci_annotation_flags:
-                build_cmd = f"{oci_annotation_flags} {build_cmd}"
-
-            if self.github_webhook.container_build_args:
-                build_args = " ".join(
-                    f"--build-arg {self._substitute_build_arg_placeholders(arg, build_arg_placeholders)}"
-                    for arg in self.github_webhook.container_build_args
-                )
-                build_cmd = f"{build_args} {build_cmd}"
-
-            if self.github_webhook.container_command_args:
-                build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
-
-            if command_args:
-                build_cmd = f"{self._substitute_command_build_args(command_args, build_arg_placeholders)} {build_cmd}"
-
-            podman_build_cmd: str = f"podman build {build_cmd}"
-            self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
-
-            build_rc, build_out, build_err = await self.run_podman_command(
-                command=podman_build_cmd,
-            )
-            output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
-            output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
-            output["title"] = self.check_run_handler.get_check_run_title(
-                "Build container", err=build_err, out=build_out, passed=build_rc
-            )
-
-            if build_rc:
-                self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                if pull_request and set_check:
-                    return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
-            else:
-                self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
-                if pull_request and set_check:
-                    return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
-
-            if push and build_rc:
-                cmd = (
-                    f"podman push --creds "
-                    f"{self.github_webhook.container_repository_username}:"
-                    f"{self.github_webhook.container_repository_password} "
-                    f"{_container_repository_and_tag}"
-                )
-                push_rc, _, _ = await self.run_podman_command(
-                    command=cmd,
-                    redact_secrets=[
-                        self.github_webhook.container_repository_username,
-                        self.github_webhook.container_repository_password,
-                    ],
-                )
-                if push_rc:
-                    push_msg: str = f"New container for {_container_repository_and_tag} published"
-                    if pull_request:
-                        await github_api_call(
-                            pull_request.create_issue_comment, push_msg, logger=self.logger, log_prefix=self.log_prefix
+                # Build container build command with worktree path
+                # Use configured context subdirectory for build context (default: repo root)
+                _context = self.github_webhook.container_context
+                if _context:
+                    resolved_context = os.path.realpath(os.path.join(worktree_path, _context))
+                    resolved_worktree = os.path.realpath(worktree_path)
+                    is_under_worktree = resolved_context.startswith(resolved_worktree + os.sep)
+                    if not is_under_worktree and resolved_context != resolved_worktree:
+                        self.logger.error(
+                            f"{self.log_prefix} Container context '{_context}' resolves outside "
+                            f"worktree ({resolved_context}), rejecting for security"
                         )
-
-                    if self.github_webhook.slack_webhook_url:
-                        message = f"""
-```
-{self.github_webhook.repository_full_name} {push_msg}.
-```
-"""
-                        send_slack_message(
-                            message=message,
-                            webhook_url=self.github_webhook.slack_webhook_url,
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
-                        )
-
-                    self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
+                        output["text"] = f"Container build context '{_context}' escapes repository root"
+                        if pull_request and set_check:
+                            await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                        return
+                    build_context: str = resolved_context
                 else:
-                    err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
-                    if pull_request:
-                        await github_api_call(
-                            pull_request.create_issue_comment, err_msg, logger=self.logger, log_prefix=self.log_prefix
-                        )
+                    build_context = worktree_path
 
-                    if self.github_webhook.slack_webhook_url:
-                        message = f"""
-```
-{self.github_webhook.repository_full_name} {err_msg}.
-```
-                        """
-                        send_slack_message(
-                            message=message,
-                            webhook_url=self.github_webhook.slack_webhook_url,
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
+                build_cmd: str = (
+                    f"--network=host {no_cache} -f "
+                    f"{worktree_path}/{self.github_webhook.dockerfile} "
+                    f"{build_context} -t {_container_repository_and_tag}"
+                )
+
+                oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag, created=now)
+                if oci_annotation_flags:
+                    build_cmd = f"{oci_annotation_flags} {build_cmd}"
+
+                if self.github_webhook.container_build_args:
+                    build_args = " ".join(
+                        f"--build-arg {self._substitute_build_arg_placeholders(arg, build_arg_placeholders)}"
+                        for arg in self.github_webhook.container_build_args
+                    )
+                    build_cmd = f"{build_args} {build_cmd}"
+
+                if self.github_webhook.container_command_args:
+                    build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
+
+                if command_args:
+                    build_cmd = (
+                        f"{self._substitute_command_build_args(command_args, build_arg_placeholders)} {build_cmd}"
+                    )
+
+                podman_build_cmd: str = f"podman build {build_cmd}"
+                self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
+
+                build_rc, build_out, build_err = await self.run_podman_command(
+                    command=podman_build_cmd,
+                )
+                output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
+                output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
+                output["title"] = self.check_run_handler.get_check_run_title(
+                    "Build container", err=build_err, out=build_out, passed=build_rc
+                )
+
+                if build_rc:
+                    self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
+                else:
+                    self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
+                    if pull_request and set_check:
+                        return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+
+                # A failed push must fail the check, so it is recorded here and concluded below
+                push_failed = False
+                if push and build_rc:
+                    cmd = (
+                        f"podman push --creds "
+                        f"{self.github_webhook.container_repository_username}:"
+                        f"{self.github_webhook.container_repository_password} "
+                        f"{_container_repository_and_tag}"
+                    )
+                    push_rc, push_out, push_err = await self.run_podman_command(
+                        command=cmd,
+                        redact_secrets=[
+                            self.github_webhook.container_repository_username,
+                            self.github_webhook.container_repository_password,
+                        ],
+                    )
+                    if push_rc:
+                        push_msg: str = f"New container for {_container_repository_and_tag} published"
+                        if build_key is not None and build_sha:
+                            self._record_pushed(
+                                self._build_lock_path(build_key),
+                                self._push_signature(
+                                    build_sha,
+                                    command_args,
+                                    self.github_webhook.container_build_args,
+                                    self._push_destination(),
+                                ),
+                            )
+                        if pull_request:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                push_msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        if self.github_webhook.slack_webhook_url:
+                            message = f"```\n{self.github_webhook.repository_full_name} {push_msg}.\n```\n"
+                            send_slack_message(
+                                message=message,
+                                webhook_url=self.github_webhook.slack_webhook_url,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
+                    else:
+                        push_failed = True
+                        output["summary"] = f"Failed to push {_container_repository_and_tag}"
+                        output["text"] = self.check_run_handler.get_check_run_text(out=push_out, err=push_err)
+                        output["title"] = self.check_run_handler.get_check_run_title(
+                            "Build container", err=push_err, out=push_out, passed=False
                         )
+                        err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
+                        if pull_request:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                err_msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        if self.github_webhook.slack_webhook_url:
+                            message = f"```\n{self.github_webhook.repository_full_name} {err_msg}.\n```\n"
+                            send_slack_message(
+                                message=message,
+                                webhook_url=self.github_webhook.slack_webhook_url,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                # Concluded after the push, so a push-triggered build that owns the check still pushes.
+                # Success needs both results: a failed push must never conclude the check as success.
+                if pull_request and set_check:
+                    if push_failed:
+                        return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                    return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
+        finally:
+            # Only deregister ourselves: a cancelled build must not drop its replacement
+            if build_key is not None:
+                stored = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+                if stored is not None and stored.task is current_task:
+                    del _ACTIVE_CONTAINER_BUILDS[build_key]
+            if build_lock is not None:
+                self._release_build_lock(build_lock)
 
     async def run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:
@@ -2309,7 +2745,7 @@ Your team can configure additional types in the repository settings.
         _retests_to_func_map: dict[str, Callable[..., Coroutine[Any, Any, None]]] = {
             TOX_STR: self.run_tox,
             PRE_COMMIT_STR: self.run_pre_commit,
-            BUILD_CONTAINER_STR: self.run_build_container,
+            BUILD_CONTAINER_STR: partial(self.run_build_container, force=True),
             PYTHON_MODULE_INSTALL_STR: self.run_install_python_module,
             CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
         }
