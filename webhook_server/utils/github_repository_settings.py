@@ -22,6 +22,7 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     BUILTIN_CHECK_NAMES,
     CAN_BE_MERGED_STR,
+    CONTAINER_COMMAND_TIMEOUT_SECONDS,
     CONVENTIONAL_TITLE_STR,
     DEFAULT_SUSPICIOUS_PATHS,
     IN_PROGRESS_STR,
@@ -299,6 +300,7 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
             command=f"podman login -u {docker_username} --password-stdin docker.io",
             stdin_input=docker_password,
             redact_secrets=[docker_username, docker_password],
+            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
         )
 
     futures = []

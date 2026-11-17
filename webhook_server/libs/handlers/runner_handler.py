@@ -32,6 +32,7 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PREK_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     SECURITY_COMMITTER_IDENTITY_STR,
     SECURITY_SUSPICIOUS_PATHS_STR,
     TOX_STR,
@@ -703,6 +704,52 @@ class RunnerHandler:
         annotations = self._oci_annotation_values(revision=revision, tag=tag, created=created)
         return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
 
+    async def _complete_queued_build_check(self) -> None:
+        """Close the build-container check run queued for this event as neutral.
+
+        The PR pipeline queues every check run before CI starts, so the run created for a duplicate
+        event would stay queued forever once the duplicate guard returns (#1302). Reporting is
+        best-effort: a failed lookup must not undo the deduplication decision.
+        """
+        if not self.github_webhook.last_commit:
+            return
+        try:
+            check_runs = await github_api_call(
+                lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            queued_runs = [run for run in check_runs if run.name == BUILD_CONTAINER_STR and run.status == QUEUED_STR]
+            if not queued_runs:
+                return
+            newest_run = max(queued_runs, key=lambda run: run.id)
+            await github_api_call(
+                partial(
+                    newest_run.edit,
+                    status="completed",
+                    conclusion="neutral",
+                    output={
+                        "title": "Build container",
+                        "summary": (
+                            f"A {BUILD_CONTAINER_STR} build for this commit is already in progress; "
+                            "this run supersedes nothing."
+                        ),
+                    },
+                ),
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
+            self.logger.info(
+                f"{self.log_prefix} Completed queued {BUILD_CONTAINER_STR} check run {newest_run.id} as neutral, "
+                "a build for this commit is already in progress"
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger.exception(
+                f"{self.log_prefix} Failed to complete the queued {BUILD_CONTAINER_STR} check run as neutral"
+            )
+
     async def run_build_container(
         self,
         pull_request: PullRequest | None = None,
@@ -712,7 +759,14 @@ class RunnerHandler:
         tag: str = "",
         command_args: str = "",
         reviewed_user: str | None = None,
+        force: bool = False,
     ) -> None:
+        """Build (and optionally push) the PR container image.
+
+        Args:
+            force: Bypass the ``in_progress`` check-run guard, which a dead worker can leave behind
+                (the in-memory build registry empties on restart). Used by ``/retest build-container``.
+        """
         if not self.github_webhook.build_and_push_container:
             return
 
@@ -767,42 +821,62 @@ class RunnerHandler:
                     or ""
                 )
         current_task = asyncio.current_task()
+        superseded_task: Task[None] | None = None
+        skip_duplicate = False
+        # Read and claim happen in one event-loop turn (no await in between), so two events for the
+        # same PR cannot both pass the guard and overwrite each other's registry slot.
         if build_key is not None and build_sha:
             active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
             if active is not None and not active[1].done():
                 active_sha, active_task = active
-                if active_sha == build_sha:
+                if active_sha == build_sha and not push:
                     self.logger.info(
                         f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
                         "skipping duplicate build"
                     )
-                    return
-                self.logger.info(
-                    f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit {active_sha}, "
-                    f"new commit is {build_sha}"
-                )
-                active_task.cancel()
+                    skip_duplicate = True
+                else:
+                    if active_sha == build_sha:
+                        self.logger.info(
+                            f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active_sha}: "
+                            "an explicit push was requested for the same commit"
+                        )
+                    else:
+                        self.logger.info(
+                            f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
+                            f"{active_sha}, new commit is {build_sha}"
+                        )
+                    active_task.cancel()
+                    superseded_task = active_task
+            if not skip_duplicate and current_task is not None:
+                _ACTIVE_CONTAINER_BUILDS[build_key] = (build_sha, current_task)
+
+        try:
+            if superseded_task is not None:
                 try:
-                    await active_task
+                    await superseded_task
                 except asyncio.CancelledError:
                     # Only our own cancellation propagates; the superseded build's is expected
                     if current_task is not None and current_task.cancelling():
                         raise
 
-        if (
-            pull_request
-            and set_check
-            and not is_merged
-            and await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
-        ):
-            self.logger.info(
-                f"{self.log_prefix} {BUILD_CONTAINER_STR} is already in progress for this PR, skipping duplicate build"
-            )
-            return
+            if skip_duplicate:
+                await self._complete_queued_build_check()
+                return
 
-        if build_key is not None and current_task is not None:
-            _ACTIVE_CONTAINER_BUILDS[build_key] = (build_sha, current_task)
-        try:
+            if (
+                pull_request
+                and set_check
+                and not is_merged
+                and not force
+                and await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
+            ):
+                self.logger.info(
+                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is already in progress for this PR, "
+                    "skipping duplicate build"
+                )
+                return
+
             if set_check:
                 await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
 
@@ -2377,7 +2451,7 @@ Your team can configure additional types in the repository settings.
         _retests_to_func_map: dict[str, Callable[..., Coroutine[Any, Any, None]]] = {
             TOX_STR: self.run_tox,
             PRE_COMMIT_STR: self.run_pre_commit,
-            BUILD_CONTAINER_STR: self.run_build_container,
+            BUILD_CONTAINER_STR: partial(self.run_build_container, force=True),
             PYTHON_MODULE_INSTALL_STR: self.run_install_python_module,
             CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
         }

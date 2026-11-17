@@ -20,6 +20,7 @@ from webhook_server.utils.constants import (
     CONVENTIONAL_TITLE_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     TOX_STR,
 )
 from webhook_server.utils.helpers import run_command
@@ -695,6 +696,9 @@ class TestRunnerHandler:
 
         mock_podman.side_effect = fake_podman
         mock_pull_request.head.sha = "same-sha"
+        # Empty run list: the duplicate skip reports on the queued run, so a bare Mock here would
+        # make the helper raise and the test exercise its error path instead of deduplication.
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[]))
         with (
             patch.object(
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
@@ -714,6 +718,206 @@ class TestRunnerHandler:
                 await first_build
 
         assert mock_podman.await_count == 1
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} already running for same-sha, skipping duplicate build"
+        )
+        runner_handler.logger.exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_completes_queued_check_run(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A skipped duplicate closes the check run queued for its own event as neutral (#1302)."""
+        build_key = ("test/repo", mock_pull_request.number)
+        queued_run = Mock(id=20, spec=["id", "name", "status", "edit"])
+        queued_run.name = BUILD_CONTAINER_STR
+        queued_run.status = QUEUED_STR
+        completed_run = Mock(id=10, spec=["id", "name", "status", "edit"])
+        completed_run.name = BUILD_CONTAINER_STR
+        completed_run.status = "completed"
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[completed_run, queued_run]))
+        mock_pull_request.head.sha = "same-sha"
+        never = asyncio.Event()
+        active_build = asyncio.create_task(never.wait())
+        _ACTIVE_CONTAINER_BUILDS[build_key] = ("same-sha", active_build)
+        try:
+            with (
+                patch.object(
+                    runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+                ),
+                patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+                patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            ):
+                await runner_handler.run_build_container(pull_request=mock_pull_request)
+        finally:
+            active_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await active_build
+
+        mock_podman.assert_not_awaited()
+        queued_run.edit.assert_called_once()
+        edit_kwargs = queued_run.edit.call_args.kwargs
+        assert edit_kwargs["status"] == "completed"
+        assert edit_kwargs["conclusion"] == "neutral"
+        assert edit_kwargs["output"]["title"] == "Build container"
+        assert edit_kwargs["output"]["summary"]
+        completed_run.edit.assert_not_called()
+        runner_handler.logger.exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_skip_without_queued_run_is_best_effort(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """With no queued run on the commit the skip still happens and nothing is edited."""
+        build_key = ("test/repo", mock_pull_request.number)
+        completed_run = Mock(id=10, spec=["id", "name", "status", "edit"])
+        completed_run.name = BUILD_CONTAINER_STR
+        completed_run.status = "completed"
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[completed_run]))
+        mock_pull_request.head.sha = "same-sha"
+        never = asyncio.Event()
+        active_build = asyncio.create_task(never.wait())
+        _ACTIVE_CONTAINER_BUILDS[build_key] = ("same-sha", active_build)
+        try:
+            with (
+                patch.object(
+                    runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+                ),
+                patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+                patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            ):
+                await runner_handler.run_build_container(pull_request=mock_pull_request)
+        finally:
+            active_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await active_build
+
+        mock_podman.assert_not_awaited()
+        completed_run.edit.assert_not_called()
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} already running for same-sha, skipping duplicate build"
+        )
+        runner_handler.logger.exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_with_push_cancels_and_builds(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """An explicit push for the same sha cancels the running build instead of skipping."""
+        podman_calls: list[str] = []
+        first_build_started = asyncio.Event()
+        never = asyncio.Event()
+
+        async def fake_podman(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            podman_calls.append(command)
+            if len(podman_calls) == 1:
+                first_build_started.set()
+                await never.wait()  # released only by the cancellation from the push invocation
+            return True, "success", ""
+
+        mock_pull_request.head.sha = "same-sha"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            first_build = asyncio.create_task(runner_handler.run_build_container(pull_request=mock_pull_request))
+            await first_build_started.wait()
+            # set_check=False so the push path is reached instead of returning after set_check_success
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True, set_check=False)
+
+        assert first_build.done()
+        assert first_build.cancelled()
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] Cancelling {BUILD_CONTAINER_STR} for same-sha: an explicit push was requested for the same commit"
+        )
+        assert len([cmd for cmd in podman_calls if cmd.startswith("podman build")]) == 2
+        assert len([cmd for cmd in podman_calls if cmd.startswith("podman push")]) == 1
+        runner_handler.logger.info.assert_any_call("[TEST] Done push test/repo:latest")
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_force_bypasses_in_progress_check(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """force=True runs the build even though a build-container check run is in progress."""
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ) as mock_in_progress,
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+        ):
+            mock_pull_request.head.sha = "sha-force"
+            await runner_handler.run_build_container(pull_request=mock_pull_request, force=True)
+
+        mock_in_progress.assert_not_awaited()  # not even consulted when force=True
+        assert mock_podman.await_count == 1
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_without_force_skips_in_progress_check(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Without force the in-progress check run still skips the duplicate build."""
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            mock_pull_request.head.sha = "sha-force"
+            await runner_handler.run_build_container(pull_request=mock_pull_request, force=False)
+
+        mock_podman.assert_not_awaited()
+        mock_progress.assert_not_awaited()
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_force_does_not_bypass_active_registry_build(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """force=True bypasses the check-run guard only: a live same-sha build still skips."""
+        build_key = ("test/repo", mock_pull_request.number)
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[]))
+        mock_pull_request.head.sha = "same-sha"
+        never = asyncio.Event()
+        active_build = asyncio.create_task(never.wait())
+        _ACTIVE_CONTAINER_BUILDS[build_key] = ("same-sha", active_build)
+        registry_after_skip: tuple[str, Any] | None = None
+        try:
+            with (
+                patch.object(
+                    runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+                ),
+                patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+                patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            ):
+                await runner_handler.run_build_container(pull_request=mock_pull_request, force=True)
+            registry_after_skip = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+            assert registry_after_skip == ("same-sha", active_build)
+        finally:
+            active_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await active_build
+
+        mock_podman.assert_not_awaited()
         runner_handler.logger.info.assert_any_call(
             f"[TEST] {BUILD_CONTAINER_STR} already running for same-sha, skipping duplicate build"
         )
