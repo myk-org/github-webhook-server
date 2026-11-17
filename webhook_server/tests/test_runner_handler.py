@@ -1171,11 +1171,16 @@ class TestRunnerHandler:
                 with suppress(asyncio.CancelledError):
                     await replacement
 
-    def test_build_lock_path_sanitises_repository_name(self) -> None:
-        """One lock file per PR, with no path separator leaking in from the repository name."""
+    def test_build_lock_path_hashes_repository_name(self) -> None:
+        """One lock file per PR, keyed by a repository digest so two repositories cannot collide."""
         lock_path = RunnerHandler._build_lock_path(("owner/my repo", 17))
 
-        assert lock_path == "/tmp/webhook-container-build-owner_my_repo-pr17.lock"
+        assert re.fullmatch(r"/tmp/webhook-container-build-[0-9a-f]{12}-pr17\.lock", lock_path)
+        assert lock_path.startswith("/tmp/webhook-container-build-")
+        assert lock_path.endswith("-pr17.lock")
+        # Stable for the same repository, distinct for one that a sanitised name would collide with
+        assert RunnerHandler._build_lock_path(("owner/my repo", 17)) == lock_path
+        assert RunnerHandler._build_lock_path(("owner/my-repo", 17)) != lock_path
 
     def test_acquire_build_lock_returns_none_when_already_held(self, tmp_path: Path, real_build_lock: None) -> None:
         """A second claim on a held path is refused instead of blocking the worker."""
@@ -1202,6 +1207,112 @@ class TestRunnerHandler:
         RunnerHandler._release_build_lock(reclaimed)
 
     @pytest.mark.asyncio
+    async def test_acquire_build_lock_waiting_returns_none_after_timeout(self, runner_handler: RunnerHandler) -> None:
+        """A wait that times out reports no lock instead of blocking the worker forever."""
+        with patch.object(RunnerHandler, "_acquire_build_lock_blocking", return_value=None) as mock_blocking:
+            result = await runner_handler._acquire_build_lock_waiting("/tmp/pr-3.lock", timeout_seconds=7)
+
+        assert result is None
+        mock_blocking.assert_called_once_with("/tmp/pr-3.lock", 7)
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_without_push_or_force_does_not_wait_for_the_lock(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Only an explicit push or retest waits; a plain build still skips when another worker builds."""
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[]))
+        mock_pull_request.head.sha = "sha-locked"
+
+        with (
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(runner_handler, "_acquire_build_lock_waiting", new=AsyncMock()) as mock_waiting,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        mock_waiting.assert_not_awaited()
+        mock_podman.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_push_waits_for_lock_then_builds_and_pushes(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """An explicit push must not be dropped because another worker is building: it waits, builds, pushes."""
+        mock_pull_request.head.sha = "sha-locked"
+        waited_lock = io.StringIO()
+        lock_path = RunnerHandler._build_lock_path(("test/repo", mock_pull_request.number))
+
+        with (
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(return_value=waited_lock)
+            ) as mock_waiting,
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        mock_waiting.assert_awaited_once_with(lock_path)
+        commands = [call.kwargs["command"] for call in mock_podman.await_args_list]
+        assert len([cmd for cmd in commands if cmd.startswith("podman build")]) == 1
+        assert len([cmd for cmd in commands if cmd.startswith("podman push")]) == 1
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
+            f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run the requested push"
+        )
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_force_waits_for_lock_held_by_another_worker(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A retest (force=True) waits for the other worker's build instead of being dropped."""
+        mock_pull_request.head.sha = "sha-locked"
+        lock_path = RunnerHandler._build_lock_path(("test/repo", mock_pull_request.number))
+
+        with (
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(return_value=io.StringIO())
+            ) as mock_waiting,
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ) as mock_in_progress,
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, force=True)
+
+        mock_waiting.assert_awaited_once_with(lock_path)
+        # force=True still bypasses the stale in-progress check run
+        mock_in_progress.assert_not_awaited()
+        assert mock_podman.await_count == 1
+        assert mock_podman.await_args_list[0].kwargs["command"].startswith("podman build")
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
+            f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run the requested retest"
+        )
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
     async def test_run_build_container_skips_when_lock_is_held_by_another_worker(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
@@ -1214,11 +1325,13 @@ class TestRunnerHandler:
 
         with (
             patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(runner_handler, "_acquire_build_lock_waiting", new=AsyncMock()) as mock_waiting,
             patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress,
             patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
         ):
             await runner_handler.run_build_container(pull_request=mock_pull_request)
 
+        mock_waiting.assert_not_awaited()
         mock_podman.assert_not_awaited()
         mock_progress.assert_not_awaited()
         queued_run.edit.assert_called_once()
@@ -1268,13 +1381,59 @@ class TestRunnerHandler:
     async def test_run_build_container_newer_commit_does_not_cancel_push_build(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """A build started for an explicit push is never cancelled by a newer commit."""
+        """A newer commit builds alongside the running push build instead of cancelling or skipping it."""
+        commands: list[str] = []
+        push_build_started = asyncio.Event()
+        release_push_build = asyncio.Event()
+
+        async def fake_podman(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            commands.append(command)
+            if len(commands) == 1:
+                push_build_started.set()
+                await release_push_build.wait()  # the newer commit's build must not cancel this one
+            return True, "success", ""
+
+        mock_pull_request.head.sha = "sha-old"
+        with (
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            push_build = asyncio.create_task(
+                runner_handler.run_build_container(pull_request=mock_pull_request, push=True, set_check=False)
+            )
+            try:
+                await push_build_started.wait()
+                mock_pull_request.head.sha = "sha-new"
+                await runner_handler.run_build_container(pull_request=mock_pull_request, set_check=False)
+                assert not push_build.done()
+            finally:
+                release_push_build.set()
+                await push_build
+
+        assert not push_build.cancelled()
+        assert len([cmd for cmd in commands if cmd.startswith("podman build")]) == 2
+        assert len([cmd for cmd in commands if cmd.startswith("podman push")]) == 1
+        runner_handler.logger.info.assert_any_call(
+            "[TEST] A newer commit sha-new arrived while the push build for sha-old runs; "
+            "starting a build for the new commit without cancelling it"
+        )
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_push_build_still_skips_duplicate(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """The same sha arriving again is still deduplicated against the running push build."""
         build_key = ("test/repo", mock_pull_request.number)
         runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[]))
-        mock_pull_request.head.sha = "sha-new"
+        mock_pull_request.head.sha = "same-sha"
         never = asyncio.Event()
         push_build = asyncio.create_task(never.wait())
-        _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild("sha-old", push_build, push=True)
+        _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild("same-sha", push_build, push=True)
         try:
             with (
                 patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
@@ -1282,7 +1441,7 @@ class TestRunnerHandler:
             ):
                 await runner_handler.run_build_container(pull_request=mock_pull_request)
                 assert not push_build.cancelled()
-                assert _ACTIVE_CONTAINER_BUILDS[build_key] == _ActiveBuild("sha-old", push_build, push=True)
+                assert _ACTIVE_CONTAINER_BUILDS[build_key] == _ActiveBuild("same-sha", push_build, push=True)
         finally:
             push_build.cancel()
             with suppress(asyncio.CancelledError):
@@ -1290,7 +1449,7 @@ class TestRunnerHandler:
 
         mock_podman.assert_not_awaited()
         runner_handler.logger.info.assert_any_call(
-            f"[TEST] {BUILD_CONTAINER_STR} for sha-old was started for an explicit push, not cancelling it"
+            f"[TEST] {BUILD_CONTAINER_STR} for same-sha was started for an explicit push, not cancelling it"
         )
 
     @pytest.mark.asyncio

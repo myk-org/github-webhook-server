@@ -1,10 +1,12 @@
 import asyncio
 import contextlib
 import fcntl
+import hashlib
 import os
 import re
 import shlex
 import shutil
+import time
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
@@ -715,10 +717,14 @@ class RunnerHandler:
 
     @staticmethod
     def _build_lock_path(build_key: tuple[str, int]) -> str:
-        """Return the cross-worker lock path for one PR's container build."""
+        """Return the cross-worker lock path for one PR's container build.
+
+        The repository is hashed, so two different repositories can never collide on a
+        sanitised name (``org/repo-a`` vs ``org_repo/a``) and no path separator leaks in.
+        """
         repository, pr_number = build_key
-        safe_repository = re.sub(r"[^A-Za-z0-9_.-]", "_", repository)
-        return f"/tmp/webhook-container-build-{safe_repository}-pr{pr_number}.lock"
+        digest = hashlib.sha1(repository.encode(), usedforsecurity=False).hexdigest()[:12]
+        return f"/tmp/webhook-container-build-{digest}-pr{pr_number}.lock"
 
     @staticmethod
     def _acquire_build_lock(lock_path: str) -> TextIO | None:
@@ -736,6 +742,33 @@ class RunnerHandler:
         with contextlib.suppress(OSError):
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         lock_file.close()
+
+    @staticmethod
+    def _acquire_build_lock_blocking(lock_path: str, timeout_seconds: int) -> TextIO | None:
+        """Wait up to ``timeout_seconds`` for the build lock; runs in a worker thread."""
+        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                if time.monotonic() >= deadline:
+                    lock_file.close()
+                    return None
+                time.sleep(0.5)
+                continue
+            return lock_file
+
+    async def _acquire_build_lock_waiting(
+        self, lock_path: str, timeout_seconds: int = CONTAINER_COMMAND_TIMEOUT_SECONDS
+    ) -> TextIO | None:
+        """Wait for another worker's build to finish before running an explicit request.
+
+        Used for a requested push and for a retest: dropping those because a build is running
+        elsewhere would silently lose the user's request. Runs in a thread, so the event loop keeps
+        serving other webhooks while it waits.
+        """
+        return await asyncio.to_thread(self._acquire_build_lock_blocking, lock_path, timeout_seconds)
 
     async def _complete_queued_build_check(self) -> None:
         """Close every build-container check run queued on the current commit as neutral.
@@ -898,12 +931,19 @@ class RunnerHandler:
                             f"({current_head_sha}), not cancelling the build for {active.sha}"
                         )
                         skip_duplicate = True
-                    elif active.push:
+                    elif active.push and active.sha == build_sha:
                         self.logger.info(
                             f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} was started for an "
                             "explicit push, not cancelling it"
                         )
                         skip_duplicate = True
+                    elif active.push:
+                        # The push build must finish so the image is published; a build for the newer
+                        # commit runs alongside it rather than being skipped or cancelling the push.
+                        self.logger.info(
+                            f"{self.log_prefix} A newer commit {build_sha} arrived while the push build for "
+                            f"{active.sha} runs; starting a build for the new commit without cancelling it"
+                        )
                     elif active.sha == build_sha and not push:
                         self.logger.info(
                             f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
@@ -945,6 +985,15 @@ class RunnerHandler:
             # handling (which needs to see, and cancel, this process's own running build).
             if build_key is not None and build_sha:
                 build_lock = self._acquire_build_lock(self._build_lock_path(build_key))
+                if build_lock is None and (push or force):
+                    # An explicit push or retest must not be dropped just because another worker is
+                    # building: wait for it, then run ours.
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
+                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run the requested "
+                        f"{'push' if push else 'retest'}"
+                    )
+                    build_lock = await self._acquire_build_lock_waiting(self._build_lock_path(build_key))
                 if build_lock is None:
                     self.logger.info(
                         f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
