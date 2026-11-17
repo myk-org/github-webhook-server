@@ -2144,6 +2144,122 @@ class TestRunnerHandler:
                                                 mock_set_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_run_build_container_push_failure_concludes_check_as_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A failed push fails the check even though the build itself succeeded."""
+        mock_pull_request.head.sha = "abc123"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_set_success,
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_set_failure,
+            patch.object(
+                runner_handler.check_run_handler,
+                "get_check_run_text",
+                new=Mock(side_effect=lambda err, out: err),
+            ),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler,
+                "run_podman_command",
+                new=AsyncMock(side_effect=[(True, "build success", ""), (False, "push out", "push error")]),
+            ) as mock_podman,
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment,
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        push_calls = [
+            call.kwargs["command"]
+            for call in mock_podman.call_args_list
+            if call.kwargs["command"].startswith("podman push")
+        ]
+        assert len(push_calls) == 1
+        mock_set_success.assert_not_awaited()
+        mock_set_failure.assert_awaited_once()
+        assert mock_set_failure.await_args.kwargs["name"] == BUILD_CONTAINER_STR
+        output = mock_set_failure.await_args.kwargs["output"]
+        assert output["summary"] == "Failed to push test/repo:latest"
+        assert output["text"] == "push error"
+        # The failed push is still announced on the PR
+        mock_comment.assert_called_once()
+        assert mock_comment.call_args.args[0] == "Failed to build and push test/repo:latest"
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_push_success_concludes_check_as_success(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Success is concluded only after the requested push succeeded."""
+        mock_pull_request.head.sha = "abc123"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_set_success,
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_set_failure,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        push_calls = [
+            call.kwargs["command"]
+            for call in mock_podman.call_args_list
+            if call.kwargs["command"].startswith("podman push")
+        ]
+        assert len(push_calls) == 1
+        mock_set_failure.assert_not_awaited()
+        mock_set_success.assert_awaited_once()
+        assert mock_set_success.await_args.kwargs["name"] == BUILD_CONTAINER_STR
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_without_push_concludes_check_as_success(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A report-only build still concludes the check and never pushes."""
+        mock_pull_request.head.sha = "abc123"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()) as mock_set_success,
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_set_failure,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=False, set_check=True)
+
+        assert [
+            call.kwargs["command"]
+            for call in mock_podman.call_args_list
+            if call.kwargs["command"].startswith("podman push")
+        ] == []
+        mock_set_failure.assert_not_awaited()
+        mock_set_success.assert_awaited_once()
+        assert mock_set_success.await_args.kwargs["name"] == BUILD_CONTAINER_STR
+
+    @pytest.mark.asyncio
     async def test_run_build_container_with_command_args(self, runner_handler, mock_pull_request):
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(

@@ -1001,6 +1001,8 @@ class RunnerHandler:
                     if pull_request and set_check:
                         return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
 
+                # A failed push must fail the check, so it is recorded here and concluded below
+                push_failed = False
                 if push and build_rc:
                     cmd = (
                         f"podman push --creds "
@@ -1008,7 +1010,7 @@ class RunnerHandler:
                         f"{self.github_webhook.container_repository_password} "
                         f"{_container_repository_and_tag}"
                     )
-                    push_rc, _, _ = await self.run_podman_command(
+                    push_rc, push_out, push_err = await self.run_podman_command(
                         command=cmd,
                         redact_secrets=[
                             self.github_webhook.container_repository_username,
@@ -1040,6 +1042,12 @@ class RunnerHandler:
 
                         self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
                     else:
+                        push_failed = True
+                        output["summary"] = f"Failed to push {_container_repository_and_tag}"
+                        output["text"] = self.check_run_handler.get_check_run_text(out=push_out, err=push_err)
+                        output["title"] = self.check_run_handler.get_check_run_title(
+                            "Build container", err=push_err, out=push_out, passed=False
+                        )
                         err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                         if pull_request:
                             await github_api_call(
@@ -1062,8 +1070,11 @@ class RunnerHandler:
                                 log_prefix=self.log_prefix,
                             )
 
-                # Concluded after the push, so a push-triggered build that owns the check still pushes
+                # Concluded after the push, so a push-triggered build that owns the check still pushes.
+                # Success needs both results: a failed push must never conclude the check as success.
                 if pull_request and set_check:
+                    if push_failed:
+                        return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
                     return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
         finally:
             # Only deregister ourselves: a cancelled build must not drop its replacement
