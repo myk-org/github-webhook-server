@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -46,6 +47,11 @@ if TYPE_CHECKING:
 
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+_PODMAN_BUGS = (
+    "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred",
+    "Error: cannot re-exec process to join the existing user namespace",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,13 +267,14 @@ class RunnerHandler:
             yield result
 
     def is_podman_bug(self, err: str) -> bool:
-        _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
-        return _err in err.strip()
+        return any(bug in err.strip() for bug in _PODMAN_BUGS)
 
     def fix_podman_bug(self) -> None:
         self.logger.debug(f"{self.log_prefix} Fixing podman bug")
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+        Path(runtime_dir, "libpod/tmp/pause.pid").unlink(missing_ok=True)
 
     async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
         rc, out, err = await run_command(

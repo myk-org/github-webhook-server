@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 import shlex
 from collections.abc import AsyncGenerator, Generator
@@ -12,7 +13,7 @@ import pytest
 from github import GithubException
 
 from webhook_server.libs.ai_cli import AIResult
-from webhook_server.libs.handlers.runner_handler import CheckConfig, RunnerHandler
+from webhook_server.libs.handlers.runner_handler import _PODMAN_BUGS, CheckConfig, RunnerHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHECK_COMMAND_TIMEOUT_SECONDS,
@@ -126,23 +127,52 @@ class TestRunnerHandler:
         with patch("shutil.rmtree"):
             yield
 
-    def test_is_podman_bug_true(self, runner_handler: RunnerHandler) -> None:
-        """Test is_podman_bug returns True for podman bug error."""
-        err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
-        assert runner_handler.is_podman_bug(err) is True
+    @pytest.mark.parametrize("podman_bug", _PODMAN_BUGS)
+    def test_is_podman_bug_true(self, runner_handler: RunnerHandler, podman_bug: str) -> None:
+        """Test is_podman_bug returns True for every known podman bug error."""
+        assert runner_handler.is_podman_bug(f"some output\n{podman_bug}\n") is True
 
     def test_is_podman_bug_false(self, runner_handler: RunnerHandler) -> None:
         """Test is_podman_bug returns False for other errors."""
         err = "Some other error message"
         assert runner_handler.is_podman_bug(err) is False
 
+    @pytest.mark.parametrize(
+        "xdg_runtime_dir",
+        [
+            pytest.param("/tmp/fake-xdg-runtime", id="xdg-runtime-dir-set"),
+            pytest.param(None, id="fallback-to-run-user-uid"),
+        ],
+    )
     @patch("shutil.rmtree")
-    def test_fix_podman_bug(self, mock_rmtree: Mock, runner_handler: RunnerHandler) -> None:
-        """Test fix_podman_bug removes podman cache directories."""
+    def test_fix_podman_bug(
+        self,
+        mock_rmtree: Mock,
+        runner_handler: RunnerHandler,
+        monkeypatch: pytest.MonkeyPatch,
+        xdg_runtime_dir: str | None,
+    ) -> None:
+        """Test fix_podman_bug removes podman cache directories and the pause.pid file."""
+        if xdg_runtime_dir is None:
+            monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+            expected_runtime_dir = f"/run/user/{os.getuid()}"
+        else:
+            monkeypatch.setenv("XDG_RUNTIME_DIR", xdg_runtime_dir)
+            expected_runtime_dir = xdg_runtime_dir
+
+        unlink_calls: list[tuple[Path, dict[str, Any]]] = []
+
+        def fake_unlink(path_obj: Path, **kwargs: Any) -> None:
+            unlink_calls.append((path_obj, kwargs))
+
+        monkeypatch.setattr(Path, "unlink", fake_unlink)
+
         runner_handler.fix_podman_bug()
+
         assert mock_rmtree.call_count == 2
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/containers", ignore_errors=True)
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
+        assert unlink_calls == [(Path(expected_runtime_dir, "libpod/tmp/pause.pid"), {"missing_ok": True})]
 
     @pytest.mark.asyncio
     async def test_run_podman_command_success(self, runner_handler: RunnerHandler) -> None:

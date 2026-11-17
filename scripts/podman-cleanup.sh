@@ -5,6 +5,8 @@
 set -euo pipefail
 
 USER_ID=${PUID:-1000}
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+PAUSE_PID_FILE="${RUNTIME_DIR}/libpod/tmp/pause.pid"
 CLEANUP_PATHS=(
     "/tmp/storage-run-${USER_ID}/containers"
     "/tmp/storage-run-${USER_ID}/libpod/tmp"
@@ -36,6 +38,15 @@ if [[ "$cleanup_needed" = true ]]; then
     echo "✅ Cleanup completed"
 else
     echo "✅ No cleanup needed - runtime directories are clean"
+fi
+
+# Remove a stale rootless pause pid; a live pause process must keep its pid file
+if [[ -f "$PAUSE_PID_FILE" ]]; then
+    pause_pid=$(cat "$PAUSE_PID_FILE" 2>/dev/null || true)
+    if [[ -z "$pause_pid" || ! -d "/proc/$pause_pid" ]] || ! grep -qa pause "/proc/$pause_pid/cmdline"; then
+        echo "   Removing stale pause pid: $PAUSE_PID_FILE"
+        rm -f "$PAUSE_PID_FILE" || echo "   ⚠️  Warning: Could not remove $PAUSE_PID_FILE"
+    fi
 fi
 
 # Clean up stale Podman resources without destroying everything
