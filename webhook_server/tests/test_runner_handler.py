@@ -2,7 +2,7 @@ import asyncio
 import re
 import shlex
 from collections.abc import AsyncGenerator, Generator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,15 +12,17 @@ import pytest
 from github import GithubException
 
 from webhook_server.libs.ai_cli import AIResult
-from webhook_server.libs.handlers.runner_handler import CheckConfig, RunnerHandler
+from webhook_server.libs.handlers.runner_handler import _ACTIVE_CONTAINER_BUILDS, CheckConfig, RunnerHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHECK_COMMAND_TIMEOUT_SECONDS,
+    CONTAINER_COMMAND_TIMEOUT_SECONDS,
     CONVENTIONAL_TITLE_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
+from webhook_server.utils.helpers import run_command
 
 
 @dataclass
@@ -126,6 +128,21 @@ class TestRunnerHandler:
         with patch("shutil.rmtree"):
             yield
 
+    @pytest.fixture(autouse=True)
+    def clear_active_container_builds(self) -> Generator[None]:
+        """The build registry is module-level, so keep tests independent."""
+        _ACTIVE_CONTAINER_BUILDS.clear()
+        yield
+        _ACTIVE_CONTAINER_BUILDS.clear()
+
+    @staticmethod
+    def _worktree_checkout() -> AsyncMock:
+        """Async context manager stub for _checkout_worktree."""
+        checkout_cm = AsyncMock()
+        checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+        checkout_cm.__aexit__ = AsyncMock(return_value=None)
+        return checkout_cm
+
     def test_is_podman_bug_true(self, runner_handler: RunnerHandler) -> None:
         """Test is_podman_bug returns True for podman bug error."""
         err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
@@ -173,6 +190,37 @@ class TestRunnerHandler:
         ):
             rc, _, _ = await runner_handler.run_podman_command("podman build .")
             assert rc is False or rc is None
+
+    @pytest.mark.asyncio
+    async def test_run_podman_command_passes_default_timeout_to_both_attempts(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """A hung podman command must not hang forever: first attempt and retry both get the timeout."""
+        podman_bug_err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_run_command:
+            mock_run_command.side_effect = [(False, "output", podman_bug_err), (True, "success after fix", "")]
+            with patch.object(runner_handler, "fix_podman_bug"):
+                rc, _, _ = await runner_handler.run_podman_command("podman build .")
+
+        assert rc is True
+        assert mock_run_command.await_count == 2
+        assert [call.kwargs["timeout"] for call in mock_run_command.await_args_list] == [
+            CONTAINER_COMMAND_TIMEOUT_SECONDS,
+            CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_run_podman_command_honours_explicit_timeout_on_both_attempts(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """An explicit caller timeout overrides the default on the first attempt and the retry."""
+        podman_bug_err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_run_command:
+            mock_run_command.side_effect = [(False, "output", podman_bug_err), (True, "success after fix", "")]
+            with patch.object(runner_handler, "fix_podman_bug"):
+                await runner_handler.run_podman_command("podman build .", timeout=42)
+
+        assert [call.kwargs["timeout"] for call in mock_run_command.await_args_list] == [42, 42]
 
     @pytest.mark.asyncio
     async def test_run_tox_disabled(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -496,6 +544,276 @@ class TestRunnerHandler:
                                 mock_set_failure.assert_awaited_once()
                                 output = mock_set_failure.call_args[1]["output"]
                                 assert "escapes repository root" in output["text"]
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_skips_duplicate_build_when_check_in_progress(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A build already running for the PR must not start a second podman build."""
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ),
+            patch.object(
+                runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()
+            ) as mock_set_progress,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request, is_merged=False)
+
+        mock_podman.assert_not_awaited()
+        mock_set_progress.assert_not_awaited()
+        mock_checkout.assert_not_called()
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} is already in progress for this PR, skipping duplicate build"
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_builds_when_no_check_in_progress(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """The in-progress guard must not block a normal build."""
+        with (
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(
+                runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()
+            ) as mock_set_progress,
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        mock_podman.assert_awaited()
+        mock_set_progress.assert_awaited_once_with(name=BUILD_CONTAINER_STR)
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_merged_build_ignores_in_progress_check(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Merged builds are not PR check runs, so an in-progress PR check must not skip them."""
+        with (
+            patch(
+                "webhook_server.libs.handlers.runner_handler.github_api_call",
+                new=AsyncMock(return_value="abc123"),
+            ),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ) as mock_in_progress,
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch.object(runner_handler, "_checkout_worktree") as mock_checkout,
+        ):
+            mock_checkout.return_value = AsyncMock()
+            mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await runner_handler.run_build_container(pull_request=mock_pull_request, is_merged=True)
+
+        mock_in_progress.assert_not_awaited()
+        mock_podman.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_new_sha_cancels_superseded_build(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A new commit for the same PR cancels the build still running on the obsolete sha."""
+        build_key = ("test/repo", mock_pull_request.number)
+        first_build_started = asyncio.Event()
+        never = asyncio.Event()
+        podman_calls: list[str] = []
+        registry_during_second_build: list[dict[tuple[str, int], tuple[str, Any]]] = []
+
+        async def fake_podman(command: str) -> tuple[bool, str, str]:
+            podman_calls.append(command)
+            if len(podman_calls) == 1:
+                first_build_started.set()
+                await never.wait()  # blocks until the superseding build cancels this task
+            # Snapshot taken once the new build runs: the cancelled build is already gone, so the
+            # superseding build must have awaited it instead of running both builds in parallel.
+            registry_during_second_build.append(dict(_ACTIVE_CONTAINER_BUILDS))
+            return True, "success", ""
+
+        mock_pull_request.head.sha = "sha-first"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+        ):
+            first_build = asyncio.create_task(runner_handler.run_build_container(pull_request=mock_pull_request))
+            await first_build_started.wait()
+            mock_pull_request.head.sha = "sha-second"
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        assert first_build.done()
+        assert first_build.cancelled()
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] Cancelling {BUILD_CONTAINER_STR} for superseded commit sha-first, new commit is sha-second"
+        )
+        assert len(podman_calls) == 2
+        assert {sha for key, (sha, _) in registry_during_second_build[0].items() if key == build_key} == {"sha-second"}
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_skips_duplicate_build(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A build already running for the same sha must not be restarted or cancelled."""
+        first_build_started = asyncio.Event()
+        never = asyncio.Event()
+        mock_podman = AsyncMock()
+
+        async def fake_podman(command: str) -> tuple[bool, str, str]:
+            first_build_started.set()
+            await never.wait()
+            return True, "success", ""
+
+        mock_podman.side_effect = fake_podman
+        mock_pull_request.head.sha = "same-sha"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=mock_podman),
+        ):
+            first_build = asyncio.create_task(runner_handler.run_build_container(pull_request=mock_pull_request))
+            await first_build_started.wait()
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+            first_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await first_build
+
+        assert mock_podman.await_count == 1
+        runner_handler.logger.info.assert_any_call(
+            f"[TEST] {BUILD_CONTAINER_STR} already running for same-sha, skipping duplicate build"
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_deregisters_after_completion(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A finished build must not leave a stale entry in the active build registry."""
+        build_key = ("test/repo", mock_pull_request.number)
+        registered: list[dict[tuple[str, int], tuple[str, Any]]] = []
+
+        async def fake_podman(command: str) -> tuple[bool, str, str]:
+            registered.append(dict(_ACTIVE_CONTAINER_BUILDS))
+            return True, "success", ""
+
+        mock_pull_request.head.sha = "sha-done"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        assert registered[0][build_key][0] == "sha-done"
+        assert build_key not in _ACTIVE_CONTAINER_BUILDS
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_deregisters_after_build_exception(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A build that raises must still release the registry slot for the next build."""
+        build_key = ("test/repo", mock_pull_request.number)
+        mock_pull_request.head.sha = "sha-boom"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(side_effect=RuntimeError("build exploded"))
+            ),
+            pytest.raises(RuntimeError, match="build exploded"),
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        assert build_key not in _ACTIVE_CONTAINER_BUILDS
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_cancelled_build_keeps_replacement_registered(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """A cancelled build's finally block must not deregister the build that replaced it."""
+        build_key = ("test/repo", mock_pull_request.number)
+        build_started = asyncio.Event()
+        never = asyncio.Event()
+
+        async def fake_podman(command: str) -> tuple[bool, str, str]:
+            build_started.set()
+            await never.wait()
+            return True, "success", ""
+
+        mock_pull_request.head.sha = "sha-old"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+        ):
+            stale_build = asyncio.create_task(runner_handler.run_build_container(pull_request=mock_pull_request))
+            await build_started.wait()
+            # The replacement build only registers after it awaited the cancelled one, so this race is
+            # simulated directly: the slot already points at the new build when the old finally runs.
+            replacement = asyncio.create_task(never.wait())
+            _ACTIVE_CONTAINER_BUILDS[build_key] = ("sha-new", replacement)
+            stale_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await stale_build
+            try:
+                assert _ACTIVE_CONTAINER_BUILDS[build_key] == ("sha-new", replacement)
+            finally:
+                replacement.cancel()
+                with suppress(asyncio.CancelledError):
+                    await replacement
 
     @pytest.mark.asyncio
     async def test_run_build_container_without_context(
@@ -2364,6 +2682,41 @@ class TestRunnerHandler:
                 assert any("Cherry-pick scope reduced" in w for w in warning_calls), (
                     f"Expected 'Cherry-pick scope reduced' warning, got: {warning_calls}"
                 )
+
+
+class TestRunCommandCancellation:
+    """run_command must clean up the whole process group when the surrounding task is cancelled."""
+
+    @pytest.mark.asyncio
+    async def test_run_command_kills_process_tree_on_cancel(self) -> None:
+        """Cancelling a check must not leave podman/pytest grandchildren running."""
+        subprocess_started = asyncio.Event()
+        fake_process = Mock()
+        fake_process.pid = 4242
+        fake_process.returncode = None
+
+        async def fake_communicate(**kwargs: Any) -> tuple[bytes, bytes]:
+            subprocess_started.set()
+            await asyncio.Event().wait()  # blocks until the task is cancelled
+            return b"", b""
+
+        fake_process.communicate = fake_communicate
+        fake_process.wait = AsyncMock(return_value=0)
+
+        with (
+            patch(
+                "webhook_server.utils.helpers.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=fake_process),
+            ),
+            patch("webhook_server.utils.helpers._kill_process_tree") as mock_kill_process_tree,
+        ):
+            task = asyncio.create_task(run_command("podman build .", log_prefix="[TEST]"))
+            await subprocess_started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        mock_kill_process_tree.assert_called_once_with(fake_process)
 
 
 class TestRestoreOriginalAuthorForCherryPick:

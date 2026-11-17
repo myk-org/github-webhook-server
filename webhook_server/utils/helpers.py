@@ -475,6 +475,10 @@ async def run_command(
 
     except asyncio.CancelledError:
         logger.debug(f"{log_prefix} Command '{logged_command}' cancelled")
+        # The finally block only kills the direct child, leaving its process group (podman, pytest
+        # workers) running against a worktree nobody waits for. Kill the tree, then re-raise.
+        if sub_process:
+            _kill_process_tree(sub_process)
         # Re-raise after finally block cleanup (prevents zombies on cancellation)
         raise
     except (OSError, subprocess.SubprocessError, ValueError):

@@ -25,6 +25,7 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHECK_COMMAND_TIMEOUT_SECONDS,
     CHERRY_PICKED_LABEL,
+    CONTAINER_COMMAND_TIMEOUT_SECONDS,
     CONVENTIONAL_TITLE_STR,
     GITHUB_WEB_FLOW_LOGIN,
     GITHUB_WEB_FLOW_USER_ID,
@@ -46,6 +47,10 @@ if TYPE_CHECKING:
 
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+# (repository_full_name, pr_number) -> (sha, build task). A new commit for the same PR cancels the
+# build still running on the obsolete sha instead of letting both compete for CPU.
+_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, int], tuple[str, Task[None]]] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,12 +274,18 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
+    async def run_podman_command(
+        self,
+        command: str,
+        redact_secrets: list[str] | None = None,
+        timeout: int = CONTAINER_COMMAND_TIMEOUT_SECONDS,
+    ) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
             command=command,
             log_prefix=self.log_prefix,
             redact_secrets=redact_secrets,
             mask_sensitive=self.github_webhook.mask_sensitive,
+            timeout=timeout,
         )
 
         if rc:
@@ -287,6 +298,7 @@ class RunnerHandler:
                 log_prefix=self.log_prefix,
                 redact_secrets=redact_secrets,
                 mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=timeout,
             )
 
         return rc, out, err
@@ -745,167 +757,223 @@ class RunnerHandler:
                 )
             return
 
-        if pull_request and set_check:
-            if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
-                self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
+        build_key: tuple[str, int] | None = None
+        build_sha: str = revision or ""
+        if pull_request and not is_merged and not tag:
+            build_key = (self.github_webhook.repository_full_name, pull_request.number)
+            if not build_sha:
+                build_sha = (
+                    await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
+                    or ""
+                )
+        current_task = asyncio.current_task()
+        if build_key is not None and build_sha:
+            active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+            if active is not None and not active[1].done():
+                active_sha, active_task = active
+                if active_sha == build_sha:
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
+                        "skipping duplicate build"
+                    )
+                    return
+                self.logger.info(
+                    f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit {active_sha}, "
+                    f"new commit is {build_sha}"
+                )
+                active_task.cancel()
+                try:
+                    await active_task
+                except asyncio.CancelledError:
+                    # Only our own cancellation propagates; the superseded build's is expected
+                    if current_task is not None and current_task.cancelling():
+                        raise
 
-        if set_check:
-            await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
+        if (
+            pull_request
+            and set_check
+            and not is_merged
+            and await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
+        ):
+            self.logger.info(
+                f"{self.log_prefix} {BUILD_CONTAINER_STR} is already in progress for this PR, skipping duplicate build"
+            )
+            return
 
-        _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
-            pull_request=pull_request, is_merged=is_merged, tag=tag
-        )
-        no_cache: str = " --no-cache" if is_merged else ""
-        now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        annotations = self._oci_annotation_values(revision=revision, tag=tag, created=now)
-        build_arg_placeholders: dict[str, str] = {
-            "revision": revision or (self.github_webhook.hook_data.get("head_commit") or {}).get("id") or "",
-            "tag": _container_repository_and_tag.rsplit(":", 1)[-1] if _container_repository_and_tag else tag,
-            "created": annotations.get("org.opencontainers.image.created", now),
-            "repo": self.github_webhook.repository_full_name,
-            "pr_number": str(pull_request.number) if pull_request else "",
-        }
+        if build_key is not None and current_task is not None:
+            _ACTIVE_CONTAINER_BUILDS[build_key] = (build_sha, current_task)
+        try:
+            if set_check:
+                await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
 
-        async with self._checkout_worktree(
-            pull_request=pull_request,
-            is_merged=is_merged,
-            checkout=revision or "",
-            tag_name=tag,
-        ) as (success, worktree_path, out, err):
-            output: CheckRunOutput = {
-                "title": "Build container",
-                "summary": "",
-                "text": None,
+            _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
+                pull_request=pull_request, is_merged=is_merged, tag=tag
+            )
+            no_cache: str = " --no-cache" if is_merged else ""
+            now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            annotations = self._oci_annotation_values(revision=revision, tag=tag, created=now)
+            build_arg_placeholders: dict[str, str] = {
+                "revision": revision or (self.github_webhook.hook_data.get("head_commit") or {}).get("id") or "",
+                "tag": _container_repository_and_tag.rsplit(":", 1)[-1] if _container_repository_and_tag else tag,
+                "created": annotations.get("org.opencontainers.image.created", now),
+                "repo": self.github_webhook.repository_full_name,
+                "pr_number": str(pull_request.number) if pull_request else "",
             }
 
-            if not success:
-                output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                output["title"] = self.check_run_handler.get_check_run_title(
-                    "Build container", err=err, out=out, passed=False
-                )
-                if pull_request and set_check:
-                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
-                return
+            async with self._checkout_worktree(
+                pull_request=pull_request,
+                is_merged=is_merged,
+                checkout=revision or "",
+                tag_name=tag,
+            ) as (success, worktree_path, out, err):
+                output: CheckRunOutput = {
+                    "title": "Build container",
+                    "summary": "",
+                    "text": None,
+                }
 
-            # Build container build command with worktree path
-            # Use configured context subdirectory for build context (default: repo root)
-            _context = self.github_webhook.container_context
-            if _context:
-                resolved_context = os.path.realpath(os.path.join(worktree_path, _context))
-                resolved_worktree = os.path.realpath(worktree_path)
-                is_under_worktree = resolved_context.startswith(resolved_worktree + os.sep)
-                if not is_under_worktree and resolved_context != resolved_worktree:
-                    self.logger.error(
-                        f"{self.log_prefix} Container context '{_context}' resolves outside "
-                        f"worktree ({resolved_context}), rejecting for security"
+                if not success:
+                    output["summary"] = self.check_run_handler.get_check_run_summary(out=out, err=err)
+                    output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                    output["title"] = self.check_run_handler.get_check_run_title(
+                        "Build container", err=err, out=out, passed=False
                     )
-                    output["text"] = f"Container build context '{_context}' escapes repository root"
                     if pull_request and set_check:
                         await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
                     return
-                build_context: str = resolved_context
-            else:
-                build_context = worktree_path
 
-            build_cmd: str = (
-                f"--network=host {no_cache} -f "
-                f"{worktree_path}/{self.github_webhook.dockerfile} "
-                f"{build_context} -t {_container_repository_and_tag}"
-            )
-
-            oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag, created=now)
-            if oci_annotation_flags:
-                build_cmd = f"{oci_annotation_flags} {build_cmd}"
-
-            if self.github_webhook.container_build_args:
-                build_args = " ".join(
-                    f"--build-arg {self._substitute_build_arg_placeholders(arg, build_arg_placeholders)}"
-                    for arg in self.github_webhook.container_build_args
-                )
-                build_cmd = f"{build_args} {build_cmd}"
-
-            if self.github_webhook.container_command_args:
-                build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
-
-            if command_args:
-                build_cmd = f"{self._substitute_command_build_args(command_args, build_arg_placeholders)} {build_cmd}"
-
-            podman_build_cmd: str = f"podman build {build_cmd}"
-            self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
-
-            build_rc, build_out, build_err = await self.run_podman_command(
-                command=podman_build_cmd,
-            )
-            output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
-            output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
-            output["title"] = self.check_run_handler.get_check_run_title(
-                "Build container", err=build_err, out=build_out, passed=build_rc
-            )
-
-            if build_rc:
-                self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                if pull_request and set_check:
-                    return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
-            else:
-                self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
-                if pull_request and set_check:
-                    return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
-
-            if push and build_rc:
-                cmd = (
-                    f"podman push --creds "
-                    f"{self.github_webhook.container_repository_username}:"
-                    f"{self.github_webhook.container_repository_password} "
-                    f"{_container_repository_and_tag}"
-                )
-                push_rc, _, _ = await self.run_podman_command(
-                    command=cmd,
-                    redact_secrets=[
-                        self.github_webhook.container_repository_username,
-                        self.github_webhook.container_repository_password,
-                    ],
-                )
-                if push_rc:
-                    push_msg: str = f"New container for {_container_repository_and_tag} published"
-                    if pull_request:
-                        await github_api_call(
-                            pull_request.create_issue_comment, push_msg, logger=self.logger, log_prefix=self.log_prefix
+                # Build container build command with worktree path
+                # Use configured context subdirectory for build context (default: repo root)
+                _context = self.github_webhook.container_context
+                if _context:
+                    resolved_context = os.path.realpath(os.path.join(worktree_path, _context))
+                    resolved_worktree = os.path.realpath(worktree_path)
+                    is_under_worktree = resolved_context.startswith(resolved_worktree + os.sep)
+                    if not is_under_worktree and resolved_context != resolved_worktree:
+                        self.logger.error(
+                            f"{self.log_prefix} Container context '{_context}' resolves outside "
+                            f"worktree ({resolved_context}), rejecting for security"
                         )
-
-                    if self.github_webhook.slack_webhook_url:
-                        message = f"""
-```
-{self.github_webhook.repository_full_name} {push_msg}.
-```
-"""
-                        send_slack_message(
-                            message=message,
-                            webhook_url=self.github_webhook.slack_webhook_url,
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
-                        )
-
-                    self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
+                        output["text"] = f"Container build context '{_context}' escapes repository root"
+                        if pull_request and set_check:
+                            await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+                        return
+                    build_context: str = resolved_context
                 else:
-                    err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
-                    if pull_request:
-                        await github_api_call(
-                            pull_request.create_issue_comment, err_msg, logger=self.logger, log_prefix=self.log_prefix
-                        )
+                    build_context = worktree_path
 
-                    if self.github_webhook.slack_webhook_url:
-                        message = f"""
-```
-{self.github_webhook.repository_full_name} {err_msg}.
-```
-                        """
-                        send_slack_message(
-                            message=message,
-                            webhook_url=self.github_webhook.slack_webhook_url,
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
-                        )
+                build_cmd: str = (
+                    f"--network=host {no_cache} -f "
+                    f"{worktree_path}/{self.github_webhook.dockerfile} "
+                    f"{build_context} -t {_container_repository_and_tag}"
+                )
+
+                oci_annotation_flags = self._build_oci_annotations(revision=revision, tag=tag, created=now)
+                if oci_annotation_flags:
+                    build_cmd = f"{oci_annotation_flags} {build_cmd}"
+
+                if self.github_webhook.container_build_args:
+                    build_args = " ".join(
+                        f"--build-arg {self._substitute_build_arg_placeholders(arg, build_arg_placeholders)}"
+                        for arg in self.github_webhook.container_build_args
+                    )
+                    build_cmd = f"{build_args} {build_cmd}"
+
+                if self.github_webhook.container_command_args:
+                    build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
+
+                if command_args:
+                    build_cmd = (
+                        f"{self._substitute_command_build_args(command_args, build_arg_placeholders)} {build_cmd}"
+                    )
+
+                podman_build_cmd: str = f"podman build {build_cmd}"
+                self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
+
+                build_rc, build_out, build_err = await self.run_podman_command(
+                    command=podman_build_cmd,
+                )
+                output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
+                output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
+                output["title"] = self.check_run_handler.get_check_run_title(
+                    "Build container", err=build_err, out=build_out, passed=build_rc
+                )
+
+                if build_rc:
+                    self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
+                    if pull_request and set_check:
+                        return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
+                else:
+                    self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
+                    if pull_request and set_check:
+                        return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
+
+                if push and build_rc:
+                    cmd = (
+                        f"podman push --creds "
+                        f"{self.github_webhook.container_repository_username}:"
+                        f"{self.github_webhook.container_repository_password} "
+                        f"{_container_repository_and_tag}"
+                    )
+                    push_rc, _, _ = await self.run_podman_command(
+                        command=cmd,
+                        redact_secrets=[
+                            self.github_webhook.container_repository_username,
+                            self.github_webhook.container_repository_password,
+                        ],
+                    )
+                    if push_rc:
+                        push_msg: str = f"New container for {_container_repository_and_tag} published"
+                        if pull_request:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                push_msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        if self.github_webhook.slack_webhook_url:
+                            message = f"""
+    ```
+    {self.github_webhook.repository_full_name} {push_msg}.
+    ```
+    """
+                            send_slack_message(
+                                message=message,
+                                webhook_url=self.github_webhook.slack_webhook_url,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
+                    else:
+                        err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
+                        if pull_request:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                err_msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+
+                        if self.github_webhook.slack_webhook_url:
+                            message = f"""
+    ```
+    {self.github_webhook.repository_full_name} {err_msg}.
+    ```
+                            """
+                            send_slack_message(
+                                message=message,
+                                webhook_url=self.github_webhook.slack_webhook_url,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+        finally:
+            # Only deregister ourselves: a cancelled build must not drop its replacement
+            if build_key is not None:
+                stored = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+                if stored is not None and stored[1] is current_task:
+                    del _ACTIVE_CONTAINER_BUILDS[build_key]
 
     async def run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:

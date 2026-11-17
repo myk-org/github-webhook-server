@@ -13,6 +13,8 @@ QUEUED_STR: str = "queued"
 # A check command has no timeout by default; without one a hung tox/pre-commit/custom check holds
 # its check run in_progress until someone notices. Generous so a genuinely slow suite still runs.
 CHECK_COMMAND_TIMEOUT_SECONDS: int = 3600
+# No timeout by default; without one a hung container build/push/login never returns.
+CONTAINER_COMMAND_TIMEOUT_SECONDS: int = 3600
 ADD_STR: str = "add"
 DELETE_STR: str = "delete"
 CAN_BE_MERGED_STR: str = "can-be-merged"
