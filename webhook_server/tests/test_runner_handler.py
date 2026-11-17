@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 import shlex
 from collections.abc import AsyncGenerator, Generator
@@ -22,6 +21,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
+from webhook_server.utils.podman import BOOT_ID_MISMATCH_ERROR, NAMESPACE_REEXEC_ERROR
 
 
 @dataclass
@@ -137,42 +137,53 @@ class TestRunnerHandler:
         err = "Some other error message"
         assert runner_handler.is_podman_bug(err) is False
 
-    @pytest.mark.parametrize(
-        "xdg_runtime_dir",
-        [
-            pytest.param("/tmp/fake-xdg-runtime", id="xdg-runtime-dir-set"),
-            pytest.param(None, id="fallback-to-run-user-uid"),
-        ],
-    )
     @patch("shutil.rmtree")
     def test_fix_podman_bug(
         self,
         mock_rmtree: Mock,
         runner_handler: RunnerHandler,
         monkeypatch: pytest.MonkeyPatch,
-        xdg_runtime_dir: str | None,
+        tmp_path: Path,
     ) -> None:
-        """Test fix_podman_bug removes podman cache directories and the pause.pid file."""
-        if xdg_runtime_dir is None:
-            monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-            expected_runtime_dir = f"/run/user/{os.getuid()}"
-        else:
-            monkeypatch.setenv("XDG_RUNTIME_DIR", xdg_runtime_dir)
-            expected_runtime_dir = xdg_runtime_dir
+        """Test fix_podman_bug repairs storage dirs and the stale pause.pid for a boot ID mismatch.
 
-        unlink_calls: list[tuple[Path, dict[str, Any]]] = []
+        Runtime dir resolution for both the XDG_RUNTIME_DIR and /run/user/<uid> forms is covered by
+        test_podman_utils.py::TestPausePidPath; here the file stays inside tmp_path.
+        """
+        runtime_dir = tmp_path / "runtime"
+        pid_path = runtime_dir / "libpod/tmp/pause.pid"
+        pid_path.parent.mkdir(parents=True)
+        pid_path.write_text("0")  # pid 0 never exists, so the pid file counts as stale
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
 
-        def fake_unlink(path_obj: Path, **kwargs: Any) -> None:
-            unlink_calls.append((path_obj, kwargs))
+        removed = runner_handler.fix_podman_bug(err=BOOT_ID_MISMATCH_ERROR)
 
-        monkeypatch.setattr(Path, "unlink", fake_unlink)
-
-        runner_handler.fix_podman_bug()
-
+        assert removed == [
+            "/tmp/storage-run-1000/containers",
+            "/tmp/storage-run-1000/libpod/tmp",
+            str(pid_path),
+        ]
         assert mock_rmtree.call_count == 2
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/containers", ignore_errors=True)
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
-        assert unlink_calls == [(Path(expected_runtime_dir, "libpod/tmp/pause.pid"), {"missing_ok": True})]
+        assert not pid_path.exists()
+
+    @patch("shutil.rmtree")
+    def test_fix_podman_bug_namespace_error_keeps_storage(
+        self, mock_rmtree: Mock, runner_handler: RunnerHandler, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Test fix_podman_bug only drops the pause.pid file for a namespace re-exec error."""
+        runtime_dir = tmp_path / "runtime"
+        pid_path = runtime_dir / "libpod/tmp/pause.pid"
+        pid_path.parent.mkdir(parents=True)
+        pid_path.write_text("0")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+
+        removed = runner_handler.fix_podman_bug(err=NAMESPACE_REEXEC_ERROR)
+
+        assert removed == [str(pid_path)]
+        mock_rmtree.assert_not_called()
+        assert not pid_path.exists()
 
     @pytest.mark.asyncio
     async def test_run_podman_command_success(self, runner_handler: RunnerHandler) -> None:

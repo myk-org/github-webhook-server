@@ -3,13 +3,11 @@ import contextlib
 import os
 import re
 import shlex
-import shutil
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -40,6 +38,8 @@ from webhook_server.utils.github_repository_settings import get_repository_githu
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
+from webhook_server.utils.podman import PODMAN_BUGS, repair_podman_state
+from webhook_server.utils.podman import is_podman_bug as _is_podman_bug
 from webhook_server.web.tool_server import TOOL_REGISTRY, TOOL_SERVER_PORT
 
 if TYPE_CHECKING:
@@ -48,10 +48,8 @@ if TYPE_CHECKING:
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
-_PODMAN_BUGS = (
-    "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred",
-    "Error: cannot re-exec process to join the existing user namespace",
-)
+# Kept importable from this module for existing callers/tests.
+_PODMAN_BUGS = PODMAN_BUGS
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,14 +265,11 @@ class RunnerHandler:
             yield result
 
     def is_podman_bug(self, err: str) -> bool:
-        return any(bug in err.strip() for bug in _PODMAN_BUGS)
+        return _is_podman_bug(err=err)
 
-    def fix_podman_bug(self) -> None:
+    def fix_podman_bug(self, err: str) -> list[str]:
         self.logger.debug(f"{self.log_prefix} Fixing podman bug")
-        shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
-        shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-        Path(runtime_dir, "libpod/tmp/pause.pid").unlink(missing_ok=True)
+        return repair_podman_state(err=err)
 
     async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
@@ -288,7 +283,7 @@ class RunnerHandler:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
-            self.fix_podman_bug()
+            self.fix_podman_bug(err=err)
             return await run_command(
                 command=command,
                 log_prefix=self.log_prefix,

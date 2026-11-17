@@ -43,7 +43,15 @@ fi
 # Remove a stale rootless pause pid; a live pause process must keep its pid file
 if [[ -f "$PAUSE_PID_FILE" ]]; then
     pause_pid=$(cat "$PAUSE_PID_FILE" 2>/dev/null || true)
-    if [[ -z "$pause_pid" || ! -d "/proc/$pause_pid" ]] || ! grep -qa pause "/proc/$pause_pid/cmdline"; then
+    pause_alive=false
+    if [[ -n "$pause_pid" && -d "/proc/$pause_pid" ]]; then
+        # rootless pause runs as "catatonit -P", so its cmdline has no "pause"
+        if grep -qa pause "/proc/$pause_pid/cmdline" 2>/dev/null \
+            || [[ "$(cat "/proc/$pause_pid/comm" 2>/dev/null || true)" == catatonit ]]; then
+            pause_alive=true
+        fi
+    fi
+    if [[ "$pause_alive" = false ]]; then
         echo "   Removing stale pause pid: $PAUSE_PID_FILE"
         rm -f "$PAUSE_PID_FILE" || echo "   ⚠️  Warning: Could not remove $PAUSE_PID_FILE"
     fi
