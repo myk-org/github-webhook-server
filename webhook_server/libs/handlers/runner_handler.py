@@ -705,11 +705,13 @@ class RunnerHandler:
         return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
 
     async def _complete_queued_build_check(self) -> None:
-        """Close the build-container check run queued for this event as neutral.
+        """Close every build-container check run queued on the current commit as neutral.
 
-        The PR pipeline queues every check run before CI starts, so the run created for a duplicate
-        event would stay queued forever once the duplicate guard returns (#1302). Reporting is
-        best-effort: a failed lookup must not undo the deduplication decision.
+        The PR pipeline queues every check run before CI starts, so the runs created for duplicate
+        events would stay queued forever once the duplicate guard returns (#1302). All queued runs are
+        completed, not just the newest: concurrent duplicate handlers would otherwise each complete
+        the same run and leave another one queued. Reporting is best-effort: a failed lookup or edit
+        must not undo the deduplication decision.
         """
         if not self.github_webhook.last_commit:
             return
@@ -719,35 +721,42 @@ class RunnerHandler:
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
-            queued_runs = [run for run in check_runs if run.name == BUILD_CONTAINER_STR and run.status == QUEUED_STR]
-            if not queued_runs:
-                return
-            newest_run = max(queued_runs, key=lambda run: run.id)
-            await github_api_call(
-                partial(
-                    newest_run.edit,
-                    status="completed",
-                    conclusion="neutral",
-                    output={
-                        "title": "Build container",
-                        "summary": (
-                            f"A {BUILD_CONTAINER_STR} build for this commit is already in progress; "
-                            "this run supersedes nothing."
-                        ),
-                    },
-                ),
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
-            self.logger.info(
-                f"{self.log_prefix} Completed queued {BUILD_CONTAINER_STR} check run {newest_run.id} as neutral, "
-                "a build for this commit is already in progress"
-            )
         except asyncio.CancelledError:
             raise
         except Exception:
-            self.logger.exception(
-                f"{self.log_prefix} Failed to complete the queued {BUILD_CONTAINER_STR} check run as neutral"
+            self.logger.exception(f"{self.log_prefix} Failed to look up the queued {BUILD_CONTAINER_STR} check runs")
+            return
+
+        queued_runs = [run for run in check_runs if run.name == BUILD_CONTAINER_STR and run.status == QUEUED_STR]
+        for queued_run in queued_runs:
+            try:
+                await github_api_call(
+                    partial(
+                        queued_run.edit,
+                        status="completed",
+                        conclusion="neutral",
+                        output={
+                            "title": "Build container",
+                            "summary": (
+                                f"A {BUILD_CONTAINER_STR} build for this commit is already in progress; "
+                                "this run supersedes nothing."
+                            ),
+                        },
+                    ),
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to complete queued {BUILD_CONTAINER_STR} check run "
+                    f"{queued_run.id} as neutral"
+                )
+                continue
+            self.logger.info(
+                f"{self.log_prefix} Completed queued {BUILD_CONTAINER_STR} check run {queued_run.id} as neutral, "
+                "a build for this commit is already in progress"
             )
 
     async def run_build_container(
@@ -822,6 +831,9 @@ class RunnerHandler:
                 )
         current_task = asyncio.current_task()
         superseded_task: Task[None] | None = None
+        # A push that cancels the active same-commit build takes over its check run: the cancelled
+        # build leaves the run in_progress, so the surviving build has to conclude it.
+        took_over_check = False
         skip_duplicate = False
         # Read and claim happen in one event-loop turn (no await in between), so two events for the
         # same PR cannot both pass the guard and overwrite each other's registry slot.
@@ -841,6 +853,7 @@ class RunnerHandler:
                             f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active_sha}: "
                             "an explicit push was requested for the same commit"
                         )
+                        took_over_check = True
                     else:
                         self.logger.info(
                             f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
@@ -864,17 +877,25 @@ class RunnerHandler:
                 await self._complete_queued_build_check()
                 return
 
+            if took_over_check:
+                set_check = True
+
             if (
                 pull_request
                 and set_check
                 and not is_merged
                 and not force
+                # The run found below belongs to the build just cancelled, so it is stale for us
+                and not took_over_check
                 and await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
             ):
                 self.logger.info(
                     f"{self.log_prefix} {BUILD_CONTAINER_STR} is already in progress for this PR, "
                     "skipping duplicate build"
                 )
+                # The in-progress run may belong to another worker process, so this event skips;
+                # the queued run its own event created still needs a conclusion.
+                await self._complete_queued_build_check()
                 return
 
             if set_check:
@@ -975,8 +996,6 @@ class RunnerHandler:
 
                 if build_rc:
                     self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                    if pull_request and set_check:
-                        return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
                 else:
                     self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                     if pull_request and set_check:
@@ -1042,6 +1061,10 @@ class RunnerHandler:
                                 logger=self.logger,
                                 log_prefix=self.log_prefix,
                             )
+
+                # Concluded after the push, so a push-triggered build that owns the check still pushes
+                if pull_request and set_check:
+                    return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
         finally:
             # Only deregister ourselves: a cancelled build must not drop its replacement
             if build_key is not None:

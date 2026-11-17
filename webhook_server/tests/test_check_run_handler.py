@@ -1376,6 +1376,58 @@ class TestCheckRunHandler:
             # verified check is successful, should not appear in error
             assert VERIFIED_LABEL_STR not in result
 
+    @pytest.mark.parametrize(
+        ("conclusion", "blocks"),
+        [
+            ("neutral", False),
+            ("skipped", False),
+            (FAILURE_STR, True),
+            ("cancelled", True),
+            ("timed_out", True),
+            ("action_required", True),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_conclusion_blocking(
+        self, check_run_handler: CheckRunHandler, conclusion: str, blocks: bool
+    ) -> None:
+        """Only GitHub's blocking conclusions fail a required check: neutral and skipped pass (#1300)."""
+        mock_pull_request = Mock()
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = conclusion
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=[TOX_STR]):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check], [], []
+            )
+
+        if blocks:
+            assert result == f"Some check runs failed: {TOX_STR}\n"
+        else:
+            assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_no_conclusion_and_message_shape(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """A required run with no conclusion is reported as not started, next to a blocking failure."""
+        mock_pull_request = Mock()
+        failed_check = Mock()
+        failed_check.name = TOX_STR
+        failed_check.conclusion = FAILURE_STR
+        never_started_check = Mock()
+        never_started_check.name = VERIFIED_LABEL_STR
+        never_started_check.conclusion = None
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=[TOX_STR, VERIFIED_LABEL_STR]):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [failed_check, never_started_check], [], []
+            )
+
+        expected_msg = f"Some check runs failed: {TOX_STR}\nSome check runs not started: {VERIFIED_LABEL_STR}\n"
+        assert result == expected_msg
+
     @pytest.mark.asyncio
     async def test_required_check_failed_or_no_status_failed_required_check(
         self, check_run_handler: CheckRunHandler

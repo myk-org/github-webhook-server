@@ -800,6 +800,123 @@ class TestRunnerHandler:
         runner_handler.logger.exception.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_run_build_container_skip_completes_every_queued_run_despite_failing_edit(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Duplicate events leave several queued runs; all are closed and one failed edit does not abort."""
+        build_key = ("test/repo", mock_pull_request.number)
+        failing_run = Mock(id=20, spec=["id", "name", "status", "edit"])
+        failing_run.name = BUILD_CONTAINER_STR
+        failing_run.status = QUEUED_STR
+        failing_run.edit = Mock(side_effect=GithubException(422, {"message": "unprocessable"}))
+        surviving_run = Mock(id=21, spec=["id", "name", "status", "edit"])
+        surviving_run.name = BUILD_CONTAINER_STR
+        surviving_run.status = QUEUED_STR
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[failing_run, surviving_run]))
+        mock_pull_request.head.sha = "same-sha"
+        never = asyncio.Event()
+        active_build = asyncio.create_task(never.wait())
+        _ACTIVE_CONTAINER_BUILDS[build_key] = ("same-sha", active_build)
+        try:
+            with (
+                patch.object(
+                    runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+                ),
+                patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            ):
+                await runner_handler.run_build_container(pull_request=mock_pull_request)
+        finally:
+            active_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await active_build
+
+        mock_podman.assert_not_awaited()
+        failing_run.edit.assert_called_once()
+        surviving_run.edit.assert_called_once()
+        assert surviving_run.edit.call_args.kwargs["conclusion"] == "neutral"
+        runner_handler.logger.exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_in_progress_skip_completes_queued_run(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """An in-progress run owned by another worker still lets this event close its own queued run."""
+        queued_run = Mock(id=20, spec=["id", "name", "status", "edit"])
+        queued_run.name = BUILD_CONTAINER_STR
+        queued_run.status = QUEUED_STR
+        runner_handler.github_webhook.last_commit = Mock(get_check_runs=Mock(return_value=[queued_run]))
+        mock_pull_request.head.sha = "sha-in-progress"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress,
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        mock_podman.assert_not_awaited()
+        mock_progress.assert_not_awaited()
+        queued_run.edit.assert_called_once()
+        assert queued_run.edit.call_args.kwargs["conclusion"] == "neutral"
+        runner_handler.logger.exception.assert_not_called()
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_same_sha_push_takeover_pushes_then_concludes_check(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """The push cancelling a same-commit build owns that check run and concludes it after pushing."""
+        order: list[str] = []
+        first_build_started = asyncio.Event()
+        never = asyncio.Event()
+
+        async def fake_podman(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            if command.startswith("podman push"):
+                order.append("push")
+                return True, "success", ""
+            order.append("build")
+            if len(order) == 1:
+                first_build_started.set()
+                await never.wait()  # released only by the cancellation from the push invocation
+            return True, "success", ""
+
+        async def fake_set_success(**kwargs: Any) -> None:
+            order.append("set_check_success")
+
+        mock_pull_request.head.sha = "same-sha"
+        with (
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ) as mock_in_progress,
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress,
+            patch.object(
+                runner_handler.check_run_handler,
+                "set_check_success",
+                new=AsyncMock(side_effect=fake_set_success),
+            ) as mock_set_success,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            first_build = asyncio.create_task(runner_handler.run_build_container(pull_request=mock_pull_request))
+            await first_build_started.wait()
+            await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+
+        assert first_build.done()
+        assert first_build.cancelled()
+        # Only the first (cancelled) build consulted the stale in-progress run; the takeover must not
+        assert mock_in_progress.await_count == 1
+        assert mock_progress.await_count == 2
+        assert order == ["build", "build", "push", "set_check_success"]
+        mock_set_success.assert_awaited_once()
+        assert mock_set_success.await_args.kwargs["name"] == BUILD_CONTAINER_STR
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
     async def test_run_build_container_same_sha_with_push_cancels_and_builds(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:

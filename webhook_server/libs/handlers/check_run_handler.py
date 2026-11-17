@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Final, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
@@ -61,6 +61,14 @@ GENERIC_ERROR_ANCHORS = ("error:", "Error:", "ERROR:")
 ERROR_ANCHOR_TIERS = (SECTION_ERROR_ANCHORS, TRACEBACK_ANCHORS, VERDICT_ANCHORS, GENERIC_ERROR_ANCHORS)
 # How far a verdict-line anchor reaches back for the explanation that precedes it.
 VERDICT_CONTEXT_LINES = 30
+# GitHub blocks a required check only on these conclusions; neutral and skipped are non-blocking, so
+# a build deduplicated as neutral must not gate the merge (a missing conclusion counts as blocking).
+BLOCKING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset({
+    FAILURE_STR,
+    "cancelled",
+    "timed_out",
+    "action_required",
+})
 # The list of what failed, sitting near the end of a pytest log. Kept as a block so hundreds of
 # failures stay countable instead of being cut in the middle by a byte-counted tail.
 FAILED_LIST_ANCHOR = "=== short test summary info ==="
@@ -693,10 +701,8 @@ class CheckRunHandler:
             if check_run.name in status_contexts:
                 continue
 
-            if (
-                check_run.name == CAN_BE_MERGED_STR
-                or check_run.conclusion == SUCCESS_STR
-                or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
+            if check_run.name == CAN_BE_MERGED_STR or check_run.name not in await self.all_required_status_checks(
+                pull_request=pull_request
             ):
                 continue
 
@@ -704,7 +710,7 @@ class CheckRunHandler:
                 if check_run.name not in no_status_check_runs:
                     no_status_check_runs.append(check_run.name)
 
-            else:
+            elif check_run.conclusion in BLOCKING_CHECK_CONCLUSIONS:
                 if check_run.name not in failed_check_runs:
                     failed_check_runs.append(check_run.name)
 
