@@ -53,6 +53,7 @@ import asyncio
 import copy
 import datetime
 import json
+import os
 from collections.abc import AsyncIterator
 from unittest.mock import Mock, patch
 
@@ -1194,6 +1195,68 @@ class TestLogViewerHelpers:
 
         # Should return "0"
         assert estimate == "0"
+
+    def test_collect_text_log_files_excludes_lock_files(self, controller, tmp_path):
+        """Test _collect_text_log_files includes .log and rotated files but excludes .lock sidecars."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        main_log = log_dir / "webhook-server.log"
+        rotated_log = log_dir / "webhook-server.log.1"
+        lock_file = log_dir / "webhook-server.log.lock"
+        mcp_lock_file = log_dir / "mcp_server.log.lock"
+        json_file = log_dir / "webhooks_2025-01-01.json"
+
+        for path in (main_log, rotated_log, lock_file, mcp_lock_file, json_file):
+            path.write_text("x" * 1000, encoding="utf-8")
+
+        collected = set(controller._collect_text_log_files(log_dir))
+        assert collected == {main_log, rotated_log}
+
+        # Only .lock files present -> _estimate_total_log_count must still return "0"
+        main_log.unlink()
+        rotated_log.unlink()
+        assert controller._estimate_total_log_count() == "0"
+
+    async def test_collect_and_stream_ignore_lock_files_with_26_log_files(self, controller, tmp_path):
+        """Regression test: .log.lock sidecars must not displace real log files or inflate count."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        base_mtime = 1_700_000_000.0
+        real_files = []
+        padding = "a" * 120
+        for i in range(26):
+            filename = "webhook-server.log" if i == 0 else f"webhook-server.log.{i}"
+            log_path = log_dir / filename
+            log_path.write_text(
+                f"2025-01-05T10:{i:02d}:00.000000 GithubWebhook INFO org/repo "
+                f"[pull_request][hook-{i}][user][PR 1]: Entry from {filename} {padding}\n",
+                encoding="utf-8",
+            )
+            os.utime(log_path, (base_mtime - i * 10, base_mtime - i * 10))
+            real_files.append(log_path)
+
+        for offset, lock_name in enumerate(("webhook-server.log.lock", "mcp_server.log.lock"), start=1):
+            lock_path = log_dir / lock_name
+            lock_path.write_text("x" * 200_000, encoding="utf-8")
+            os.utime(lock_path, (base_mtime + offset * 10, base_mtime + offset * 10))
+
+        collected = set(controller._collect_text_log_files(log_dir))
+        assert collected == set(real_files)
+        assert all(p.suffix != ".lock" for p in collected)
+
+        expected_hook_ids = {f"hook-{i}" for i in range(25)}
+
+        streamed_entries = [entry async for entry in controller._stream_log_entries(max_files=25)]
+        assert len(streamed_entries) == 25
+        assert {entry.hook_id for entry in streamed_entries} == expected_hook_ids
+
+        streamed_text_entries = [entry async for entry in controller._stream_text_log_entries(max_files=25)]
+        assert len(streamed_text_entries) == 25
+        assert {entry.hook_id for entry in streamed_text_entries} == expected_hook_ids
+
+        assert controller._estimate_total_log_count() == "26"
 
     def test_build_log_prefix_from_context(self, controller):
         """Test _build_log_prefix_from_context builds correct prefix."""
