@@ -897,7 +897,11 @@ class TestSetRepository:
         assert "myk-org/test-repo" in result[1]
         assert "HTTP 403" in result[1]
         assert "Repository was archived so is read-only." in result[1]
-        assert result[2] == mock_logger.error
+        assert "Failed to configure repository" in result[1]
+        assert "Failed to set repository settings" not in result[1]
+        mock_logger.exception.assert_called_once_with(result[1])
+        mock_logger.error.assert_not_called()
+        assert result[2] == mock_logger.debug
 
     @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
     @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
@@ -922,7 +926,11 @@ class TestSetRepository:
         assert "myk-org/test-repo" in result[1]
         assert "RuntimeError" in result[1]
         assert "boom" in result[1]
-        assert result[2] == mock_logger.error
+        assert "Failed to configure repository" in result[1]
+        assert "Failed to set repository settings" not in result[1]
+        mock_logger.exception.assert_called_once_with(result[1])
+        mock_logger.error.assert_not_called()
+        assert result[2] == mock_logger.debug
 
     @pytest.mark.parametrize(
         ("local_security_checks", "expected"),

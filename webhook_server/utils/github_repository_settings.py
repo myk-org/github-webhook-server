@@ -476,22 +476,23 @@ def set_repository(
     except GithubException as ex:
         # An archived or read-only repository cannot be configured at all. Name the repository and
         # the reason here, where both are known: the worker future carries no repository identity,
-        # so anything raised past this point is logged without it.
+        # so anything raised past this point is logged without it. The wording stays neutral because
+        # this try also covers label and branch setup, not only the settings write.
         status = getattr(ex, "status", "")
         github_message = ex.data.get("message", "") if isinstance(ex.data, dict) else ""
         reason = f"HTTP {status}: {github_message}" if github_message else str(ex)
-        return (
-            False,
-            f"[API user {api_user}] - {full_repository_name}: Failed to set repository settings ({reason})",
-            LOGGER.error,
-        )
+        message = f"[API user {api_user}] - {full_repository_name}: Failed to configure repository ({reason})"
+        # Logged here so the traceback survives: a returned tuple reaches get_future_results() as an
+        # ordinary result and would be logged without any exception context.
+        LOGGER.exception(message)
+        return False, message, LOGGER.debug
     except Exception as ex:
-        return (
-            False,
-            f"[API user {api_user}] - {full_repository_name}: Failed to set repository settings "
-            f"({type(ex).__name__}: {ex})",
-            LOGGER.error,
+        message = (
+            f"[API user {api_user}] - {full_repository_name}: Failed to configure repository "
+            f"({type(ex).__name__}: {ex})"
         )
+        LOGGER.exception(message)
+        return False, message, LOGGER.debug
 
     return True, f"[API user {api_user}] - {full_repository_name}: Setting repository settings is done", LOGGER.info
 

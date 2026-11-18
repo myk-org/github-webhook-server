@@ -728,10 +728,10 @@ class TestHelpers:
         """A crashing future logs the exception type and GitHub's reason instead of swallowing it."""
 
         class DummyFutureGithubException:
-            def result(self):
+            def result(self) -> None:
                 raise GithubException(403, {"message": "Repository was archived so is read-only."}, None)
 
-            def exception(self):
+            def exception(self) -> GithubException:
                 return GithubException(403, {"message": "Repository was archived so is read-only."}, None)
 
         future = DummyFutureGithubException()
