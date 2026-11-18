@@ -2,9 +2,12 @@ import asyncio
 import contextlib
 import fcntl
 import hashlib
+import json
+import logging
 import os
 import re
 import shlex
+import signal
 import time
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
@@ -12,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TextIO
 
 import shortuuid
 from github import GithubException
@@ -53,20 +56,21 @@ if TYPE_CHECKING:
 
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+_GIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 # Kept importable from this module for existing callers/tests.
 _PODMAN_BUGS = PODMAN_BUGS
 
 
-# (repository_full_name, pr_number) -> (sha, build task). A new commit for the same PR cancels the
-# build still running on the obsolete sha instead of letting both compete for CPU.
+# (repository_full_name, target) -> (sha, build task). A new commit or tag build for the same target
+# cancels the build still running on the obsolete sha instead of letting both compete for CPU.
 class _ActiveBuild(NamedTuple):
     sha: str
     task: Task[None]
     push: bool = False
 
 
-_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, int], _ActiveBuild] = {}
+_ACTIVE_CONTAINER_BUILDS: dict[tuple[str, str], _ActiveBuild] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +172,9 @@ class RunnerHandler:
         checkout: str = "",
         tag_name: str = "",
         skip_merge: bool = False,
+        on_start: Callable[[int], None] | None = None,
+        on_finish: Callable[[int], None] | None = None,
+        timeout: int | None = None,
     ) -> AsyncGenerator[tuple[bool, str, str, str]]:
         """Create worktree from existing clone for handler operations.
 
@@ -242,12 +249,18 @@ class RunnerHandler:
                 command=f"git -C {repo_dir} cat-file -e {checkout}^{{commit}}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=timeout,
+                on_start=on_start,
+                on_finish=on_finish,
             )
             if not rc:
                 rc, out, err = await run_command(
                     command=f"git -C {repo_dir} fetch origin {checkout}",
                     log_prefix=self.log_prefix,
                     mask_sensitive=self.github_webhook.mask_sensitive,
+                    timeout=timeout,
+                    on_start=on_start,
+                    on_finish=on_finish,
                 )
                 if not rc:
                     self.logger.error(f"{self.log_prefix} Failed to fetch explicit checkout {checkout}")
@@ -260,6 +273,9 @@ class RunnerHandler:
             checkout=checkout_target,
             log_prefix=self.log_prefix,
             mask_sensitive=self.github_webhook.mask_sensitive,
+            on_start=on_start,
+            on_finish=on_finish,
+            timeout=timeout,
         ) as (success, worktree_path, out, err):
             result: tuple[bool, str, str, str] = (success, worktree_path, out, err)
 
@@ -275,6 +291,9 @@ class RunnerHandler:
                     command=f"{git_cmd} merge origin/{merge_ref} -m 'Merge {merge_ref}'",
                     log_prefix=self.log_prefix,
                     mask_sensitive=self.github_webhook.mask_sensitive,
+                    timeout=timeout,
+                    on_start=on_start,
+                    on_finish=on_finish,
                 )
                 if not rc:
                     result = (False, worktree_path, out, err)
@@ -293,6 +312,9 @@ class RunnerHandler:
         command: str,
         redact_secrets: list[str] | None = None,
         timeout: int = CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        on_start: Callable[[int], None] | None = None,
+        on_finish: Callable[[int], None] | None = None,
+        is_superseded: Callable[[], bool] | None = None,
     ) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
             command=command,
@@ -300,9 +322,14 @@ class RunnerHandler:
             redact_secrets=redact_secrets,
             mask_sensitive=self.github_webhook.mask_sensitive,
             timeout=timeout,
+            on_start=on_start,
+            on_finish=on_finish,
         )
 
         if rc:
+            return rc, out, err
+
+        if is_superseded is not None and is_superseded():
             return rc, out, err
 
         if self.is_podman_bug(err=err):
@@ -313,6 +340,8 @@ class RunnerHandler:
                 redact_secrets=redact_secrets,
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 timeout=timeout,
+                on_start=on_start,
+                on_finish=on_finish,
             )
 
         return rc, out, err
@@ -718,15 +747,312 @@ class RunnerHandler:
         return " ".join(f"--annotation {shlex.quote(f'{k}={v}')}" for k, v in annotations.items())
 
     @staticmethod
-    def _build_lock_path(build_key: tuple[str, int]) -> str:
-        """Return the cross-worker lock path for one PR's container build.
+    def _build_lock_path(build_key: tuple[str, int | str]) -> str:
+        """Return the cross-worker lock path for one target image:tag build.
 
-        The repository is hashed, so two different repositories can never collide on a
-        sanitised name (``org/repo-a`` vs ``org_repo/a``) and no path separator leaks in.
+        Both repository and target are hashed so two repositories or tags can never collide
+        and no path separator leaks into the filename.
         """
-        repository, pr_number = build_key
-        digest = hashlib.sha1(repository.encode(), usedforsecurity=False).hexdigest()[:12]
-        return f"/tmp/webhook-container-build-{digest}-pr{pr_number}.lock"
+        repository, target = build_key
+        digest = hashlib.sha1(f"{repository}\0{target}".encode(), usedforsecurity=False).hexdigest()[:16]
+        return f"/tmp/webhook-container-build-{digest}.lock"
+
+    @staticmethod
+    def _meta_path(lock_path: str) -> str:
+        return f"{lock_path}.meta"
+
+    @staticmethod
+    def _cancel_path(lock_path: str) -> str:
+        return f"{lock_path}.cancel"
+
+    @staticmethod
+    def _state_path(lock_path: str) -> str:
+        return f"{lock_path}.state"
+
+    @classmethod
+    def _write_build_meta(
+        cls,
+        lock_path: str,
+        token: str,
+        sha: str,
+        push: bool,
+        is_merged: bool,
+        pid: int,
+        pgid: int | None,
+        pgid_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        meta_path = Path(cls._meta_path(lock_path))
+        tmp_path = Path(f"{meta_path}.{pid}.{token}.tmp")
+        payload = json.dumps({
+            "token": token,
+            "sha": sha,
+            "push": push,
+            "is_merged": is_merged,
+            "pid": pid,
+            "pgid": pgid,
+            "pgid_starttime": pgid_starttime,
+        })
+        try:
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, meta_path)
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write build metadata {meta_path}: {exc}")
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+    @classmethod
+    def _read_build_meta(cls, lock_path: str) -> dict[str, Any] | None:
+        try:
+            data = json.loads(Path(cls._meta_path(lock_path)).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _update_build_meta_pgid(
+        cls,
+        lock_path: str,
+        token: str,
+        pgid: int,
+        pgid_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        meta = cls._read_build_meta(lock_path)
+        if meta is None or meta.get("token") != token:
+            return
+        cls._write_build_meta(
+            lock_path=lock_path,
+            token=token,
+            sha=str(meta.get("sha") or ""),
+            push=bool(meta.get("push", False)),
+            is_merged=bool(meta.get("is_merged", False)),
+            pid=int(meta.get("pid") or os.getpid()),
+            pgid=pgid,
+            pgid_starttime=pgid_starttime,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+
+    @classmethod
+    def _clear_build_meta_pgid(
+        cls,
+        lock_path: str,
+        token: str,
+        pid: int | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        meta = cls._read_build_meta(lock_path)
+        if meta is None or meta.get("token") != token:
+            return
+        if pid is not None and meta.get("pgid") != pid:
+            return
+        cls._write_build_meta(
+            lock_path=lock_path,
+            token=token,
+            sha=str(meta.get("sha") or ""),
+            push=bool(meta.get("push", False)),
+            is_merged=bool(meta.get("is_merged", False)),
+            pid=int(meta.get("pid") or os.getpid()),
+            pgid=None,
+            pgid_starttime=None,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+
+    @classmethod
+    def _remove_build_meta(cls, lock_path: str, token: str) -> None:
+        meta = cls._read_build_meta(lock_path)
+        if meta is not None and meta.get("token") == token:
+            with contextlib.suppress(OSError):
+                Path(cls._meta_path(lock_path)).unlink()
+
+    @classmethod
+    def _write_cancel_marker(
+        cls,
+        lock_path: str,
+        token: str,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        cancel_path = Path(cls._cancel_path(lock_path))
+        tmp_path = Path(f"{cancel_path}.{os.getpid()}.{token}.tmp")
+        try:
+            tmp_path.write_text(token, encoding="utf-8")
+            os.replace(tmp_path, cancel_path)
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write cancel marker {cancel_path}: {exc}")
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+    @classmethod
+    def _read_target_state(cls, lock_path: str) -> dict[str, Any] | None:
+        try:
+            data = json.loads(Path(cls._state_path(lock_path)).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _write_target_state(
+        cls,
+        lock_path: str,
+        latest_sha: str | None,
+        completed_sha: str | None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        state_path = Path(cls._state_path(lock_path))
+        tmp_path = Path(f"{state_path}.{os.getpid()}.{shortuuid.uuid()}.tmp")
+        payload = json.dumps({"latest_sha": latest_sha, "completed_sha": completed_sha})
+        try:
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, state_path)
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write build state {state_path}: {exc}")
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+    async def _record_latest_sha(self, lock_path: str, sha: str) -> None:
+        state = self._read_target_state(lock_path) or {}
+        existing_latest = state.get("latest_sha")
+        if isinstance(existing_latest, str) and existing_latest and existing_latest != sha:
+            if await self._commit_relation(sha, existing_latest) == "older":
+                return
+            state = self._read_target_state(lock_path) or {}
+            rechecked_latest = state.get("latest_sha")
+            if (
+                isinstance(rechecked_latest, str)
+                and rechecked_latest
+                and rechecked_latest != existing_latest
+                and rechecked_latest != sha
+                and await self._commit_relation(sha, rechecked_latest) == "older"
+            ):
+                return
+        completed_sha = state.get("completed_sha")
+        self._write_target_state(
+            lock_path=lock_path,
+            latest_sha=sha,
+            completed_sha=completed_sha if isinstance(completed_sha, str) else None,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+
+    @classmethod
+    def _record_completed_sha(
+        cls,
+        lock_path: str,
+        sha: str,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        state = cls._read_target_state(lock_path) or {}
+        latest_sha = state.get("latest_sha")
+        cls._write_target_state(
+            lock_path=lock_path,
+            latest_sha=latest_sha if isinstance(latest_sha, str) else sha,
+            completed_sha=sha,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+
+    @classmethod
+    def _is_superseded(cls, lock_path: str, token: str) -> bool:
+        try:
+            return Path(cls._cancel_path(lock_path)).read_text(encoding="utf-8").strip() == token
+        except OSError:
+            return False
+
+    @classmethod
+    def _remove_cancel_marker(cls, lock_path: str, token: str) -> None:
+        if cls._is_superseded(lock_path, token):
+            with contextlib.suppress(OSError):
+                Path(cls._cancel_path(lock_path)).unlink()
+
+    @staticmethod
+    def _read_proc_starttime(pid: int) -> str | None:
+        if pid <= 0:
+            return None
+        try:
+            content = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        rparen = content.rfind(")")
+        if rparen == -1:
+            return None
+        fields = content[rparen + 1 :].split()
+        if len(fields) <= 19:
+            return None
+        return fields[19]
+
+    @classmethod
+    def _kill_process_group(
+        cls,
+        pgid: int,
+        expected_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        if expected_starttime is not None:
+            current_starttime = cls._read_proc_starttime(pgid)
+            if current_starttime != expected_starttime:
+                if logger is not None:
+                    logger.debug(
+                        f"{log_prefix} Skipping SIGKILL for pgid {pgid}: "
+                        f"starttime {current_starttime!r} != expected {expected_starttime!r}"
+                    )
+                return
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pgid, signal.SIGKILL)
+
+    async def _commit_relation(self, candidate_sha: str, active_sha: str) -> Literal["older", "newer", "unknown"]:
+        """Classify ``candidate_sha`` relative to ``active_sha`` in the local clone."""
+        clone_dir = getattr(self.github_webhook, "clone_repo_dir", "")
+        if not isinstance(clone_dir, str) or not clone_dir or not Path(clone_dir).is_dir():
+            return "unknown"
+        if not (_GIT_SHA_RE.fullmatch(candidate_sha) and _GIT_SHA_RE.fullmatch(active_sha)):
+            return "unknown"
+        qdir = shlex.quote(clone_dir)
+        for sha in (candidate_sha, active_sha):
+            rc, _, _ = await run_command(
+                command=f"git -C {qdir} cat-file -e {sha}^{{commit}}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                await run_command(
+                    command=f"git -C {qdir} fetch origin {sha}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                rc, _, _ = await run_command(
+                    command=f"git -C {qdir} cat-file -e {sha}^{{commit}}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                if not rc:
+                    return "unknown"
+        rc, _, _ = await run_command(
+            command=f"git -C {qdir} merge-base --is-ancestor {candidate_sha} {active_sha}",
+            log_prefix=self.log_prefix,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if rc:
+            return "older"
+        rc, _, _ = await run_command(
+            command=f"git -C {qdir} merge-base --is-ancestor {active_sha} {candidate_sha}",
+            log_prefix=self.log_prefix,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if rc:
+            return "newer"
+        return "unknown"
 
     @staticmethod
     def _acquire_build_lock(lock_path: str) -> TextIO | None:
@@ -837,11 +1163,18 @@ class RunnerHandler:
         the same run and leave another one queued. Reporting is best-effort: a failed lookup or edit
         must not undo the deduplication decision.
         """
-        if not self.github_webhook.last_commit:
+        repo_by_app: Repository | None = getattr(self.github_webhook, "repository_by_github_app", None)
+        if not self.github_webhook.last_commit or not repo_by_app:
             return
         try:
+            app_commit = await github_api_call(
+                repo_by_app.get_commit,
+                self.github_webhook.last_commit.sha,
+                logger=self.logger,
+                log_prefix=self.log_prefix,
+            )
             check_runs = await github_api_call(
-                lambda: list(self.github_webhook.last_commit.get_check_runs()),
+                lambda: list(app_commit.get_check_runs()),
                 logger=self.logger,
                 log_prefix=self.log_prefix,
             )
@@ -944,11 +1277,19 @@ class RunnerHandler:
                 )
             return
 
-        build_key: tuple[str, int] | None = None
+        _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
+            pull_request=pull_request, is_merged=is_merged, tag=tag
+        )
+        is_open_pr = bool(pull_request and not is_merged and not tag)
+        build_key: tuple[str, str] | None = None
+        if isinstance(_container_repository_and_tag, str) and _container_repository_and_tag:
+            build_key = (self.github_webhook.repository_full_name, _container_repository_and_tag)
+        elif is_open_pr and pull_request is not None:
+            build_key = (self.github_webhook.repository_full_name, f"pr-{pull_request.number}")
+
         build_sha: str = revision or ""
         current_head_sha: str = ""
-        if pull_request and not is_merged and not tag:
-            build_key = (self.github_webhook.repository_full_name, pull_request.number)
+        if is_open_pr and pull_request is not None:
             head_sha: str = (
                 await github_api_call(lambda: pull_request.head.sha, logger=self.logger, log_prefix=self.log_prefix)
                 or ""
@@ -969,6 +1310,13 @@ class RunnerHandler:
                         f"{self.log_prefix} Could not resolve any sha for #{pull_request.number}; "
                         "build deduplication is disabled for this build"
                     )
+        elif tag and not is_merged:
+            build_sha = str(
+                (self.github_webhook.hook_data.get("head_commit") or {}).get("id")
+                or self.github_webhook.hook_data.get("after")
+                or tag
+            )
+
         current_task = asyncio.current_task()
         superseded_task: Task[None] | None = None
         wait_for_task: Task[None] | None = None
@@ -978,56 +1326,134 @@ class RunnerHandler:
         took_over_check = False
         skip_duplicate = False
         build_lock: TextIO | None = None
+        lock_path = self._build_lock_path(build_key) if build_key is not None else ""
+        build_token = shortuuid.uuid()
+
+        def _superseded() -> bool:
+            return bool(lock_path and self._is_superseded(lock_path, build_token))
+
+        def _on_process_start(pid: int) -> None:
+            if lock_path:
+                starttime = self._read_proc_starttime(pid)
+                self._update_build_meta_pgid(
+                    lock_path,
+                    build_token,
+                    pid,
+                    pgid_starttime=starttime,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                if self._is_superseded(lock_path, build_token):
+                    self._kill_process_group(
+                        pid,
+                        expected_starttime=starttime,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+
+        def _on_process_finish(pid: int) -> None:
+            if lock_path:
+                self._clear_build_meta_pgid(
+                    lock_path,
+                    build_token,
+                    pid=pid,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+
         try:
-            # Read and claim happen in one event-loop turn (no await in between), so two events for
-            # the same PR cannot both pass the guard and overwrite each other's registry slot.
+            # Read and claim happen in one event-loop turn (no await between read and set), so two
+            # events for the same target cannot both pass the guard and overwrite each other's slot.
             if build_key is not None and build_sha:
-                active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
-                if active is not None and not active.task.done():
-                    is_current_head = not current_head_sha or build_sha == current_head_sha
-                    if not is_current_head:
-                        self.logger.info(
-                            f"{self.log_prefix} Event for {build_sha} is not the current head "
-                            f"({current_head_sha}), not cancelling the build for {active.sha}"
-                        )
-                        skip_duplicate = True
-                    elif active.push and active.sha == build_sha:
-                        self.logger.info(
-                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} was started for an "
-                            "explicit push, not cancelling it"
-                        )
-                        skip_duplicate = True
-                    elif active.push:
-                        # The push build must publish the image; the newer commit waits for it rather
-                        # than running a second build on the same storage (the contention this change
-                        # exists to remove). It is never cancelled.
-                        self.logger.info(
-                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} is publishing; waiting "
-                            f"for it before building {build_sha}"
-                        )
-                        wait_for_task = active.task
-                    elif active.sha == build_sha and not push:
+                while True:
+                    active = _ACTIVE_CONTAINER_BUILDS.get(build_key)
+                    if active is None or active.task.done():
+                        break
+                    if is_open_pr:
+                        is_current_head = not current_head_sha or build_sha == current_head_sha
+                        if not is_current_head:
+                            self.logger.info(
+                                f"{self.log_prefix} Event for {build_sha} is not the current head "
+                                f"({current_head_sha}), not cancelling the build for {active.sha}"
+                            )
+                            skip_duplicate = True
+                        elif active.push and active.sha == build_sha:
+                            self.logger.info(
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} was started for an "
+                                "explicit push, not cancelling it"
+                            )
+                            skip_duplicate = True
+                        elif active.push:
+                            # The push build must publish the image; the newer commit waits for it rather
+                            # than running a second build on the same storage (the contention this change
+                            # exists to remove). It is never cancelled.
+                            self.logger.info(
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active.sha} is publishing; waiting "
+                                f"for it before building {build_sha}"
+                            )
+                            wait_for_task = active.task
+                        elif active.sha == build_sha and not push:
+                            self.logger.info(
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
+                                "skipping duplicate build"
+                            )
+                            skip_duplicate = True
+                        else:
+                            if active.sha == build_sha:
+                                self.logger.info(
+                                    f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active.sha}: "
+                                    "an explicit push was requested for the same commit"
+                                )
+                                took_over_check = True
+                            else:
+                                self.logger.info(
+                                    f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
+                                    f"{active.sha}, new commit is {build_sha}"
+                                )
+                            active.task.cancel()
+                            superseded_task = active.task
+                        break
+
+                    # Merged PR or tag push: same commit skips; newer commit kills same-tag build;
+                    # unknown relationship waits rather than killing an active build whose order
+                    # cannot be proven.
+                    if active.sha == build_sha:
                         self.logger.info(
                             f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
                             "skipping duplicate build"
                         )
                         skip_duplicate = True
-                    else:
-                        if active.sha == build_sha:
-                            self.logger.info(
-                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for {active.sha}: "
-                                "an explicit push was requested for the same commit"
-                            )
-                            took_over_check = True
-                        else:
-                            self.logger.info(
-                                f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
-                                f"{active.sha}, new commit is {build_sha}"
-                            )
+                        break
+                    relation = await self._commit_relation(build_sha, active.sha)
+                    if _ACTIVE_CONTAINER_BUILDS.get(build_key) is not active:
+                        continue
+                    if relation == "older":
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} commit {build_sha} is an ancestor of "
+                            f"active build {active.sha}, skipping older build"
+                        )
+                        skip_duplicate = True
+                    elif relation == "newer":
+                        self.logger.info(
+                            f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
+                            f"{active.sha} on same target tag, new commit is {build_sha}"
+                        )
                         active.task.cancel()
                         superseded_task = active.task
+                    else:
+                        self.logger.info(
+                            f"{self.log_prefix} Cannot prove commit order between {build_sha} and active "
+                            f"{active.sha} on same target tag; waiting for active build to finish"
+                        )
+                        wait_for_task = active.task
+                    break
+
                 if not skip_duplicate and current_task is not None:
                     _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild(build_sha, current_task, push)
+
+            waited_for_build = wait_for_task is not None
+            if (superseded_task is not None or wait_for_task is not None) and build_key is not None and build_sha:
+                await self._record_latest_sha(lock_path, build_sha)
 
             if superseded_task is not None:
                 try:
@@ -1053,7 +1479,8 @@ class RunnerHandler:
                         raise
 
             if skip_duplicate:
-                await self._complete_queued_build_check()
+                if is_open_pr:
+                    await self._complete_queued_build_check()
                 return
 
             # Cross-process claim, taken only once this process is about to build: another uvicorn
@@ -1061,62 +1488,252 @@ class RunnerHandler:
             # even in one process, so this must stay after the in-process supersede/takeover
             # handling (which needs to see, and cancel, this process's own running build).
             if build_key is not None and build_sha:
-                build_lock = self._acquire_build_lock(self._build_lock_path(build_key))
-                if build_lock is None and (push or force or publish_wait_timed_out):
-                    # An explicit push/retest, or a build whose newer commit had to start after the
-                    # publishing build overran the wait, must not be dropped: wait for the lock.
-                    self.logger.info(
-                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
-                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run "
-                        f"{'the requested push' if push else 'the requested retest' if force else 'this build'}"
-                    )
-                    build_lock = await self._acquire_build_lock_waiting(self._build_lock_path(build_key))
+                waited_for_lock = False
+                build_lock = self._acquire_build_lock(lock_path)
                 if build_lock is None:
-                    if push or force or publish_wait_timed_out:
-                        # A requested push/retest (or a build that was told to proceed) that could not
-                        # get the lock must fail loudly: neutralising its check while nobody builds or
-                        # pushes hides the failure from the requester.
-                        notify: str = (
-                            f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the build "
-                            f"already running for this PR; "
-                            f"{'the requested push' if push else 'the requested retest' if force else 'this build'} "
-                            f"for {build_sha} was not run"
-                        )
-                        self.logger.error(f"{self.log_prefix} {notify}")
-                        if pull_request:
-                            try:
-                                await github_api_call(
-                                    pull_request.create_issue_comment,
-                                    notify,
-                                    logger=self.logger,
-                                    log_prefix=self.log_prefix,
-                                )
-                            except asyncio.CancelledError:
-                                raise
-                            except Exception:
-                                # A rejected comment must not strand the check: the conclusion and
-                                # the queued-run cleanup below still have to happen.
-                                self.logger.exception(
-                                    f"{self.log_prefix} Failed to report the container build timeout on the PR"
-                                )
-                        if pull_request and set_check:
-                            await self.check_run_handler.set_check_failure(
-                                name=BUILD_CONTAINER_STR,
-                                output={"title": "Build container", "summary": "", "text": notify},
+                    meta = self._read_build_meta(lock_path)
+                    if meta is None:
+                        for _ in range(5):
+                            await asyncio.sleep(0.05)
+                            meta = self._read_build_meta(lock_path)
+                            if meta is not None:
+                                break
+
+                    should_wait = False
+                    should_supersede = False
+                    should_skip = False
+                    active_token = ""
+                    active_pgid: int | None = None
+                    active_pgid_starttime: str | None = None
+
+                    if meta is None:
+                        should_wait = True
+                        if push or force or publish_wait_timed_out:
+                            self.logger.info(
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
+                                f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run "
+                                f"{'the requested push' if push else 'the requested retest' if force else 'this build'}"
                             )
-                        # The run this event queued must not stay queued forever, whichever check
-                        # conclusion (if any) was reported above.
-                        await self._complete_queued_build_check()
+                        else:
+                            self.logger.info(
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} lock is held without metadata in another "
+                                f"worker; waiting up to {CONTAINER_COMMAND_TIMEOUT_SECONDS}s for {build_sha}"
+                            )
+                    else:
+                        active_sha = str(meta.get("sha") or "")
+                        active_push = bool(meta.get("push", False))
+                        active_token = str(meta.get("token") or "")
+                        raw_pgid = meta.get("pgid")
+                        active_pgid = raw_pgid if isinstance(raw_pgid, int) and not isinstance(raw_pgid, bool) else None
+                        raw_starttime = meta.get("pgid_starttime")
+                        active_pgid_starttime = raw_starttime if isinstance(raw_starttime, str) else None
+
+                        if is_open_pr:
+                            is_current_head = not current_head_sha or build_sha == current_head_sha
+                            if not is_current_head:
+                                self.logger.info(
+                                    f"{self.log_prefix} Event for {build_sha} is not the current head "
+                                    f"({current_head_sha}), not cancelling the build in another worker for {active_sha}"
+                                )
+                                should_skip = True
+                            elif active_push and active_sha == build_sha:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} for {active_sha} was started for an "
+                                    "explicit push in another worker, skipping duplicate build"
+                                )
+                                should_skip = True
+                            elif active_push:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting "
+                                    f"up to {CONTAINER_COMMAND_TIMEOUT_SECONDS}s for {active_sha} to finish publishing"
+                                )
+                                should_wait = True
+                            elif active_sha == build_sha and not push and not force:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
+                                    "another worker, skipping duplicate build"
+                                )
+                                should_skip = True
+                            elif active_sha == build_sha and not push and force:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting "
+                                    f"up to {CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run the requested retest"
+                                )
+                                should_wait = True
+                            else:
+                                if active_sha == build_sha:
+                                    self.logger.info(
+                                        f"{self.log_prefix} Superseding {BUILD_CONTAINER_STR} in another worker for "
+                                        f"{active_sha}: an explicit push was requested for the same commit"
+                                    )
+                                    took_over_check = True
+                                else:
+                                    self.logger.info(
+                                        f"{self.log_prefix} Superseding {BUILD_CONTAINER_STR} in another worker for "
+                                        f"superseded commit {active_sha}, new commit is {build_sha}"
+                                    )
+                                should_supersede = True
+                        else:
+                            if active_sha == build_sha:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
+                                    "another worker, skipping duplicate build"
+                                )
+                                should_skip = True
+                            else:
+                                relation = await self._commit_relation(build_sha, active_sha)
+                                if relation == "older":
+                                    self.logger.info(
+                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} commit {build_sha} is an ancestor "
+                                        f"of active build {active_sha} in another worker, skipping older build"
+                                    )
+                                    should_skip = True
+                                elif relation == "newer":
+                                    self.logger.info(
+                                        f"{self.log_prefix} Superseding {BUILD_CONTAINER_STR} in another worker for "
+                                        f"{active_sha} on same target tag, new commit is {build_sha}"
+                                    )
+                                    should_supersede = True
+                                else:
+                                    self.logger.info(
+                                        f"{self.log_prefix} Cannot prove commit order between {build_sha} and active "
+                                        f"{active_sha} in another worker; waiting up to "
+                                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s"
+                                    )
+                                    should_wait = True
+
+                    if should_skip:
+                        if is_open_pr:
+                            await self._complete_queued_build_check()
                         return
-                    self.logger.info(
-                        f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
-                        "another worker, skipping duplicate build"
+
+                    if should_supersede or should_wait:
+                        await self._record_latest_sha(lock_path, build_sha)
+
+                    if should_supersede:
+                        if active_token:
+                            self._write_cancel_marker(
+                                lock_path,
+                                active_token,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                            if active_pgid is None:
+                                refreshed = self._read_build_meta(lock_path)
+                                if (
+                                    refreshed is not None
+                                    and refreshed.get("token") == active_token
+                                    and isinstance(refreshed_pgid := refreshed.get("pgid"), int)
+                                    and not isinstance(refreshed_pgid, bool)
+                                    and refreshed_pgid > 0
+                                ):
+                                    active_pgid = refreshed_pgid
+                                    refreshed_starttime = refreshed.get("pgid_starttime")
+                                    active_pgid_starttime = (
+                                        refreshed_starttime if isinstance(refreshed_starttime, str) else None
+                                    )
+                        if active_pgid is not None and active_pgid > 0:
+                            self._kill_process_group(
+                                active_pgid,
+                                expected_starttime=active_pgid_starttime,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                        build_lock = await self._acquire_build_lock_waiting(lock_path)
+                        waited_for_lock = True
+                    elif should_wait:
+                        build_lock = await self._acquire_build_lock_waiting(lock_path)
+                        waited_for_lock = True
+
+                if build_lock is None:
+                    action_desc = "the requested push" if push else "the requested retest" if force else "this build"
+                    target_desc = "this PR" if is_open_pr else build_key[1]
+                    notify = (
+                        f"Timed out after {CONTAINER_COMMAND_TIMEOUT_SECONDS}s waiting for the build "
+                        f"already running for {target_desc}; {action_desc} for {build_sha} was not run"
                     )
-                    await self._complete_queued_build_check()
+                    self.logger.error(f"{self.log_prefix} {notify}")
+                    if pull_request and (push or force or publish_wait_timed_out):
+                        try:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                notify,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            # A rejected comment must not strand the check: the conclusion and
+                            # the queued-run cleanup below still have to happen.
+                            self.logger.exception(
+                                f"{self.log_prefix} Failed to report the container build timeout on the PR"
+                            )
+                    if pull_request and set_check:
+                        await self.check_run_handler.set_check_failure(
+                            name=BUILD_CONTAINER_STR,
+                            output={"title": "Build container", "summary": "", "text": notify},
+                        )
+                    # The run this event queued must not stay queued forever, whichever check
+                    # conclusion (if any) was reported above.
+                    if is_open_pr:
+                        await self._complete_queued_build_check()
                     return
 
+                if waited_for_lock or waited_for_build:
+                    state = self._read_target_state(lock_path)
+                    if state:
+                        latest_sha = state.get("latest_sha")
+                        completed_sha = state.get("completed_sha")
+                        if is_open_pr:
+                            if (
+                                isinstance(latest_sha, str)
+                                and latest_sha
+                                and latest_sha != build_sha
+                                and not force
+                                and not push
+                            ):
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded by "
+                                    f"{latest_sha} while waiting; skipping build"
+                                )
+                                await self._complete_queued_build_check()
+                                return
+                        else:
+                            if isinstance(completed_sha, str) and completed_sha == build_sha:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was already "
+                                    "completed by a concurrent worker while waiting; skipping build"
+                                )
+                                return
+                            if isinstance(latest_sha, str) and latest_sha and latest_sha != build_sha:
+                                rel = await self._commit_relation(build_sha, latest_sha)
+                                if rel == "older":
+                                    self.logger.info(
+                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} is older "
+                                        f"than {latest_sha} after waiting; skipping build"
+                                    )
+                                    return
+                                if rel == "newer":
+                                    await self._record_latest_sha(lock_path, build_sha)
+                else:
+                    await self._record_latest_sha(lock_path, build_sha)
+
+                self._write_build_meta(
+                    lock_path=lock_path,
+                    token=build_token,
+                    sha=build_sha,
+                    push=push,
+                    is_merged=is_merged,
+                    pid=os.getpid(),
+                    pgid=None,
+                    pgid_starttime=None,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+
                 if push and self._was_pushed(
-                    self._build_lock_path(build_key),
+                    lock_path,
                     self._push_signature(
                         build_sha,
                         command_args,
@@ -1159,9 +1776,6 @@ class RunnerHandler:
             if set_check:
                 await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
 
-            _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
-                pull_request=pull_request, is_merged=is_merged, tag=tag
-            )
             no_cache: str = " --no-cache" if is_merged else ""
             now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
             annotations = self._oci_annotation_values(revision=revision, tag=tag, created=now)
@@ -1178,7 +1792,16 @@ class RunnerHandler:
                 is_merged=is_merged,
                 checkout=revision or "",
                 tag_name=tag,
+                on_start=_on_process_start,
+                on_finish=_on_process_finish,
+                timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
             ) as (success, worktree_path, out, err):
+                if _superseded():
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded; stopping before build"
+                    )
+                    return
+
                 output: CheckRunOutput = {
                     "title": "Build container",
                     "summary": "",
@@ -1245,7 +1868,17 @@ class RunnerHandler:
 
                 build_rc, build_out, build_err = await self.run_podman_command(
                     command=podman_build_cmd,
+                    on_start=_on_process_start,
+                    on_finish=_on_process_finish,
+                    is_superseded=_superseded,
                 )
+                if _superseded():
+                    self.logger.info(
+                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded during build; "
+                        "exiting cleanly"
+                    )
+                    return
+
                 output["summary"] = self.check_run_handler.get_check_run_summary(err=build_err, out=build_out)
                 output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
                 output["title"] = self.check_run_handler.get_check_run_title(
@@ -1274,12 +1907,22 @@ class RunnerHandler:
                             self.github_webhook.container_repository_username,
                             self.github_webhook.container_repository_password,
                         ],
+                        on_start=_on_process_start,
+                        on_finish=_on_process_finish,
+                        is_superseded=_superseded,
                     )
+                    if _superseded():
+                        self.logger.info(
+                            f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded during push; "
+                            "exiting cleanly"
+                        )
+                        return
+
                     if push_rc:
                         push_msg: str = f"New container for {_container_repository_and_tag} published"
                         if build_key is not None and build_sha:
                             self._record_pushed(
-                                self._build_lock_path(build_key),
+                                lock_path,
                                 self._push_signature(
                                     build_sha,
                                     command_args,
@@ -1330,6 +1973,14 @@ class RunnerHandler:
                                 log_prefix=self.log_prefix,
                             )
 
+                if build_rc and not push_failed and not is_open_pr and lock_path and build_sha:
+                    self._record_completed_sha(
+                        lock_path,
+                        build_sha,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+
                 # Concluded after the push, so a push-triggered build that owns the check still pushes.
                 # Success needs both results: a failed push must never conclude the check as success.
                 if pull_request and set_check:
@@ -1343,6 +1994,9 @@ class RunnerHandler:
                 if stored is not None and stored.task is current_task:
                     del _ACTIVE_CONTAINER_BUILDS[build_key]
             if build_lock is not None:
+                if lock_path:
+                    self._remove_build_meta(lock_path, build_token)
+                    self._remove_cancel_marker(lock_path, build_token)
                 self._release_build_lock(build_lock)
 
     async def run_install_python_module(self, pull_request: PullRequest) -> None:

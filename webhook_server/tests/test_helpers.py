@@ -947,3 +947,31 @@ class TestHelpers:
         # Give process time to be reaped
         await asyncio.sleep(0.1)
         # Verify no zombie processes (implicit - would cause issues if zombies exist)
+
+    @pytest.mark.asyncio
+    async def test_run_command_calls_on_start_with_pid(self) -> None:
+        """run_command invokes on_start(pid) when the subprocess starts (#1307)."""
+        started_pids: list[int] = []
+        rc, out, _ = await run_command(
+            f"{sys.executable} -c 'import os; print(os.getpid())'",
+            log_prefix="[TEST]",
+            on_start=started_pids.append,
+        )
+
+        assert rc is True
+        assert len(started_pids) == 1
+        assert started_pids[0] == int(out.strip())
+
+    @pytest.mark.asyncio
+    async def test_run_command_calls_on_finish_with_pid(self) -> None:
+        """run_command invokes on_finish(pid) after the subprocess exits."""
+        finished_pids: list[int] = []
+        rc, out, _ = await run_command(
+            f"{sys.executable} -c 'import os; print(os.getpid())'",
+            log_prefix="[TEST]",
+            on_finish=finished_pids.append,
+        )
+
+        assert rc is True
+        assert len(finished_pids) == 1
+        assert finished_pids[0] == int(out.strip())
