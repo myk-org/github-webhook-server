@@ -344,6 +344,7 @@ async def run_command(
     timeout: int | None = None,
     mask_sensitive: bool = True,
     on_start: Callable[[int], None] | None = None,
+    on_finish: Callable[[int], None] | None = None,
     **kwargs: Any,
 ) -> tuple[bool, str, str]:
     """
@@ -358,6 +359,7 @@ async def run_command(
         timeout (int | None, optional): Timeout in seconds for command execution. None means no timeout.
         mask_sensitive (bool, default True): Whether to mask sensitive data in logs. If False, logs unredacted output.
         on_start (Callable[[int], None] | None, optional): Invoked with the subprocess PID once created.
+        on_finish (Callable[[int], None] | None, optional): Invoked with the subprocess PID after wait() completes.
 
     Returns:
         tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are UNREDACTED strings.
@@ -529,6 +531,9 @@ async def run_command(
             except Exception:
                 # Genuinely critical - wait() failed for unknown reason
                 logger.exception(f"{log_prefix} CRITICAL: Failed to wait for subprocess - potential zombie")
+            finally:
+                if on_finish is not None:
+                    on_finish(sub_process.pid)
 
 
 class TokenProbe(NamedTuple):
@@ -950,6 +955,9 @@ async def git_worktree_checkout(
     checkout: str,
     log_prefix: str,
     mask_sensitive: bool = True,
+    on_start: Callable[[int], None] | None = None,
+    on_finish: Callable[[int], None] | None = None,
+    timeout: int | None = None,
 ) -> AsyncGenerator[tuple[bool, str, str, str]]:
     """Create git worktree for isolated checkout operations.
 
@@ -961,6 +969,9 @@ async def git_worktree_checkout(
         checkout: Branch, tag, or commit to checkout
         log_prefix: Logging prefix
         mask_sensitive: Whether to mask sensitive data in logs
+        on_start: Optional callback invoked with subprocess PID once worktree add starts
+        on_finish: Optional callback invoked with subprocess PID after worktree add finishes
+        timeout: Optional timeout in seconds for the worktree add command
 
     Yields:
         tuple: (success: bool, worktree_path: str, stdout: str, stderr: str)
@@ -980,6 +991,9 @@ async def git_worktree_checkout(
             command=f"git -C {repo_dir} worktree add {worktree_path} {checkout}",
             log_prefix=log_prefix,
             mask_sensitive=mask_sensitive,
+            on_start=on_start,
+            on_finish=on_finish,
+            timeout=timeout,
         )
 
         if rc:

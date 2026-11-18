@@ -76,6 +76,11 @@ def fake_build_lock(request: pytest.FixtureRequest, tmp_path: Path) -> Generator
             "_cancel_path",
             staticmethod(lambda lock_path: str(tmp_path / f"{Path(lock_path).name}.cancel")),
         ),
+        patch.object(
+            RunnerHandler,
+            "_state_path",
+            staticmethod(lambda lock_path: str(tmp_path / f"{Path(lock_path).name}.state")),
+        ),
     ):
         yield
 
@@ -1402,6 +1407,11 @@ class TestRunnerHandler:
 
         with (
             patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(
+                RunnerHandler,
+                "_read_build_meta",
+                return_value={"sha": "sha-locked", "token": "tok-old", "push": False},
+            ),
             patch.object(runner_handler, "_acquire_build_lock_waiting", new=AsyncMock()) as mock_waiting,
             patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
         ):
@@ -1505,6 +1515,11 @@ class TestRunnerHandler:
 
         with (
             patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(
+                RunnerHandler,
+                "_read_build_meta",
+                return_value={"sha": "sha-locked", "token": "tok-old", "push": False},
+            ),
             patch.object(runner_handler, "_acquire_build_lock_waiting", new=AsyncMock()) as mock_waiting,
             patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()) as mock_progress,
             patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
@@ -2024,7 +2039,12 @@ class TestRunnerHandler:
             await runner_handler.run_build_container(pull_request=mock_pull_request)
 
         assert cancel_token_seen == ["tok-old"]
-        mock_kill_pg.assert_called_once_with(222)
+        mock_kill_pg.assert_called_once_with(
+            222,
+            expected_starttime=None,
+            logger=runner_handler.logger,
+            log_prefix=runner_handler.log_prefix,
+        )
         mock_waiting.assert_awaited_once_with(lock_path)
         mock_complete_queued.assert_not_awaited()
         assert mock_podman.await_count == 1
@@ -2138,7 +2158,7 @@ class TestRunnerHandler:
         mock_pull_request.head.sha = "sha-new"
         orig_write_cancel = RunnerHandler._write_cancel_marker
 
-        def write_cancel_and_update_pgid(path: str, token: str) -> None:
+        def write_cancel_and_update_pgid(path: str, token: str, **_kwargs: Any) -> None:
             orig_write_cancel(path, token)
             RunnerHandler._update_build_meta_pgid(path, token, 333)
 
@@ -2161,7 +2181,12 @@ class TestRunnerHandler:
         ):
             await runner_handler.run_build_container(pull_request=mock_pull_request)
 
-        mock_kill_pg.assert_called_once_with(333)
+        mock_kill_pg.assert_called_once_with(
+            333,
+            expected_starttime=None,
+            logger=runner_handler.logger,
+            log_prefix=runner_handler.log_prefix,
+        )
         assert _ACTIVE_CONTAINER_BUILDS == {}
 
     @pytest.mark.asyncio
@@ -2231,7 +2256,7 @@ class TestRunnerHandler:
             patch.object(
                 runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
             ),
-            patch.object(runner_handler, "_is_ancestor_commit", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "_commit_relation", new=AsyncMock(return_value="newer")),
             patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
             patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
             patch("webhook_server.libs.handlers.runner_handler.send_slack_message") as mock_send_slack,
@@ -2284,7 +2309,7 @@ class TestRunnerHandler:
             patch.object(
                 runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
             ),
-            patch.object(runner_handler, "_is_ancestor_commit", new=AsyncMock(return_value=False)),
+            patch.object(runner_handler, "_commit_relation", new=AsyncMock(return_value="newer")),
             patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
             patch.object(
                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
@@ -2294,7 +2319,12 @@ class TestRunnerHandler:
             await runner_handler.run_build_container(pull_request=pr2, is_merged=True, push=True, set_check=False)
 
         assert cancel_token_seen == ["tok-pr1"]
-        mock_kill_pg.assert_called_once_with(400)
+        mock_kill_pg.assert_called_once_with(
+            400,
+            expected_starttime=None,
+            logger=runner_handler.logger,
+            log_prefix=runner_handler.log_prefix,
+        )
         mock_waiting.assert_awaited_once_with(lock_path)
         assert any(call.kwargs["command"].startswith("podman build") for call in mock_podman.await_args_list)
         assert _ACTIVE_CONTAINER_BUILDS == {}
@@ -2315,7 +2345,7 @@ class TestRunnerHandler:
                 patch.object(
                     runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
                 ),
-                patch.object(runner_handler, "_is_ancestor_commit", new=AsyncMock(return_value=True)),
+                patch.object(runner_handler, "_commit_relation", new=AsyncMock(return_value="older")),
                 patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
             ):
                 await runner_handler.run_build_container(
@@ -2360,6 +2390,414 @@ class TestRunnerHandler:
 
         mock_podman.assert_not_awaited()
         mock_complete_queued.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_tag_build_supersedes_in_process_on_same_tag(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """Newer tag build targeting the same tag cancels an in-process older tag build silently."""
+        runner_handler.github_webhook.hook_data = {"head_commit": {"id": "1111111"}}
+        build1_started = asyncio.Event()
+        never = asyncio.Event()
+        podman_calls: list[str] = []
+
+        async def fake_podman(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+            podman_calls.append(command)
+            if len(podman_calls) == 1:
+                build1_started.set()
+                await never.wait()
+            return True, "success", ""
+
+        with (
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:v1.0.0"
+            ),
+            patch.object(
+                runner_handler, "_commit_relation", new=AsyncMock(return_value="newer")
+            ) as mock_commit_relation,
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(side_effect=fake_podman)),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message") as mock_send_slack,
+        ):
+            tag1_task = asyncio.create_task(
+                runner_handler.run_build_container(push=True, set_check=False, tag="v1.0.0")
+            )
+            await build1_started.wait()
+            runner_handler.github_webhook.hook_data = {"head_commit": {"id": "2222222"}}
+            await runner_handler.run_build_container(push=True, set_check=False, tag="v1.0.0")
+
+        assert tag1_task.done()
+        assert tag1_task.cancelled()
+        mock_commit_relation.assert_any_await("2222222", "1111111")
+        mock_send_slack.assert_called_once()
+        slack_message = mock_send_slack.call_args.kwargs["message"]
+        assert "New container for test/repo:v1.0.0 published" in slack_message
+        assert "Failed to build and push" not in slack_message
+        build_cmds = [cmd for cmd in podman_calls if cmd.startswith("podman build")]
+        push_cmds = [cmd for cmd in podman_calls if cmd.startswith("podman push")]
+        assert len(build_cmds) == 2
+        assert len(push_cmds) == 1
+        assert push_cmds[0].endswith("test/repo:v1.0.0")
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_tag_build_supersedes_cross_worker_on_same_tag(
+        self, runner_handler: RunnerHandler, tmp_path: Path
+    ) -> None:
+        """Newer tag build supersedes a cross-worker tag build via .cancel and pgid starttime check."""
+        lock_path = str(tmp_path / "v1.0.0.lock")
+        RunnerHandler._write_build_meta(
+            lock_path=lock_path,
+            token="tok-tag1",
+            sha="1111111",
+            push=True,
+            is_merged=False,
+            pid=300,
+            pgid=500,
+            pgid_starttime="12345",
+        )
+        runner_handler.github_webhook.hook_data = {"after": "2222222"}
+        cancel_token_seen: list[str] = []
+
+        async def wait_for_lock(path: str) -> io.StringIO:
+            cancel_token_seen.append(Path(RunnerHandler._cancel_path(path)).read_text(encoding="utf-8"))
+            return io.StringIO()
+
+        with (
+            patch.object(RunnerHandler, "_build_lock_path", return_value=lock_path),
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(RunnerHandler, "_kill_process_group") as mock_kill_pg,
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(side_effect=wait_for_lock)
+            ) as mock_waiting,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:v1.0.0"
+            ),
+            patch.object(
+                runner_handler, "_commit_relation", new=AsyncMock(return_value="newer")
+            ) as mock_commit_relation,
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message") as mock_send_slack,
+        ):
+            await runner_handler.run_build_container(push=True, set_check=False, tag="v1.0.0")
+
+        mock_commit_relation.assert_awaited_once_with("2222222", "1111111")
+        assert cancel_token_seen == ["tok-tag1"]
+        mock_kill_pg.assert_called_once_with(
+            500,
+            expected_starttime="12345",
+            logger=runner_handler.logger,
+            log_prefix=runner_handler.log_prefix,
+        )
+        mock_waiting.assert_awaited_once_with(lock_path)
+        commands = [call.kwargs["command"] for call in mock_podman.await_args_list]
+        assert any(cmd.startswith("podman build") and "-t test/repo:v1.0.0" in cmd for cmd in commands)
+        assert any(cmd.startswith("podman push") and cmd.endswith("test/repo:v1.0.0") for cmd in commands)
+        mock_send_slack.assert_called_once()
+        assert _ACTIVE_CONTAINER_BUILDS == {}
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_tag_ancestor_skips_without_killing_newer(
+        self, runner_handler: RunnerHandler
+    ) -> None:
+        """An out-of-order ancestor tag build skips without cancelling the newer active tag build."""
+        build_key = ("test/repo", "test/repo:v1.0.0")
+        never = asyncio.Event()
+        newer_build = asyncio.create_task(never.wait())
+        _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild("2222222", newer_build, push=True)
+        runner_handler.github_webhook.hook_data = {"head_commit": {"id": "1111111"}}
+        try:
+            with (
+                patch.object(
+                    runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:v1.0.0"
+                ),
+                patch.object(
+                    runner_handler, "_commit_relation", new=AsyncMock(return_value="older")
+                ) as mock_commit_relation,
+                patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+            ):
+                await runner_handler.run_build_container(push=True, set_check=False, tag="v1.0.0")
+                assert not newer_build.cancelled()
+                assert _ACTIVE_CONTAINER_BUILDS[build_key].sha == "2222222"
+        finally:
+            newer_build.cancel()
+            with suppress(asyncio.CancelledError):
+                await newer_build
+
+        mock_commit_relation.assert_awaited_once_with("1111111", "2222222")
+        mock_podman.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_commit_relation_classifies_older_newer_and_unknown(
+        self, runner_handler: RunnerHandler, tmp_path: Path
+    ) -> None:
+        """_commit_relation validates SHAs, fetches missing commits, and returns older/newer/unknown."""
+        runner_handler.github_webhook.clone_repo_dir = str(tmp_path)
+        sha_old = "1111111"
+        sha_new = "2222222"
+
+        # Invalid SHA -> unknown without running git
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_cmd:
+            assert await runner_handler._commit_relation("not-a-sha", sha_new) == "unknown"
+            mock_cmd.assert_not_awaited()
+
+        # Fetch missing sha_new, then older
+        async def fake_older(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+            if f"cat-file -e {sha_new}" in command:
+                fake_older.cat_calls += 1  # type: ignore[attr-defined]
+                return (fake_older.cat_calls > 1, "", "")  # type: ignore[attr-defined]
+            if f"cat-file -e {sha_old}" in command or f"fetch origin {sha_new}" in command:
+                return (True, "", "")
+            if f"merge-base --is-ancestor {sha_old} {sha_new}" in command:
+                return (True, "", "")
+            return (False, "", "")
+
+        fake_older.cat_calls = 0  # type: ignore[attr-defined]
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(side_effect=fake_older)):
+            assert await runner_handler._commit_relation(sha_old, sha_new) == "older"
+
+        # Newer when active is ancestor of candidate
+        async def fake_newer(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+            if "cat-file -e" in command:
+                return (True, "", "")
+            if f"merge-base --is-ancestor {sha_old} {sha_new}" in command:
+                return (True, "", "")
+            return (False, "", "")
+
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(side_effect=fake_newer)):
+            assert await runner_handler._commit_relation(sha_new, sha_old) == "newer"
+
+        # Unknown when neither is ancestor
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(side_effect=lambda command, **_kw: ("cat-file -e" in command, "", "")),
+        ):
+            assert await runner_handler._commit_relation(sha_old, sha_new) == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_merged_unknown_relation_waits_without_killing(
+        self, runner_handler: RunnerHandler, tmp_path: Path
+    ) -> None:
+        """Unknown commit relationship waits rather than killing the active build."""
+        # Cross-worker path
+        lock_path = str(tmp_path / "latest.lock")
+        RunnerHandler._write_build_meta(
+            lock_path=lock_path,
+            token="tok-pr1",
+            sha="1111111",
+            push=True,
+            is_merged=True,
+            pid=300,
+            pgid=400,
+        )
+        pr2 = Mock(number=2, merge_commit_sha="2222222", create_issue_comment=Mock())
+
+        with (
+            patch("webhook_server.libs.handlers.runner_handler.github_api_call", new=inline_github_api_call),
+            patch.object(RunnerHandler, "_build_lock_path", return_value=lock_path),
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(RunnerHandler, "_kill_process_group") as mock_kill_pg,
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(return_value=io.StringIO())
+            ) as mock_waiting,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_commit_relation", new=AsyncMock(return_value="unknown")),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))),
+            patch("webhook_server.libs.handlers.runner_handler.send_slack_message"),
+        ):
+            await runner_handler.run_build_container(pull_request=pr2, is_merged=True, push=True, set_check=False)
+
+        mock_kill_pg.assert_not_called()
+        assert not Path(RunnerHandler._cancel_path(lock_path)).exists()
+        mock_waiting.assert_awaited_once_with(lock_path)
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_missing_meta_retries_and_waits_for_lock(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Missing .meta retries briefly and waits for the lock instead of skipping new commits."""
+        mock_pull_request.head.sha = "sha-new"
+
+        with (
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(RunnerHandler, "_read_build_meta", return_value=None) as mock_read_meta,
+            patch("webhook_server.libs.handlers.runner_handler.asyncio.sleep", new=AsyncMock()) as mock_sleep,
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(return_value=io.StringIO())
+            ) as mock_waiting,
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_success", new=AsyncMock()),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", return_value=self._worktree_checkout()),
+            patch.object(
+                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
+            ) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        assert mock_read_meta.call_count == 7
+        assert mock_sleep.await_count == 5
+        mock_waiting.assert_awaited_once()
+        assert mock_podman.await_count == 1
+
+    def test_sidecar_writes_log_warning_on_oserror(self, tmp_path: Path) -> None:
+        """Sidecar writers log a warning and clean up temp files when OSError occurs."""
+        logger = Mock()
+        lock_path = str(tmp_path / "test.lock")
+
+        with patch("webhook_server.libs.handlers.runner_handler.os.replace", side_effect=OSError("disk full")):
+            RunnerHandler._write_build_meta(
+                lock_path=lock_path,
+                token="tok",
+                sha="abc1234",
+                push=False,
+                is_merged=False,
+                pid=1,
+                pgid=None,
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+            RunnerHandler._write_cancel_marker(lock_path, "tok", logger=logger, log_prefix="[TEST]")
+            RunnerHandler._write_target_state(lock_path, "abc1234", None, logger=logger, log_prefix="[TEST]")
+
+        assert logger.warning.call_count == 3
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_read_proc_starttime_and_kill_process_group_identity_check(self, tmp_path: Path) -> None:
+        """_kill_process_group verifies /proc/<pid>/stat starttime before sending SIGKILL."""
+        stat_line = "123 (podman (build)) S 1 123 123 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 1 0 987654 0 0"
+        stat_file = tmp_path / "stat"
+        stat_file.write_text(stat_line, encoding="utf-8")
+
+        with patch("webhook_server.libs.handlers.runner_handler.Path", return_value=stat_file):
+            assert RunnerHandler._read_proc_starttime(123) == "987654"
+
+        with (
+            patch.object(RunnerHandler, "_read_proc_starttime", return_value="999999"),
+            patch("webhook_server.libs.handlers.runner_handler.os.killpg") as mock_killpg,
+        ):
+            RunnerHandler._kill_process_group(123, expected_starttime="987654", logger=Mock(), log_prefix="[TEST]")
+            mock_killpg.assert_not_called()
+
+        with (
+            patch.object(RunnerHandler, "_read_proc_starttime", return_value="987654"),
+            patch("webhook_server.libs.handlers.runner_handler.os.killpg") as mock_killpg,
+        ):
+            RunnerHandler._kill_process_group(123, expected_starttime="987654")
+            mock_killpg.assert_called_once()
+
+        lock_path = str(tmp_path / "pgid.lock")
+        RunnerHandler._write_build_meta(
+            lock_path=lock_path,
+            token="tok",
+            sha="abc1234",
+            push=False,
+            is_merged=False,
+            pid=10,
+            pgid=123,
+            pgid_starttime="987654",
+        )
+        RunnerHandler._clear_build_meta_pgid(lock_path, "tok", pid=123)
+        meta = RunnerHandler._read_build_meta(lock_path)
+        assert meta is not None
+        assert meta["pgid"] is None
+        assert meta["pgid_starttime"] is None
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_superseded_during_checkout_exits_silently(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
+        """Checkout killed by supersession exits silently without failing the check run."""
+        lock_path = str(tmp_path / "pr123.lock")
+        mock_pull_request.head.sha = "sha-old"
+
+        @asynccontextmanager
+        async def superseded_checkout(**kwargs: Any) -> AsyncGenerator[tuple[bool, str, str, str]]:
+            assert "on_start" in kwargs
+            assert "on_finish" in kwargs
+            assert kwargs["timeout"] == CONTAINER_COMMAND_TIMEOUT_SECONDS
+            meta = RunnerHandler._read_build_meta(lock_path)
+            assert meta is not None
+            RunnerHandler._write_cancel_marker(lock_path, str(meta["token"]))
+            yield (False, "", "", "killed")
+
+        with (
+            patch.object(RunnerHandler, "_build_lock_path", return_value=lock_path),
+            patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ),
+            patch.object(runner_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
+            patch.object(runner_handler.check_run_handler, "set_check_failure", new=AsyncMock()) as mock_failure,
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_checkout_worktree", side_effect=superseded_checkout),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=mock_pull_request)
+
+        mock_failure.assert_not_awaited()
+        mock_podman.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_revalidates_target_state_after_waiting(
+        self, runner_handler: RunnerHandler, tmp_path: Path
+    ) -> None:
+        """Out-of-order merged build skips after lock acquisition when .state shows a newer SHA."""
+        lock_path = str(tmp_path / "latest.lock")
+        RunnerHandler._write_build_meta(
+            lock_path=lock_path,
+            token="tok-pr1",
+            sha="1111111",
+            push=True,
+            is_merged=True,
+            pid=300,
+            pgid=400,
+        )
+        pr_old = Mock(number=2, merge_commit_sha="2222222", create_issue_comment=Mock())
+
+        async def wait_and_advance_state(path: str) -> io.StringIO:
+            RunnerHandler._write_target_state(path, latest_sha="3333333", completed_sha=None)
+            return io.StringIO()
+
+        async def fake_relation(candidate: str, active: str) -> str:
+            if candidate == "2222222" and active == "1111111":
+                return "unknown"
+            if candidate == "2222222" and active == "3333333":
+                return "older"
+            return "unknown"
+
+        with (
+            patch("webhook_server.libs.handlers.runner_handler.github_api_call", new=inline_github_api_call),
+            patch.object(RunnerHandler, "_build_lock_path", return_value=lock_path),
+            patch.object(RunnerHandler, "_acquire_build_lock", return_value=None),
+            patch.object(
+                runner_handler, "_acquire_build_lock_waiting", new=AsyncMock(side_effect=wait_and_advance_state)
+            ),
+            patch.object(
+                runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+            ),
+            patch.object(runner_handler, "_commit_relation", new=AsyncMock(side_effect=fake_relation)),
+            patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_podman,
+        ):
+            await runner_handler.run_build_container(pull_request=pr_old, is_merged=True, push=True, set_check=False)
+
+        mock_podman.assert_not_awaited()
+        # Did not overwrite active .meta with pr_old's metadata
+        meta = RunnerHandler._read_build_meta(lock_path)
+        assert meta is not None
+        assert meta["token"] == "tok-pr1"
 
     @pytest.mark.asyncio
     async def test_run_build_container_without_context(

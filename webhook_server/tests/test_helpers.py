@@ -961,3 +961,17 @@ class TestHelpers:
         assert rc is True
         assert len(started_pids) == 1
         assert started_pids[0] == int(out.strip())
+
+    @pytest.mark.asyncio
+    async def test_run_command_calls_on_finish_with_pid(self) -> None:
+        """run_command invokes on_finish(pid) after the subprocess exits."""
+        finished_pids: list[int] = []
+        rc, out, _ = await run_command(
+            f"{sys.executable} -c 'import os; print(os.getpid())'",
+            log_prefix="[TEST]",
+            on_finish=finished_pids.append,
+        )
+
+        assert rc is True
+        assert len(finished_pids) == 1
+        assert finished_pids[0] == int(out.strip())

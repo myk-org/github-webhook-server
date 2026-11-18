@@ -3,6 +3,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import shlex
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TextIO
 
 import shortuuid
 from github import GithubException
@@ -171,6 +172,9 @@ class RunnerHandler:
         checkout: str = "",
         tag_name: str = "",
         skip_merge: bool = False,
+        on_start: Callable[[int], None] | None = None,
+        on_finish: Callable[[int], None] | None = None,
+        timeout: int | None = None,
     ) -> AsyncGenerator[tuple[bool, str, str, str]]:
         """Create worktree from existing clone for handler operations.
 
@@ -245,12 +249,18 @@ class RunnerHandler:
                 command=f"git -C {repo_dir} cat-file -e {checkout}^{{commit}}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=timeout,
+                on_start=on_start,
+                on_finish=on_finish,
             )
             if not rc:
                 rc, out, err = await run_command(
                     command=f"git -C {repo_dir} fetch origin {checkout}",
                     log_prefix=self.log_prefix,
                     mask_sensitive=self.github_webhook.mask_sensitive,
+                    timeout=timeout,
+                    on_start=on_start,
+                    on_finish=on_finish,
                 )
                 if not rc:
                     self.logger.error(f"{self.log_prefix} Failed to fetch explicit checkout {checkout}")
@@ -263,6 +273,9 @@ class RunnerHandler:
             checkout=checkout_target,
             log_prefix=self.log_prefix,
             mask_sensitive=self.github_webhook.mask_sensitive,
+            on_start=on_start,
+            on_finish=on_finish,
+            timeout=timeout,
         ) as (success, worktree_path, out, err):
             result: tuple[bool, str, str, str] = (success, worktree_path, out, err)
 
@@ -278,6 +291,9 @@ class RunnerHandler:
                     command=f"{git_cmd} merge origin/{merge_ref} -m 'Merge {merge_ref}'",
                     log_prefix=self.log_prefix,
                     mask_sensitive=self.github_webhook.mask_sensitive,
+                    timeout=timeout,
+                    on_start=on_start,
+                    on_finish=on_finish,
                 )
                 if not rc:
                     result = (False, worktree_path, out, err)
@@ -297,6 +313,7 @@ class RunnerHandler:
         redact_secrets: list[str] | None = None,
         timeout: int = CONTAINER_COMMAND_TIMEOUT_SECONDS,
         on_start: Callable[[int], None] | None = None,
+        on_finish: Callable[[int], None] | None = None,
         is_superseded: Callable[[], bool] | None = None,
     ) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
@@ -306,6 +323,7 @@ class RunnerHandler:
             mask_sensitive=self.github_webhook.mask_sensitive,
             timeout=timeout,
             on_start=on_start,
+            on_finish=on_finish,
         )
 
         if rc:
@@ -323,6 +341,7 @@ class RunnerHandler:
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 timeout=timeout,
                 on_start=on_start,
+                on_finish=on_finish,
             )
 
         return rc, out, err
@@ -746,6 +765,10 @@ class RunnerHandler:
     def _cancel_path(lock_path: str) -> str:
         return f"{lock_path}.cancel"
 
+    @staticmethod
+    def _state_path(lock_path: str) -> str:
+        return f"{lock_path}.state"
+
     @classmethod
     def _write_build_meta(
         cls,
@@ -756,6 +779,9 @@ class RunnerHandler:
         is_merged: bool,
         pid: int,
         pgid: int | None,
+        pgid_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
     ) -> None:
         meta_path = Path(cls._meta_path(lock_path))
         tmp_path = Path(f"{meta_path}.{pid}.{token}.tmp")
@@ -766,11 +792,14 @@ class RunnerHandler:
             "is_merged": is_merged,
             "pid": pid,
             "pgid": pgid,
+            "pgid_starttime": pgid_starttime,
         })
         try:
             tmp_path.write_text(payload, encoding="utf-8")
             os.replace(tmp_path, meta_path)
-        except OSError:
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write build metadata {meta_path}: {exc}")
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
 
@@ -783,7 +812,15 @@ class RunnerHandler:
         return data if isinstance(data, dict) else None
 
     @classmethod
-    def _update_build_meta_pgid(cls, lock_path: str, token: str, pgid: int) -> None:
+    def _update_build_meta_pgid(
+        cls,
+        lock_path: str,
+        token: str,
+        pgid: int,
+        pgid_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
         meta = cls._read_build_meta(lock_path)
         if meta is None or meta.get("token") != token:
             return
@@ -795,6 +832,36 @@ class RunnerHandler:
             is_merged=bool(meta.get("is_merged", False)),
             pid=int(meta.get("pid") or os.getpid()),
             pgid=pgid,
+            pgid_starttime=pgid_starttime,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+
+    @classmethod
+    def _clear_build_meta_pgid(
+        cls,
+        lock_path: str,
+        token: str,
+        pid: int | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        meta = cls._read_build_meta(lock_path)
+        if meta is None or meta.get("token") != token:
+            return
+        if pid is not None and meta.get("pgid") != pid:
+            return
+        cls._write_build_meta(
+            lock_path=lock_path,
+            token=token,
+            sha=str(meta.get("sha") or ""),
+            push=bool(meta.get("push", False)),
+            is_merged=bool(meta.get("is_merged", False)),
+            pid=int(meta.get("pid") or os.getpid()),
+            pgid=None,
+            pgid_starttime=None,
+            logger=logger,
+            log_prefix=log_prefix,
         )
 
     @classmethod
@@ -805,15 +872,95 @@ class RunnerHandler:
                 Path(cls._meta_path(lock_path)).unlink()
 
     @classmethod
-    def _write_cancel_marker(cls, lock_path: str, token: str) -> None:
+    def _write_cancel_marker(
+        cls,
+        lock_path: str,
+        token: str,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
         cancel_path = Path(cls._cancel_path(lock_path))
         tmp_path = Path(f"{cancel_path}.{os.getpid()}.{token}.tmp")
         try:
             tmp_path.write_text(token, encoding="utf-8")
             os.replace(tmp_path, cancel_path)
-        except OSError:
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write cancel marker {cancel_path}: {exc}")
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
+
+    @classmethod
+    def _read_target_state(cls, lock_path: str) -> dict[str, Any] | None:
+        try:
+            data = json.loads(Path(cls._state_path(lock_path)).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _write_target_state(
+        cls,
+        lock_path: str,
+        latest_sha: str | None,
+        completed_sha: str | None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        state_path = Path(cls._state_path(lock_path))
+        tmp_path = Path(f"{state_path}.{os.getpid()}.{shortuuid.uuid()}.tmp")
+        payload = json.dumps({"latest_sha": latest_sha, "completed_sha": completed_sha})
+        try:
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, state_path)
+        except OSError as exc:
+            if logger is not None:
+                logger.warning(f"{log_prefix} Failed to write build state {state_path}: {exc}")
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+    async def _record_latest_sha(self, lock_path: str, sha: str) -> None:
+        state = self._read_target_state(lock_path) or {}
+        existing_latest = state.get("latest_sha")
+        if isinstance(existing_latest, str) and existing_latest and existing_latest != sha:
+            if await self._commit_relation(sha, existing_latest) == "older":
+                return
+            state = self._read_target_state(lock_path) or {}
+            rechecked_latest = state.get("latest_sha")
+            if (
+                isinstance(rechecked_latest, str)
+                and rechecked_latest
+                and rechecked_latest != existing_latest
+                and rechecked_latest != sha
+                and await self._commit_relation(sha, rechecked_latest) == "older"
+            ):
+                return
+        completed_sha = state.get("completed_sha")
+        self._write_target_state(
+            lock_path=lock_path,
+            latest_sha=sha,
+            completed_sha=completed_sha if isinstance(completed_sha, str) else None,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+
+    @classmethod
+    def _record_completed_sha(
+        cls,
+        lock_path: str,
+        sha: str,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        state = cls._read_target_state(lock_path) or {}
+        latest_sha = state.get("latest_sha")
+        cls._write_target_state(
+            lock_path=lock_path,
+            latest_sha=latest_sha if isinstance(latest_sha, str) else sha,
+            completed_sha=sha,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
 
     @classmethod
     def _is_superseded(cls, lock_path: str, token: str) -> bool:
@@ -829,23 +976,83 @@ class RunnerHandler:
                 Path(cls._cancel_path(lock_path)).unlink()
 
     @staticmethod
-    def _kill_process_group(pgid: int) -> None:
+    def _read_proc_starttime(pid: int) -> str | None:
+        if pid <= 0:
+            return None
+        try:
+            content = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        rparen = content.rfind(")")
+        if rparen == -1:
+            return None
+        fields = content[rparen + 1 :].split()
+        if len(fields) <= 19:
+            return None
+        return fields[19]
+
+    @classmethod
+    def _kill_process_group(
+        cls,
+        pgid: int,
+        expected_starttime: str | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
+        if expected_starttime is not None:
+            current_starttime = cls._read_proc_starttime(pgid)
+            if current_starttime != expected_starttime:
+                if logger is not None:
+                    logger.debug(
+                        f"{log_prefix} Skipping SIGKILL for pgid {pgid}: "
+                        f"starttime {current_starttime!r} != expected {expected_starttime!r}"
+                    )
+                return
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(pgid, signal.SIGKILL)
 
-    async def _is_ancestor_commit(self, older_sha: str, newer_sha: str) -> bool:
-        """Return True when ``older_sha`` is an ancestor of ``newer_sha`` in the local clone."""
+    async def _commit_relation(self, candidate_sha: str, active_sha: str) -> Literal["older", "newer", "unknown"]:
+        """Classify ``candidate_sha`` relative to ``active_sha`` in the local clone."""
         clone_dir = getattr(self.github_webhook, "clone_repo_dir", "")
-        if not clone_dir or not Path(clone_dir).is_dir():
-            return False
-        if not (_GIT_SHA_RE.fullmatch(older_sha) and _GIT_SHA_RE.fullmatch(newer_sha)):
-            return False
+        if not isinstance(clone_dir, str) or not clone_dir or not Path(clone_dir).is_dir():
+            return "unknown"
+        if not (_GIT_SHA_RE.fullmatch(candidate_sha) and _GIT_SHA_RE.fullmatch(active_sha)):
+            return "unknown"
+        qdir = shlex.quote(clone_dir)
+        for sha in (candidate_sha, active_sha):
+            rc, _, _ = await run_command(
+                command=f"git -C {qdir} cat-file -e {sha}^{{commit}}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            if not rc:
+                await run_command(
+                    command=f"git -C {qdir} fetch origin {sha}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                rc, _, _ = await run_command(
+                    command=f"git -C {qdir} cat-file -e {sha}^{{commit}}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
+                if not rc:
+                    return "unknown"
         rc, _, _ = await run_command(
-            command=f"git -C {shlex.quote(clone_dir)} merge-base --is-ancestor {older_sha} {newer_sha}",
+            command=f"git -C {qdir} merge-base --is-ancestor {candidate_sha} {active_sha}",
             log_prefix=self.log_prefix,
             mask_sensitive=self.github_webhook.mask_sensitive,
         )
-        return rc
+        if rc:
+            return "older"
+        rc, _, _ = await run_command(
+            command=f"git -C {qdir} merge-base --is-ancestor {active_sha} {candidate_sha}",
+            log_prefix=self.log_prefix,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        if rc:
+            return "newer"
+        return "unknown"
 
     @staticmethod
     def _acquire_build_lock(lock_path: str) -> TextIO | None:
@@ -1125,11 +1332,34 @@ class RunnerHandler:
         def _superseded() -> bool:
             return bool(lock_path and self._is_superseded(lock_path, build_token))
 
-        def _on_podman_start(pid: int) -> None:
+        def _on_process_start(pid: int) -> None:
             if lock_path:
-                self._update_build_meta_pgid(lock_path, build_token, pid)
+                starttime = self._read_proc_starttime(pid)
+                self._update_build_meta_pgid(
+                    lock_path,
+                    build_token,
+                    pid,
+                    pgid_starttime=starttime,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
                 if self._is_superseded(lock_path, build_token):
-                    self._kill_process_group(pid)
+                    self._kill_process_group(
+                        pid,
+                        expected_starttime=starttime,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+
+        def _on_process_finish(pid: int) -> None:
+            if lock_path:
+                self._clear_build_meta_pgid(
+                    lock_path,
+                    build_token,
+                    pid=pid,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
 
         try:
             # Read and claim happen in one event-loop turn (no await between read and set), so two
@@ -1184,7 +1414,9 @@ class RunnerHandler:
                             superseded_task = active.task
                         break
 
-                    # Merged PR or tag push: same commit skips; newer commit kills same-tag build.
+                    # Merged PR or tag push: same commit skips; newer commit kills same-tag build;
+                    # unknown relationship waits rather than killing an active build whose order
+                    # cannot be proven.
                     if active.sha == build_sha:
                         self.logger.info(
                             f"{self.log_prefix} {BUILD_CONTAINER_STR} already running for {build_sha}, "
@@ -1192,26 +1424,36 @@ class RunnerHandler:
                         )
                         skip_duplicate = True
                         break
-                    is_older = await self._is_ancestor_commit(build_sha, active.sha)
+                    relation = await self._commit_relation(build_sha, active.sha)
                     if _ACTIVE_CONTAINER_BUILDS.get(build_key) is not active:
                         continue
-                    if is_older:
+                    if relation == "older":
                         self.logger.info(
                             f"{self.log_prefix} {BUILD_CONTAINER_STR} commit {build_sha} is an ancestor of "
                             f"active build {active.sha}, skipping older build"
                         )
                         skip_duplicate = True
-                    else:
+                    elif relation == "newer":
                         self.logger.info(
                             f"{self.log_prefix} Cancelling {BUILD_CONTAINER_STR} for superseded commit "
                             f"{active.sha} on same target tag, new commit is {build_sha}"
                         )
                         active.task.cancel()
                         superseded_task = active.task
+                    else:
+                        self.logger.info(
+                            f"{self.log_prefix} Cannot prove commit order between {build_sha} and active "
+                            f"{active.sha} on same target tag; waiting for active build to finish"
+                        )
+                        wait_for_task = active.task
                     break
 
                 if not skip_duplicate and current_task is not None:
                     _ACTIVE_CONTAINER_BUILDS[build_key] = _ActiveBuild(build_sha, current_task, push)
+
+            waited_for_build = wait_for_task is not None
+            if (superseded_task is not None or wait_for_task is not None) and build_key is not None and build_sha:
+                await self._record_latest_sha(lock_path, build_sha)
 
             if superseded_task is not None:
                 try:
@@ -1246,35 +1488,45 @@ class RunnerHandler:
             # even in one process, so this must stay after the in-process supersede/takeover
             # handling (which needs to see, and cancel, this process's own running build).
             if build_key is not None and build_sha:
+                waited_for_lock = False
                 build_lock = self._acquire_build_lock(lock_path)
                 if build_lock is None:
                     meta = self._read_build_meta(lock_path)
+                    if meta is None:
+                        for _ in range(5):
+                            await asyncio.sleep(0.05)
+                            meta = self._read_build_meta(lock_path)
+                            if meta is not None:
+                                break
+
                     should_wait = False
                     should_supersede = False
                     should_skip = False
                     active_token = ""
                     active_pgid: int | None = None
+                    active_pgid_starttime: str | None = None
 
                     if meta is None:
+                        should_wait = True
                         if push or force or publish_wait_timed_out:
-                            should_wait = True
                             self.logger.info(
                                 f"{self.log_prefix} {BUILD_CONTAINER_STR} is running in another worker; waiting up to "
                                 f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s to run "
                                 f"{'the requested push' if push else 'the requested retest' if force else 'this build'}"
                             )
                         else:
-                            should_skip = True
                             self.logger.info(
-                                f"{self.log_prefix} {BUILD_CONTAINER_STR} is already running for {build_sha} in "
-                                "another worker, skipping duplicate build"
+                                f"{self.log_prefix} {BUILD_CONTAINER_STR} lock is held without metadata in another "
+                                f"worker; waiting up to {CONTAINER_COMMAND_TIMEOUT_SECONDS}s for {build_sha}"
                             )
                     else:
                         active_sha = str(meta.get("sha") or "")
                         active_push = bool(meta.get("push", False))
                         active_token = str(meta.get("token") or "")
                         raw_pgid = meta.get("pgid")
-                        active_pgid = raw_pgid if isinstance(raw_pgid, int) else None
+                        active_pgid = raw_pgid if isinstance(raw_pgid, int) and not isinstance(raw_pgid, bool) else None
+                        raw_starttime = meta.get("pgid_starttime")
+                        active_pgid_starttime = raw_starttime if isinstance(raw_starttime, str) else None
 
                         if is_open_pr:
                             is_current_head = not current_head_sha or build_sha == current_head_sha
@@ -1328,27 +1580,44 @@ class RunnerHandler:
                                     "another worker, skipping duplicate build"
                                 )
                                 should_skip = True
-                            elif await self._is_ancestor_commit(build_sha, active_sha):
-                                self.logger.info(
-                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} commit {build_sha} is an ancestor of "
-                                    f"active build {active_sha} in another worker, skipping older build"
-                                )
-                                should_skip = True
                             else:
-                                self.logger.info(
-                                    f"{self.log_prefix} Superseding {BUILD_CONTAINER_STR} in another worker for "
-                                    f"{active_sha} on same target tag, new commit is {build_sha}"
-                                )
-                                should_supersede = True
+                                relation = await self._commit_relation(build_sha, active_sha)
+                                if relation == "older":
+                                    self.logger.info(
+                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} commit {build_sha} is an ancestor "
+                                        f"of active build {active_sha} in another worker, skipping older build"
+                                    )
+                                    should_skip = True
+                                elif relation == "newer":
+                                    self.logger.info(
+                                        f"{self.log_prefix} Superseding {BUILD_CONTAINER_STR} in another worker for "
+                                        f"{active_sha} on same target tag, new commit is {build_sha}"
+                                    )
+                                    should_supersede = True
+                                else:
+                                    self.logger.info(
+                                        f"{self.log_prefix} Cannot prove commit order between {build_sha} and active "
+                                        f"{active_sha} in another worker; waiting up to "
+                                        f"{CONTAINER_COMMAND_TIMEOUT_SECONDS}s"
+                                    )
+                                    should_wait = True
 
                     if should_skip:
                         if is_open_pr:
                             await self._complete_queued_build_check()
                         return
 
+                    if should_supersede or should_wait:
+                        await self._record_latest_sha(lock_path, build_sha)
+
                     if should_supersede:
                         if active_token:
-                            self._write_cancel_marker(lock_path, active_token)
+                            self._write_cancel_marker(
+                                lock_path,
+                                active_token,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
                             if active_pgid is None:
                                 refreshed = self._read_build_meta(lock_path)
                                 if (
@@ -1359,11 +1628,22 @@ class RunnerHandler:
                                     and refreshed_pgid > 0
                                 ):
                                     active_pgid = refreshed_pgid
+                                    refreshed_starttime = refreshed.get("pgid_starttime")
+                                    active_pgid_starttime = (
+                                        refreshed_starttime if isinstance(refreshed_starttime, str) else None
+                                    )
                         if active_pgid is not None and active_pgid > 0:
-                            self._kill_process_group(active_pgid)
+                            self._kill_process_group(
+                                active_pgid,
+                                expected_starttime=active_pgid_starttime,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
                         build_lock = await self._acquire_build_lock_waiting(lock_path)
+                        waited_for_lock = True
                     elif should_wait:
                         build_lock = await self._acquire_build_lock_waiting(lock_path)
+                        waited_for_lock = True
 
                 if build_lock is None:
                     action_desc = "the requested push" if push else "the requested retest" if force else "this build"
@@ -1400,6 +1680,37 @@ class RunnerHandler:
                         await self._complete_queued_build_check()
                     return
 
+                if waited_for_lock or waited_for_build:
+                    state = self._read_target_state(lock_path)
+                    if state:
+                        latest_sha = state.get("latest_sha")
+                        completed_sha = state.get("completed_sha")
+                        if is_open_pr:
+                            if isinstance(latest_sha, str) and latest_sha and latest_sha != build_sha and not force:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded by "
+                                    f"{latest_sha} while waiting; skipping build"
+                                )
+                                await self._complete_queued_build_check()
+                                return
+                        else:
+                            if isinstance(completed_sha, str) and completed_sha == build_sha:
+                                self.logger.info(
+                                    f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was already "
+                                    "completed by a concurrent worker while waiting; skipping build"
+                                )
+                                return
+                            if isinstance(latest_sha, str) and latest_sha and latest_sha != build_sha:
+                                rel = await self._commit_relation(build_sha, latest_sha)
+                                if rel != "newer":
+                                    self.logger.info(
+                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} is not newer "
+                                        f"than {latest_sha} ({rel}) after waiting; skipping build"
+                                    )
+                                    return
+                else:
+                    await self._record_latest_sha(lock_path, build_sha)
+
                 self._write_build_meta(
                     lock_path=lock_path,
                     token=build_token,
@@ -1408,6 +1719,9 @@ class RunnerHandler:
                     is_merged=is_merged,
                     pid=os.getpid(),
                     pgid=None,
+                    pgid_starttime=None,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )
 
                 if push and self._was_pushed(
@@ -1470,6 +1784,9 @@ class RunnerHandler:
                 is_merged=is_merged,
                 checkout=revision or "",
                 tag_name=tag,
+                on_start=_on_process_start,
+                on_finish=_on_process_finish,
+                timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
             ) as (success, worktree_path, out, err):
                 if _superseded():
                     self.logger.info(
@@ -1543,7 +1860,8 @@ class RunnerHandler:
 
                 build_rc, build_out, build_err = await self.run_podman_command(
                     command=podman_build_cmd,
-                    on_start=_on_podman_start,
+                    on_start=_on_process_start,
+                    on_finish=_on_process_finish,
                     is_superseded=_superseded,
                 )
                 if _superseded():
@@ -1581,7 +1899,8 @@ class RunnerHandler:
                             self.github_webhook.container_repository_username,
                             self.github_webhook.container_repository_password,
                         ],
-                        on_start=_on_podman_start,
+                        on_start=_on_process_start,
+                        on_finish=_on_process_finish,
                         is_superseded=_superseded,
                     )
                     if _superseded():
@@ -1645,6 +1964,14 @@ class RunnerHandler:
                                 logger=self.logger,
                                 log_prefix=self.log_prefix,
                             )
+
+                if build_rc and not push_failed and not is_open_pr and lock_path and build_sha:
+                    self._record_completed_sha(
+                        lock_path,
+                        build_sha,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
 
                 # Concluded after the push, so a push-triggered build that owns the check still pushes.
                 # Success needs both results: a failed push must never conclude the check as success.
