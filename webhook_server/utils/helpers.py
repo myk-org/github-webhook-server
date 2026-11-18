@@ -21,7 +21,6 @@ from typing import Any, NamedTuple
 from uuid import uuid4
 
 import github
-import simple_logger.logger
 from github import GithubException
 from github.Repository import Repository
 from simple_logger.logger import get_logger
@@ -37,11 +36,6 @@ from webhook_server.utils.masking import (
     attach_masking,
     config_secret_values,
 )
-from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
-
-# Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
-# when backup log files are missing during rollover
-simple_logger.logger.RotatingFileHandler = SafeRotatingFileHandler
 
 _JSON_HANDLER_LOCK = threading.Lock()
 

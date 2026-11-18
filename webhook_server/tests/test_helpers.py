@@ -13,6 +13,7 @@ import github
 import pytest
 from github import GithubException
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from simple_logger.logger import MultiProcessRotatingFileHandler
 from urllib3.exceptions import MaxRetryError, ResponseError
 
 from webhook_server.libs.config import Config
@@ -554,6 +555,23 @@ class TestHelpers:
             log_dir = tmp_path / "logs"
             assert log_dir.exists()
             assert (log_dir / "test.log").exists() or True  # File may not be created until logging
+
+    def test_get_logger_with_params_uses_multiprocess_rotating_handler(self, tmp_path: Path) -> None:
+        """Test get_logger_with_params uses MultiProcessRotatingFileHandler from python-simple-logger."""
+        log_name = "mp_rotating_handler_test.log"
+        with patch("webhook_server.utils.helpers.Config") as mock_config:
+            mock_config.return_value.get_value.side_effect = lambda value, **kwargs: (
+                "INFO" if value == "log-level" else kwargs.get("return_on_none")
+            )
+            mock_config.return_value.data_dir = str(tmp_path)
+            logger = get_logger_with_params(repository_name="repo", log_file_name=log_name)
+            try:
+                assert any(isinstance(h, MultiProcessRotatingFileHandler) for h in logger.handlers)
+            finally:
+                for handler in list(logger.handlers):
+                    handler.close()
+                    logger.removeHandler(handler)
+                logging.Logger.manager.loggerDict.pop(log_name, None)
 
     def test_get_logger_with_params_mask_sensitive_default(self, tmp_path):
         """Test get_logger_with_params masks sensitive data by default."""

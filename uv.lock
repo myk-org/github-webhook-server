@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.14.*"
 
 [[package]]
@@ -655,7 +655,7 @@ requires-dist = [
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
     { name = "pytest-xdist", marker = "extra == 'tests'", specifier = ">=3.7.0" },
-    { name = "python-simple-logger", specifier = ">=1.0.40" },
+    { name = "python-simple-logger", specifier = ">=2.0.21" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "ruff", specifier = ">=0.6.9" },
@@ -1447,12 +1447,12 @@ wheels = [
 
 [[package]]
 name = "python-simple-logger"
-version = "2.0.20"
+version = "2.0.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/55/fb781312df5d7ed9d1fec3b1c33402b3e85950ce728c0a9d7bc063c5ac0b/python_simple_logger-2.0.20.tar.gz", hash = "sha256:17a18a6860e479c9733f56bd8d100fb4d3e4ba40e204ce666b7d3dee75ebabc2", size = 9955, upload-time = "2026-11-03T09:57:01.233Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/49/24/5c9238aa424a4af9c2fa7059a1e982f31b609ab5a64d4d30d98e41243a62/python_simple_logger-2.0.21.tar.gz", hash = "sha256:fba21825db0c6aedab55038dc8ad7e8811050883a8b9881bb5c08b72c9582f56", size = 23035, upload-time = "2026-11-18T16:31:11.607Z" }
 
 [[package]]
 name = "pywin32"
