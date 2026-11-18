@@ -13,7 +13,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from concurrent.futures import Future, as_completed
 from logging import Logger
 from pathlib import Path
@@ -343,6 +343,7 @@ async def run_command(
     stdin_input: str | bytes | None = None,
     timeout: int | None = None,
     mask_sensitive: bool = True,
+    on_start: Callable[[int], None] | None = None,
     **kwargs: Any,
 ) -> tuple[bool, str, str]:
     """
@@ -356,6 +357,7 @@ async def run_command(
         stdin_input (str | bytes | None, optional): Input to pass to command via stdin (for passwords, etc.)
         timeout (int | None, optional): Timeout in seconds for command execution. None means no timeout.
         mask_sensitive (bool, default True): Whether to mask sensitive data in logs. If False, logs unredacted output.
+        on_start (Callable[[int], None] | None, optional): Invoked with the subprocess PID once created.
 
     Returns:
         tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are UNREDACTED strings.
@@ -393,6 +395,8 @@ async def run_command(
             *command_list,
             **kwargs,
         )
+        if on_start is not None:
+            on_start(sub_process.pid)
 
         # Prepare stdin (convert str to bytes if needed)
         stdin_bytes = None
