@@ -1,19 +1,26 @@
 import asyncio
 import logging
+import multiprocessing
 import os
+import re
 import subprocess as sp
 import sys
 import threading
 import time
 from collections.abc import Iterator
+from datetime import datetime
+from multiprocessing.synchronize import Barrier
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import github
 import pytest
+import simple_logger.logger as simple_logger_module
 from github import GithubException
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from simple_logger.logger import MultiProcessRotatingFileHandler
+from simple_logger.logger import get_logger as simple_get_logger
 from urllib3.exceptions import MaxRetryError, ResponseError
 
 from webhook_server.libs.config import Config
@@ -172,6 +179,59 @@ class TestTokenProbing:
 
         # A failed probe must not be cached - the token may recover after the reset
         assert "exhausted-token" not in helpers_module._token_probe_cache
+
+
+def _multiprocess_log_worker(
+    data_dir: str,
+    log_name: str,
+    worker_id: int,
+    barrier: Barrier,
+) -> None:
+    def _wrapped_get_logger(**kwargs: Any) -> logging.Logger:
+        kwargs["file_max_bytes"] = 2000
+        kwargs["file_backup_count"] = 5
+        kwargs["console"] = False
+        return simple_get_logger(**kwargs)
+
+    # Clear any logger inherited across fork from test collection/earlier tests
+    # so get_logger creates a fresh handler bound to this test's tmp_path.
+    inherited = simple_logger_module.LOGGERS.pop(log_name, None)
+    if inherited is not None:
+        for handler in list(inherited.handlers):
+            handler.close()
+            inherited.removeHandler(handler)
+    logging.Logger.manager.loggerDict.pop(log_name, None)
+
+    with (
+        patch("webhook_server.utils.helpers.Config") as mock_config,
+        patch("webhook_server.utils.helpers.get_logger", side_effect=_wrapped_get_logger),
+    ):
+        mock_config.return_value.get_value.side_effect = lambda value, **kwargs: (
+            "INFO" if value == "log-level" else kwargs.get("return_on_none")
+        )
+        mock_config.return_value.data_dir = data_dir
+        logger = get_logger_with_params(repository_name=f"repo-{worker_id}", log_file_name=log_name)
+        try:
+            pad = "x" * 60
+            for idx in range(59):
+                logger.info(f"worker={worker_id} msg={idx:03d} {pad}")
+            barrier.wait(timeout=15)
+            # Ensure base log has headroom before all workers write msg=059
+            # so a normal rollover cannot push one worker's final line into .1.
+            base_log = Path(data_dir) / "logs" / log_name
+            if worker_id == 0:
+                pad_idx = 0
+                while base_log.exists() and base_log.stat().st_size >= 1200:
+                    logger.info(f"worker={worker_id} pad={pad_idx:03d} {pad}")
+                    pad_idx += 1
+            barrier.wait(timeout=15)
+            logger.info(f"worker={worker_id} msg=059 {pad}")
+        finally:
+            for handler in list(logger.handlers):
+                handler.close()
+                logger.removeHandler(handler)
+            simple_logger_module.LOGGERS.pop(log_name, None)
+            logging.Logger.manager.loggerDict.pop(log_name, None)
 
 
 class TestHelpers:
@@ -572,6 +632,77 @@ class TestHelpers:
                     handler.close()
                     logger.removeHandler(handler)
                 logging.Logger.manager.loggerDict.pop(log_name, None)
+
+    def test_get_logger_with_params_multiprocess_rotation_concurrency(self, tmp_path: Path) -> None:
+        """Test concurrent writes from 4 forked processes rotate cleanly without lost or misrouted entries."""
+        log_name = "webhook-server.log"
+        ctx = multiprocessing.get_context("fork")
+        barrier = ctx.Barrier(4)
+        workers = [
+            ctx.Process(
+                target=_multiprocess_log_worker,
+                args=(str(tmp_path), log_name, worker_id, barrier),
+            )
+            for worker_id in range(4)
+        ]
+
+        try:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=30)
+                assert not worker.is_alive()
+                assert worker.exitcode == 0
+
+            log_dir = tmp_path / "logs"
+            base_log = log_dir / log_name
+            assert base_log.exists()
+
+            backup_paths = [
+                log_dir / f"{log_name}.{idx}" for idx in range(5, 0, -1) if (log_dir / f"{log_name}.{idx}").exists()
+            ]
+            assert backup_paths
+
+            base_text = base_log.read_text(encoding="utf-8")
+            for worker_id in range(4):
+                final_marker = f"worker={worker_id} msg=059"
+                assert final_marker in base_text
+                for backup in backup_paths:
+                    assert final_marker not in backup.read_text(encoding="utf-8")
+
+            for backup in backup_paths:
+                assert backup.stat().st_size > 1000
+
+            ordered_files = [*backup_paths, base_log]
+            line_pattern = re.compile(r"^(\S+)\s+.*worker=(\d+)\s+(?:msg|pad)=(\d+)")
+            last_msg_by_worker: dict[int, int] = {}
+            file_ts_bounds: list[tuple[datetime, datetime]] = []
+
+            for log_path in ordered_files:
+                timestamps: list[datetime] = []
+                for line in log_path.read_text(encoding="utf-8").splitlines():
+                    match = line_pattern.match(line)
+                    assert match is not None, f"Unparseable or interleaved log line in {log_path}: {line!r}"
+                    ts_str, worker_str, seq_str = match.groups()
+                    timestamps.append(datetime.fromisoformat(ts_str))
+                    if " msg=" in line:
+                        w_id = int(worker_str)
+                        seq = int(seq_str)
+                        assert seq > last_msg_by_worker.get(w_id, -1)
+                        last_msg_by_worker[w_id] = seq
+                assert timestamps
+                file_ts_bounds.append((min(timestamps), max(timestamps)))
+
+            for earlier, later in zip(file_ts_bounds, file_ts_bounds[1:], strict=False):
+                assert earlier[0] <= later[0]
+                assert earlier[1] <= later[1]
+        finally:
+            for worker in workers:
+                if worker.is_alive():
+                    worker.terminate()
+                    worker.join(timeout=5)
+            simple_logger_module.LOGGERS.pop(log_name, None)
+            logging.Logger.manager.loggerDict.pop(log_name, None)
 
     def test_get_logger_with_params_mask_sensitive_default(self, tmp_path):
         """Test get_logger_with_params masks sensitive data by default."""

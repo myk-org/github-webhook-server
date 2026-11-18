@@ -1085,9 +1085,7 @@ class LogViewerController:
             return
 
         # Find all log files including rotated ones and JSON files
-        log_files: list[Path] = []
-        log_files.extend(log_dir.glob("*.log"))
-        log_files.extend(log_dir.glob("*.log.*"))
+        log_files = self._collect_text_log_files(log_dir)
         log_files.extend(log_dir.glob("webhooks_*.json"))
 
         # Sort log files to prioritize JSON webhook files first (primary data source),
@@ -1170,9 +1168,7 @@ class LogViewerController:
             return
 
         # Find only text log files (not JSON webhook summaries)
-        log_files: list[Path] = []
-        log_files.extend(log_dir.glob("*.log"))
-        log_files.extend(log_dir.glob("*.log.*"))
+        log_files = self._collect_text_log_files(log_dir)
 
         if not log_files:
             return
@@ -1297,6 +1293,13 @@ class LogViewerController:
         # Use the same log directory as the main application
         log_dir_path = os.path.join(self.config.data_dir, "logs")
         return Path(log_dir_path)
+
+    @staticmethod
+    def _collect_text_log_files(log_dir: Path) -> list[Path]:
+        """Collect text log files including rotated ones, excluding .lock sidecar files."""
+        log_files: list[Path] = list(log_dir.glob("*.log"))
+        log_files.extend(p for p in log_dir.glob("*.log.*") if p.suffix != ".lock")
+        return log_files
 
     async def _get_log_viewer_html(self) -> str:
         """Load and return the log viewer HTML template.
@@ -1482,9 +1485,7 @@ class LogViewerController:
                 return "0"
 
             # Find all log files including rotated ones
-            log_files: list[Path] = []
-            log_files.extend(log_dir.glob("*.log"))
-            log_files.extend(log_dir.glob("*.log.*"))
+            log_files = self._collect_text_log_files(log_dir)
 
             if not log_files:
                 return "0"
