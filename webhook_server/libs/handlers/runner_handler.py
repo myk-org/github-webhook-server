@@ -1686,7 +1686,13 @@ class RunnerHandler:
                         latest_sha = state.get("latest_sha")
                         completed_sha = state.get("completed_sha")
                         if is_open_pr:
-                            if isinstance(latest_sha, str) and latest_sha and latest_sha != build_sha and not force:
+                            if (
+                                isinstance(latest_sha, str)
+                                and latest_sha
+                                and latest_sha != build_sha
+                                and not force
+                                and not push
+                            ):
                                 self.logger.info(
                                     f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} was superseded by "
                                     f"{latest_sha} while waiting; skipping build"
@@ -1702,12 +1708,14 @@ class RunnerHandler:
                                 return
                             if isinstance(latest_sha, str) and latest_sha and latest_sha != build_sha:
                                 rel = await self._commit_relation(build_sha, latest_sha)
-                                if rel != "newer":
+                                if rel == "older":
                                     self.logger.info(
-                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} is not newer "
-                                        f"than {latest_sha} ({rel}) after waiting; skipping build"
+                                        f"{self.log_prefix} {BUILD_CONTAINER_STR} for {build_sha} is older "
+                                        f"than {latest_sha} after waiting; skipping build"
                                     )
                                     return
+                                if rel == "newer":
+                                    await self._record_latest_sha(lock_path, build_sha)
                 else:
                     await self._record_latest_sha(lock_path, build_sha)
 
