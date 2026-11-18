@@ -874,6 +874,64 @@ class TestSetRepository:
         assert "Failed to get github api" in result[1]
         assert result[2] == mock_logger.error
 
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_archived_repo_names_repository_and_reason(
+        self, mock_logger: Mock, mock_get_repo: Mock, mock_set_repo_labels: Mock
+    ) -> None:
+        """An archived repository fails with its name and the GitHub reason, not a bare exception."""
+        mock_repo = Mock()
+        mock_repo.edit.side_effect = GithubException(403, {"message": "Repository was archived so is read-only."}, None)
+        mock_get_repo.return_value = mock_repo
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "myk-org/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={},
+            config=_config(),
+        )
+
+        assert result[0] is False
+        assert "myk-org/test-repo" in result[1]
+        assert "HTTP 403" in result[1]
+        assert "Repository was archived so is read-only." in result[1]
+        assert "Failed to configure repository" in result[1]
+        assert "Failed to set repository settings" not in result[1]
+        mock_logger.exception.assert_called_once_with(result[1])
+        mock_logger.error.assert_not_called()
+        assert result[2] == mock_logger.debug
+
+    @patch("webhook_server.utils.github_repository_settings.set_repository_labels")
+    @patch("webhook_server.utils.github_repository_settings._get_github_repo_api")
+    @patch("webhook_server.utils.github_repository_settings.LOGGER")
+    def test_set_repository_unexpected_error_names_repository_and_type(
+        self, mock_logger: Mock, mock_get_repo: Mock, mock_set_repo_labels: Mock
+    ) -> None:
+        """A non-GitHub exception is reported with the repository name and the exception type."""
+        mock_repo = Mock()
+        mock_repo.edit.side_effect = RuntimeError("boom")
+        mock_get_repo.return_value = mock_repo
+
+        result = set_repository(
+            repository_name="test-repo",
+            data={"name": "myk-org/test-repo"},
+            apis_dict={"test-repo": {"api": Mock(), "user": "test-user"}},
+            branch_protection={},
+            config=_config(),
+        )
+
+        assert result[0] is False
+        assert "myk-org/test-repo" in result[1]
+        assert "RuntimeError" in result[1]
+        assert "boom" in result[1]
+        assert "Failed to configure repository" in result[1]
+        assert "Failed to set repository settings" not in result[1]
+        mock_logger.exception.assert_called_once_with(result[1])
+        mock_logger.error.assert_not_called()
+        assert result[2] == mock_logger.debug
+
     @pytest.mark.parametrize(
         ("local_security_checks", "expected"),
         [

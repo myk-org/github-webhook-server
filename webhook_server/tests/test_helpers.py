@@ -715,13 +715,38 @@ class TestHelpers:
 
                 # Verify logger.exception was called for the exception case
                 mock_logger.exception.assert_called_once_with(
-                    "Repository configuration crashed. Check for archived repositories or API permission issues."
+                    "Repository configuration crashed (RuntimeError: Repository configuration crashed). "
+                    "Check for archived repositories or API permission issues."
                 )
 
                 # Verify all futures were processed (success and failure futures should have logged)
                 assert futures[0].logged == "success"
                 assert futures[1].logged == "fail"
                 # futures[2] raised exception so no log attribute set
+
+    def test_get_future_results_logs_archived_repository_reason(self):
+        """A crashing future logs the exception type and GitHub's reason instead of swallowing it."""
+
+        class DummyFutureGithubException:
+            def result(self) -> None:
+                raise GithubException(403, {"message": "Repository was archived so is read-only."}, None)
+
+            def exception(self) -> GithubException:
+                return GithubException(403, {"message": "Repository was archived so is read-only."}, None)
+
+        future = DummyFutureGithubException()
+
+        with patch("webhook_server.utils.helpers.as_completed", return_value=[future]):
+            with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+                mock_logger = Mock()
+                mock_get_logger.return_value = mock_logger
+
+                get_future_results([future])
+
+                mock_logger.exception.assert_called_once()
+                message = mock_logger.exception.call_args.args[0]
+                assert "GithubException" in message
+                assert "Repository was archived" in message
 
     @pytest.mark.asyncio
     async def test_run_command_timeout_keeps_partial_output(self) -> None:
