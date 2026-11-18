@@ -17,6 +17,7 @@ from github import GithubException
 from webhook_server.libs.ai_cli import AIResult
 from webhook_server.libs.handlers.runner_handler import (
     _ACTIVE_CONTAINER_BUILDS,
+    _PODMAN_BUGS,
     CheckConfig,
     RunnerHandler,
     _ActiveBuild,
@@ -32,6 +33,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
 )
 from webhook_server.utils.helpers import run_command
+from webhook_server.utils.podman import BOOT_ID_MISMATCH_ERROR, NAMESPACE_REEXEC_ERROR
 
 # Where a pushed-marker signature points when a test only cares that it differs or stays stable
 PUSH_DESTINATION = "ghcr.io/org/repo:latest:"
@@ -209,8 +211,13 @@ class TestRunnerHandler:
         checkout_cm.__aexit__ = AsyncMock(return_value=None)
         return checkout_cm
 
-    def test_is_podman_bug_true(self, runner_handler: RunnerHandler) -> None:
-        """Test is_podman_bug returns True for podman bug error."""
+    @pytest.mark.parametrize("podman_bug", _PODMAN_BUGS)
+    def test_is_podman_bug_true(self, runner_handler: RunnerHandler, podman_bug: str) -> None:
+        """Test is_podman_bug returns True for every known podman bug error."""
+        assert runner_handler.is_podman_bug(f"some output\n{podman_bug}\n") is True
+
+    def test_is_podman_bug_true_bare_error_string(self, runner_handler: RunnerHandler) -> None:
+        """Test is_podman_bug returns True for a bare podman bug error string."""
         err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
         assert runner_handler.is_podman_bug(err) is True
 
@@ -220,12 +227,52 @@ class TestRunnerHandler:
         assert runner_handler.is_podman_bug(err) is False
 
     @patch("shutil.rmtree")
-    def test_fix_podman_bug(self, mock_rmtree: Mock, runner_handler: RunnerHandler) -> None:
-        """Test fix_podman_bug removes podman cache directories."""
-        runner_handler.fix_podman_bug()
+    def test_fix_podman_bug(
+        self,
+        mock_rmtree: Mock,
+        runner_handler: RunnerHandler,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Test fix_podman_bug repairs storage dirs and the stale pause.pid for a boot ID mismatch.
+
+        Runtime dir resolution for both the XDG_RUNTIME_DIR and /run/user/<uid> forms is covered by
+        test_podman_utils.py::TestPausePidPath; here the file stays inside tmp_path.
+        """
+        runtime_dir = tmp_path / "runtime"
+        pid_path = runtime_dir / "libpod/tmp/pause.pid"
+        pid_path.parent.mkdir(parents=True)
+        pid_path.write_text("0")  # pid 0 never exists, so the pid file counts as stale
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+
+        removed = runner_handler.fix_podman_bug(err=BOOT_ID_MISMATCH_ERROR)
+
+        assert removed == [
+            "/tmp/storage-run-1000/containers",
+            "/tmp/storage-run-1000/libpod/tmp",
+            str(pid_path),
+        ]
         assert mock_rmtree.call_count == 2
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/containers", ignore_errors=True)
         mock_rmtree.assert_any_call("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
+        assert not pid_path.exists()
+
+    @patch("shutil.rmtree")
+    def test_fix_podman_bug_namespace_error_keeps_storage(
+        self, mock_rmtree: Mock, runner_handler: RunnerHandler, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Test fix_podman_bug only drops the pause.pid file for a namespace re-exec error."""
+        runtime_dir = tmp_path / "runtime"
+        pid_path = runtime_dir / "libpod/tmp/pause.pid"
+        pid_path.parent.mkdir(parents=True)
+        pid_path.write_text("0")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+
+        removed = runner_handler.fix_podman_bug(err=NAMESPACE_REEXEC_ERROR)
+
+        assert removed == [str(pid_path)]
+        mock_rmtree.assert_not_called()
+        assert not pid_path.exists()
 
     @pytest.mark.asyncio
     async def test_run_podman_command_success(self, runner_handler: RunnerHandler) -> None:

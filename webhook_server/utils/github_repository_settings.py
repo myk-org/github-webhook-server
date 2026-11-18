@@ -38,6 +38,7 @@ from webhook_server.utils.helpers import (
     get_logger_with_params,
     run_command,
 )
+from webhook_server.utils.podman import is_podman_bug, repair_podman_state
 
 DEFAULT_BRANCH_PROTECTION = {
     "strict": True,
@@ -295,13 +296,23 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
         LOGGER.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        await run_command(
+        login_command = f"podman login -u {docker_username} --password-stdin docker.io"
+        login_result = await run_command(
             log_prefix="docker-login",
-            command=f"podman login -u {docker_username} --password-stdin docker.io",
+            command=login_command,
             stdin_input=docker_password,
             redact_secrets=[docker_username, docker_password],
             timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
         )
+        if not login_result[0] and is_podman_bug(err=login_result[2]):
+            LOGGER.warning("podman login failed with a known podman bug, repairing podman state and retrying once")
+            repair_podman_state(err=login_result[2])
+            await run_command(
+                log_prefix="docker-login-retry",
+                command=login_command,
+                stdin_input=docker_password,
+                redact_secrets=[docker_username, docker_password],
+            )
 
     futures = []
     with ThreadPoolExecutor() as executor:

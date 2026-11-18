@@ -5,7 +5,6 @@ import hashlib
 import os
 import re
 import shlex
-import shutil
 import time
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
@@ -45,6 +44,8 @@ from webhook_server.utils.github_repository_settings import get_repository_githu
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
+from webhook_server.utils.podman import PODMAN_BUGS, repair_podman_state
+from webhook_server.utils.podman import is_podman_bug as _is_podman_bug
 from webhook_server.web.tool_server import TOOL_REGISTRY, TOOL_SERVER_PORT
 
 if TYPE_CHECKING:
@@ -52,6 +53,9 @@ if TYPE_CHECKING:
 
 
 _BUILD_ARG_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+# Kept importable from this module for existing callers/tests.
+_PODMAN_BUGS = PODMAN_BUGS
 
 
 # (repository_full_name, pr_number) -> (sha, build task). A new commit for the same PR cancels the
@@ -278,13 +282,11 @@ class RunnerHandler:
             yield result
 
     def is_podman_bug(self, err: str) -> bool:
-        _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
-        return _err in err.strip()
+        return _is_podman_bug(err=err)
 
-    def fix_podman_bug(self) -> None:
+    def fix_podman_bug(self, err: str) -> list[str]:
         self.logger.debug(f"{self.log_prefix} Fixing podman bug")
-        shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
-        shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
+        return repair_podman_state(err=err)
 
     async def run_podman_command(
         self,
@@ -304,7 +306,7 @@ class RunnerHandler:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
-            self.fix_podman_bug()
+            self.fix_podman_bug(err=err)
             return await run_command(
                 command=command,
                 log_prefix=self.log_prefix,
