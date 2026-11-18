@@ -836,10 +836,13 @@ def get_future_results(futures: list[Future[Any]]) -> None:
             # This gives us proper exception context for logger.exception()
             _, message, logger_func = result.result()
             logger_func(message)
-        except Exception:
-            # Proper exception context - logger.exception() can capture traceback
+        except Exception as ex:
+            # Proper exception context - logger.exception() can capture traceback. The error text is
+            # part of the message because the future carries no repository identity: without it the
+            # log says only that something crashed.
             logger.exception(
-                "Repository configuration crashed. Check for archived repositories or API permission issues."
+                f"Repository configuration crashed ({type(ex).__name__}: {ex}). "
+                "Check for archived repositories or API permission issues."
             )
 
 

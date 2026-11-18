@@ -473,6 +473,25 @@ def set_repository(
             f"[API user {api_user}] - {full_repository_name}: Failed to get repository settings, ex: {ex}",
             LOGGER.error,
         )
+    except GithubException as ex:
+        # An archived or read-only repository cannot be configured at all. Name the repository and
+        # the reason here, where both are known: the worker future carries no repository identity,
+        # so anything raised past this point is logged without it.
+        status = getattr(ex, "status", "")
+        github_message = ex.data.get("message", "") if isinstance(ex.data, dict) else ""
+        reason = f"HTTP {status}: {github_message}" if github_message else str(ex)
+        return (
+            False,
+            f"[API user {api_user}] - {full_repository_name}: Failed to set repository settings ({reason})",
+            LOGGER.error,
+        )
+    except Exception as ex:
+        return (
+            False,
+            f"[API user {api_user}] - {full_repository_name}: Failed to set repository settings "
+            f"({type(ex).__name__}: {ex})",
+            LOGGER.error,
+        )
 
     return True, f"[API user {api_user}] - {full_repository_name}: Setting repository settings is done", LOGGER.info
 
