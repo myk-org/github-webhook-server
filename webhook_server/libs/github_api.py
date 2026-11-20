@@ -151,6 +151,7 @@ class GithubWebhook:
         self.repository_by_github_app: Repository
         self.token: str
         self.api_user: str = ""
+        self.api_user_id: int = 0
         # Every configured token login (lowercased) — all of them are "us" when answering comments.
         self.api_users: set[str] = set()
         self.current_pull_request_supported_retest: list[str] = []
@@ -169,6 +170,7 @@ class GithubWebhook:
         )
         if selected_probe is not None:
             self.api_user = selected_probe.login
+            self.api_user_id = selected_probe.user_id
 
         if github_api and self.token:
             self.github_api = github_api
@@ -415,11 +417,22 @@ class GithubWebhook:
 
             # Configure git user
             git_cmd = f"git -C {self.clone_repo_dir}"
-            owner_login = await github_api_call(
-                lambda: self.repository.owner.login, logger=self.logger, log_prefix=self.log_prefix
-            )
+            if self.api_user:
+                git_user_name = self.api_user
+                git_user_email = (
+                    f"{self.api_user_id}+{self.api_user}@users.noreply.github.com"
+                    if self.api_user_id
+                    else f"{self.api_user}@users.noreply.github.com"
+                )
+            else:
+                owner_login = await github_api_call(
+                    lambda: self.repository.owner.login, logger=self.logger, log_prefix=self.log_prefix
+                )
+                git_user_name = owner_login
+                git_user_email = f"{owner_login}@users.noreply.github.com"
+
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.name '{owner_login}'",
+                command=f"{git_cmd} config user.name {shlex.quote(git_user_name)}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -427,7 +440,7 @@ class GithubWebhook:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
 
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.email '{owner_login}@users.noreply.github.com'",
+                command=f"{git_cmd} config user.email {shlex.quote(git_user_email)}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )

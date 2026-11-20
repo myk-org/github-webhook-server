@@ -180,6 +180,38 @@ class TestTokenProbing:
         # A failed probe must not be cached - the token may recover after the reset
         assert "exhausted-token" not in helpers_module._token_probe_cache
 
+    def test_probe_token_extracts_user_id(self) -> None:
+        """probe_token() extracts an integer user.id into TokenProbe.user_id."""
+        api = Mock()
+        api.get_user.return_value.login = "user1"
+        api.get_user.return_value.id = 987654
+        api.rate_limiting = (4321, 5000)
+
+        probe = probe_token(api, "user-id-token", logger=Mock(), log_prefix="")
+
+        assert probe.user_id == 987654
+
+    @pytest.mark.parametrize(
+        "user_obj",
+        [
+            pytest.param(Mock(spec=["login"], login="user1"), id="missing-id"),
+            pytest.param(Mock(login="user1", id=True), id="bool-true"),
+            pytest.param(Mock(login="user1", id=False), id="bool-false"),
+            pytest.param(Mock(login="user1", id=Mock()), id="mock-id"),
+            pytest.param(Mock(login="user1", id="123"), id="str-id"),
+            pytest.param(Mock(login="user1", id=None), id="none-id"),
+        ],
+    )
+    def test_probe_token_user_id_falls_back_to_zero(self, user_obj: Mock) -> None:
+        """Missing, bool, or non-integer user.id values must fall back to 0."""
+        api = Mock()
+        api.get_user.return_value = user_obj
+        api.rate_limiting = (4321, 5000)
+
+        probe = probe_token(api, "fallback-user-id-token", logger=Mock(), log_prefix="")
+
+        assert probe.user_id == 0
+
 
 def _multiprocess_log_worker(
     data_dir: str,
