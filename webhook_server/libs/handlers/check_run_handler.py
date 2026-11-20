@@ -1,6 +1,12 @@
 import asyncio
+import contextlib
+import fcntl
+import hashlib
+import os
 import re
-from typing import TYPE_CHECKING, Any, Final, NotRequired, TypedDict
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, NotRequired, TextIO, TypedDict
 
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
@@ -265,6 +271,23 @@ class CheckRunHandler:
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
             )
 
+    @staticmethod
+    def _acquire_automerge_lock(lock_path: str) -> TextIO | None:
+        """Take the auto-merge lock without blocking; None means another worker holds it."""
+        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock_file.close()
+            return None
+        return lock_file
+
+    @staticmethod
+    def _release_automerge_lock(lock_file: TextIO) -> None:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
+
     async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequest | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
         if self.ctx:
@@ -294,95 +317,116 @@ class CheckRunHandler:
                 if await self.labels_handler.label_exists_in_pull_request(
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
-                    try:
-                        if await github_api_call(
-                            lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix
-                        ):
-                            self.logger.debug(
-                                f"{self.log_prefix} Pull request #{pull_request.number} already merged, "
-                                "skipping auto-merge"
-                            )
-                            if self.ctx:
-                                self.ctx.complete_step("check_run_handler")
-                            return False
-
-                        merge_status = await github_api_call(
-                            pull_request.merge,
-                            merge_method="squash",
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
+                    repo_hash = hashlib.sha256(self.github_webhook.repository_full_name.encode()).hexdigest()[:16]
+                    lock_path = os.path.join(
+                        tempfile.gettempdir(),
+                        f"github-webhook-automerge-{repo_hash}-{pull_request.number}.lock",
+                    )
+                    lock_file = self._acquire_automerge_lock(lock_path)
+                    if lock_file is None:
+                        self.logger.info(
+                            f"{self.log_prefix} Auto-merge already in progress for pull request "
+                            f"#{pull_request.number}, skipping"
                         )
-                        merged = bool(merge_status) and bool(
-                            await github_api_call(
-                                lambda: merge_status.merged, logger=self.logger, log_prefix=self.log_prefix
-                            )
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as ex:
-                        self.logger.error(
-                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
-                        )
-                        if self.ctx:
-                            self.ctx.complete_step("check_run_handler")
-                        return True
-
-                    if not merged:
-                        msg = (
-                            "GitHub reported that auto-merge did not complete — "
-                            "check the pull request state and re-run `/check-can-merge` or merge manually."
-                        )
-                        self.logger.warning(f"{self.log_prefix} {msg} (PR #{pull_request.number})")
-                        try:
-                            await github_api_call(
-                                pull_request.create_issue_comment,
-                                msg,
-                                logger=self.logger,
-                                log_prefix=self.log_prefix,
-                            )
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            self.logger.exception(
-                                f"{self.log_prefix} Failed to post auto-merge failure comment for "
-                                f"pull request #{pull_request.number}"
-                            )
                         if self.ctx:
                             self.ctx.complete_step("check_run_handler")
                         return False
 
-                    self.logger.info(f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}")
                     try:
-                        head_ref = await github_api_call(
-                            lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix
-                        )
-                        base_ref = await github_api_call(
-                            lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
-                        )
-                        merge_msg = f"Successfully merged `{head_ref}` into `{base_ref}` ✅"
-                        already_commented = await github_api_call(
-                            lambda: any(c.body == merge_msg for c in pull_request.get_issue_comments()),
-                            logger=self.logger,
-                            log_prefix=self.log_prefix,
-                        )
-                        if not already_commented:
-                            await github_api_call(
-                                pull_request.create_issue_comment,
-                                merge_msg,
+                        try:
+                            await github_api_call(pull_request.update, logger=self.logger, log_prefix=self.log_prefix)
+                            if await github_api_call(
+                                lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix
+                            ):
+                                self.logger.debug(
+                                    f"{self.log_prefix} Pull request #{pull_request.number} already merged, "
+                                    "skipping auto-merge"
+                                )
+                                if self.ctx:
+                                    self.ctx.complete_step("check_run_handler")
+                                return False
+
+                            merge_status = await github_api_call(
+                                pull_request.merge,
+                                merge_method="squash",
                                 logger=self.logger,
                                 log_prefix=self.log_prefix,
                             )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        self.logger.exception(
-                            f"{self.log_prefix} Failed to post auto-merge comment for "
-                            f"pull request #{pull_request.number}"
-                        )
+                            merged = bool(merge_status) and bool(
+                                await github_api_call(
+                                    lambda: merge_status.merged, logger=self.logger, log_prefix=self.log_prefix
+                                )
+                            )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as ex:
+                            self.logger.error(
+                                f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                            )
+                            if self.ctx:
+                                self.ctx.complete_step("check_run_handler")
+                            return True
 
-                    if self.ctx:
-                        self.ctx.complete_step("check_run_handler")
-                    return False
+                        if not merged:
+                            msg = (
+                                "GitHub reported that auto-merge did not complete — "
+                                "check the pull request state and re-run `/check-can-merge` or merge manually."
+                            )
+                            self.logger.warning(f"{self.log_prefix} {msg} (PR #{pull_request.number})")
+                            try:
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    msg,
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                self.logger.exception(
+                                    f"{self.log_prefix} Failed to post auto-merge failure comment for "
+                                    f"pull request #{pull_request.number}"
+                                )
+                            if self.ctx:
+                                self.ctx.complete_step("check_run_handler")
+                            return False
+
+                        self.logger.info(
+                            f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
+                        )
+                        try:
+                            head_ref = await github_api_call(
+                                lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix
+                            )
+                            base_ref = await github_api_call(
+                                lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+                            )
+                            merge_msg = f"Successfully merged `{head_ref}` into `{base_ref}` ✅"
+                            already_commented = await github_api_call(
+                                lambda: any(c.body == merge_msg for c in pull_request.get_issue_comments()),
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                            if not already_commented:
+                                await github_api_call(
+                                    pull_request.create_issue_comment,
+                                    merge_msg,
+                                    logger=self.logger,
+                                    log_prefix=self.log_prefix,
+                                )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            self.logger.exception(
+                                f"{self.log_prefix} Failed to post auto-merge comment for "
+                                f"pull request #{pull_request.number}"
+                            )
+
+                        if self.ctx:
+                            self.ctx.complete_step("check_run_handler")
+                        return False
+                    finally:
+                        self._release_automerge_lock(lock_file)
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
