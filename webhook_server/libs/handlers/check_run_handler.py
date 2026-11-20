@@ -295,15 +295,30 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
-                        await github_api_call(
-                            pull_request.merge, merge_method="squash", logger=self.logger, log_prefix=self.log_prefix
+                        if await github_api_call(
+                            lambda: pull_request.merged, logger=self.logger, log_prefix=self.log_prefix
+                        ):
+                            self.logger.debug(
+                                f"{self.log_prefix} Pull request #{pull_request.number} already merged, "
+                                "skipping auto-merge"
+                            )
+                            if self.ctx:
+                                self.ctx.complete_step("check_run_handler")
+                            return False
+
+                        merge_status = await github_api_call(
+                            pull_request.merge,
+                            merge_method="squash",
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
                         )
-                        self.logger.info(
-                            f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
+                        merged = bool(merge_status) and bool(
+                            await github_api_call(
+                                lambda: merge_status.merged, logger=self.logger, log_prefix=self.log_prefix
+                            )
                         )
-                        if self.ctx:
-                            self.ctx.complete_step("check_run_handler")
-                        return False
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as ex:
                         self.logger.error(
                             f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
@@ -311,6 +326,47 @@ class CheckRunHandler:
                         if self.ctx:
                             self.ctx.complete_step("check_run_handler")
                         return True
+
+                    if not merged:
+                        self.logger.warning(
+                            f"{self.log_prefix} Auto-merge did not complete for pull request #{pull_request.number}"
+                        )
+                        if self.ctx:
+                            self.ctx.complete_step("check_run_handler")
+                        return True
+
+                    self.logger.info(f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}")
+                    try:
+                        head_ref = await github_api_call(
+                            lambda: pull_request.head.ref, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        base_ref = await github_api_call(
+                            lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
+                        )
+                        merge_msg = f"Successfully merged `{head_ref}` into `{base_ref}` ✅"
+                        existing_comments = await github_api_call(
+                            lambda: list(pull_request.get_issue_comments()),
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
+                        )
+                        if not any(c.body == merge_msg for c in existing_comments):
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                merge_msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        self.logger.exception(
+                            f"{self.log_prefix} Failed to post auto-merge comment for "
+                            f"pull request #{pull_request.number}"
+                        )
+
+                    if self.ctx:
+                        self.ctx.complete_step("check_run_handler")
+                    return False
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
