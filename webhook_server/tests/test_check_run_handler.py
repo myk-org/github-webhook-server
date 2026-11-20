@@ -375,7 +375,8 @@ class TestCheckRunHandler:
         self._configure_automerge(check_run_handler, mock_pull_request)
         other_dir = tmp_path / "other-dir"
         other_dir.mkdir()
-        (tmp_path / ".automerge-locks").symlink_to(other_dir)
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "logs" / ".automerge-locks").symlink_to(other_dir)
 
         with patch("asyncio.to_thread", side_effect=_inline_to_thread):
             result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)

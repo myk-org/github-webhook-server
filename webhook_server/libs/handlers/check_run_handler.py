@@ -275,7 +275,8 @@ class CheckRunHandler:
 
     def _get_automerge_lock_path(self, pr_number: int) -> Path:
         """Return a per-PR lock file path inside the server data directory."""
-        lock_dir = Path(self.github_webhook.config.data_dir) / ".automerge-locks"
+        # Place under logs/ because data_dir may be a host-owned/read-only mount while logs/ is guaranteed writable.
+        lock_dir = Path(self.github_webhook.config.data_dir) / "logs" / ".automerge-locks"
         os.makedirs(lock_dir, mode=0o700, exist_ok=True)
         dir_stat = os.lstat(lock_dir)
         if not stat.S_ISDIR(dir_stat.st_mode):
