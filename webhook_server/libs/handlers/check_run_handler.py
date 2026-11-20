@@ -296,7 +296,7 @@ class CheckRunHandler:
                 ):
                     try:
                         await github_api_call(
-                            pull_request.merge, merge_method="SQUASH", logger=self.logger, log_prefix=self.log_prefix
+                            pull_request.merge, merge_method="squash", logger=self.logger, log_prefix=self.log_prefix
                         )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"

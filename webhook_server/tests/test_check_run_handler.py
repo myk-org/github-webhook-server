@@ -12,6 +12,7 @@ from starlette.datastructures import Headers
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
+    AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICKED_LABEL,
@@ -113,6 +114,28 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_can_be_merged_automerge(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test can-be-merged check run auto-merges PR using lowercase squash method."""
+        check_run_handler.hook_data = {
+            "action": "completed",
+            "check_run": {"name": CAN_BE_MERGED_STR, "status": "completed", "conclusion": SUCCESS_STR},
+        }
+        mock_pull_request.number = 42
+        check_run_handler.labels_handler = Mock()
+        check_run_handler.labels_handler.label_exists_in_pull_request = AsyncMock(return_value=True)
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        check_run_handler.labels_handler.label_exists_in_pull_request.assert_awaited_once_with(
+            label=AUTOMERGE_LABEL_STR, pull_request=mock_pull_request
+        )
+        mock_pull_request.merge.assert_called_once_with(merge_method="squash")
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_completed_normal(
