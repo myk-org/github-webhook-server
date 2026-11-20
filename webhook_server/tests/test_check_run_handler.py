@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -166,19 +166,44 @@ class TestCheckRunHandler:
         mock_pull_request.create_issue_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_process_pull_request_check_run_webhook_data_automerge_not_completed_returns_true(
+    async def test_process_pull_request_check_run_webhook_data_automerge_not_completed_posts_comment(
         self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
     ) -> None:
-        """Test automerge returns True and skips comment when merge does not complete."""
+        """Test automerge warns, posts failure comment, and returns False when merge does not complete."""
         self._configure_automerge(check_run_handler, mock_pull_request)
         mock_pull_request.merge.return_value.merged = False
 
         with patch("asyncio.to_thread", side_effect=_inline_to_thread):
             result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
 
-        assert result is True
+        assert result is False
         mock_pull_request.merge.assert_called_once_with(merge_method="squash")
-        mock_pull_request.create_issue_comment.assert_not_called()
+        mock_pull_request.create_issue_comment.assert_called_once_with(
+            "GitHub reported that auto-merge did not complete — "
+            "check the pull request state and re-run `/check-can-merge` or merge manually."
+        )
+        check_run_handler.logger.warning.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_automerge_not_completed_comment_failure_returns_false(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test automerge logs exception and returns False when failure comment fails to post."""
+        self._configure_automerge(check_run_handler, mock_pull_request)
+        mock_pull_request.merge.return_value.merged = False
+        mock_pull_request.create_issue_comment.side_effect = RuntimeError("comment API error")
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        mock_pull_request.merge.assert_called_once_with(merge_method="squash")
+        mock_pull_request.create_issue_comment.assert_called_once_with(
+            "GitHub reported that auto-merge did not complete — "
+            "check the pull request state and re-run `/check-can-merge` or merge manually."
+        )
+        check_run_handler.logger.warning.assert_called_once()
+        check_run_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_automerge_deduplicates_comment(
@@ -195,6 +220,30 @@ class TestCheckRunHandler:
 
         assert result is False
         mock_pull_request.merge.assert_called_once_with(merge_method="squash")
+        mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_automerge_dedup_short_circuits_iterator(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test automerge comment deduplication stops iterating on the first matching comment."""
+        self._configure_automerge(check_run_handler, mock_pull_request)
+        consumed = 0
+
+        def _comments() -> Iterator[Mock]:
+            nonlocal consumed
+            consumed += 1
+            yield Mock(body="Successfully merged `feature-branch` into `main` ✅")
+            consumed += 1
+            raise AssertionError("iterator was not short-circuited")
+
+        mock_pull_request.get_issue_comments.return_value = _comments()
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        assert consumed == 1
         mock_pull_request.create_issue_comment.assert_not_called()
 
     @pytest.mark.asyncio

@@ -328,12 +328,28 @@ class CheckRunHandler:
                         return True
 
                     if not merged:
-                        self.logger.warning(
-                            f"{self.log_prefix} Auto-merge did not complete for pull request #{pull_request.number}"
+                        msg = (
+                            "GitHub reported that auto-merge did not complete — "
+                            "check the pull request state and re-run `/check-can-merge` or merge manually."
                         )
+                        self.logger.warning(f"{self.log_prefix} {msg} (PR #{pull_request.number})")
+                        try:
+                            await github_api_call(
+                                pull_request.create_issue_comment,
+                                msg,
+                                logger=self.logger,
+                                log_prefix=self.log_prefix,
+                            )
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            self.logger.exception(
+                                f"{self.log_prefix} Failed to post auto-merge failure comment for "
+                                f"pull request #{pull_request.number}"
+                            )
                         if self.ctx:
                             self.ctx.complete_step("check_run_handler")
-                        return True
+                        return False
 
                     self.logger.info(f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}")
                     try:
@@ -344,12 +360,12 @@ class CheckRunHandler:
                             lambda: pull_request.base.ref, logger=self.logger, log_prefix=self.log_prefix
                         )
                         merge_msg = f"Successfully merged `{head_ref}` into `{base_ref}` ✅"
-                        existing_comments = await github_api_call(
-                            lambda: list(pull_request.get_issue_comments()),
+                        already_commented = await github_api_call(
+                            lambda: any(c.body == merge_msg for c in pull_request.get_issue_comments()),
                             logger=self.logger,
                             log_prefix=self.log_prefix,
                         )
-                        if not any(c.body == merge_msg for c in existing_comments):
+                        if not already_commented:
                             await github_api_call(
                                 pull_request.create_issue_comment,
                                 merge_msg,
