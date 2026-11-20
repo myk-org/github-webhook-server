@@ -1,12 +1,14 @@
 import asyncio
 import contextlib
+import errno
 import fcntl
 import hashlib
+import hmac
 import os
 import re
-import tempfile
+import stat
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, NotRequired, TextIO, TypedDict
+from typing import TYPE_CHECKING, Any, Final, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
@@ -271,22 +273,46 @@ class CheckRunHandler:
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
             )
 
-    @staticmethod
-    def _acquire_automerge_lock(lock_path: str) -> TextIO | None:
-        """Take the auto-merge lock without blocking; None means another worker holds it."""
-        lock_file = Path(lock_path).open("a", encoding="utf-8")  # noqa: SIM115 - held for the flock lifetime
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            lock_file.close()
-            return None
-        return lock_file
+    def _get_automerge_lock_path(self, pr_number: int) -> Path:
+        """Return a per-PR lock file path inside the server data directory."""
+        lock_dir = Path(self.github_webhook.config.data_dir) / ".automerge-locks"
+        os.makedirs(lock_dir, mode=0o700, exist_ok=True)
+        dir_stat = os.lstat(lock_dir)
+        if not stat.S_ISDIR(dir_stat.st_mode):
+            raise OSError(f"Auto-merge lock directory is not a regular directory: {lock_dir}")
+        secret_val = self.github_webhook.config.get_value("webhook-secret") or ""
+        key = str(secret_val).encode()
+        digest = hmac.new(
+            key,
+            f"{self.github_webhook.repository_full_name}:{pr_number}".encode(),
+            hashlib.sha256,
+        ).hexdigest()[:32]
+        return lock_dir / f"{digest}.lock"
 
     @staticmethod
-    def _release_automerge_lock(lock_file: TextIO) -> None:
+    def _acquire_automerge_lock(lock_path: Path | str) -> int | None:
+        """Take the auto-merge lock without blocking; None means another worker holds it."""
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(str(lock_path), flags, 0o600)
+        try:
+            file_stat = os.fstat(fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise OSError(f"Auto-merge lock path is not a regular file: {lock_path}")
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as ex:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            if ex.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return None
+            raise
+        return fd
+
+    @staticmethod
+    def _release_automerge_lock(lock_fd: int) -> None:
         with contextlib.suppress(OSError):
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        lock_file.close()
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            os.close(lock_fd)
 
     async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequest | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
@@ -317,13 +343,19 @@ class CheckRunHandler:
                 if await self.labels_handler.label_exists_in_pull_request(
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
-                    repo_hash = hashlib.sha256(self.github_webhook.repository_full_name.encode()).hexdigest()[:16]
-                    lock_path = os.path.join(
-                        tempfile.gettempdir(),
-                        f"github-webhook-automerge-{repo_hash}-{pull_request.number}.lock",
-                    )
-                    lock_file = self._acquire_automerge_lock(lock_path)
-                    if lock_file is None:
+                    try:
+                        lock_path = self._get_automerge_lock_path(pr_number=pull_request.number)
+                        lock_fd = self._acquire_automerge_lock(lock_path)
+                    except OSError:
+                        self.logger.exception(
+                            f"{self.log_prefix} Failed to acquire auto-merge lock for pull request "
+                            f"#{pull_request.number}"
+                        )
+                        if self.ctx:
+                            self.ctx.complete_step("check_run_handler")
+                        return False
+
+                    if lock_fd is None:
                         self.logger.info(
                             f"{self.log_prefix} Auto-merge already in progress for pull request "
                             f"#{pull_request.number}, skipping"
@@ -359,9 +391,9 @@ class CheckRunHandler:
                             )
                         except asyncio.CancelledError:
                             raise
-                        except Exception as ex:
-                            self.logger.error(
-                                f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                        except Exception:
+                            self.logger.exception(
+                                f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}"
                             )
                             if self.ctx:
                                 self.ctx.complete_step("check_run_handler")
@@ -426,7 +458,7 @@ class CheckRunHandler:
                             self.ctx.complete_step("check_run_handler")
                         return False
                     finally:
-                        self._release_automerge_lock(lock_file)
+                        self._release_automerge_lock(lock_fd)
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")

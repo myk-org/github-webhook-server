@@ -1,5 +1,5 @@
-import hashlib
 import logging
+import os
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -39,24 +39,13 @@ async def _inline_to_thread(fn: Callable[..., Any], *args: Any, **kwargs: Any) -
 class TestCheckRunHandler:
     """Test suite for CheckRunHandler class."""
 
-    @pytest.fixture(autouse=True)
-    def _isolate_automerge_lock_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Redirect automerge lock files into pytest's tmp_path so tests never write to /tmp."""
-        monkeypatch.setattr(
-            "webhook_server.libs.handlers.check_run_handler.tempfile.gettempdir",
-            lambda: str(tmp_path),
-        )
-
-    @staticmethod
-    def _automerge_lock_path(tmp_path: Path, repo_full_name: str = "test-org/test-repo", pr_number: int = 42) -> str:
-        """Return the expected automerge lock file path under tmp_path."""
-        repo_hash = hashlib.sha256(repo_full_name.encode()).hexdigest()[:16]
-        return str(tmp_path / f"github-webhook-automerge-{repo_hash}-{pr_number}.lock")
-
     @pytest.fixture
-    def mock_github_webhook(self) -> Mock:
+    def mock_github_webhook(self, tmp_path: Path) -> Mock:
         """Create a mock GithubWebhook instance."""
         mock_webhook = Mock()
+        mock_webhook.config = Mock()
+        mock_webhook.config.data_dir = str(tmp_path)
+        mock_webhook.config.get_value.return_value = "test-webhook-secret"
         mock_webhook.hook_data = {}
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
@@ -296,24 +285,25 @@ class TestCheckRunHandler:
 
         assert result is True
         mock_pull_request.create_issue_comment.assert_not_called()
-        check_run_handler.logger.error.assert_called_once()
+        check_run_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_automerge_skips_when_lock_held(
-        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock, tmp_path: Path
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
     ) -> None:
         """Test automerge skips update, merge, and comment when another worker holds the lock."""
         self._configure_automerge(check_run_handler, mock_pull_request)
-        lock_path = self._automerge_lock_path(tmp_path)
-        lock_file = CheckRunHandler._acquire_automerge_lock(lock_path)
-        assert lock_file is not None
+        lock_path = check_run_handler._get_automerge_lock_path(pr_number=42)
+        lock_fd = CheckRunHandler._acquire_automerge_lock(lock_path)
+        assert lock_fd is not None
+        assert isinstance(lock_fd, int)
         try:
             with patch("asyncio.to_thread", side_effect=_inline_to_thread):
                 result = await check_run_handler.process_pull_request_check_run_webhook_data(
                     pull_request=mock_pull_request
                 )
         finally:
-            CheckRunHandler._release_automerge_lock(lock_file)
+            CheckRunHandler._release_automerge_lock(lock_fd)
 
         assert result is False
         mock_pull_request.update.assert_not_called()
@@ -322,7 +312,7 @@ class TestCheckRunHandler:
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_automerge_releases_lock_after_exception(
-        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock, tmp_path: Path
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
     ) -> None:
         """Test automerge releases the flock even when merge raises an exception."""
         self._configure_automerge(check_run_handler, mock_pull_request)
@@ -332,13 +322,68 @@ class TestCheckRunHandler:
             result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
 
         assert result is True
-        lock_path = self._automerge_lock_path(tmp_path)
-        lock_file = CheckRunHandler._acquire_automerge_lock(lock_path)
+        lock_path = check_run_handler._get_automerge_lock_path(pr_number=42)
+        lock_fd = CheckRunHandler._acquire_automerge_lock(lock_path)
         try:
-            assert lock_file is not None
+            assert lock_fd is not None
+            assert isinstance(lock_fd, int)
         finally:
-            if lock_file is not None:
-                CheckRunHandler._release_automerge_lock(lock_file)
+            if lock_fd is not None:
+                CheckRunHandler._release_automerge_lock(lock_fd)
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_automerge_rejects_fifo_lock_file(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test automerge rejects a FIFO at the lock path without blocking."""
+        self._configure_automerge(check_run_handler, mock_pull_request)
+        lock_path = Path(check_run_handler._get_automerge_lock_path(pr_number=42))
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(lock_path)
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        check_run_handler.logger.exception.assert_called_once()
+        mock_pull_request.merge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_automerge_rejects_symlink_lock_file(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
+        """Test automerge rejects a symlink at the lock path."""
+        self._configure_automerge(check_run_handler, mock_pull_request)
+        target_file = tmp_path / "target.txt"
+        target_file.write_text("target", encoding="utf-8")
+        lock_path = Path(check_run_handler._get_automerge_lock_path(pr_number=42))
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.symlink_to(target_file)
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        check_run_handler.logger.exception.assert_called_once()
+        mock_pull_request.merge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_automerge_handles_symlinked_lock_dir(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
+        """Test automerge fails safely when the lock directory is a symlink."""
+        self._configure_automerge(check_run_handler, mock_pull_request)
+        other_dir = tmp_path / "other-dir"
+        other_dir.mkdir()
+        (tmp_path / ".automerge-locks").symlink_to(other_dir)
+
+        with patch("asyncio.to_thread", side_effect=_inline_to_thread):
+            result = await check_run_handler.process_pull_request_check_run_webhook_data(pull_request=mock_pull_request)
+
+        assert result is False
+        check_run_handler.logger.exception.assert_called_once()
+        check_run_handler.logger.info.assert_not_called()
+        mock_pull_request.merge.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_automerge_refreshes_pr_before_merged_check(
