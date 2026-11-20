@@ -142,6 +142,39 @@ class TestGithubWebhook:
         assert gh.log_prefix
 
     @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    def test_init_sets_api_user_id_from_probe(
+        self,
+        mock_color: Mock,
+        mock_get_app_api: Mock,
+        mock_get_repo_api: Mock,
+        mock_get_api: Mock,
+        mock_config: Mock,
+        minimal_hook_data: dict[str, Any],
+        minimal_headers: Headers,
+        logger: logging.Logger,
+    ) -> None:
+        """Test that GithubWebhook.__init__ sets api_user_id from selected_probe.user_id."""
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (
+            Mock(),
+            "token",
+            TokenProbe(login="apiuser", remaining=5000, limit=5000, user_id=123456),
+        )
+        mock_get_repo_api.return_value = Mock(name="repo_api")
+        mock_get_app_api.return_value = Mock()
+        mock_color.return_value = "test-repo"
+
+        gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+        assert gh.api_user == "apiuser"
+        assert gh.api_user_id == 123456
+
+    @patch("webhook_server.libs.github_api.Config")
     def test_init_missing_repo(self, mock_config, minimal_hook_data, minimal_headers, logger):
         mock_config.return_value.repository = "repo"
         mock_config.return_value.repository_data = {}
@@ -2665,6 +2698,95 @@ class TestGithubWebhook:
                                 # Verify warnings were logged for each config failure
                                 warning_calls = [call for call in mock_logger.warning.call_args_list]
                                 assert len(warning_calls) == 2  # user.name, user.email
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("api_user", "api_user_id", "expected_name", "expected_email"),
+        [
+            pytest.param(
+                "apiuser",
+                123456,
+                "apiuser",
+                "123456+apiuser@users.noreply.github.com",
+                id="api-user-with-id",
+            ),
+            pytest.param(
+                "apiuser",
+                0,
+                "apiuser",
+                "apiuser@users.noreply.github.com",
+                id="api-user-zero-id",
+            ),
+            pytest.param(
+                "",
+                0,
+                "test-owner",
+                "test-owner@users.noreply.github.com",
+                id="empty-api-user-owner-fallback",
+            ),
+        ],
+    )
+    async def test_clone_repository_git_config_user_identity(
+        self,
+        minimal_hook_data: dict[str, Any],
+        minimal_headers: Headers,
+        logger: logging.Logger,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
+        api_user: str,
+        api_user_id: int,
+        expected_name: str,
+        expected_email: str,
+    ) -> None:
+        """Test _clone_repository configures git user.name and user.email from api_user/id or owner."""
+        with (
+            patch("webhook_server.libs.github_api.Config") as mock_config,
+            patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+            patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api,
+            patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api,
+            patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color,
+        ):
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+            mock_get_api.return_value = (
+                Mock(),
+                "test-token",
+                TokenProbe(login=api_user, remaining=5000, limit=5000, user_id=api_user_id),
+            )
+            mock_repo = Mock()
+            mock_repo.clone_url = "https://github.com/org/test-repo.git"
+            mock_owner = Mock()
+            mock_owner.login = "test-owner"
+            mock_repo.owner = mock_owner
+            mock_get_repo_api.return_value = mock_repo
+            mock_get_app_api.return_value = Mock()
+            mock_color.return_value = "test-repo"
+
+            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+            mock_pr = Mock()
+            mock_base = Mock()
+            mock_base.ref = "main"
+            mock_pr.base = mock_base
+            mock_pr.number = 123
+
+            executed_commands: list[str] = []
+
+            async def mock_run_command(command: str, **_kwargs: object) -> tuple[bool, str, str]:
+                executed_commands.append(command)
+                return (True, "", "")
+
+            with (
+                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                patch("asyncio.to_thread", side_effect=to_thread_sync),
+            ):
+                await gh._clone_repository(pull_request=mock_pr)
+
+            assert gh._repo_cloned is True
+            git_cmd = f"git -C {gh.clone_repo_dir}"
+            assert f"{git_cmd} config user.name {expected_name}" in executed_commands
+            assert f"{git_cmd} config user.email {expected_email}" in executed_commands
 
     @pytest.mark.asyncio
     async def test_clone_repository_pr_ref_fetch_failure_raises(

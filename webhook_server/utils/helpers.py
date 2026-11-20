@@ -549,6 +549,7 @@ class TokenProbe(NamedTuple):
     # Informational only - defaulted so tests can build a probe without inventing a
     # timestamp. Real probes always stamp it via time.time().
     probed_at: float = 0.0
+    user_id: int = 0
 
 
 _token_probe_cache: dict[str, TokenProbe] = {}
@@ -670,8 +671,16 @@ def probe_token(api: github.Github, token: str, logger: Logger, log_prefix: str,
             # request and populates rate_limiting with the real enforced budget.
             user = api.get_user()
             login = user.login
+            raw_id = getattr(user, "id", 0)
+            user_id = raw_id if isinstance(raw_id, int) and not isinstance(raw_id, bool) else 0
             remaining, limit = api.rate_limiting
-            probe = TokenProbe(login=login, remaining=remaining, limit=limit, probed_at=time.monotonic())
+            probe = TokenProbe(
+                login=login,
+                remaining=remaining,
+                limit=limit,
+                probed_at=time.monotonic(),
+                user_id=user_id,
+            )
 
             with _token_probe_lock:
                 _token_probe_cache[token] = probe
