@@ -362,8 +362,8 @@ Where: `Global` or `Repo/local`
 
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `ai-features.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier (for example, `claude`, `gemini`, `google`, `google-vertex`, `google-vertex-claude`, `anthropic`, `openai`, or a custom provider configured in the sidecar). Required when the block is present. | Selects the provider for all AI features in the block. |
-| `ai-features.ai-model` | `string` | none | Model identifier. Required when the block is present. | Selects the model for all AI features in the block. |
+| `ai-features.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier — such as `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude`), `gemini` (alias for `google`), `google-vertex`, `openai`, or a custom provider configured in the sidecar. Required when the block is present. | Selects the provider for all AI features in the block. |
+| `ai-features.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-6`). Required when the block is present. | Selects the model for all AI features in the block. |
 | `ai-features.conventional-title.enabled` | `boolean` | none | Enable AI assistance for the `conventional-title` check. Required when the sub-block is present. | Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures. |
 | `ai-features.conventional-title.mode` | `string` | `suggest` | Allowed values: `suggest`, `fix`. | `suggest` writes a suggestion into the check run; `fix` updates the PR title automatically. |
 | `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
@@ -377,8 +377,8 @@ Where: `Global` or `Repo/local`
 
 ```yaml
 ai-features:
-  ai-provider: claude
-  ai-model: sonnet
+  ai-provider: anthropic
+  ai-model: claude-sonnet-4-6
   conventional-title:
     enabled: true
     mode: suggest
@@ -394,12 +394,12 @@ Where: `Global` or `Repo`
 
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `test-oracle.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier (for example, `claude`, `gemini`, `google`, `google-vertex`, `google-vertex-claude`, `anthropic`, `openai`, or a custom provider configured in the sidecar). Required when the block is present. | Selects the provider used by the local AI sidecar for test-oracle analysis. |
-| `test-oracle.ai-model` | `string` | none | Model identifier. Required when the block is present. | Selects the model used by the local AI sidecar for test-oracle analysis. |
+| `test-oracle.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier — such as `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude`), `gemini` (alias for `google`), `google-vertex`, `openai`, or a custom provider configured in the sidecar. Required when the block is present. | Selects the provider used by the local AI sidecar for test-oracle analysis. |
+| `test-oracle.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-6`). Required when the block is present. | Selects the model used by the local AI sidecar for test-oracle analysis. |
 | `test-oracle.test-patterns` | `array<string>` | built-in defaults | Test file globs. | Restricts which test paths the built-in oracle recommends from. |
 | `test-oracle.triggers` | `array<string>` | `["approved"]` | Automatic trigger names. Allowed values: `approved`, `pr-opened`, `pr-synchronized`. | Controls when the server runs automatic oracle analysis. |
 | `test-oracle.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the built-in test-oracle analysis can run. |
-| `test-oracle.raw-prompt` | `string` | unset | Custom prompt text for test-oracle analysis. Overrides a repository-root `TESTS_ORACLE_PROMPT.md` file when set. | Replaces the built-in analysis prompt. |
+| `test-oracle.raw-prompt` | `string` | unset | Custom prompt text for test-oracle analysis. Overrides the base-branch `TESTS_ORACLE_PROMPT.md` file when set. | Appends custom instructions to the built-in analysis prompt and overrides the base-branch `TESTS_ORACLE_PROMPT.md` when set. |
 
 > **Note:** `approved` refers to the `/approve` command path used by this server. The `/test-oracle` command works whenever the block is configured.
 
@@ -408,8 +408,8 @@ Where: `Global` or `Repo`
 
 ```yaml
 test-oracle:
-  ai-provider: claude
-  ai-model: sonnet
+  ai-provider: anthropic
+  ai-model: claude-sonnet-4-6
   test-patterns:
     - tests/**/*.py
   triggers:

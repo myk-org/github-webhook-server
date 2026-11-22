@@ -123,7 +123,7 @@ branch-protection:
 # Built-in PR Test Oracle
 # Analyzes PR diffs with static test mapping and local Pi sidecar AI to recommend which tests to run
 test-oracle:
-  ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
+  ai-provider: "claude" # Any pi-sidecar provider (claude uses Vertex ADC / google-vertex-claude; anthropic uses ANTHROPIC_API_KEY; gemini, google-vertex, or custom)
   ai-model: "claude-opus-4-6[1m]"
   test-patterns:
     - "tests/**/*.py"
@@ -136,7 +136,7 @@ test-oracle:
 # AI Features configuration
 # Enables AI-powered enhancements (e.g., conventional title suggestions)
 ai-features:
-  ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
+  ai-provider: "claude" # Any pi-sidecar provider (claude uses Vertex ADC / google-vertex-claude; anthropic uses ANTHROPIC_API_KEY; gemini, google-vertex, or custom)
   ai-model: "claude-opus-4-6[1m]"
   conventional-title:
     enabled: true
@@ -311,13 +311,13 @@ repositories:
     # AI Features configuration (overrides global)
     # Enables AI-powered enhancements (e.g., conventional title suggestions)
     # ai-features:
-    #   ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
-    #   ai-model: "sonnet"
+    #   ai-provider: "claude" # claude uses Vertex ADC (google-vertex-claude); anthropic uses ANTHROPIC_API_KEY
+    #   ai-model: "claude-sonnet-4-6"
 
     # PR Test Oracle (overrides global)
     test-oracle:
-      ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
-      ai-model: "sonnet"
+      ai-provider: "claude" # claude uses Vertex ADC (google-vertex-claude); anthropic uses ANTHROPIC_API_KEY
+      ai-model: "claude-sonnet-4-6"
       test-patterns:
         - "tests/**/*.py"
       triggers:

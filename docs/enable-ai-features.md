@@ -18,16 +18,16 @@ repositories:
     name: my-org/my-repository
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-6"
       conventional-title:
         enabled: true
         mode: suggest
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
     test-oracle:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-6"
       triggers:
         - approved
 ```
@@ -48,12 +48,12 @@ Save the config, then restart only if you changed environment variables or mount
 
 ```yaml
 ai-features:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-6"
 
 test-oracle:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-6"
 
 repositories:
   my-repository:
@@ -63,7 +63,7 @@ repositories:
 
 Use top-level `ai-features` and `test-oracle` when several repos should share the same defaults. Keep `conventional-title` on each repo that should enforce it, and use repo-level or `.github-webhook-server.yaml` values when one repo needs different AI behavior.
 
-Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` (such as `claude`, `gemini`, `google`, `google-vertex`, `google-vertex-claude`, `anthropic`, `openai`, or a sidecar-configured custom provider).
+Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` — including `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude` on Google Cloud Vertex AI), `gemini` (alias for `google`), `google-vertex`, `openai`, or a sidecar-configured custom provider. Set `ai-model` to a real model ID accepted by that provider (for example, `claude-sonnet-4-6`, not shorthand names).
 
 See [Configuration Reference](configuration-reference.html) for every supported key.
 
@@ -75,6 +75,10 @@ services:
     environment:
       - ANTHROPIC_API_KEY=sk-ant-xxx
       # - GEMINI_API_KEY=xxx
+      # - GOOGLE_CLOUD_PROJECT=my-gcp-project
+      # - VERTEX_CLAUDE_1M=true
+    # volumes:
+    #   - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro
 ```
 
 ```bash
@@ -84,11 +88,12 @@ curl -f http://localhost:9100/health
 
 Use the credential that matches your `ai-provider` value. The first command checks the webhook server, and the second checks the local AI sidecar; replace `9100` if you set `SIDECAR_PORT`.
 
-| Provider (examples) | What to add |
+| Provider | What to add |
 | --- | --- |
-| `claude` | `ANTHROPIC_API_KEY` or Google Cloud Vertex ADC |
-| `gemini` | `GEMINI_API_KEY` |
-| Other `pi-sidecar` native or custom providers | The credential or mount required by that provider (for example, `OPENAI_API_KEY` or a custom provider's environment variable) |
+| `anthropic` | `ANTHROPIC_API_KEY` (native Anthropic API) |
+| `claude` (alias for `google-vertex-claude`) | Google Cloud Vertex ADC mount + `GOOGLE_CLOUD_PROJECT` (optional `VERTEX_CLAUDE_1M=true` for 1M context models) |
+| `gemini` (alias for `google`) | `GEMINI_API_KEY` (native Google AI) |
+| Other `pi-sidecar` native or custom providers | The credential, environment variable, or sidecar config required by that provider (for example, `OPENAI_API_KEY` or a custom provider's config) |
 
 See [Environment Variables](environment-variables.html) for the full sidecar and credential list, and [Webhook and Health API](webhook-and-health-api.html) for the main server health endpoint.
 
@@ -100,8 +105,8 @@ repositories:
     name: my-org/my-repository
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-6"
       conventional-title:
         enabled: true
         mode: suggest
@@ -124,8 +129,8 @@ repositories:
   my-repository:
     name: my-org/my-repository
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-6"
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
         timeout-minutes: 10
@@ -144,8 +149,8 @@ repositories:
   my-repository:
     name: my-org/my-repository
     test-oracle:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-6"
       test-patterns:
         - "tests/**/*.py"
       triggers:
@@ -155,7 +160,7 @@ repositories:
       timeout-minutes: 10
 ```
 
-This block is configured separately from `ai-features`, and runs built-in using the local AI sidecar — no external service is needed. The oracle combines static test mapping with AI analysis and posts file-level review comments on the PR. You can tune the timeout with `timeout-minutes`, or customize the prompt with `raw-prompt` or a `TESTS_ORACLE_PROMPT.md` file at the repository root (`raw-prompt` takes precedence when both are set).
+This block is configured separately from `ai-features`, and runs built-in using the local AI sidecar — no external service is needed. The oracle combines static test mapping with AI analysis and posts file-level review comments on the PR. You can tune the timeout with `timeout-minutes`, or append custom instructions to the built-in analysis prompt using `raw-prompt` or a `TESTS_ORACLE_PROMPT.md` file at the repository root. For security, `TESTS_ORACLE_PROMPT.md` is read from the repository's **base branch** (not the PR head), and `raw-prompt` overrides `TESTS_ORACLE_PROMPT.md` when both are set.
 
 | Trigger | When it runs |
 | --- | --- |
@@ -178,8 +183,8 @@ This block is configured separately from `ai-features`, and runs built-in using 
 
 ```yaml
 ai-features:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-6"
   conventional-title:
     enabled: true
     mode: suggest
@@ -191,10 +196,21 @@ ai-features:
 
 Raise `timeout-minutes` when repos are large or conflicts are complicated. Title suggestions are usually quick, while cherry-pick resolution often benefits from a longer timeout.
 
+To use Claude models on Google Cloud Vertex AI, set `ai-provider` to `"claude"` (alias for `"google-vertex-claude"`) and provide Vertex ADC credentials plus `GOOGLE_CLOUD_PROJECT`:
+
 ```yaml
+# config.yaml
+ai-features:
+  ai-provider: "claude" # or "google-vertex-claude"
+  ai-model: "claude-sonnet-4-6" # or "claude-opus-4-6[1m]" with VERTEX_CLAUDE_1M=true
+```
+
+```yaml
+# docker-compose.yaml
 services:
   github-webhook-server:
     environment:
+      - GOOGLE_CLOUD_PROJECT=my-gcp-project
       - VERTEX_CLAUDE_1M=true
       # - GEMINI_API_KEY=xxx
       # - SIDECAR_PORT=9200
@@ -202,7 +218,7 @@ services:
       - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro
 ```
 
-Add `VERTEX_CLAUDE_1M=true` plus a Google Cloud credential mount when you want Vertex-hosted 1M Claude models, set `GEMINI_API_KEY` for Gemini models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
+Set `GOOGLE_CLOUD_PROJECT` and mount your Google Cloud ADC directory for Vertex Claude models, add `VERTEX_CLAUDE_1M=true` if you use 1M context models, set `GEMINI_API_KEY` for `gemini` (`google`) models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
 
 > **Tip:** `/test-oracle` can still run on draft PRs, and it does not depend on the automatic trigger list. If you reopen a PR and want fresh recommendations, run `/test-oracle` manually.
 

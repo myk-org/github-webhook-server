@@ -140,8 +140,8 @@ Optional PR automation can fire on lifecycle events too.
 
 ```yaml
 test-oracle:
-  ai-provider: "claude"
-  ai-model: "claude-opus-4-6[1m]"
+  ai-provider: "claude" # Vertex AI alias (google-vertex-claude); use "anthropic" with ANTHROPIC_API_KEY
+  ai-model: "claude-opus-4-6[1m]" # Requires VERTEX_CLAUDE_1M=true on Vertex AI
   test-patterns:
     - "tests/**/*.py"
   triggers:

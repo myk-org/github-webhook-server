@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import os
 import re
 import shlex
 import shutil
 import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from github.GithubException import GithubException
 from pydantic import ValidationError
 
 from webhook_server.libs.ai_cli import call_ai
 from webhook_server.test_oracle.models import AnalyzeResult, TestMapping, TestRecommendation
-from webhook_server.test_oracle.test_mapper import TestMapper
+from webhook_server.test_oracle.test_mapper import TestMapper, prioritize_candidate_tests
 from webhook_server.utils.github_retry import github_api_call
 from webhook_server.utils.helpers import run_command
 
@@ -32,6 +34,12 @@ DEFAULT_TRIGGERS: list[str] = ["approved"]
 DEFAULT_TIMEOUT_MINUTES: int = 10
 MAX_DIFF_CHARS: int = 100_000
 PROMPT_FILENAME: str = "TESTS_ORACLE_PROMPT.md"
+_MAX_CUSTOM_PROMPT_CHARS: int = 16_000
+_MAX_CUSTOM_PROMPT_BYTES: int = _MAX_CUSTOM_PROMPT_CHARS * 4
+_MAX_PROMPT_CANDIDATES_PER_FILE: int = 50
+_GIT_INIT_TIMEOUT_SECONDS: int = 30
+_GIT_NETWORK_TIMEOUT_SECONDS: int = 120
+_MANUAL_FAILURE_COMMENT: str = "Test Oracle analysis failed; check server logs for details."
 
 _LANGUAGE_MAP: dict[str, str] = {
     "py": "python",
@@ -56,11 +64,16 @@ def _detect_language(file_path: str) -> str:
     return _LANGUAGE_MAP.get(ext, "")
 
 
-def _sanitize_error(text: str, secret: str) -> str:
-    """Redact secret token from error strings before logging."""
-    if secret and text:
-        return text.replace(secret, "***REDACTED***")
-    return text
+def _sanitize_error(text: str, secret: str | list[str]) -> str:
+    """Redact secret token(s) from error strings before logging."""
+    if not text or not secret:
+        return text
+    secrets = [secret] if isinstance(secret, str) else secret
+    sanitized = text
+    for item in secrets:
+        if item:
+            sanitized = sanitized.replace(item, "***REDACTED***")
+    return sanitized
 
 
 def _build_pr_diff(pr_files: list[File], max_chars: int = MAX_DIFF_CHARS) -> str:
@@ -90,25 +103,78 @@ def _build_pr_diff(pr_files: list[File], max_chars: int = MAX_DIFF_CHARS) -> str
     return "".join(sections)
 
 
-def _resolve_custom_prompt(repo_path: str, raw_prompt: str | None) -> str:
-    """Resolve custom prompt: config raw-prompt > repo TESTS_ORACLE_PROMPT.md > empty."""
+def _truncate_custom_prompt(text: str, max_chars: int = _MAX_CUSTOM_PROMPT_CHARS) -> str:
+    """Strip and cap custom prompt text at max_chars with a truncation notice."""
+    stripped = text.strip()
+    if len(stripped) > max_chars:
+        return f"{stripped[:max_chars]}\n... [custom prompt truncated at {max_chars} chars]"
+    return stripped
+
+
+async def _resolve_custom_prompt(
+    github_webhook: GithubWebhook,
+    pull_request: PullRequest,
+    raw_prompt: str | None,
+    logger: logging.Logger,
+    log_prefix: str,
+) -> str:
+    """Resolve custom prompt: config raw-prompt > base-branch TESTS_ORACLE_PROMPT.md > empty."""
     if raw_prompt and raw_prompt.strip():
-        return raw_prompt.strip()
-
-    repo_root = Path(repo_path).resolve()
-    prompt_path = repo_root / PROMPT_FILENAME
-    try:
-        resolved = prompt_path.resolve()
-    except OSError:
-        return ""
-
-    if not resolved.is_relative_to(repo_root) or not resolved.is_file():
-        return ""
+        return _truncate_custom_prompt(raw_prompt)
 
     try:
-        return resolved.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
+        base_ref: str = await github_api_call(
+            lambda: pull_request.base.ref,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+        content_obj = await github_api_call(
+            github_webhook.repository.get_contents,
+            PROMPT_FILENAME,
+            ref=base_ref,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+    except GithubException as ex:
+        if ex.status == 404:
+            return ""
+        logger.warning(f"{log_prefix} Failed to fetch {PROMPT_FILENAME} from base branch: {ex}")
         return ""
+    except asyncio.CancelledError:
+        raise
+    except Exception as ex:
+        logger.warning(f"{log_prefix} Failed to fetch {PROMPT_FILENAME} from base branch: {ex}")
+        return ""
+
+    if isinstance(content_obj, list):
+        logger.warning(f"{log_prefix} {PROMPT_FILENAME} on base branch '{base_ref}' is a directory; ignoring")
+        return ""
+
+    try:
+        file_size: int = await github_api_call(
+            lambda: content_obj.size,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+        if isinstance(file_size, int) and file_size > _MAX_CUSTOM_PROMPT_BYTES:
+            logger.warning(
+                f"{log_prefix} {PROMPT_FILENAME} on base branch '{base_ref}' is too large "
+                f"({file_size} bytes, max {_MAX_CUSTOM_PROMPT_BYTES}); ignoring"
+            )
+            return ""
+
+        raw_bytes: bytes = await github_api_call(
+            lambda: content_obj.decoded_content,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as ex:
+        logger.warning(f"{log_prefix} Failed to read {PROMPT_FILENAME} from base branch '{base_ref}': {ex}")
+        return ""
+
+    return _truncate_custom_prompt(raw_bytes.decode("utf-8", errors="replace"))
 
 
 def _build_ai_prompt(
@@ -147,7 +213,11 @@ def _build_ai_prompt(
         parts.append(f"\n### {mapping.source_file}")
         parts.append(f"Mapping reason: {mapping.mapping_reason}")
         if mapping.candidate_tests:
-            parts.extend(f"  - {test}" for test in mapping.candidate_tests)
+            shown = mapping.candidate_tests[:_MAX_PROMPT_CANDIDATES_PER_FILE]
+            parts.extend(f"  - {test}" for test in shown)
+            omitted = len(mapping.candidate_tests) - len(shown)
+            if omitted > 0:
+                parts.append(f"  - ... (+{omitted} more)")
         else:
             parts.append("  (no direct mapping found)")
     parts.append("\n")
@@ -234,19 +304,31 @@ def _parse_ai_response(
     raw_text: str,
     logger: logging.Logger | None = None,
     log_prefix: str = "",
-) -> list[TestRecommendation]:
-    """Extract and parse a JSON array of TestRecommendation objects from AI output."""
+) -> list[TestRecommendation] | None:
+    """Extract and parse a JSON array of TestRecommendation objects from AI output.
+
+    Returns:
+        List of recommendations (possibly empty when AI explicitly returned ``[]``),
+        or ``None`` when no valid JSON array could be parsed.
+    """
     text = raw_text.strip()
     if not text:
         if logger:
             logger.warning(f"{log_prefix} AI returned empty response; no recommendations parsed")
-        return []
+        return None
 
     # 1. Direct JSON array
     try:
         data = json.loads(text)
         if isinstance(data, list):
-            return _parse_items(data, logger=logger, log_prefix=log_prefix)
+            if not data:
+                return []
+            parsed = _parse_items(data, logger=logger, log_prefix=log_prefix)
+            if parsed:
+                return parsed
+            if logger:
+                logger.warning(f"{log_prefix} AI returned non-empty JSON array with no valid recommendation items")
+            return None
     except json.JSONDecodeError:
         pass
 
@@ -288,8 +370,8 @@ def _parse_ai_response(
         return []
 
     if logger:
-        logger.warning(f"{log_prefix} Failed to parse AI response as JSON array; returning empty recommendations")
-    return []
+        logger.warning(f"{log_prefix} Failed to parse AI response as JSON array")
+    return None
 
 
 def _format_pr_comment(
@@ -337,15 +419,20 @@ def _map_and_load_context(
     repo_path: str,
     changed_files: list[str],
     test_patterns: list[str] | None,
-    raw_prompt: str | None,
-) -> tuple[list[TestMapping], dict[str, str], str]:
-    """Run static test mapping, read candidate test files, and resolve custom prompt."""
-    mapper = TestMapper(repo_path=repo_path, test_patterns=test_patterns)
+    logger: logging.Logger,
+    log_prefix: str,
+) -> tuple[list[TestMapping], dict[str, str]]:
+    """Run static test mapping and read prioritized candidate test files."""
+    mapper = TestMapper(
+        repo_path=repo_path,
+        test_patterns=test_patterns,
+        logger=logger,
+        log_prefix=log_prefix,
+    )
     test_mappings = mapper.map_changed_files(changed_files)
-    all_candidates = sorted({test for mapping in test_mappings for test in mapping.candidate_tests})
+    all_candidates = prioritize_candidate_tests(test_mappings)
     test_contents = mapper.get_test_file_contents(all_candidates)
-    custom_prompt = _resolve_custom_prompt(repo_path=repo_path, raw_prompt=raw_prompt)
-    return test_mappings, test_contents, custom_prompt
+    return test_mappings, test_contents
 
 
 async def _checkout_pr_head(
@@ -357,29 +444,48 @@ async def _checkout_pr_head(
     mask_sensitive: bool,
     logger: logging.Logger,
 ) -> bool:
-    """Shallow-fetch refs/pull/{pr_number}/head into an isolated temp directory without saving credentials."""
+    """Shallow-fetch refs/pull/{pr_number}/head into an isolated temp directory without leaking credentials."""
     quoted_repo = shlex.quote(repo_path)
-    redact = [github_token] if github_token else None
+    redact_list: list[str] = []
+    fetch_env: dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+    if github_token:
+        parsed = urlparse(clone_url)
+        if not parsed.scheme or not parsed.netloc:
+            logger.error(f"{log_prefix} Invalid clone URL for PR #{pr_number}: missing scheme or host")
+            return False
+        origin_base = f"{parsed.scheme}://{parsed.netloc}/"
+        auth_b64 = base64.b64encode(f"x-access-token:{github_token}".encode()).decode("ascii")
+        redact_list = [github_token, auth_b64]
+        fetch_env.update({
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": f"http.{origin_base}.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth_b64}",
+        })
+
+    redact: list[str] | None = redact_list or None
 
     rc, _, err = await run_command(
         command=f"git init {quoted_repo}",
         log_prefix=log_prefix,
         redact_secrets=redact,
         mask_sensitive=mask_sensitive,
+        timeout=_GIT_INIT_TIMEOUT_SECONDS,
     )
     if not rc:
-        logger.error(f"{log_prefix} Failed to initialize temp git repo: {_sanitize_error(err, github_token)}")
+        logger.error(f"{log_prefix} Failed to initialize temp git repo: {_sanitize_error(err, redact_list)}")
         return False
 
-    clone_url_with_token = clone_url.replace("https://", f"https://{github_token}@", 1) if github_token else clone_url
     rc, _, err = await run_command(
-        command=f"git -C {quoted_repo} fetch --depth=1 {shlex.quote(clone_url_with_token)} refs/pull/{pr_number}/head",
+        command=f"git -C {quoted_repo} fetch --depth=1 {shlex.quote(clone_url)} refs/pull/{pr_number}/head",
         log_prefix=log_prefix,
         redact_secrets=redact,
         mask_sensitive=mask_sensitive,
+        timeout=_GIT_NETWORK_TIMEOUT_SECONDS,
+        env=fetch_env,
     )
     if not rc:
-        logger.error(f"{log_prefix} Failed to fetch PR #{pr_number} head: {_sanitize_error(err, github_token)}")
+        logger.error(f"{log_prefix} Failed to fetch PR #{pr_number} head: {_sanitize_error(err, redact_list)}")
         return False
 
     rc, _, err = await run_command(
@@ -387,14 +493,34 @@ async def _checkout_pr_head(
         log_prefix=log_prefix,
         redact_secrets=redact,
         mask_sensitive=mask_sensitive,
+        timeout=_GIT_NETWORK_TIMEOUT_SECONDS,
     )
     if not rc:
         logger.error(
-            f"{log_prefix} Failed to checkout FETCH_HEAD for PR #{pr_number}: {_sanitize_error(err, github_token)}"
+            f"{log_prefix} Failed to checkout FETCH_HEAD for PR #{pr_number}: {_sanitize_error(err, redact_list)}"
         )
         return False
 
     return True
+
+
+async def _post_failure_comment(
+    pull_request: PullRequest,
+    logger: logging.Logger,
+    log_prefix: str,
+) -> None:
+    """Post a concise failure notice for manual /test-oracle commands without masking errors."""
+    try:
+        await github_api_call(
+            pull_request.create_issue_comment,
+            _MANUAL_FAILURE_COMMENT,
+            logger=logger,
+            log_prefix=log_prefix,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as ex:
+        logger.warning(f"{log_prefix} Failed to post Test Oracle failure comment: {ex}")
 
 
 async def _post_pr_recommendations(
@@ -425,7 +551,9 @@ async def _post_pr_recommendations(
                     log_prefix=log_prefix,
                 )
                 return True
-            except GithubException as ex:
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:
                 logger.warning(
                     f"{log_prefix} Failed to post review comment on {target_file} ({ex}); falling back to issue comment"
                 )
@@ -514,16 +642,26 @@ async def call_test_oracle(
             logger=logger,
         )
         if not checked_out:
+            if trigger is None:
+                await _post_failure_comment(pull_request=pull_request, logger=logger, log_prefix=log_prefix)
             return
 
         test_patterns: list[str] | None = config.get("test-patterns")
         raw_prompt: str | None = config.get("raw-prompt")
-        test_mappings, test_contents, custom_prompt = await asyncio.to_thread(
+        test_mappings, test_contents = await asyncio.to_thread(
             _map_and_load_context,
             repo_path,
             changed_files,
             test_patterns,
-            raw_prompt,
+            logger,
+            log_prefix,
+        )
+        custom_prompt = await _resolve_custom_prompt(
+            github_webhook=github_webhook,
+            pull_request=pull_request,
+            raw_prompt=raw_prompt,
+            logger=logger,
+            log_prefix=log_prefix,
         )
 
         prompt = _build_ai_prompt(
@@ -550,9 +688,17 @@ async def call_test_oracle(
         )
         if not ai_result.success:
             logger.error(f"{log_prefix} Test Oracle AI call failed: {ai_result.error}")
+            if trigger is None:
+                await _post_failure_comment(pull_request=pull_request, logger=logger, log_prefix=log_prefix)
             return
 
         recommendations = _parse_ai_response(ai_result.text, logger=logger, log_prefix=log_prefix)
+        if recommendations is None:
+            logger.error(f"{log_prefix} Test Oracle AI returned an unparseable response for PR #{pr_number}")
+            if trigger is None:
+                await _post_failure_comment(pull_request=pull_request, logger=logger, log_prefix=log_prefix)
+            return
+
         critical_count = sum(1 for r in recommendations if r.priority == "critical")
         standard_count = sum(1 for r in recommendations if r.priority == "standard")
         unique_files = len({r.test_file for r in recommendations})
@@ -587,6 +733,8 @@ async def call_test_oracle(
         raise
     except Exception:
         logger.exception(f"{log_prefix} Test Oracle analysis failed unexpectedly")
+        if trigger is None:
+            await _post_failure_comment(pull_request=pull_request, logger=logger, log_prefix=log_prefix)
     finally:
         if repo_path is not None:
             await asyncio.to_thread(shutil.rmtree, repo_path, True)

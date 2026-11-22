@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
 from github.GithubException import GithubException
@@ -30,13 +31,21 @@ from webhook_server.test_oracle import (
     TestRecommendation as OracleTestRecommendation,
 )
 from webhook_server.test_oracle.analyzer import (
+    _GIT_INIT_TIMEOUT_SECONDS,
+    _GIT_NETWORK_TIMEOUT_SECONDS,
+    _MANUAL_FAILURE_COMMENT,
+    _MAX_CUSTOM_PROMPT_BYTES,
+    _MAX_CUSTOM_PROMPT_CHARS,
+    _MAX_PROMPT_CANDIDATES_PER_FILE,
     DEFAULT_TIMEOUT_MINUTES,
     PROMPT_FILENAME,
     _build_ai_prompt,
     _build_pr_diff,
+    _checkout_pr_head,
     _detect_language,
     _format_pr_comment,
     _parse_ai_response,
+    _post_failure_comment,
     _resolve_custom_prompt,
     _sanitize_error,
 )
@@ -45,6 +54,7 @@ from webhook_server.test_oracle.test_mapper import (
     _is_test_file,
     _strip_source_prefix,
     _strip_test_prefix,
+    prioritize_candidate_tests,
 )
 from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 
@@ -204,6 +214,63 @@ class TestTestMapper:
         assert mapper_none._patterns == list(DEFAULT_TEST_PATTERNS)
         assert mapper_empty._patterns == list(DEFAULT_TEST_PATTERNS)
 
+    def test_shared_logger_and_log_prefix(self, tmp_path: Path) -> None:
+        """TestMapper uses provided logger and prepends log_prefix to debug/info/warning logs."""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("A" * 50, encoding="utf-8")
+        (tests_dir / "test_b.py").write_text("B" * 50, encoding="utf-8")
+
+        custom_logger = Mock()
+        mapper = OracleTestMapper(
+            repo_path=str(tmp_path),
+            logger=custom_logger,
+            log_prefix="[ORACLE]",
+        )
+        mapper.discover_test_files()
+        custom_logger.debug.assert_called_once()
+        assert custom_logger.debug.call_args[0][0].startswith("[ORACLE] Discovered 2 test files")
+
+        mapper.get_test_file_contents(
+            ["/abs/outside.py", "tests/missing.py", "tests/test_a.py", "tests/test_b.py"],
+            max_file_chars=20,
+            max_total_chars=20,
+        )
+        warning_msgs = [call.args[0] for call in custom_logger.warning.call_args_list]
+        assert len(warning_msgs) == 2
+        assert all(msg.startswith("[ORACLE] ") for msg in warning_msgs)
+        custom_logger.info.assert_called_once()
+        assert custom_logger.info.call_args[0][0].startswith("[ORACLE] Reached total test content budget")
+
+    def test_default_patterns_discover_non_python_and_root_tests(self, tmp_path: Path) -> None:
+        """Expanded DEFAULT_TEST_PATTERNS discovers multi-language and root-level tests while skipping infra."""
+        expected_tests = [
+            "dotnet/BarTests.cs",
+            "foo_test.py",
+            "pkg/server_test.go",
+            "spec/user_spec.rb",
+            "src/test/java/BarTests.java",
+            "src/test/java/FooTest.java",
+            "test_root.py",
+            "tests/test_mod.py",
+            "web/src/app.test.ts",
+            "web/src/util.spec.tsx",
+        ]
+        excluded_or_non_tests = [
+            "src/app.ts",
+            "pkg/server.go",
+            "jest.config.ts",
+            "vitest.config.ts",
+            "tests/conftest.py",
+        ]
+        for rel in expected_tests + excluded_or_non_tests:
+            path = tmp_path / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("// file\n", encoding="utf-8")
+
+        mapper = OracleTestMapper(repo_path=str(tmp_path))
+        assert mapper.discover_test_files() == sorted(expected_tests)
+
     def test_discover_test_files_exclusions_and_caching(self, tmp_path: Path) -> None:
         """Discovery finds valid tests, excludes infra files and ignored dirs, and caches results."""
         files_to_create = [
@@ -342,20 +409,41 @@ class TestTestMapper:
         assert _is_test_file(Path("src/AuthTest.java")) is True
         assert _is_test_file(Path("src/auth.py")) is False
 
-    def test_get_test_file_contents_truncation_caps(self, tmp_path: Path) -> None:
-        """Per-file cap and total budget cap truncate contents and stop reading when exhausted."""
+    def test_get_test_file_contents_bounded_reads_and_truncation_caps(self, tmp_path: Path) -> None:
+        """Bounded reads truncate large files without reading whole file and respect total budget."""
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
-        (tests_dir / "test_one.py").write_text("A" * 100, encoding="utf-8")
+        (tests_dir / "test_one.py").write_text("A" * 5000, encoding="utf-8")
         (tests_dir / "test_two.py").write_text("B" * 100, encoding="utf-8")
         (tests_dir / "test_three.py").write_text("C" * 100, encoding="utf-8")
 
         mapper = OracleTestMapper(repo_path=str(tmp_path))
 
-        # Per-file truncation cap
-        per_file = mapper.get_test_file_contents(["tests/test_one.py"], max_file_chars=30, max_total_chars=500)
-        assert per_file["tests/test_one.py"].startswith("A" * 30)
-        assert "... [truncated at 30 of 100 chars]" in per_file["tests/test_one.py"]
+        # Verify bounded read passes limit + 1 to handle.read() instead of reading the entire file
+        read_sizes: list[int | None] = []
+        original_open = Path.open
+
+        def tracking_open(self_path: Path, *args: Any, **kwargs: Any) -> Any:
+            real_handle = original_open(self_path, *args, **kwargs)
+
+            class _BoundedReader:
+                def __enter__(self) -> _BoundedReader:
+                    return self
+
+                def __exit__(self, *exc_info: Any) -> None:
+                    real_handle.close()
+
+                def read(self, size: int = -1) -> str:
+                    read_sizes.append(size)
+                    return real_handle.read(size)
+
+            return _BoundedReader()
+
+        with patch.object(Path, "open", tracking_open):
+            per_file = mapper.get_test_file_contents(["tests/test_one.py"], max_file_chars=30, max_total_chars=500)
+
+        assert read_sizes == [31]
+        assert per_file["tests/test_one.py"] == f"{'A' * 30}\n... [truncated at 30 chars]"
 
         # Total budget cap: first file fits within per-file cap (40 chars), second hits remaining budget, third skipped
         budgeted = mapper.get_test_file_contents(
@@ -365,6 +453,39 @@ class TestTestMapper:
         )
         assert "tests/test_one.py" in budgeted
         assert "tests/test_three.py" not in budgeted
+
+    def test_prioritize_candidate_tests_orders_direct_before_broad_deduplicated(self) -> None:
+        """Direct mappings are sorted ahead of broad config-file candidates with duplicates removed."""
+        mappings = [
+            OracleTestMapping(
+                source_file="pyproject.toml",
+                candidate_tests=["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"],
+                mapping_reason="Config file change affects all tests",
+            ),
+            OracleTestMapping(
+                source_file="Makefile",
+                candidate_tests=["tests/test_a.py", "tests/test_d.py"],
+                mapping_reason="Config file change affects all tests",
+            ),
+            OracleTestMapping(
+                source_file="src/pkg/z.py",
+                candidate_tests=["tests/test_c.py", "tests/test_b.py"],
+                mapping_reason="Direct",
+            ),
+            OracleTestMapping(
+                source_file="src/pkg/y.py",
+                candidate_tests=["tests/test_b.py"],
+                mapping_reason="Direct",
+            ),
+        ]
+
+        assert prioritize_candidate_tests(mappings) == [
+            "tests/test_b.py",
+            "tests/test_c.py",
+            "tests/test_a.py",
+            "tests/test_d.py",
+        ]
+        assert prioritize_candidate_tests([]) == []
 
 
 class TestAnalyzerHelpers:
@@ -386,11 +507,16 @@ class TestAnalyzerHelpers:
         assert _detect_language(path) == expected
 
     def test_sanitize_error(self) -> None:
-        """_sanitize_error redacts secrets and handles empty inputs."""
+        """_sanitize_error redacts single or multiple secrets and handles empty inputs."""
         assert (
             _sanitize_error("fatal: https://tok123@github.com", "tok123") == "fatal: https://***REDACTED***@github.com"
         )
+        assert (
+            _sanitize_error("err tok123 and hdr456 failed", ["tok123", "hdr456"])
+            == "err ***REDACTED*** and ***REDACTED*** failed"
+        )
         assert _sanitize_error("plain error", "") == "plain error"
+        assert _sanitize_error("plain error", []) == "plain error"
         assert _sanitize_error("", "tok123") == ""
 
     def test_build_pr_diff_patches_binary_and_truncation(self) -> None:
@@ -410,28 +536,177 @@ class TestAnalyzerHelpers:
         assert "... [diff truncated at 50 chars]" in truncated
         assert "assets/logo.png" not in truncated
 
-    def test_resolve_custom_prompt_precedence_and_symlink_protection(self, tmp_path: Path) -> None:
-        """Precedence is raw-prompt > TESTS_ORACLE_PROMPT.md > empty, refusing symlink escapes."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        outside = tmp_path / "outside_prompt.md"
-        outside.write_text("Outside secret instructions", encoding="utf-8")
+    @pytest.mark.asyncio
+    async def test_resolve_custom_prompt_raw_prompt_precedence_and_cap(self) -> None:
+        """raw-prompt takes priority over base-branch file without GitHub API calls and is capped."""
+        mock_webhook = Mock()
+        mock_webhook.repository = Mock()
+        mock_pr = Mock()
+        mock_pr.base = Mock(ref="main")
+        logger = Mock()
 
-        # Empty when nothing configured
-        assert _resolve_custom_prompt(str(repo), None) == ""
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            result = await _resolve_custom_prompt(
+                github_webhook=mock_webhook,
+                pull_request=mock_pr,
+                raw_prompt="  Inline override  ",
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+            assert result == "Inline override"
+            mock_webhook.repository.get_contents.assert_not_called()
 
-        # Symlink escape refused
-        os.symlink(outside, repo / PROMPT_FILENAME)
-        assert _resolve_custom_prompt(str(repo), None) == ""
-        (repo / PROMPT_FILENAME).unlink()
+            oversized = "X" * (_MAX_CUSTOM_PROMPT_CHARS + 25)
+            capped = await _resolve_custom_prompt(
+                github_webhook=mock_webhook,
+                pull_request=mock_pr,
+                raw_prompt=oversized,
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+            assert capped == (
+                f"{'X' * _MAX_CUSTOM_PROMPT_CHARS}\n... [custom prompt truncated at {_MAX_CUSTOM_PROMPT_CHARS} chars]"
+            )
 
-        # Repo file used when raw_prompt is None or whitespace
-        (repo / PROMPT_FILENAME).write_text("  Focus on auth tests.  \n", encoding="utf-8")
-        assert _resolve_custom_prompt(str(repo), None) == "Focus on auth tests."
-        assert _resolve_custom_prompt(str(repo), "   ") == "Focus on auth tests."
+    @pytest.mark.asyncio
+    async def test_resolve_custom_prompt_fetches_from_base_branch_and_caps(self, tmp_path: Path) -> None:
+        """Fetches TESTS_ORACLE_PROMPT.md from pull_request.base.ref (never PR head checkout) and caps length."""
+        # Create a local file in tmp_path simulating an untrusted PR head checkout (must never be read)
+        (tmp_path / PROMPT_FILENAME).write_text("Untrusted PR head instructions", encoding="utf-8")
 
-        # raw_prompt takes priority over repo file
-        assert _resolve_custom_prompt(str(repo), "  Inline override  ") == "Inline override"
+        content_obj = Mock()
+        content_obj.size = 32
+        content_obj.decoded_content = b"  Focus on base-branch rules.\xff  \n"
+
+        mock_webhook = Mock()
+        mock_webhook.repository = Mock()
+        mock_webhook.repository.get_contents = Mock(return_value=content_obj)
+        mock_pr = Mock()
+        mock_pr.base = Mock(ref="release/1.0")
+        mock_pr.head = Mock(ref="untrusted-pr-head")
+        logger = Mock()
+
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            result_none = await _resolve_custom_prompt(
+                github_webhook=mock_webhook,
+                pull_request=mock_pr,
+                raw_prompt=None,
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+            result_ws = await _resolve_custom_prompt(
+                github_webhook=mock_webhook,
+                pull_request=mock_pr,
+                raw_prompt="   \n ",
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+
+        assert result_none == "Focus on base-branch rules.\ufffd"
+        assert result_ws == "Focus on base-branch rules.\ufffd"
+        assert "Untrusted PR head" not in result_none
+        for call in mock_webhook.repository.get_contents.call_args_list:
+            assert call.args == (PROMPT_FILENAME,)
+            assert call.kwargs == {"ref": "release/1.0"}
+
+        # Base-branch prompt longer than _MAX_CUSTOM_PROMPT_CHARS is capped
+        long_bytes = ("Y" * (_MAX_CUSTOM_PROMPT_CHARS + 10)).encode("utf-8")
+        long_obj = Mock(size=len(long_bytes), decoded_content=long_bytes)
+        mock_webhook.repository.get_contents = Mock(return_value=long_obj)
+
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            capped = await _resolve_custom_prompt(
+                github_webhook=mock_webhook,
+                pull_request=mock_pr,
+                raw_prompt=None,
+                logger=logger,
+                log_prefix="[TEST]",
+            )
+
+        assert capped == (
+            f"{'Y' * _MAX_CUSTOM_PROMPT_CHARS}\n... [custom prompt truncated at {_MAX_CUSTOM_PROMPT_CHARS} chars]"
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_prompt_ignores_404_and_handles_edge_cases(self) -> None:
+        """Ignores 404 silently; warns and returns '' on non-404, generic errors, dirs, oversized, decode errors."""
+        mock_webhook = Mock()
+        mock_webhook.repository = Mock()
+        mock_pr = Mock()
+        mock_pr.base = Mock(ref="main")
+
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            # 404 ignored silently
+            logger = Mock()
+            mock_webhook.repository.get_contents = Mock(
+                side_effect=GithubException(404, {"message": "Not Found"}, None)
+            )
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_not_called()
+
+            # Non-404 GithubException logs warning
+            logger = Mock()
+            mock_webhook.repository.get_contents = Mock(
+                side_effect=GithubException(500, {"message": "Server Error"}, None)
+            )
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_called_once()
+
+            # Generic exception during fetch logs warning
+            logger = Mock()
+            mock_webhook.repository.get_contents = Mock(side_effect=RuntimeError("network failure"))
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_called_once()
+
+            # Directory entry returns "" and logs warning
+            logger = Mock()
+            mock_webhook.repository.get_contents = Mock(return_value=[Mock(), Mock()])
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_called_once()
+            assert "is a directory" in logger.warning.call_args[0][0]
+
+            # Oversized file (> _MAX_CUSTOM_PROMPT_BYTES) returns "" without reading decoded_content
+            logger = Mock()
+            oversized_obj = Mock()
+            oversized_obj.size = _MAX_CUSTOM_PROMPT_BYTES + 1
+            decoded_prop = PropertyMock(side_effect=AssertionError("should not read oversized content"))
+            type(oversized_obj).decoded_content = decoded_prop
+            mock_webhook.repository.get_contents = Mock(return_value=oversized_obj)
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_called_once()
+            assert "too large" in logger.warning.call_args[0][0]
+            decoded_prop.assert_not_called()
+
+            # Decode/read error on decoded_content logs warning and returns ""
+            logger = Mock()
+            bad_decode_obj = Mock()
+            bad_decode_obj.size = 100
+            type(bad_decode_obj).decoded_content = PropertyMock(side_effect=AssertionError("unsupported encoding"))
+            mock_webhook.repository.get_contents = Mock(return_value=bad_decode_obj)
+            assert await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]") == ""
+            logger.warning.assert_called_once()
+            assert "Failed to read" in logger.warning.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_prompt_reraises_cancelled_error(self) -> None:
+        """asyncio.CancelledError is re-raised during both fetch and content read."""
+        mock_webhook = Mock()
+        mock_webhook.repository = Mock()
+        mock_pr = Mock()
+        mock_pr.base = Mock(ref="main")
+        logger = Mock()
+
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            mock_webhook.repository.get_contents = Mock(side_effect=asyncio.CancelledError())
+            with pytest.raises(asyncio.CancelledError):
+                await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]")
+
+            cancel_obj = Mock()
+            cancel_obj.size = 10
+            type(cancel_obj).decoded_content = PropertyMock(side_effect=asyncio.CancelledError())
+            mock_webhook.repository.get_contents = Mock(return_value=cancel_obj)
+            with pytest.raises(asyncio.CancelledError):
+                await _resolve_custom_prompt(mock_webhook, mock_pr, None, logger, "[TEST]")
 
     def test_build_ai_prompt_includes_all_sections(self) -> None:
         """_build_ai_prompt renders diff, mappings, test contents, and optional custom prompt."""
@@ -462,6 +737,23 @@ class TestAnalyzerHelpers:
         assert "## Test File Contents" not in prompt_no_custom
         assert "## Additional Instructions" not in prompt_no_custom
 
+    def test_build_ai_prompt_caps_candidates_per_file(self) -> None:
+        """_build_ai_prompt caps candidates per mapping at _MAX_PROMPT_CANDIDATES_PER_FILE with overflow notice."""
+        total = _MAX_PROMPT_CANDIDATES_PER_FILE + 7
+        many_candidates = [f"tests/test_{i:03d}.py" for i in range(total)]
+        exact_candidates = [f"tests/exact_{i:03d}.py" for i in range(_MAX_PROMPT_CANDIDATES_PER_FILE)]
+        mappings = [
+            OracleTestMapping(source_file="pyproject.toml", candidate_tests=many_candidates, mapping_reason="Config"),
+            OracleTestMapping(source_file="src/exact.py", candidate_tests=exact_candidates, mapping_reason="Direct"),
+        ]
+
+        prompt = _build_ai_prompt(pr_diff="diff", test_mappings=mappings, test_contents={})
+        assert f"  - tests/test_{_MAX_PROMPT_CANDIDATES_PER_FILE - 1:03d}.py" in prompt
+        assert f"  - tests/test_{_MAX_PROMPT_CANDIDATES_PER_FILE:03d}.py" not in prompt
+        assert "  - ... (+7 more)" in prompt
+        assert f"  - tests/exact_{_MAX_PROMPT_CANDIDATES_PER_FILE - 1:03d}.py" in prompt
+        assert prompt.count("... (+") == 1
+
     def test_parse_ai_response_direct_json_and_malformed_items(self) -> None:
         """Direct JSON array parses valid items and skips non-dict/malformed entries."""
         logger = Mock()
@@ -477,6 +769,7 @@ class TestAnalyzerHelpers:
             {"test_file": "tests/test_bad.py", "priority": "invalid"},
         ]
         recs = _parse_ai_response(json.dumps(payload), logger=logger, log_prefix="[TEST]")
+        assert recs is not None
         assert len(recs) == 1
         assert recs[0].test_file == "tests/test_auth.py"
         assert recs[0].test_name == "test_login"
@@ -494,6 +787,7 @@ class TestAnalyzerHelpers:
             "```\n"
         )
         recs = _parse_ai_response(raw)
+        assert recs is not None
         assert len(recs) == 1
         assert recs[0].test_file == "tests/test_api.py"
         assert recs[0].test_name == "(all)"
@@ -512,6 +806,7 @@ class TestAnalyzerHelpers:
             "Hope this helps [end]."
         )
         recs = _parse_ai_response(raw)
+        assert recs is not None
         assert len(recs) == 1
         assert recs[0].test_file == "tests/test_x.py"
 
@@ -521,11 +816,32 @@ class TestAnalyzerHelpers:
         logger.warning.assert_not_called()
 
     @pytest.mark.parametrize("bad_output", ["", "   \n ", "Sorry, I cannot analyze this diff.", '{"key": "value"}'])
-    def test_parse_ai_response_invalid_returns_empty_and_logs(self, bad_output: str) -> None:
-        """Empty or non-array AI outputs return [] and log a warning."""
+    def test_parse_ai_response_invalid_returns_none_and_logs(self, bad_output: str) -> None:
+        """Empty or non-array AI outputs return None and log a warning."""
         logger = Mock()
-        assert _parse_ai_response(bad_output, logger=logger, log_prefix="[TEST]") == []
+        assert _parse_ai_response(bad_output, logger=logger, log_prefix="[TEST]") is None
         logger.warning.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "malformed_payload",
+        [
+            json.dumps(["not-a-dict", {"test_file": "tests/test_bad.py", "priority": "invalid"}]),
+            '```json\n[{"test_file": "tests/test_bad.py", "priority": "invalid"}]\n```',
+            'Here are results: [{"test_file": "tests/test_bad.py", "priority": "invalid"}] done.',
+        ],
+    )
+    def test_parse_ai_response_all_malformed_items_returns_none(self, malformed_payload: str) -> None:
+        """Non-empty JSON array where all items are malformed returns None (never empty list [])."""
+        logger = Mock()
+        assert _parse_ai_response(malformed_payload, logger=logger, log_prefix="[TEST]") is None
+        assert logger.warning.call_count >= 1
+
+    def test_parse_ai_response_explicit_empty_array_returns_empty_list(self) -> None:
+        """Explicit valid empty array [] returns [] without warning."""
+        logger = Mock()
+        result = _parse_ai_response("[]", logger=logger, log_prefix="[TEST]")
+        assert result == []
+        logger.warning.assert_not_called()
 
     def test_format_pr_comment_critical_standard_and_empty(self) -> None:
         """_format_pr_comment renders critical/standard sections, '(all)' vs named, and empty state."""
@@ -574,6 +890,7 @@ class TestCallTestOracle:
         mock_webhook.mask_sensitive = True
         mock_webhook.repository = Mock()
         mock_webhook.repository.clone_url = "https://github.com/test-org/test-repo.git"
+        mock_webhook.repository.get_contents = Mock(side_effect=GithubException(404, {"message": "Not Found"}, None))
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(
             return_value={
@@ -591,6 +908,7 @@ class TestCallTestOracle:
         """Create a mock PullRequest with changed files."""
         mock_pr = Mock()
         mock_pr.number = 42
+        mock_pr.base = Mock(ref="main")
         mock_pr.head = Mock(sha="000000000000")
         mock_pr.get_files = Mock(
             return_value=[
@@ -725,16 +1043,33 @@ class TestCallTestOracle:
                 trigger="approved",
             )
 
-        # Verify isolated shallow checkout commands
+        # Verify isolated shallow checkout commands: clean clone_url, auth via env extraheader, explicit timeouts
+        expected_auth_b64 = base64.b64encode(f"x-access-token:{TEST_GITHUB_TOKEN}".encode()).decode("ascii")
         assert mock_run_cmd.await_count == 3
-        cmds = [call.kwargs["command"] for call in mock_run_cmd.await_args_list]
+        calls = mock_run_cmd.await_args_list
+        cmds = [call.kwargs["command"] for call in calls]
         assert f"git init {checkout_dir}" in cmds[0]
+        assert calls[0].kwargs["timeout"] == _GIT_INIT_TIMEOUT_SECONDS
+        assert _GIT_INIT_TIMEOUT_SECONDS == 30
+
         assert "fetch --depth=1" in cmds[1]
         assert "refs/pull/42/head" in cmds[1]
-        assert f"https://{TEST_GITHUB_TOKEN}@github.com/test-org/test-repo.git" in cmds[1]
+        assert "https://github.com/test-org/test-repo.git" in cmds[1]
+        assert TEST_GITHUB_TOKEN not in cmds[1]
+        assert expected_auth_b64 not in cmds[1]
+        assert calls[1].kwargs["timeout"] == _GIT_NETWORK_TIMEOUT_SECONDS
+        assert _GIT_NETWORK_TIMEOUT_SECONDS == 120
+        fetch_env = calls[1].kwargs["env"]
+        assert fetch_env["GIT_TERMINAL_PROMPT"] == "0"
+        assert fetch_env["GIT_CONFIG_COUNT"] == "1"
+        assert fetch_env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+        assert fetch_env["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {expected_auth_b64}"
+
         assert "checkout FETCH_HEAD" in cmds[2]
-        for call in mock_run_cmd.await_args_list:
-            assert call.kwargs["redact_secrets"] == [TEST_GITHUB_TOKEN]
+        assert calls[2].kwargs["timeout"] == _GIT_NETWORK_TIMEOUT_SECONDS
+
+        for call in calls:
+            assert call.kwargs["redact_secrets"] == [TEST_GITHUB_TOKEN, expected_auth_b64]
             assert call.kwargs["mask_sensitive"] is True
 
         # Verify call_ai invoked with tools=[] and configured provider/model/timeout
@@ -761,20 +1096,63 @@ class TestCallTestOracle:
         assert not checkout_dir.exists()
 
     @pytest.mark.asyncio
+    async def test_checkout_pr_head_invalid_url_and_no_token(self, tmp_path: Path) -> None:
+        """_checkout_pr_head rejects invalid clone_url when token set and omits auth env when token empty."""
+        logger = Mock()
+        with patch("webhook_server.test_oracle.analyzer.run_command", new_callable=AsyncMock) as mock_run_cmd:
+            ok = await _checkout_pr_head(
+                repo_path=str(tmp_path),
+                clone_url="not-a-valid-url",
+                github_token=TEST_GITHUB_TOKEN,
+                pr_number=7,
+                log_prefix="[TEST]",
+                mask_sensitive=True,
+                logger=logger,
+            )
+        assert ok is False
+        mock_run_cmd.assert_not_called()
+        logger.error.assert_called_once()
+        assert "Invalid clone URL" in logger.error.call_args[0][0]
+
+        with patch(
+            "webhook_server.test_oracle.analyzer.run_command",
+            new_callable=AsyncMock,
+            return_value=(True, "", ""),
+        ) as mock_run_cmd:
+            ok = await _checkout_pr_head(
+                repo_path=str(tmp_path),
+                clone_url="https://github.com/test-org/test-repo.git",
+                github_token="",
+                pr_number=7,
+                log_prefix="[TEST]",
+                mask_sensitive=True,
+                logger=logger,
+            )
+        assert ok is True
+        assert mock_run_cmd.await_count == 3
+        fetch_call = mock_run_cmd.await_args_list[1]
+        assert "GIT_CONFIG_COUNT" not in fetch_call.kwargs["env"]
+        assert fetch_call.kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
+        assert fetch_call.kwargs["redact_secrets"] is None
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("fail_step", [0, 1, 2])
+    @pytest.mark.parametrize("trigger", ["approved", None])
     async def test_checkout_failure_logs_redacted_error_and_cleans_up(
         self,
         tmp_path: Path,
         mock_github_webhook: Mock,
         mock_pull_request: Mock,
         fail_step: int,
+        trigger: str | None,
     ) -> None:
-        """Failure at init/fetch/checkout logs redacted error, cleans up temp dir, and skips AI."""
-        checkout_dir = tmp_path / f"pr-test-oracle-fail-{fail_step}"
+        """Failure at init/fetch/checkout redacts token and auth_b64, cleans up, and posts notice only when manual."""
+        checkout_dir = tmp_path / f"pr-test-oracle-fail-{fail_step}-{trigger}"
         checkout_dir.mkdir()
+        auth_b64 = base64.b64encode(f"x-access-token:{TEST_GITHUB_TOKEN}".encode()).decode("ascii")
 
         results = [(True, "", ""), (True, "", ""), (True, "", "")]
-        results[fail_step] = (False, "", f"fatal: auth failed for {TEST_GITHUB_TOKEN}")
+        results[fail_step] = (False, "", f"fatal: auth failed for {TEST_GITHUB_TOKEN} and basic {auth_b64}")
 
         with (
             patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call),
@@ -786,24 +1164,35 @@ class TestCallTestOracle:
             ),
             patch("webhook_server.test_oracle.analyzer.call_ai", new_callable=AsyncMock) as mock_call_ai,
         ):
-            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+            await call_test_oracle(
+                github_webhook=mock_github_webhook,
+                pull_request=mock_pull_request,
+                trigger=trigger,
+            )
 
         mock_call_ai.assert_not_called()
         mock_github_webhook.logger.error.assert_called_once()
         logged_err = mock_github_webhook.logger.error.call_args[0][0]
         assert TEST_GITHUB_TOKEN not in logged_err
-        assert "***REDACTED***" in logged_err
+        assert auth_b64 not in logged_err
+        assert logged_err.count("***REDACTED***") == 2
+        if trigger is None:
+            mock_pull_request.create_issue_comment.assert_called_once_with(_MANUAL_FAILURE_COMMENT)
+        else:
+            mock_pull_request.create_issue_comment.assert_not_called()
         assert not checkout_dir.exists()
 
     @pytest.mark.asyncio
-    async def test_ai_failure_logs_error_and_posts_no_comment(
+    @pytest.mark.parametrize("trigger", ["approved", None])
+    async def test_ai_failure_logs_error_and_handles_trigger_comment(
         self,
         tmp_path: Path,
         mock_github_webhook: Mock,
         mock_pull_request: Mock,
+        trigger: str | None,
     ) -> None:
-        """When call_ai returns success=False, logs error, posts no comment, and cleans up."""
-        checkout_dir = tmp_path / "pr-test-oracle-ai-fail"
+        """When call_ai fails: logs error, posts failure notice only for manual trigger, and cleans up."""
+        checkout_dir = tmp_path / f"pr-test-oracle-ai-fail-{trigger}"
         checkout_dir.mkdir()
         mock_github_webhook.config.get_value = Mock(return_value={"ai-provider": "claude", "ai-model": "sonnet"})
 
@@ -821,29 +1210,95 @@ class TestCallTestOracle:
                 return_value=AIResult(success=False, text="", error="Sidecar timed out"),
             ) as mock_call_ai,
         ):
-            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+            await call_test_oracle(
+                github_webhook=mock_github_webhook,
+                pull_request=mock_pull_request,
+                trigger=trigger,
+            )
 
         assert mock_call_ai.await_args is not None
         assert mock_call_ai.await_args.kwargs["timeout_minutes"] == DEFAULT_TIMEOUT_MINUTES
         mock_github_webhook.logger.error.assert_called_once()
         assert "Sidecar timed out" in mock_github_webhook.logger.error.call_args[0][0]
         mock_pull_request.create_review_comment.assert_not_called()
-        mock_pull_request.create_issue_comment.assert_not_called()
+        if trigger is None:
+            mock_pull_request.create_issue_comment.assert_called_once_with(_MANUAL_FAILURE_COMMENT)
+        else:
+            mock_pull_request.create_issue_comment.assert_not_called()
         assert not checkout_dir.exists()
 
     @pytest.mark.asyncio
-    async def test_review_comment_github_exception_falls_back_to_issue_comment(
+    @pytest.mark.parametrize("trigger", ["approved", None])
+    @pytest.mark.parametrize(
+        "unparseable_text",
+        [
+            "Sorry, I could not analyze this PR.",
+            '[{"test_file": "tests/test_bad.py", "priority": "invalid"}]',
+        ],
+    )
+    async def test_unparseable_ai_response_never_posts_no_tests_comment(
         self,
         tmp_path: Path,
         mock_github_webhook: Mock,
         mock_pull_request: Mock,
+        trigger: str | None,
+        unparseable_text: str,
     ) -> None:
-        """GithubException on create_review_comment falls back cleanly to create_issue_comment."""
+        """Unparseable AI output logs error, never posts 'No tests need to run', and notifies only when manual."""
+        checkout_dir = tmp_path / f"pr-test-oracle-unparseable-{trigger}"
+        checkout_dir.mkdir(exist_ok=True)
+
+        with (
+            patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call),
+            patch("webhook_server.test_oracle.analyzer.tempfile.mkdtemp", return_value=str(checkout_dir)),
+            patch(
+                "webhook_server.test_oracle.analyzer.run_command",
+                new_callable=AsyncMock,
+                return_value=(True, "", ""),
+            ),
+            patch(
+                "webhook_server.test_oracle.analyzer.call_ai",
+                new_callable=AsyncMock,
+                return_value=AIResult(success=True, text=unparseable_text, error=""),
+            ),
+        ):
+            await call_test_oracle(
+                github_webhook=mock_github_webhook,
+                pull_request=mock_pull_request,
+                trigger=trigger,
+            )
+
+        mock_github_webhook.logger.error.assert_called_once()
+        assert "unparseable response" in mock_github_webhook.logger.error.call_args[0][0]
+        mock_pull_request.create_review_comment.assert_not_called()
+        if trigger is None:
+            mock_pull_request.create_issue_comment.assert_called_once_with(_MANUAL_FAILURE_COMMENT)
+            posted = mock_pull_request.create_issue_comment.call_args[0][0]
+            assert "No tests need to run for this PR" not in posted
+        else:
+            mock_pull_request.create_issue_comment.assert_not_called()
+        assert not checkout_dir.exists()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "review_exc",
+        [
+            GithubException(422, {"message": "Validation Failed"}, None),
+            OSError("connection reset by peer"),
+            RuntimeError("unexpected transport failure"),
+        ],
+    )
+    async def test_review_comment_exception_falls_back_to_issue_comment(
+        self,
+        tmp_path: Path,
+        mock_github_webhook: Mock,
+        mock_pull_request: Mock,
+        review_exc: Exception,
+    ) -> None:
+        """GithubException or transport/generic Exception on create_review_comment falls back to issue comment."""
         checkout_dir = tmp_path / "pr-test-oracle-fallback"
         checkout_dir.mkdir()
-        mock_pull_request.create_review_comment.side_effect = GithubException(
-            422, {"message": "Validation Failed"}, None
-        )
+        mock_pull_request.create_review_comment.side_effect = review_exc
         ai_json = json.dumps([
             {
                 "test_file": "tests/test_auth.py",
@@ -873,6 +1328,47 @@ class TestCallTestOracle:
         mock_pull_request.create_issue_comment.assert_called_once()
         assert "tests/test_auth.py" in mock_pull_request.create_issue_comment.call_args[0][0]
         mock_github_webhook.logger.warning.assert_called()
+        assert not checkout_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_review_comment_cancelled_error_reraised_without_fallback(
+        self,
+        tmp_path: Path,
+        mock_github_webhook: Mock,
+        mock_pull_request: Mock,
+    ) -> None:
+        """asyncio.CancelledError during create_review_comment is re-raised without falling back to issue comment."""
+        checkout_dir = tmp_path / "pr-test-oracle-review-cancel"
+        checkout_dir.mkdir()
+        mock_pull_request.create_review_comment.side_effect = asyncio.CancelledError()
+        ai_json = json.dumps([
+            {
+                "test_file": "tests/test_auth.py",
+                "reason": "Direct hit",
+                "priority": "critical",
+                "confidence": "high",
+            }
+        ])
+
+        with (
+            patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call),
+            patch("webhook_server.test_oracle.analyzer.tempfile.mkdtemp", return_value=str(checkout_dir)),
+            patch(
+                "webhook_server.test_oracle.analyzer.run_command",
+                new_callable=AsyncMock,
+                return_value=(True, "", ""),
+            ),
+            patch(
+                "webhook_server.test_oracle.analyzer.call_ai",
+                new_callable=AsyncMock,
+                return_value=AIResult(success=True, text=ai_json, error=""),
+            ),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+
+        mock_pull_request.create_review_comment.assert_called_once()
+        mock_pull_request.create_issue_comment.assert_not_called()
         assert not checkout_dir.exists()
 
     @pytest.mark.asyncio
@@ -984,14 +1480,16 @@ class TestCallTestOracle:
         assert not checkout_dir.exists()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("trigger", ["approved", None])
     async def test_unexpected_exception_logged_and_cleans_up(
         self,
         tmp_path: Path,
         mock_github_webhook: Mock,
         mock_pull_request: Mock,
+        trigger: str | None,
     ) -> None:
-        """Unexpected exceptions are caught, logged with logger.exception, and temp dir cleaned up."""
-        checkout_dir = tmp_path / "pr-test-oracle-err"
+        """Unexpected exceptions are caught, logged, cleaned up, and notify only for manual trigger."""
+        checkout_dir = tmp_path / f"pr-test-oracle-err-{trigger}"
         checkout_dir.mkdir()
 
         with (
@@ -1008,8 +1506,29 @@ class TestCallTestOracle:
                 side_effect=RuntimeError("Boom"),
             ),
         ):
-            await call_test_oracle(github_webhook=mock_github_webhook, pull_request=mock_pull_request)
+            await call_test_oracle(
+                github_webhook=mock_github_webhook,
+                pull_request=mock_pull_request,
+                trigger=trigger,
+            )
 
         mock_github_webhook.logger.exception.assert_called_once()
         assert "failed unexpectedly" in mock_github_webhook.logger.exception.call_args[0][0]
+        if trigger is None:
+            mock_pull_request.create_issue_comment.assert_called_once_with(_MANUAL_FAILURE_COMMENT)
+        else:
+            mock_pull_request.create_issue_comment.assert_not_called()
         assert not checkout_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_post_failure_comment_handles_errors_and_reraises_cancel(self, mock_pull_request: Mock) -> None:
+        """_post_failure_comment swallows comment errors with a warning and re-raises CancelledError."""
+        logger = Mock()
+        with patch("webhook_server.test_oracle.analyzer.github_api_call", side_effect=_direct_github_api_call):
+            mock_pull_request.create_issue_comment.side_effect = RuntimeError("API unavailable")
+            await _post_failure_comment(pull_request=mock_pull_request, logger=logger, log_prefix="[TEST]")
+            logger.warning.assert_called_once()
+
+            mock_pull_request.create_issue_comment.side_effect = asyncio.CancelledError()
+            with pytest.raises(asyncio.CancelledError):
+                await _post_failure_comment(pull_request=mock_pull_request, logger=logger, log_prefix="[TEST]")

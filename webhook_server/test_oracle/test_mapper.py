@@ -7,10 +7,26 @@ import re
 from pathlib import Path
 
 from webhook_server.test_oracle.models import TestMapping
+from webhook_server.utils.helpers import get_logger_with_params
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_TEST_PATTERNS: tuple[str, ...] = ("tests/**/*.py", "test_*.py")
+DEFAULT_TEST_PATTERNS: tuple[str, ...] = (
+    "tests/**/*.py",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/*.test.js",
+    "**/*.test.ts",
+    "**/*.test.jsx",
+    "**/*.test.tsx",
+    "**/*.spec.js",
+    "**/*.spec.ts",
+    "**/*.spec.jsx",
+    "**/*.spec.tsx",
+    "**/*_test.go",
+    "**/*_spec.rb",
+    "**/*Test.java",
+    "**/*Tests.java",
+    "**/*Tests.cs",
+)
 MAX_TEST_FILE_CHARS: int = 25_000
 MAX_TOTAL_TEST_CHARS: int = 120_000
 
@@ -120,15 +136,35 @@ def _strip_test_prefix(parts: tuple[str, ...]) -> list[str]:
     return parts_list
 
 
+def prioritize_candidate_tests(mappings: list[TestMapping]) -> list[str]:
+    """Order candidate test files with directly mapped tests before broad config-file matches."""
+    direct: set[str] = set()
+    broad: set[str] = set()
+    for mapping in mappings:
+        if Path(mapping.source_file).name in _CONFIG_FILES:
+            broad.update(mapping.candidate_tests)
+        else:
+            direct.update(mapping.candidate_tests)
+    return sorted(direct) + sorted(broad - direct)
+
+
 class TestMapper:
     """Maps changed source files to candidate test files using static analysis."""
 
-    def __init__(self, repo_path: str, test_patterns: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        repo_path: str,
+        test_patterns: list[str] | None = None,
+        logger: logging.Logger | None = None,
+        log_prefix: str = "",
+    ) -> None:
         """Initialize with repository path and validated test glob patterns.
 
         Args:
             repo_path: Path to the repository root.
-            test_patterns: Glob patterns for test files. Defaults to common Python patterns.
+            test_patterns: Glob patterns for test files. Defaults to common multi-language patterns.
+            logger: Optional shared logger instance. Defaults to the webhook server logger.
+            log_prefix: Optional prefix prepended to log messages.
 
         Raises:
             ValueError: If any pattern is absolute or contains '..' path components.
@@ -138,6 +174,8 @@ class TestMapper:
         _validate_test_patterns(patterns)
         self._patterns: list[str] = patterns
         self._test_files: list[str] | None = None
+        self._logger: logging.Logger = logger if logger is not None else get_logger_with_params()
+        self._log_prefix: str = log_prefix
 
     def discover_test_files(self) -> list[str]:
         """Discover test files matching configured patterns within the repository root.
@@ -174,7 +212,8 @@ class TestMapper:
                 test_files.add(rel_path.as_posix())
 
         self._test_files = sorted(test_files)
-        logger.debug("Discovered %d test files in %s", len(self._test_files), self._repo)
+        prefix = f"{self._log_prefix} " if self._log_prefix else ""
+        self._logger.debug(f"{prefix}Discovered {len(self._test_files)} test files in {self._repo}")
         return self._test_files
 
     def map_changed_files(self, changed_files: list[str]) -> list[TestMapping]:
@@ -291,17 +330,18 @@ class TestMapper:
         """
         contents: dict[str, str] = {}
         total_chars = 0
+        prefix = f"{self._log_prefix} " if self._log_prefix else ""
 
         for test_file in test_files:
             if total_chars >= max_total_chars:
-                logger.info(
-                    "Reached total test content budget (%d chars); skipping remaining test files",
-                    max_total_chars,
+                self._logger.info(
+                    f"{prefix}Reached total test content budget ({max_total_chars} chars); "
+                    "skipping remaining test files"
                 )
                 break
 
             if Path(test_file).is_absolute():
-                logger.warning("Skipping absolute test file path: %s", test_file)
+                self._logger.warning(f"{prefix}Skipping absolute test file path: {test_file}")
                 continue
 
             try:
@@ -310,19 +350,25 @@ class TestMapper:
                 continue
 
             if not full_path.is_relative_to(self._repo) or not full_path.is_file():
-                logger.warning("Skipping invalid or out-of-repo test file: %s", test_file)
-                continue
-
-            try:
-                content = full_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                logger.warning("Failed to read test file: %s", test_file)
+                self._logger.warning(f"{prefix}Skipping invalid or out-of-repo test file: {test_file}")
                 continue
 
             remaining = max_total_chars - total_chars
             limit = min(max_file_chars, remaining)
-            if len(content) > limit:
-                content = f"{content[:limit]}\n... [truncated at {limit} of {len(content)} chars]"
+            if limit <= 0:
+                break
+
+            try:
+                with full_path.open(encoding="utf-8", errors="replace") as handle:
+                    raw_content = handle.read(limit + 1)
+            except OSError:
+                self._logger.warning(f"{prefix}Failed to read test file: {test_file}")
+                continue
+
+            if len(raw_content) > limit:
+                content = f"{raw_content[:limit]}\n... [truncated at {limit} chars]"
+            else:
+                content = raw_content
 
             contents[test_file] = content
             total_chars += len(content)

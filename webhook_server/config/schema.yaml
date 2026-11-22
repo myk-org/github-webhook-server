@@ -19,7 +19,7 @@ $defs:
           in the sidecar)
       ai-model:
         type: string
-        description: AI model identifier (e.g., claude-opus-4-6-1m, sonnet, gemini-2.5-pro)
+        description: AI model identifier (e.g., claude-opus-4-6[1m], claude-sonnet-4-6, gemini-2.5-pro)
       conventional-title:
         type: object
         description: |
@@ -120,7 +120,7 @@ $defs:
     description: |
       Built-in PR Test Oracle. Analyzes PR diffs with static test mapping and
       the local Pi sidecar AI to recommend which tests to run.
-      Supports a repository TESTS_ORACLE_PROMPT.md file or inline raw-prompt instructions.
+      Supports a base-branch TESTS_ORACLE_PROMPT.md file or inline raw-prompt instructions.
       The /test-oracle comment command always works when configured (no trigger needed).
     properties:
       ai-provider:
@@ -132,7 +132,7 @@ $defs:
           providers configured in the sidecar)
       ai-model:
         type: string
-        description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
+        description: AI model identifier (e.g., claude-opus-4-6[1m], claude-sonnet-4-6, gemini-2.5-pro)
       test-patterns:
         type: array
         items:
@@ -160,7 +160,7 @@ $defs:
         description: Timeout in minutes for the AI call (default 10)
       raw-prompt:
         type: string
-        description: Optional custom instructions appended to the AI prompt (overrides repo TESTS_ORACLE_PROMPT.md)
+        description: Optional custom instructions appended to the built-in analysis prompt (overrides base-branch TESTS_ORACLE_PROMPT.md)
     required:
       - ai-provider
       - ai-model
