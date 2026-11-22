@@ -46,7 +46,6 @@ export function runSidecarServer(
             ),
           );
         }, shutdownTimeoutMs);
-        timer.unref();
       });
       await Promise.race([handle.close(), timeout]);
     } catch (err: unknown) {
