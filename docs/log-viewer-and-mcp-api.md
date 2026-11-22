@@ -374,43 +374,51 @@ Behaviour:
 
 ## MCP server
 
-Enabled with `ENABLE_MCP_SERVER=true`. One route, registered by hand:
+Enabled with `ENABLE_MCP_SERVER=true`. One ASGI route, registered by hand:
 
 ```python
-FASTAPI_APP.add_api_route(
+FASTAPI_APP.add_route(
     "/mcp",
-    handle_mcp_streamable_http,
+    mcp_asgi_handler,
     methods=["GET", "POST", "DELETE"],
     include_in_schema=False,
-    operation_id="mcp_http",
 )
 ```
 
-`include_in_schema=False` keeps the endpoint out of `/openapi.json`, `/docs`, and the MCP tool list.
+`mcp_asgi_handler` is an instance of `MCPASGIHandler`, which forwards requests directly to the active MCP session manager (or responds `500` with `{"detail": "MCP server not initialized"}` when none is active). `include_in_schema=False` keeps `/mcp` out of `/openapi.json` and `/docs`.
 
 ### Setup sequence
 
-1. `_initialize_mcp(FASTAPI_APP)` runs at import time, but every import is lazy — `fastapi_mcp`, `fastapi_mcp.transport.http`, and `mcp.server.streamable_http_manager`. A missing dependency logs `Failed to initialize MCP server; continuing without MCP` and leaves the globals as `None`; webhook processing is never blocked by a broken MCP install.
-2. `FastApiMCP(app, exclude_tags=["mcp_exclude"])` wraps the FastAPI app. Because this runs at the end of `app.py`, the routes registered above it are the ones that get wrapped.
-3. The HTTP transport is `FastApiHttpSessionManager(mcp_server=mcp.server, event_store=None, json_response=True)` — **stateless**, no event store, JSON responses. There is no session handshake.
-4. The `/mcp` route is registered **even if the above failed**, so a broken MCP install answers `500` (`MCP server not initialized`) rather than a misleading `404`.
-5. The real `StreamableHTTPSessionManager` is created during the FastAPI lifespan, with `stateless=True`, and run as a background task tracked in `_background_tasks`. A failure there logs, tears the manager down, and leaves the rest of the app running.
+1. `_initialize_mcp()` runs at import time when `ENABLE_MCP_SERVER=true`, lazily importing `mcp.server.mcpserver` (`MCPServer`) and `mcp.server.transport_security` (`TransportSecuritySettings`). A missing dependency or initialization error logs `Failed to initialize MCP server; continuing without MCP` and resets the MCP globals to `None`; webhook processing is never blocked by a broken MCP install.
+2. `_initialize_mcp()` creates `MCPServer("webhook-server")` and explicitly registers 6 read-only tools directly on it with `@server.tool(...)` — there is no OpenAPI route scraping or tag-based exclusion.
+3. The `/mcp` route is registered **even if `_initialize_mcp()` failed**, so a broken MCP install answers `500` (`MCP server not initialized`) rather than a misleading `404`.
+4. During FastAPI `lifespan`, when `MCP_SERVER_ENABLED` is true and `mcp` is initialized, the server configures the stateless JSON streamable-HTTP app:
+
+   ```python
+   mcp.streamable_http_app(
+       streamable_http_path="/mcp",
+       json_response=True,
+       stateless_http=True,
+       transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+   )
+   ```
+
+   and enters `mcp.session_manager.run()` through an `AsyncExitStack`. Each lifespan cycle creates a fresh session manager; if startup fails, `mcp_session_manager` is cleared to `None`, the exit stack is closed, and the rest of the app keeps serving webhooks. On shutdown, `mcp_session_manager` is cleared and the exit stack closes the session manager cleanly.
 
 ### Exposed tools
 
-`FastApiMCP` converts every OpenAPI operation into a tool named after its `operation_id`, then drops anything tagged `mcp_exclude`. With both flags on, the tool list is:
+Six read-only tools are explicitly registered on `MCPServer("webhook-server")`:
 
-| Tool | Backing route |
+| Tool | Equivalent route |
 | --- | --- |
 | `healthcheck` | `GET /webhook_server/healthcheck` |
-| `get_log_viewer_page` | `GET /logs` (present only when `ENABLE_LOG_SERVER=true`) |
 | `get_log_entries` | `GET /logs/api/entries` |
 | `export_logs` | `GET /logs/api/export` |
 | `get_pr_flow_data` | `GET /logs/api/pr-flow/{hook_id}` |
 | `get_workflow_steps` | `GET /logs/api/workflow-steps/{hook_id}` |
 | `get_step_logs` | `GET /logs/api/step-logs/{hook_id}/{step_name}` |
 
-`POST /webhook_server` carries `tags=["mcp_exclude"]` and is therefore **not** exposed as a tool — an AI client cannot post webhooks through MCP. `/mcp` itself is excluded by `include_in_schema=False`. The `/static` mount and the WebSocket are not OpenAPI operations and are not tools either.
+The five log-viewer tools call `require_log_server_enabled()` and therefore enforce `ENABLE_LOG_SERVER=true` (`healthcheck` works even when the log server is disabled). `POST /webhook_server` is never registered as an MCP tool — an AI client cannot post webhooks through MCP. `GET /logs` (the HTML viewer page), `/mcp`, `/static`, and `/logs/ws` are not exposed as tools either.
 
 ### Client configuration
 
@@ -427,7 +435,7 @@ Because the transport is stateless and JSON-only, point a Streamable HTTP MCP cl
 }
 ```
 
-`GET` and `DELETE` are accepted for the session-management verbs, but with `stateless=True` no session state is kept between requests.
+`GET` and `DELETE` are accepted for the session-management verbs, but with `stateless_http=True` no session state is kept between requests.
 
 > **⚠️ No authentication.** `app.py` says so at the registration site: *"MCP server runs without auth — deploy only on trusted networks (VPN, internal), never expose to public internet - use reverse proxy with auth for external access."* Any MCP client that can reach the port gets the log-reading tools listed above. Same rule as `/logs`: trusted network, or an authenticating reverse proxy.
 
@@ -509,7 +517,7 @@ Steps are recorded through `start_step()` / `complete_step()` / `fail_step()`. A
 | `is_partial_scan: true` or a `"...+"` count | The 20 000 / 50 000 entry streaming cap was hit. Add `hook_id`, `repository`, or a time range. |
 | `404` from `workflow-steps` for a delivery you can see in `/logs/api/entries` | The JSON summary has not been written yet (it is written at the end of processing), the delivery fell outside the 25-file / 50 000-entry window, or the summary is corrupt and the text logs have no `logger.step` lines to replace it — all three end in the same `404` |
 | `500 Malformed log entry` from `step-logs` but a `200` (or `404`) from `workflow-steps` for the same ID | The two routes disagree by design: `step-logs` reads the JSON summary directly and surfaces the validation error, `workflow-steps` falls back to text logs. Check `logs_server.log` for `Malformed log entry for hook ID: ...` |
-| `/mcp` returns `500` "MCP server not initialized" | `fastapi_mcp` failed to import or the session manager failed to start. Check `mcp_server.log` and the startup logs. |
+| `/mcp` returns `500` "MCP server not initialized" | `mcp` failed to import or initialize in `_initialize_mcp()`, or the session manager failed to start during `lifespan`. Check `mcp_server.log` and the startup logs. |
 
 ## See also
 
