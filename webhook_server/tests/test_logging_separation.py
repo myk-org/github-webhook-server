@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import webhook_server.app
 from webhook_server.app import get_log_viewer_controller, lifespan
 from webhook_server.libs.config import Config
 from webhook_server.libs.log_parser import LogEntry
@@ -95,14 +94,12 @@ async def test_mcp_logging_configuration():
 
 def test_log_viewer_controller_logging_separation():
     with (
+        patch("webhook_server.app._log_viewer_controller_singleton", None),
         patch("webhook_server.app.Config") as MockConfig,
         patch("webhook_server.app.get_logger_with_params") as mock_get_logger_params,
         patch("webhook_server.app.LogViewerController") as MockController,
         patch("webhook_server.app.LOGGER"),
     ):
-        # Reset singleton
-        webhook_server.app._log_viewer_controller_singleton = None
-
         # Setup config
         mock_config_instance = MockConfig.return_value
         mock_config_instance.get_value.side_effect = lambda value, return_on_none=None: (

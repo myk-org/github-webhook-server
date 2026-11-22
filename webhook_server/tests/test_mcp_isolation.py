@@ -38,11 +38,13 @@ MCP_REQUEST_HEADERS = {
 
 @pytest.fixture(autouse=True)
 def restore_mcp_globals() -> Iterator[None]:
-    """Keep optional MCP globals from leaking into other tests."""
+    """Keep optional MCP globals and app singletons from leaking across tests."""
+    app_module._log_viewer_controller_singleton = None
     yield
     app_module.mcp = None
     app_module.mcp_session_manager = None
     app_module._mcp_transport_security_cls = None
+    app_module._log_viewer_controller_singleton = None
 
 
 def _run_app_import_subprocess(enable_mcp_server: str | None, extra_code: str = "") -> subprocess.CompletedProcess[str]:
