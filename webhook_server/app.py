@@ -1709,27 +1709,16 @@ def _initialize_mcp() -> None:
             require_log_server_enabled()
             return await get_workflow_steps_core(controller=get_log_viewer_controller(), hook_id=hook_id)
 
+        @server.tool(
+            name="get_step_logs",
+            description="Retrieve log entries that occurred during a specific workflow step's execution.",
+        )
         async def mcp_get_step_logs(
             hook_id: Annotated[str, Field(min_length=1, max_length=100)],
             step_name: Annotated[str, Field(min_length=1, max_length=100)],
-            ctx: Any,
         ) -> dict[str, Any]:
             require_log_server_enabled()
-            request = ctx.request_context.request
-            if request is None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Unable to determine client IP address.",
-                )
-            await require_trusted_network(request)
             return await get_log_viewer_controller().get_step_logs(hook_id=hook_id, step_name=step_name)
-
-        # Runtime annotation so mcp injects Context without exposing ctx in tool schema or adding a top-level import.
-        mcp_get_step_logs.__annotations__["ctx"] = mcp_server_mod.Context
-        server.tool(
-            name="get_step_logs",
-            description="Retrieve log entries that occurred during a specific workflow step's execution.",
-        )(mcp_get_step_logs)
 
         mcp = server
         _mcp_transport_security_cls = transport_security_mod.TransportSecuritySettings

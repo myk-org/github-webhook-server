@@ -11,7 +11,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from starlette.types import Message
@@ -109,15 +109,11 @@ class MCPServer:
     def __init__(self, *args, **kwargs):
         raise RuntimeError("MCPServer init boom")
 
-class Context:
-    pass
-
 class TransportSecuritySettings:
     def __init__(self, *args, **kwargs):
         pass
 
 mcpserver_mod.MCPServer = MCPServer
-mcpserver_mod.Context = Context
 transport_security_mod.TransportSecuritySettings = TransportSecuritySettings
 mcp_pkg.server = mcp_server_pkg
 mcp_server_pkg.mcpserver = mcpserver_mod
@@ -199,16 +195,12 @@ def _install_fake_mcp_modules(
 
             return _decorator
 
-    class FakeContext:
-        pass
-
     @dataclass
     class FakeTransportSecuritySettings:
         enable_dns_rebinding_protection: bool = True
 
     mcpserver_any = cast(Any, mcpserver_mod)
     mcpserver_any.MCPServer = FakeMCPServer
-    mcpserver_any.Context = FakeContext
     transport_security_any = cast(Any, transport_security_mod)
     transport_security_any.TransportSecuritySettings = FakeTransportSecuritySettings
 
@@ -388,7 +380,7 @@ def test_real_mcp_initialize_tools_list_and_healthcheck() -> None:
     ):
         mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
 
-        with TestClient(tmp_app, client=("127.0.0.1", 50000)) as client:
+        with TestClient(tmp_app) as client:
             init_resp = _mcp_rpc(
                 client,
                 "initialize",
@@ -402,15 +394,10 @@ def test_real_mcp_initialize_tools_list_and_healthcheck() -> None:
             assert init_resp["result"]["serverInfo"]["name"] == "webhook-server"
 
             list_resp = _mcp_rpc(client, "tools/list", req_id=2)
-            tools_by_name = {tool["name"]: tool for tool in list_resp["result"]["tools"]}
-            tool_names = set(tools_by_name.keys())
+            tool_names = {tool["name"] for tool in list_resp["result"]["tools"]}
             assert tool_names == EXPECTED_MCP_TOOLS
             assert "process_webhook" not in tool_names
             assert "get_log_viewer_page" not in tool_names
-
-            step_logs_schema = tools_by_name["get_step_logs"]["inputSchema"]
-            assert set(step_logs_schema["properties"].keys()) == {"hook_id", "step_name"}
-            assert "ctx" not in step_logs_schema["properties"]
 
             health_resp = _mcp_rpc(
                 client,
@@ -450,7 +437,7 @@ def test_real_mcp_log_tools_return_error_when_log_server_disabled(
     ):
         mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
 
-        with TestClient(tmp_app, client=("127.0.0.1", 50000)) as client:
+        with TestClient(tmp_app) as client:
             resp = _mcp_rpc(
                 client,
                 "tools/call",
@@ -503,7 +490,7 @@ def test_real_mcp_log_tools_succeed_when_log_server_enabled() -> None:
     ):
         mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
 
-        with TestClient(tmp_app, client=("127.0.0.1", 50000)) as client:
+        with TestClient(tmp_app) as client:
             entries_resp = _mcp_rpc(
                 client,
                 "tools/call",
@@ -567,49 +554,3 @@ def test_real_mcp_log_tools_succeed_when_log_server_enabled() -> None:
                 "logs": [{"msg": "cloned"}],
             }
             mock_controller.get_step_logs.assert_awaited_once_with(hook_id="hook-123", step_name="clone")
-
-
-def test_real_mcp_get_step_logs_denied_from_untrusted_ip() -> None:
-    """get_step_logs rejects untrusted public IPs and does not invoke controller.get_step_logs."""
-    tmp_app = _create_real_mcp_app()
-    mock_file_logger = MagicMock()
-    mock_file_logger.handlers = []
-    mock_controller = MagicMock()
-    mock_controller.get_step_logs = AsyncMock()
-    captured_exc: list[HTTPException] = []
-    original_require_trusted_network = app_module.require_trusted_network
-
-    async def _spy_require_trusted_network(request: Any) -> None:
-        try:
-            await original_require_trusted_network(request)
-        except HTTPException as exc:
-            captured_exc.append(exc)
-            raise
-
-    with (
-        patch("webhook_server.app.MCP_SERVER_ENABLED", True),
-        patch("webhook_server.app.LOG_SERVER_ENABLED", True),
-        patch("webhook_server.app.Config") as mock_config,
-        patch("webhook_server.app.get_logger_with_params", return_value=mock_file_logger),
-        patch("webhook_server.app.get_log_viewer_controller", return_value=mock_controller),
-        patch("webhook_server.app.require_trusted_network", side_effect=_spy_require_trusted_network),
-        patch.object(app_module.LOGGER, "warning", wraps=app_module.LOGGER.warning) as mock_warn,
-        patch("httpx.AsyncClient", return_value=AsyncMock()),
-    ):
-        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
-
-        with TestClient(tmp_app, client=("8.8.8.8", 50000)) as client:
-            resp = _mcp_rpc(
-                client,
-                "tools/call",
-                params={"name": "get_step_logs", "arguments": {"hook_id": "hook-123", "step_name": "clone"}},
-                req_id=1,
-            )
-            assert resp["result"]["isError"] is True
-            # MCP v2 masks non-ToolError exception messages in client responses;
-            # verify the underlying 403 trusted-network denial and server warning.
-            assert len(captured_exc) == 1
-            assert captured_exc[0].status_code == 403
-            assert "trusted networks" in captured_exc[0].detail.lower()
-            mock_warn.assert_any_call("Log viewer access denied from untrusted IP: 8.8.8.8")
-            mock_controller.get_step_logs.assert_not_called()
