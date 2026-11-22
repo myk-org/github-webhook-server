@@ -140,7 +140,6 @@ Optional PR automation can fire on lifecycle events too.
 
 ```yaml
 test-oracle:
-  server-url: "http://localhost:8000"
   ai-provider: "claude"
   ai-model: "claude-opus-4-6[1m]"
   test-patterns:

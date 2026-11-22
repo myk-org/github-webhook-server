@@ -59,7 +59,7 @@ Example — one comment, three commands:
 | `/cherry-pick <branch> [branch...]` | Cherry-picks the PR to one or more target branches | Approver |
 | `/cherry-pick-retry <branch>` | Retries a failed cherry-pick on a merged PR | Approver |
 | `/regenerate-welcome` | Re-renders the welcome comment with the current configuration | Approver |
-| `/test-oracle` | Sends the PR to the configured PR Test Oracle service | Approver |
+| `/test-oracle` | Runs the built-in PR Test Oracle to recommend tests for the PR | Approver |
 | `/security-override` | Sets the security check runs to success | Effective maintainer, root `OWNERS` approver |
 | `/security-override cancel` | Re-runs the security checks to re-evaluate them | Effective maintainer, root `OWNERS` approver |
 
@@ -341,8 +341,8 @@ If the repository has no container build configured, the server replies
 
 #### `/test-oracle`
 
-Sends the pull request data to the external PR Test Oracle service, which analyses the diff and recommends tests.
-Requires `test-oracle` to be configured with a `server-url`. Runs in the background, so the command returns
+Runs the built-in PR Test Oracle via the local AI sidecar to analyse the diff and post test recommendations on the PR.
+Requires `test-oracle` to be configured (with `ai-provider` and `ai-model`). Runs in the background, so the command returns
 immediately.
 
 ```text

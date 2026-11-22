@@ -6,14 +6,17 @@ $defs:
     description: |
       AI features configuration. Enables AI-powered enhancements such as
       conventional title suggestions when validation fails.
-      Supported AI providers: claude, gemini.
+      Supports any non-empty pi-sidecar provider identifier (e.g., claude,
+      gemini, google, google-vertex, anthropic, openai, or custom providers
+      configured in the sidecar).
     properties:
       ai-provider:
         type: string
-        enum:
-          - claude
-          - gemini
-        description: AI provider to use
+        minLength: 1
+        description: >-
+          Any non-empty pi-sidecar provider identifier (e.g., claude, gemini,
+          google, google-vertex, anthropic, openai, or custom providers configured
+          in the sidecar)
       ai-model:
         type: string
         description: AI model identifier (e.g., claude-opus-4-6-1m, sonnet, gemini-2.5-pro)
@@ -112,6 +115,56 @@ $defs:
       Additional information to display at the end of the PR welcome message.
       Content is injected as-is (markdown).
       An empty string explicitly clears any inherited value.
+  test-oracle:
+    type: object
+    description: |
+      Built-in PR Test Oracle. Analyzes PR diffs with static test mapping and
+      the local Pi sidecar AI to recommend which tests to run.
+      Supports a repository TESTS_ORACLE_PROMPT.md file or inline raw-prompt instructions.
+      The /test-oracle comment command always works when configured (no trigger needed).
+    properties:
+      ai-provider:
+        type: string
+        minLength: 1
+        description: >-
+          Any non-empty pi-sidecar provider identifier for test analysis (e.g.,
+          claude, gemini, google, google-vertex, anthropic, openai, or custom
+          providers configured in the sidecar)
+      ai-model:
+        type: string
+        description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
+      test-patterns:
+        type: array
+        items:
+          type: string
+        description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
+      triggers:
+        type: array
+        default:
+          - approved
+        items:
+          type: string
+          enum:
+            - approved
+            - pr-opened
+            - pr-synchronized
+        description: |
+          When to automatically run test oracle analysis. Default: [approved].
+          - approved: Run when a PR review is approved
+          - pr-opened: Run when a new PR is opened
+          - pr-synchronized: Run when new commits are pushed to a PR
+      timeout-minutes:
+        type: integer
+        minimum: 1
+        default: 10
+        description: Timeout in minutes for the AI call (default 10)
+      raw-prompt:
+        type: string
+        description: Optional custom instructions appended to the AI prompt (overrides repo TESTS_ORACLE_PROMPT.md)
+    required:
+      - ai-provider
+      - ai-model
+    additionalProperties: false
 type: object
 properties:
   log-level:
@@ -221,51 +274,7 @@ properties:
       - Empty list []: all commands allowed on draft PRs
       - List with commands: only specified commands allowed (e.g., ["build-and-push-container", "retest"])
   test-oracle:
-    type: object
-    description: |
-      PR Test Oracle integration. Sends PR data to an external AI service
-      that analyzes diffs and recommends which tests to run.
-      See https://github.com/myk-org/pr-test-oracle for server setup.
-      The /test-oracle comment command always works when configured (no trigger needed).
-    properties:
-      server-url:
-        type: string
-        format: uri
-        description: URL of the pr-test-oracle server (e.g., http://localhost:8000)
-      ai-provider:
-        type: string
-        enum:
-          - claude
-          - gemini
-        description: AI provider for test analysis
-      ai-model:
-        type: string
-        description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
-      test-patterns:
-        type: array
-        items:
-          type: string
-        description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
-      triggers:
-        type: array
-        default:
-          - approved
-        items:
-          type: string
-          enum:
-            - approved
-            - pr-opened
-            - pr-synchronized
-        description: |
-          When to automatically run test oracle analysis. Default: [approved].
-          - approved: Run when a PR review is approved
-          - pr-opened: Run when a new PR is opened
-          - pr-synchronized: Run when new commits are pushed to a PR
-    required:
-      - server-url
-      - ai-provider
-      - ai-model
-    additionalProperties: false
+    $ref: '#/$defs/test-oracle'
   ai-features:
     $ref: '#/$defs/ai-features'
   welcome-extra-info:
@@ -668,51 +677,7 @@ properties:
               - threshold
             additionalProperties: false
         test-oracle:
-          type: object
-          description: |
-            PR Test Oracle integration. Sends PR data to an external AI service
-            that analyzes diffs and recommends which tests to run.
-            See https://github.com/myk-org/pr-test-oracle for server setup.
-            The /test-oracle comment command always works when configured (no trigger needed).
-          properties:
-            server-url:
-              type: string
-              format: uri
-              description: URL of the pr-test-oracle server (e.g., http://localhost:8000)
-            ai-provider:
-              type: string
-              enum:
-                - claude
-                - gemini
-              description: AI provider for test analysis
-            ai-model:
-              type: string
-              description: AI model identifier (e.g., sonnet, gemini-2.5-pro)
-            test-patterns:
-              type: array
-              items:
-                type: string
-              description: Glob patterns for test files (e.g., ["tests/**/*.py"]). Optional - oracle has defaults.
-            triggers:
-              type: array
-              default:
-                - approved
-              items:
-                type: string
-                enum:
-                  - approved
-                  - pr-opened
-                  - pr-synchronized
-              description: |
-                When to automatically run test oracle analysis. Default: [approved].
-                - approved: Run when a PR review is approved
-                - pr-opened: Run when a new PR is opened
-                - pr-synchronized: Run when new commits are pushed to a PR
-          required:
-            - server-url
-            - ai-provider
-            - ai-model
-          additionalProperties: false
+          $ref: '#/$defs/test-oracle'
         ai-features:
           $ref: '#/$defs/ai-features'
         security-checks:

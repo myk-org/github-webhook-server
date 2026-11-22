@@ -1,14 +1,13 @@
 # Enable AI Features
 
-Turn on AI help when you want pull requests to spend less maintainer time on bad titles, conflicted cherry-picks, and test selection. With the right settings, the server can suggest or fix PR titles, try to resolve cherry-pick conflicts, and ask a separate oracle service for test recommendations.
+Turn on AI help when you want pull requests to spend less maintainer time on bad titles, conflicted cherry-picks, and test selection. With the right settings, the server can suggest or fix PR titles, try to resolve cherry-pick conflicts, and generate test recommendations for pull requests.
 
 ## Prerequisites
 
 - A running `github-webhook-server` deployment
 - Access to `config.yaml` or a repository-local `.github-webhook-server.yaml`
 - The provided container image, or another runtime that includes the bundled AI sidecar (no external AI CLIs required)
-- One supported provider credential for local AI features: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or Google Cloud Vertex ADC
-- A reachable `pr-test-oracle` service if you want test recommendations
+- A credential for your chosen `pi-sidecar` provider (for example, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, Google Cloud Vertex ADC, or the credential expected by another native or custom sidecar provider)
 
 ## Quick Example
 
@@ -27,7 +26,6 @@ repositories:
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
     test-oracle:
-      server-url: "http://localhost:8000"
       ai-provider: "claude"
       ai-model: "sonnet"
       triggers:
@@ -54,7 +52,6 @@ ai-features:
   ai-model: "sonnet"
 
 test-oracle:
-  server-url: "http://localhost:8000"
   ai-provider: "claude"
   ai-model: "sonnet"
 
@@ -66,7 +63,7 @@ repositories:
 
 Use top-level `ai-features` and `test-oracle` when several repos should share the same defaults. Keep `conventional-title` on each repo that should enforce it, and use repo-level or `.github-webhook-server.yaml` values when one repo needs different AI behavior.
 
-Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `test-oracle` also needs `server-url`.
+Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` (such as `claude`, `gemini`, `google`, `google-vertex`, `google-vertex-claude`, `anthropic`, `openai`, or a sidecar-configured custom provider).
 
 See [Configuration Reference](configuration-reference.html) for every supported key.
 
@@ -87,10 +84,11 @@ curl -f http://localhost:9100/health
 
 Use the credential that matches your `ai-provider` value. The first command checks the webhook server, and the second checks the local AI sidecar; replace `9100` if you set `SIDECAR_PORT`.
 
-| Provider | What to add |
+| Provider (examples) | What to add |
 | --- | --- |
 | `claude` | `ANTHROPIC_API_KEY` or Google Cloud Vertex ADC |
 | `gemini` | `GEMINI_API_KEY` |
+| Other `pi-sidecar` native or custom providers | The credential or mount required by that provider (for example, `OPENAI_API_KEY` or a custom provider's environment variable) |
 
 See [Environment Variables](environment-variables.html) for the full sidecar and credential list, and [Webhook and Health API](webhook-and-health-api.html) for the main server health endpoint.
 
@@ -146,7 +144,6 @@ repositories:
   my-repository:
     name: my-org/my-repository
     test-oracle:
-      server-url: "http://localhost:8000"
       ai-provider: "claude"
       ai-model: "sonnet"
       test-patterns:
@@ -155,9 +152,10 @@ repositories:
         - approved
         # - pr-opened
         # - pr-synchronized
+      timeout-minutes: 10
 ```
 
-This block is separate from `ai-features`. Conventional-title suggestions and cherry-pick AI use the local sidecar, but `test-oracle` calls the external service at `server-url`.
+This block is configured separately from `ai-features`, and runs built-in using the local AI sidecar — no external service is needed. The oracle combines static test mapping with AI analysis and posts file-level review comments on the PR. You can tune the timeout with `timeout-minutes`, or customize the prompt with `raw-prompt` or a `TESTS_ORACLE_PROMPT.md` file at the repository root (`raw-prompt` takes precedence when both are set).
 
 | Trigger | When it runs |
 | --- | --- |
@@ -168,9 +166,6 @@ This block is separate from `ai-features`. Conventional-title suggestions and ch
 `/test-oracle` always works on demand when the feature is configured, regardless of the trigger list.
 
 > **Note:** The automatic `approved` trigger means the project's `/approve` command, not a plain GitHub review approval.
-
-
-> **Tip:** The webhook server checks `GET /health` on the oracle before each analysis, so `/test-oracle` is the fastest end-to-end setup check.
 
 6. Verify the result on a real PR
 
@@ -215,7 +210,7 @@ Add `VERTEX_CLAUDE_1M=true` plus a Google Cloud credential mount when you want V
 
 - **No AI suggestion appears in the title check.** Make sure the repo still has `conventional-title:` configured and `ai-features.conventional-title.enabled: true`. If `fix` mode does not rename the PR, open the failed check and look for `AI Auto-Fix Failed` or `AI Auto-Fix Skipped`.
 - **The sidecar never becomes healthy.** If startup logs show `[sidecar] ERROR: sidecar failed to become healthy within 15s`, verify your provider credentials, any Google Cloud mount for Vertex, and that nothing else is using `SIDECAR_PORT`. If the sidecar is unavailable, local AI features will not run.
-- **The oracle says it is not responding.** Make sure `server-url` is reachable from the webhook server and that `GET /health` returns `200`. Health-check failures are posted back to the PR; later analyze failures are logged on the server instead of commented back.
+- **Test-oracle posts no recommendations.** Verify that the local AI sidecar is healthy (`curl -f http://localhost:9100/health`, using your `SIDECAR_PORT` if customized), confirm the provider credentials match `test-oracle.ai-provider`, and inspect the webhook server logs for analysis or timeout errors. Raise `test-oracle.timeout-minutes` if large PRs time out.
 - **Cherry-picks still fall back to manual steps.** AI resolution only runs for real merge conflicts. Other cherry-pick errors still produce the normal manual instructions, and even successful AI resolutions must be reviewed by a human before merge.
 
 ## Related Pages

@@ -120,12 +120,10 @@ branch-protection:
   required_linear_history: True
   required_conversation_resolution: True
 
-# PR Test Oracle integration
-# Analyzes PR diffs with AI and recommends which tests to run
-# See: https://github.com/myk-org/pr-test-oracle
+# Built-in PR Test Oracle
+# Analyzes PR diffs with static test mapping and local Pi sidecar AI to recommend which tests to run
 test-oracle:
-  server-url: "http://localhost:8000"
-  ai-provider: "claude" # claude | gemini
+  ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
   ai-model: "claude-opus-4-6[1m]"
   test-patterns:
     - "tests/**/*.py"
@@ -133,11 +131,12 @@ test-oracle:
     - approved # Run when /approve command is used
     # - pr-opened             # Run when PR is opened
     # - pr-synchronized       # Run when new commits pushed
+  # timeout-minutes: 10       # Timeout in minutes for AI call (default: 10)
 
 # AI Features configuration
 # Enables AI-powered enhancements (e.g., conventional title suggestions)
 ai-features:
-  ai-provider: "claude" # claude | gemini
+  ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
   ai-model: "claude-opus-4-6[1m]"
   conventional-title:
     enabled: true
@@ -312,19 +311,18 @@ repositories:
     # AI Features configuration (overrides global)
     # Enables AI-powered enhancements (e.g., conventional title suggestions)
     # ai-features:
-    #   ai-provider: "claude"        # claude | gemini
+    #   ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
     #   ai-model: "sonnet"
 
     # PR Test Oracle (overrides global)
-    # See: https://github.com/myk-org/pr-test-oracle
     test-oracle:
-      server-url: "http://localhost:8000"
-      ai-provider: "claude"
+      ai-provider: "claude" # Any pi-sidecar provider (e.g., claude, gemini, google-vertex, or custom)
       ai-model: "sonnet"
       test-patterns:
         - "tests/**/*.py"
       triggers:
         - approved
+      # timeout-minutes: 10
 
     # Security Checks (overrides global)
     # security-checks:

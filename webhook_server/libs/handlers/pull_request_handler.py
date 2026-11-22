@@ -15,7 +15,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, Chec
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
-from webhook_server.libs.test_oracle import call_test_oracle
+from webhook_server.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
     AI_RESOLVED_CONFLICTS_LABEL,
     APPROVED_BY_LABEL_PREFIX,

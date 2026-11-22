@@ -17,7 +17,7 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
-from webhook_server.libs.test_oracle import call_test_oracle
+from webhook_server.test_oracle import call_test_oracle
 from webhook_server.utils.constants import (
     APPROVE_STR,
     AUTOMERGE_LABEL_STR,
