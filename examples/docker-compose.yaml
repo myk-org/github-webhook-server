@@ -6,7 +6,7 @@ services:
       - "./webhook_server_data_dir:/home/podman/data:Z" # Should include config.yaml and webhook-server.private-key.pem
       # Mount temporary directories to prevent boot ID mismatch issues
       - "/tmp/podman-storage-${USER:-1000}:/tmp/storage-run-1000"
-      # - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro  # Mount Google Cloud credentials for Vertex AI
+      # - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro  # Mount Google Cloud ADC for Vertex AI (ai-provider: claude / google-vertex-claude, google-vertex)
     environment:
       - PUID=1000
       - PGID=1000
@@ -20,14 +20,11 @@ services:
       - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
       - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
       # Pi sidecar (AI features)
-      # - ACPX_AGENTS=cursor              # Enable cursor model discovery for AI features
-      # - VERTEX_CLAUDE_1M=true            # Enable Claude 1M context window models via Vertex AI
+      # - VERTEX_CLAUDE_1M=true            # Enable Claude 1M context window models via Vertex AI (ai-provider: claude / google-vertex-claude)
       # - SIDECAR_PORT=9100                # Pi sidecar port (default: 9100)
-      # AI CLI API keys for pr-test-oracle integration
-      # - ANTHROPIC_API_KEY=sk-ant-xxx       # Claude Code
-      # - GEMINI_API_KEY=xxx                  # Gemini CLI
-      # - CURSOR_API_KEY=xxx                  # Cursor Agent (API key method)
-      # For Cursor interactive login: docker exec -it github-webhook-server agent
+      # AI provider API keys for Pi sidecar (native providers)
+      # - ANTHROPIC_API_KEY=sk-ant-xxx     # Anthropic native provider (ai-provider: anthropic)
+      # - GEMINI_API_KEY=xxx               # Google native provider (ai-provider: gemini or google)
     ports:
       - "5000:5000"
     privileged: true

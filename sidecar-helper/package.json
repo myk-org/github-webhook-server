@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "node dist/server.js",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@myk-org/pi-sidecar": ">=4.15.0"
+    "@myk-org/pi-sidecar": ">=5.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

@@ -1,14 +1,13 @@
 # Enable AI Features
 
-Turn on AI help when you want pull requests to spend less maintainer time on bad titles, conflicted cherry-picks, and test selection. With the right settings, the server can suggest or fix PR titles, try to resolve cherry-pick conflicts, and ask a separate oracle service for test recommendations.
+Turn on AI help when you want pull requests to spend less maintainer time on bad titles, conflicted cherry-picks, and test selection. With the right settings, the server can suggest or fix PR titles, try to resolve cherry-pick conflicts, and generate test recommendations for pull requests.
 
 ## Prerequisites
 
 - A running `github-webhook-server` deployment
 - Access to `config.yaml` or a repository-local `.github-webhook-server.yaml`
-- The provided container image, or another runtime that includes the bundled AI sidecar and supported AI CLIs
-- One supported provider credential for local AI features: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `CURSOR_API_KEY`
-- A reachable `pr-test-oracle` service if you want test recommendations
+- The provided container image, or another runtime that includes the bundled AI sidecar (no external AI CLIs required)
+- A credential for your chosen `pi-sidecar` provider (for example, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, Google Cloud Vertex ADC, or the credential expected by another native or custom sidecar provider)
 
 ## Quick Example
 
@@ -19,17 +18,16 @@ repositories:
     name: my-org/my-repository
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-5"
       conventional-title:
         enabled: true
         mode: suggest
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
     test-oracle:
-      server-url: "http://localhost:8000"
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-5"
       triggers:
         - approved
 ```
@@ -50,13 +48,12 @@ Save the config, then restart only if you changed environment variables or mount
 
 ```yaml
 ai-features:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-5"
 
 test-oracle:
-  server-url: "http://localhost:8000"
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-5"
 
 repositories:
   my-repository:
@@ -66,7 +63,7 @@ repositories:
 
 Use top-level `ai-features` and `test-oracle` when several repos should share the same defaults. Keep `conventional-title` on each repo that should enforce it, and use repo-level or `.github-webhook-server.yaml` values when one repo needs different AI behavior.
 
-Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `test-oracle` also needs `server-url`.
+Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` — including `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude` on Google Cloud Vertex AI), `gemini` (alias for `google`), `google-vertex`, `openai`, or a sidecar-configured custom provider. Set `ai-model` to a real model ID accepted by that provider (for example, `claude-sonnet-4-5`, not shorthand names).
 
 See [Configuration Reference](configuration-reference.html) for every supported key.
 
@@ -78,8 +75,10 @@ services:
     environment:
       - ANTHROPIC_API_KEY=sk-ant-xxx
       # - GEMINI_API_KEY=xxx
-      # - CURSOR_API_KEY=xxx
-      # - ACPX_AGENTS=cursor
+      # - GOOGLE_CLOUD_PROJECT=my-gcp-project
+      # - VERTEX_CLAUDE_1M=true
+    # volumes:
+    #   - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro
 ```
 
 ```bash
@@ -91,11 +90,10 @@ Use the credential that matches your `ai-provider` value. The first command chec
 
 | Provider | What to add |
 | --- | --- |
-| `claude` | `ANTHROPIC_API_KEY` |
-| `gemini` | `GEMINI_API_KEY` |
-| `cursor` | `CURSOR_API_KEY` |
-
-> **Tip:** Add `ACPX_AGENTS=cursor` when you want Cursor model discovery. The example deployment also supports `docker exec -it github-webhook-server agent` if you prefer Cursor interactive login instead of `CURSOR_API_KEY`.
+| `anthropic` | `ANTHROPIC_API_KEY` (native Anthropic API) |
+| `claude` (alias for `google-vertex-claude`) | Google Cloud Vertex ADC mount + `GOOGLE_CLOUD_PROJECT` (optional `VERTEX_CLAUDE_1M=true` for 1M context models) |
+| `gemini` (alias for `google`) | `GEMINI_API_KEY` (native Google AI) |
+| Other `pi-sidecar` native or custom providers | The credential, environment variable, or sidecar config required by that provider (for example, `OPENAI_API_KEY` or a custom provider's config) |
 
 See [Environment Variables](environment-variables.html) for the full sidecar and credential list, and [Webhook and Health API](webhook-and-health-api.html) for the main server health endpoint.
 
@@ -107,8 +105,8 @@ repositories:
     name: my-org/my-repository
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-5"
       conventional-title:
         enabled: true
         mode: suggest
@@ -131,8 +129,8 @@ repositories:
   my-repository:
     name: my-org/my-repository
     ai-features:
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-5"
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
         timeout-minutes: 10
@@ -151,18 +149,18 @@ repositories:
   my-repository:
     name: my-org/my-repository
     test-oracle:
-      server-url: "http://localhost:8000"
-      ai-provider: "claude"
-      ai-model: "sonnet"
+      ai-provider: "anthropic"
+      ai-model: "claude-sonnet-4-5"
       test-patterns:
         - "tests/**/*.py"
       triggers:
         - approved
         # - pr-opened
         # - pr-synchronized
+      timeout-minutes: 10
 ```
 
-This block is separate from `ai-features`. Conventional-title suggestions and cherry-pick AI use the local sidecar, but `test-oracle` calls the external service at `server-url`.
+This block is configured separately from `ai-features`, and runs built-in using the local AI sidecar — no external service is needed. The oracle combines static test mapping with AI analysis and posts file-level review comments on the PR. You can tune the timeout with `timeout-minutes`, or append custom instructions to the built-in analysis prompt using `raw-prompt` or a `TESTS_ORACLE_PROMPT.md` file at the repository root. For security, `TESTS_ORACLE_PROMPT.md` is read from the repository's **base branch** (not the PR head), and `raw-prompt` overrides `TESTS_ORACLE_PROMPT.md` when both are set.
 
 | Trigger | When it runs |
 | --- | --- |
@@ -173,9 +171,6 @@ This block is separate from `ai-features`. Conventional-title suggestions and ch
 `/test-oracle` always works on demand when the feature is configured, regardless of the trigger list.
 
 > **Note:** The automatic `approved` trigger means the project's `/approve` command, not a plain GitHub review approval.
-
-
-> **Tip:** The webhook server checks `GET /health` on the oracle before each analysis, so `/test-oracle` is the fastest end-to-end setup check.
 
 6. Verify the result on a real PR
 
@@ -188,8 +183,8 @@ This block is separate from `ai-features`. Conventional-title suggestions and ch
 
 ```yaml
 ai-features:
-  ai-provider: "claude"
-  ai-model: "sonnet"
+  ai-provider: "anthropic"
+  ai-model: "claude-sonnet-4-5"
   conventional-title:
     enabled: true
     mode: suggest
@@ -201,19 +196,29 @@ ai-features:
 
 Raise `timeout-minutes` when repos are large or conflicts are complicated. Title suggestions are usually quick, while cherry-pick resolution often benefits from a longer timeout.
 
+To use Claude models on Google Cloud Vertex AI, set `ai-provider` to `"claude"` (alias for `"google-vertex-claude"`) and provide Vertex ADC credentials plus `GOOGLE_CLOUD_PROJECT`:
+
 ```yaml
+# config.yaml
+ai-features:
+  ai-provider: "claude" # or "google-vertex-claude"
+  ai-model: "claude-opus-4-6" # or "claude-opus-4-6-1m" with VERTEX_CLAUDE_1M=true
+```
+
+```yaml
+# docker-compose.yaml
 services:
   github-webhook-server:
     environment:
-      - CURSOR_API_KEY=xxx
-      - ACPX_AGENTS=cursor
-      # - VERTEX_CLAUDE_1M=true
+      - GOOGLE_CLOUD_PROJECT=my-gcp-project
+      - VERTEX_CLAUDE_1M=true
+      # - GEMINI_API_KEY=xxx
       # - SIDECAR_PORT=9200
     volumes:
       - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro
 ```
 
-Use `ACPX_AGENTS=cursor` when you want Cursor model discovery. Add `VERTEX_CLAUDE_1M=true` plus a Google Cloud credential mount when you want Vertex-hosted 1M Claude models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
+Set `GOOGLE_CLOUD_PROJECT` and mount your Google Cloud ADC directory for Vertex Claude models, add `VERTEX_CLAUDE_1M=true` if you use 1M context models, set `GEMINI_API_KEY` for `gemini` (`google`) models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
 
 > **Tip:** `/test-oracle` can still run on draft PRs, and it does not depend on the automatic trigger list. If you reopen a PR and want fresh recommendations, run `/test-oracle` manually.
 
@@ -221,7 +226,7 @@ Use `ACPX_AGENTS=cursor` when you want Cursor model discovery. Add `VERTEX_CLAUD
 
 - **No AI suggestion appears in the title check.** Make sure the repo still has `conventional-title:` configured and `ai-features.conventional-title.enabled: true`. If `fix` mode does not rename the PR, open the failed check and look for `AI Auto-Fix Failed` or `AI Auto-Fix Skipped`.
 - **The sidecar never becomes healthy.** If startup logs show `[sidecar] ERROR: sidecar failed to become healthy within 15s`, verify your provider credentials, any Google Cloud mount for Vertex, and that nothing else is using `SIDECAR_PORT`. If the sidecar is unavailable, local AI features will not run.
-- **The oracle says it is not responding.** Make sure `server-url` is reachable from the webhook server and that `GET /health` returns `200`. Health-check failures are posted back to the PR; later analyze failures are logged on the server instead of commented back.
+- **Test-oracle posts no recommendations.** Verify that the local AI sidecar is healthy (`curl -f http://localhost:9100/health`, using your `SIDECAR_PORT` if customized), confirm the provider credentials match `test-oracle.ai-provider`, and inspect the webhook server logs for analysis or timeout errors. Raise `test-oracle.timeout-minutes` if large PRs time out.
 - **Cherry-picks still fall back to manual steps.** AI resolution only runs for real merge conflicts. Other cherry-pick errors still produce the normal manual instructions, and even successful AI resolutions must be reviewed by a human before merge.
 
 ## Related Pages

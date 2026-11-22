@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from typing import Any
 
+import jsonschema  # type: ignore[import-untyped]
 import pytest
 import yaml
 
@@ -1174,3 +1175,123 @@ class TestConfigSchema:
 
         # maxLength is in the $defs definition (both levels reference it via $ref)
         assert schema["$defs"]["welcome-extra-info"]["maxLength"] == 10240
+
+    @pytest.fixture
+    def schema_validator(self) -> jsonschema.Draft7Validator:
+        """Draft-07 JSON Schema validator loaded from webhook_server/config/schema.yaml."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        return jsonschema.Draft7Validator(schema)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("provider", ["claude", "gemini", "google-vertex", "EnMaaS"])
+    def test_ai_features_ai_provider_valid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        provider: str,
+    ) -> None:
+        """Test that ai-features.ai-provider accepts any non-empty string at global and repository levels."""
+        ai_features = {"ai-provider": provider, "ai-model": "test-model"}
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["ai-features"] = ai_features
+
+        schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("invalid_provider", ["", 123])
+    def test_ai_features_ai_provider_invalid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        invalid_provider: object,
+    ) -> None:
+        """Test that ai-features.ai-provider rejects empty string and non-string values."""
+        ai_features = {"ai-provider": invalid_provider, "ai-model": "test-model"}
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["ai-features"] = ai_features
+
+        with pytest.raises(jsonschema.ValidationError):
+            schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("provider", ["claude", "gemini", "google-vertex", "EnMaaS"])
+    def test_test_oracle_ai_provider_valid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        provider: str,
+    ) -> None:
+        """Test that test-oracle.ai-provider accepts any non-empty string at global and repository levels."""
+        test_oracle = {
+            "ai-provider": provider,
+            "ai-model": "test-model",
+        }
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = test_oracle
+
+        schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("invalid_provider", ["", 123])
+    def test_test_oracle_ai_provider_invalid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        invalid_provider: object,
+    ) -> None:
+        """Test that test-oracle.ai-provider rejects empty string and non-string values."""
+        test_oracle = {
+            "ai-provider": invalid_provider,
+            "ai-model": "test-model",
+        }
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = test_oracle
+
+        with pytest.raises(jsonschema.ValidationError):
+            schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    def test_test_oracle_rejects_server_url(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+    ) -> None:
+        """Test that removed server-url property is rejected by additionalProperties: false."""
+        test_oracle = {
+            "server-url": "http://localhost:8000",
+            "ai-provider": "claude",
+            "ai-model": "test-model",
+        }
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = test_oracle
+
+        with pytest.raises(jsonschema.ValidationError, match="server-url"):
+            schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    def test_test_oracle_optional_timeout_minutes_and_raw_prompt(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+    ) -> None:
+        """Test that test-oracle accepts optional timeout-minutes and raw-prompt and validates bounds."""
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = {
+            "ai-provider": "claude",
+            "ai-model": "sonnet",
+            "timeout-minutes": 15,
+            "raw-prompt": "Always prioritize security tests.",
+        }
+        schema_validator.validate(valid_minimal_config)
+
+        target["test-oracle"]["timeout-minutes"] = 0
+        with pytest.raises(jsonschema.ValidationError):
+            schema_validator.validate(valid_minimal_config)
