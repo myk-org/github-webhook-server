@@ -63,10 +63,11 @@ ENABLE_LOG_SERVER=true WEBHOOK_SERVER_DATA_DIR="$HOME/webhook-server-data" uv ru
 ## `ENABLE_MCP_SERVER`
 
 Same exact `"true"` comparison as `ENABLE_LOG_SERVER`. When enabled, the app initializes
-FastApiMCP and mounts the streamable-HTTP handler at `/mcp`, and MCP log lines are routed to
-the file named by `mcp-log-file` in `config.yaml` (default `mcp_server.log`) instead of the
-main webhook log. If FastApiMCP fails to import, `/mcp` is still registered and answers
-with a 500 rather than a 404, so the failure is visible.
+the native `mcp` (`MCPServer`) server and mounts its streamable-HTTP ASGI handler
+(`MCPASGIHandler`) at `/mcp`, and MCP log lines are routed to the file named by
+`mcp-log-file` in `config.yaml` (default `mcp_server.log`) instead of the main webhook log.
+If `mcp` fails to import or initialize, `/mcp` is still registered and answers with a 500
+rather than a 404, so the failure is visible.
 
 ## `WEBHOOK_SERVER_DEV_MODE`
 

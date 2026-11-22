@@ -32,7 +32,6 @@ APP_URL_ROOT_PATH: str = "/webhook_server"
     APP_URL_ROOT_PATH,          # -> POST /webhook_server
     operation_id="process_webhook",
     dependencies=[Depends(gate_by_allowlist_ips_dependency)],
-    tags=["mcp_exclude"],
 )
 ```
 
@@ -231,18 +230,17 @@ Every `/logs/api/*` route depends on `require_log_server_enabled`, which returns
 ### MCP — `ENABLE_MCP_SERVER=true`
 
 ```python
-FASTAPI_APP.add_api_route(
+FASTAPI_APP.add_route(
     "/mcp",
-    handle_mcp_streamable_http,
+    mcp_asgi_handler,
     methods=["GET", "POST", "DELETE"],
     include_in_schema=False,
-    operation_id="mcp_http",
 )
 ```
 
-Streamable HTTP transport, stateless (`stateless=True`, `json_response=True`), so no session handshake is needed. The route is registered even if the `fastapi_mcp` import failed, so a broken MCP install yields `500` rather than `404`. Routes tagged `mcp_exclude` — which includes `POST /webhook_server` — are not exposed as MCP tools. **No authentication is configured**: deploy on a trusted network or behind an authenticating reverse proxy.
+Streamable HTTP transport via native `mcp` (`MCPServer` + `MCPASGIHandler`), stateless (`stateless_http=True`, `json_response=True`), so no session handshake is needed. The route is registered even if the `mcp` import or initialization failed, so a broken MCP install yields `500` rather than `404`. Tools are registered explicitly on `MCPServer("webhook-server")` (only the 6 read-only health and log tools), so `POST /webhook_server` is never exposed as an MCP tool. **No authentication is configured**: deploy on a trusted network or behind an authenticating reverse proxy.
 
-MCP import and session-manager setup are lazy and failure-tolerant: a failed import logs and continues without MCP, and a failed session manager is torn down while the app keeps serving webhooks.
+MCP import and session-manager setup are lazy and failure-tolerant: a failed import logs and continues without MCP, and a failed session manager is rolled back and cleared in `lifespan` while the app keeps serving webhooks.
 
 ### Static assets
 
@@ -272,7 +270,7 @@ HTTP/1.1 200 OK
 
 Then follow that `delivery_id` in the log viewer (`hook_id` filter on `/logs/api/entries`) to see whether processing actually succeeded.
 
-For a live OpenAPI schema, `/docs` and `/redoc` are served by FastAPI (title `webhook-server`) with `POST /webhook_server` hidden from the MCP tool surface via its `mcp_exclude` tag.
+For a live OpenAPI schema, `/docs` and `/redoc` are served by FastAPI (title `webhook-server`).
 
 ## Configuration keys this API depends on
 

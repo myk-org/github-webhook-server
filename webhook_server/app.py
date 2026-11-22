@@ -10,10 +10,10 @@ import threading
 import traceback
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from ipaddress import IPv4Network, IPv6Network
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 import requests
@@ -25,13 +25,14 @@ from fastapi import (
     Path,
     Query,
     Request,
-    Response,
     WebSocket,
     status,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import Field
 from starlette.datastructures import Headers
+from starlette.types import Receive, Scope, Send
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
@@ -142,10 +143,10 @@ def _webhook_init_pool_for(request: Request) -> ThreadPoolExecutor:
     return pool
 
 
-# MCP Globals — StreamableHTTPSessionManager is assigned on successful lazy import
-http_transport: Any | None = None
+# MCP Globals — assigned on successful lazy import/init
 mcp: Any | None = None
-StreamableHTTPSessionManager: Any | None = None
+mcp_session_manager: Any | None = None
+_mcp_transport_security_cls: Any | None = None
 
 
 class IgnoreMCPClosedResourceErrorFilter(logging.Filter):
@@ -220,7 +221,7 @@ async def require_trusted_network(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    global _lifespan_http_client, http_transport, mcp, _background_tasks
+    global _lifespan_http_client, mcp_session_manager, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
@@ -228,6 +229,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     if not any(isinstance(f, IgnoreMCPClosedResourceErrorFilter) for f in mcp_logger.filters):
         mcp_logger.addFilter(IgnoreMCPClosedResourceErrorFilter())
 
+    mcp_exit_stack = AsyncExitStack()
     try:
         LOGGER.info("Application starting up...")
 
@@ -321,42 +323,29 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             )
 
         # Initialize MCP session manager if enabled and configured
-        if MCP_SERVER_ENABLED and http_transport is not None and mcp is not None:
+        if MCP_SERVER_ENABLED and mcp is not None:
             try:
-                if http_transport._session_manager is None:
-                    session_manager_cls = StreamableHTTPSessionManager
-                    if session_manager_cls is None:
-                        raise RuntimeError("StreamableHTTPSessionManager is not available")
-                    http_transport._session_manager = session_manager_cls(
-                        app=mcp.server,
-                        event_store=http_transport.event_store,
-                        json_response=True,
-                        stateless=True,  # Enable stateless mode - no session management required
-                    )
-
-                    async def run_manager() -> None:
-                        if http_transport and http_transport._session_manager:
-                            async with http_transport._session_manager.run():
-                                await asyncio.Event().wait()
-
-                    manager_task = asyncio.create_task(run_manager())
-                    http_transport._manager_task = manager_task
-                    _background_tasks.add(manager_task)
-                    manager_task.add_done_callback(_background_tasks.discard)
-                    http_transport._manager_started = True
-                    LOGGER.info("MCP session manager initialized in lifespan")
+                security_settings = (
+                    _mcp_transport_security_cls(enable_dns_rebinding_protection=False)
+                    if _mcp_transport_security_cls is not None
+                    else None
+                )
+                mcp.streamable_http_app(
+                    streamable_http_path="/mcp",
+                    json_response=True,
+                    stateless_http=True,
+                    transport_security=security_settings,
+                )
+                session_manager = mcp.session_manager
+                await mcp_exit_stack.enter_async_context(session_manager.run())
+                mcp_session_manager = session_manager
+                LOGGER.info("MCP session manager initialized in lifespan")
             except asyncio.CancelledError:
                 raise
             except Exception:
                 LOGGER.exception("MCP session manager initialization failed; continuing without MCP")
-                if http_transport is not None:
-                    failed_manager_task = getattr(http_transport, "_manager_task", None)
-                    if failed_manager_task is not None:
-                        failed_manager_task.cancel()
-                        await asyncio.gather(failed_manager_task, return_exceptions=True)
-                    http_transport._session_manager = None
-                    http_transport._manager_started = False
-                    http_transport._manager_task = None
+                mcp_session_manager = None
+                await mcp_exit_stack.aclose()
 
         yield
 
@@ -394,16 +383,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
 
-        if http_transport is not None:
-            shutdown_manager_task = getattr(http_transport, "_manager_task", None)
-            if shutdown_manager_task is not None:
-                shutdown_manager_task.cancel()
-                await asyncio.gather(shutdown_manager_task, return_exceptions=True)
-                _background_tasks.discard(shutdown_manager_task)
-            http_transport._session_manager = None
-            if hasattr(http_transport, "_manager_started"):
-                http_transport._manager_started = False
-            http_transport._manager_task = None
+        mcp_session_manager = None
+        await mcp_exit_stack.aclose()
 
         # Optionally wait for pending background tasks for graceful shutdown
         if _background_tasks:
@@ -571,7 +552,6 @@ async def _record_skipped_delivery(
     APP_URL_ROOT_PATH,
     operation_id="process_webhook",
     dependencies=[Depends(gate_by_allowlist_ips_dependency)],
-    tags=["mcp_exclude"],
 )
 async def process_webhook(request: Request) -> JSONResponse:
     """Process GitHub webhooks with immediate 200 OK response and background processing.
@@ -1597,47 +1577,151 @@ async def websocket_log_stream(
     )
 
 
-async def handle_mcp_streamable_http(request: Request) -> Response:
-    """Handle MCP Streamable HTTP requests.
+class MCPASGIHandler:
+    """ASGI endpoint forwarding /mcp directly to the active MCP session manager."""
 
-    Session manager is initialized in lifespan. Returns 500 when MCP init failed
-    so the webhook app can still serve other routes.
-    """
-    if http_transport is None or http_transport._session_manager is None:
-        LOGGER.error("MCP session manager not initialized")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized")
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if mcp_session_manager is None:
+            LOGGER.error("MCP session manager not initialized")
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "MCP server not initialized"},
+            )
+            await response(scope, receive, send)
+            return
 
-    return await http_transport.handle_fastapi_request(request)
+        await mcp_session_manager.handle_request(scope, receive, send)
 
 
-def _initialize_mcp(app: FastAPI) -> None:
-    """Initialize optional MCP integration.
+# Starlette's add_route stub expects a Request endpoint, while Route accepts raw ASGI callables at runtime.
+mcp_asgi_handler: Any = MCPASGIHandler()
+
+
+def _initialize_mcp() -> None:
+    """Initialize optional native MCP server integration.
 
     Lazy import so MCP dep failure cannot block webhook startup.
     """
-    global mcp, http_transport, StreamableHTTPSessionManager
+    global mcp, mcp_session_manager, _mcp_transport_security_cls
 
-    StreamableHTTPSessionManager = None
     try:
-        fastapi_mcp_mod = importlib.import_module("fastapi_mcp")
-        fastapi_mcp_http_mod = importlib.import_module("fastapi_mcp.transport.http")
-        streamable_http_mod = importlib.import_module("mcp.server.streamable_http_manager")
-        FastApiMCP = fastapi_mcp_mod.FastApiMCP
-        FastApiHttpSessionManager = fastapi_mcp_http_mod.FastApiHttpSessionManager
-        StreamableHTTPSessionManagerClass = streamable_http_mod.StreamableHTTPSessionManager
+        mcp_server_mod = importlib.import_module("mcp.server.mcpserver")
+        transport_security_mod = importlib.import_module("mcp.server.transport_security")
 
-        StreamableHTTPSessionManager = StreamableHTTPSessionManagerClass
+        server = mcp_server_mod.MCPServer("webhook-server")
 
-        mcp = FastApiMCP(app, exclude_tags=["mcp_exclude"])
-
-        # Create stateless HTTP transport to avoid session management issues
-        http_transport = FastApiHttpSessionManager(
-            mcp_server=mcp.server,
-            event_store=None,  # No event store needed for stateless mode
-            json_response=True,
+        @server.tool(
+            name="healthcheck",
+            description="Check webhook server health status.",
         )
-        # Manually patch to use stateless mode
-        http_transport._session_manager = None  # Force recreation with stateless=True
+        def mcp_healthcheck() -> dict[str, Any]:
+            return healthcheck()
+
+        @server.tool(
+            name="get_log_entries",
+            description="Retrieve and filter webhook processing logs with pagination and search.",
+        )
+        async def mcp_get_log_entries(
+            hook_id: str | None = None,
+            pr_number: int | None = None,
+            repository: str | None = None,
+            event_type: str | None = None,
+            github_user: str | None = None,
+            level: str | None = None,
+            start_time: str | None = None,
+            end_time: str | None = None,
+            search: str | None = None,
+            limit: Annotated[int, Field(ge=1, le=10000)] = 100,
+            offset: Annotated[int, Field(ge=0)] = 0,
+        ) -> dict[str, Any]:
+            require_log_server_enabled()
+            return await _get_log_entries_core(
+                controller=get_log_viewer_controller(),
+                hook_id=hook_id,
+                pr_number=pr_number,
+                repository=repository,
+                event_type=event_type,
+                github_user=github_user,
+                level=level,
+                start_time=start_time,
+                end_time=end_time,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+
+        @server.tool(
+            name="export_logs",
+            description="Export filtered webhook logs as JSON for offline analysis and reporting.",
+        )
+        async def mcp_export_logs(
+            format_type: Annotated[str, Field(pattern="^json$")] = "json",
+            hook_id: str | None = None,
+            pr_number: int | None = None,
+            repository: str | None = None,
+            event_type: str | None = None,
+            github_user: str | None = None,
+            level: str | None = None,
+            start_time: str | None = None,
+            end_time: str | None = None,
+            search: str | None = None,
+            limit: Annotated[int, Field(ge=1, le=100000)] = 10000,
+        ) -> dict[str, Any]:
+            require_log_server_enabled()
+            response = await _export_logs_core(
+                controller=get_log_viewer_controller(),
+                format_type=format_type,
+                hook_id=hook_id,
+                pr_number=pr_number,
+                repository=repository,
+                event_type=event_type,
+                github_user=github_user,
+                level=level,
+                start_time=start_time,
+                end_time=end_time,
+                search=search,
+                limit=limit,
+            )
+            chunks: list[bytes] = []
+            async for chunk in response.body_iterator:
+                if isinstance(chunk, bytes):
+                    chunks.append(chunk)
+                elif isinstance(chunk, memoryview):
+                    chunks.append(chunk.tobytes())
+                else:
+                    chunks.append(chunk.encode("utf-8"))
+            result: dict[str, Any] = json.loads(b"".join(chunks).decode("utf-8"))
+            return result
+
+        @server.tool(
+            name="get_pr_flow_data",
+            description="Get PR workflow visualization data for a specific webhook delivery ID.",
+        )
+        async def mcp_get_pr_flow_data(hook_id: str) -> dict[str, Any]:
+            require_log_server_enabled()
+            return await _get_pr_flow_data_core(controller=get_log_viewer_controller(), hook_id=hook_id)
+
+        @server.tool(
+            name="get_workflow_steps",
+            description="Retrieve detailed timeline and execution data for workflow steps of a webhook delivery.",
+        )
+        async def mcp_get_workflow_steps(hook_id: str) -> dict[str, Any]:
+            require_log_server_enabled()
+            return await get_workflow_steps_core(controller=get_log_viewer_controller(), hook_id=hook_id)
+
+        @server.tool(
+            name="get_step_logs",
+            description="Retrieve log entries that occurred during a specific workflow step's execution.",
+        )
+        async def mcp_get_step_logs(
+            hook_id: Annotated[str, Field(min_length=1, max_length=100)],
+            step_name: Annotated[str, Field(min_length=1, max_length=100)],
+        ) -> dict[str, Any]:
+            require_log_server_enabled()
+            return await get_log_viewer_controller().get_step_logs(hook_id=hook_id, step_name=step_name)
+
+        mcp = server
+        _mcp_transport_security_cls = transport_security_mod.TransportSecuritySettings
 
         LOGGER.info("MCP integration initialized successfully (no authentication configured)")
     except asyncio.CancelledError:
@@ -1645,8 +1729,8 @@ def _initialize_mcp(app: FastAPI) -> None:
     except Exception:
         LOGGER.exception("Failed to initialize MCP server; continuing without MCP")
         mcp = None
-        http_transport = None
-        StreamableHTTPSessionManager = None
+        mcp_session_manager = None
+        _mcp_transport_security_cls = None
 
 
 # MCP Integration - Only register if ENABLE_MCP_SERVER=true
@@ -1654,14 +1738,13 @@ if MCP_SERVER_ENABLED:
     # NOTE: No authentication configured - MCP server runs without auth
     # ⚠️ SECURITY WARNING: Deploy only on trusted networks (VPN, internal)
     # Never expose to public internet - use reverse proxy with auth for external access
-    _initialize_mcp(FASTAPI_APP)
+    _initialize_mcp()
 
-    # Register even if FastApiMCP() failed so /mcp is 500 not 404
-    FASTAPI_APP.add_api_route(
+    # Register even if _initialize_mcp() failed so /mcp is 500 not 404
+    FASTAPI_APP.add_route(
         "/mcp",
-        handle_mcp_streamable_http,
+        mcp_asgi_handler,
         methods=["GET", "POST", "DELETE"],
         include_in_schema=False,
-        operation_id="mcp_http",
     )
     LOGGER.debug("MCP HTTP endpoint mounted at: /mcp")
