@@ -142,4 +142,43 @@ describe("runSidecarServer", () => {
     assert.equal(logged[0][1], closeError);
     assert.deepEqual(unhandled, []);
   });
+
+  it("logs a timeout error and exits 1 if handle.close() never settles on SIGTERM", async (t) => {
+    const unhandled = [];
+    const onUnhandled = (reason) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    t.after(() => {
+      process.off("unhandledRejection", onUnhandled);
+    });
+
+    const logged = [];
+    const proc = createFakeProcess();
+
+    runSidecarServer({
+      startSidecar: () => ({
+        close: () => new Promise(() => {}),
+        ready: Promise.resolve(),
+        stopped: new Promise(() => {}),
+      }),
+      bindSidecarListenExit: () => {},
+      proc,
+      logError: (...args) => {
+        logged.push(args);
+      },
+      shutdownTimeoutMs: 25,
+    });
+
+    proc.emit("SIGTERM");
+    const code = await proc.exited;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(code, 1);
+    assert.deepEqual(proc.exitCodes, [1]);
+    assert.equal(logged.length, 1);
+    assert.ok(logged[0][1] instanceof Error);
+    assert.match(logged[0][1].message, /Timed out.*25ms/);
+    assert.deepEqual(unhandled, []);
+  });
 });

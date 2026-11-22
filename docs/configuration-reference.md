@@ -363,7 +363,7 @@ Where: `Global` or `Repo/local`
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `ai-features.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier — such as `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude`), `gemini` (alias for `google`), `google-vertex`, `openai`, or a custom provider configured in the sidecar. Required when the block is present. | Selects the provider for all AI features in the block. |
-| `ai-features.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-6`). Required when the block is present. | Selects the model for all AI features in the block. |
+| `ai-features.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-5`). Required when the block is present. | Selects the model for all AI features in the block. |
 | `ai-features.conventional-title.enabled` | `boolean` | none | Enable AI assistance for the `conventional-title` check. Required when the sub-block is present. | Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures. |
 | `ai-features.conventional-title.mode` | `string` | `suggest` | Allowed values: `suggest`, `fix`. | `suggest` writes a suggestion into the check run; `fix` updates the PR title automatically. |
 | `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
@@ -378,7 +378,7 @@ Where: `Global` or `Repo/local`
 ```yaml
 ai-features:
   ai-provider: anthropic
-  ai-model: claude-sonnet-4-6
+  ai-model: claude-sonnet-4-5
   conventional-title:
     enabled: true
     mode: suggest
@@ -395,7 +395,7 @@ Where: `Global` or `Repo`
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `test-oracle.ai-provider` | `string` | none | Non-empty `pi-sidecar` provider identifier — such as `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude`), `gemini` (alias for `google`), `google-vertex`, `openai`, or a custom provider configured in the sidecar. Required when the block is present. | Selects the provider used by the local AI sidecar for test-oracle analysis. |
-| `test-oracle.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-6`). Required when the block is present. | Selects the model used by the local AI sidecar for test-oracle analysis. |
+| `test-oracle.ai-model` | `string` | none | Provider model identifier (for example, `claude-sonnet-4-5`). Required when the block is present. | Selects the model used by the local AI sidecar for test-oracle analysis. |
 | `test-oracle.test-patterns` | `array<string>` | built-in defaults | Test file globs. | Restricts which test paths the built-in oracle recommends from. |
 | `test-oracle.triggers` | `array<string>` | `["approved"]` | Automatic trigger names. Allowed values: `approved`, `pr-opened`, `pr-synchronized`. | Controls when the server runs automatic oracle analysis. |
 | `test-oracle.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the built-in test-oracle analysis can run. |
@@ -409,7 +409,7 @@ Where: `Global` or `Repo`
 ```yaml
 test-oracle:
   ai-provider: anthropic
-  ai-model: claude-sonnet-4-6
+  ai-model: claude-sonnet-4-5
   test-patterns:
     - tests/**/*.py
   triggers:

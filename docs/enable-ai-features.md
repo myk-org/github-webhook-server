@@ -19,7 +19,7 @@ repositories:
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
       ai-provider: "anthropic"
-      ai-model: "claude-sonnet-4-6"
+      ai-model: "claude-sonnet-4-5"
       conventional-title:
         enabled: true
         mode: suggest
@@ -27,7 +27,7 @@ repositories:
         enabled: true
     test-oracle:
       ai-provider: "anthropic"
-      ai-model: "claude-sonnet-4-6"
+      ai-model: "claude-sonnet-4-5"
       triggers:
         - approved
 ```
@@ -49,11 +49,11 @@ Save the config, then restart only if you changed environment variables or mount
 ```yaml
 ai-features:
   ai-provider: "anthropic"
-  ai-model: "claude-sonnet-4-6"
+  ai-model: "claude-sonnet-4-5"
 
 test-oracle:
   ai-provider: "anthropic"
-  ai-model: "claude-sonnet-4-6"
+  ai-model: "claude-sonnet-4-5"
 
 repositories:
   my-repository:
@@ -63,7 +63,7 @@ repositories:
 
 Use top-level `ai-features` and `test-oracle` when several repos should share the same defaults. Keep `conventional-title` on each repo that should enforce it, and use repo-level or `.github-webhook-server.yaml` values when one repo needs different AI behavior.
 
-Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` — including `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude` on Google Cloud Vertex AI), `gemini` (alias for `google`), `google-vertex`, `openai`, or a sidecar-configured custom provider. Set `ai-model` to a real model ID accepted by that provider (for example, `claude-sonnet-4-6`, not shorthand names).
+Both `ai-features` and `test-oracle` need `ai-provider` and `ai-model`. `ai-provider` accepts any non-empty native or custom provider identifier supported by the bundled `pi-sidecar` — including `anthropic` (native Anthropic API), `claude` (alias for `google-vertex-claude` on Google Cloud Vertex AI), `gemini` (alias for `google`), `google-vertex`, `openai`, or a sidecar-configured custom provider. Set `ai-model` to a real model ID accepted by that provider (for example, `claude-sonnet-4-5`, not shorthand names).
 
 See [Configuration Reference](configuration-reference.html) for every supported key.
 
@@ -106,7 +106,7 @@ repositories:
     conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
     ai-features:
       ai-provider: "anthropic"
-      ai-model: "claude-sonnet-4-6"
+      ai-model: "claude-sonnet-4-5"
       conventional-title:
         enabled: true
         mode: suggest
@@ -130,7 +130,7 @@ repositories:
     name: my-org/my-repository
     ai-features:
       ai-provider: "anthropic"
-      ai-model: "claude-sonnet-4-6"
+      ai-model: "claude-sonnet-4-5"
       resolve-cherry-pick-conflicts-with-ai:
         enabled: true
         timeout-minutes: 10
@@ -150,7 +150,7 @@ repositories:
     name: my-org/my-repository
     test-oracle:
       ai-provider: "anthropic"
-      ai-model: "claude-sonnet-4-6"
+      ai-model: "claude-sonnet-4-5"
       test-patterns:
         - "tests/**/*.py"
       triggers:
@@ -184,7 +184,7 @@ This block is configured separately from `ai-features`, and runs built-in using 
 ```yaml
 ai-features:
   ai-provider: "anthropic"
-  ai-model: "claude-sonnet-4-6"
+  ai-model: "claude-sonnet-4-5"
   conventional-title:
     enabled: true
     mode: suggest
@@ -202,7 +202,7 @@ To use Claude models on Google Cloud Vertex AI, set `ai-provider` to `"claude"` 
 # config.yaml
 ai-features:
   ai-provider: "claude" # or "google-vertex-claude"
-  ai-model: "claude-sonnet-4-6" # or "claude-opus-4-6[1m]" with VERTEX_CLAUDE_1M=true
+  ai-model: "claude-opus-4-6" # or "claude-opus-4-6-1m" with VERTEX_CLAUDE_1M=true
 ```
 
 ```yaml

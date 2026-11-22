@@ -124,7 +124,7 @@ branch-protection:
 # Analyzes PR diffs with static test mapping and local Pi sidecar AI to recommend which tests to run
 test-oracle:
   ai-provider: "claude" # Any pi-sidecar provider (claude uses Vertex ADC / google-vertex-claude; anthropic uses ANTHROPIC_API_KEY; gemini, google-vertex, or custom)
-  ai-model: "claude-opus-4-6[1m]"
+  ai-model: "claude-opus-4-6-1m"
   test-patterns:
     - "tests/**/*.py"
   triggers: # Default: [approved]
@@ -137,7 +137,7 @@ test-oracle:
 # Enables AI-powered enhancements (e.g., conventional title suggestions)
 ai-features:
   ai-provider: "claude" # Any pi-sidecar provider (claude uses Vertex ADC / google-vertex-claude; anthropic uses ANTHROPIC_API_KEY; gemini, google-vertex, or custom)
-  ai-model: "claude-opus-4-6[1m]"
+  ai-model: "claude-opus-4-6-1m"
   conventional-title:
     enabled: true
     mode: suggest  # suggest: show in checkrun | fix: auto-update PR title

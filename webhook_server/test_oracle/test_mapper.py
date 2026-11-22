@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from webhook_server.test_oracle.models import TestMapping
 from webhook_server.utils.helpers import get_logger_with_params
@@ -190,26 +191,27 @@ class TestMapper:
             return self._test_files
 
         test_files: set[str] = set()
-        for pattern in self._patterns:
-            for path in self._repo.glob(pattern):
+        for dirpath, dirnames, filenames in os.walk(self._repo, followlinks=False):
+            dirnames[:] = [d for d in dirnames if d not in _IGNORED_DIRS]
+            current_dir = Path(dirpath)
+            rel_dir = current_dir.relative_to(self._repo)
+            for filename in filenames:
+                if filename in _EXCLUDED_FILES:
+                    continue
+                rel_posix = PurePosixPath(*rel_dir.parts, filename)
+                if not any(rel_posix.full_match(pattern) for pattern in self._patterns):
+                    continue
+                full_path = current_dir / filename
                 try:
-                    resolved = path.resolve()
+                    resolved = full_path.resolve()
                 except OSError:
                     continue
                 if not resolved.is_relative_to(self._repo) or not resolved.is_file():
                     continue
-                if path.name in _EXCLUDED_FILES:
+                resolved_rel = resolved.relative_to(self._repo)
+                if any(part in _IGNORED_DIRS for part in resolved_rel.parts):
                     continue
-                try:
-                    rel_path = path.relative_to(self._repo)
-                    resolved_rel = resolved.relative_to(self._repo)
-                except ValueError:
-                    continue
-                if any(part in _IGNORED_DIRS for part in rel_path.parts) or any(
-                    part in _IGNORED_DIRS for part in resolved_rel.parts
-                ):
-                    continue
-                test_files.add(rel_path.as_posix())
+                test_files.add(rel_posix.as_posix())
 
         self._test_files = sorted(test_files)
         prefix = f"{self._log_prefix} " if self._log_prefix else ""

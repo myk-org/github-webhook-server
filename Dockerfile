@@ -4,7 +4,7 @@ WORKDIR /sidecar
 COPY sidecar-helper/package.json sidecar-helper/package-lock.json* ./
 RUN npm ci
 COPY sidecar-helper/ .
-RUN npx tsc
+RUN npx tsc && npm test
 RUN npm prune --omit=dev
 
 FROM quay.io/podman/stable:v6

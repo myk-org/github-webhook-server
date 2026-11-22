@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc",
-    "test": "node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@myk-org/pi-sidecar": ">=5.0.0"
