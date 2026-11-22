@@ -362,13 +362,13 @@ Where: `Global` or `Repo/local`
 
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
-| `ai-features.ai-provider` | `string` | none | AI provider. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Selects the provider for all AI features in the block. |
+| `ai-features.ai-provider` | `string` | none | AI provider. Allowed values: `claude`, `gemini`. Required when the block is present. | Selects the provider for all AI features in the block. |
 | `ai-features.ai-model` | `string` | none | Model identifier. Required when the block is present. | Selects the model for all AI features in the block. |
 | `ai-features.conventional-title.enabled` | `boolean` | none | Enable AI assistance for the `conventional-title` check. Required when the sub-block is present. | Turns AI title suggestions or auto-fixes on for Conventional Commit validation failures. |
 | `ai-features.conventional-title.mode` | `string` | `suggest` | Allowed values: `suggest`, `fix`. | `suggest` writes a suggestion into the check run; `fix` updates the PR title automatically. |
-| `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
+| `ai-features.conventional-title.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the AI title step can run. |
 | `ai-features.resolve-cherry-pick-conflicts-with-ai.enabled` | `boolean` | none | Enable AI cherry-pick conflict resolution. Required when the sub-block is present. | Lets the server attempt AI conflict resolution for cherry-pick failures. |
-| `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes` | `integer` | `10` | AI CLI timeout in minutes. Minimum `1`. | Limits how long the AI cherry-pick resolution step can run. |
+| `ai-features.resolve-cherry-pick-conflicts-with-ai.timeout-minutes` | `integer` | `10` | AI request timeout in minutes. Minimum `1`. | Limits how long the AI cherry-pick resolution step can run. |
 
 > **Warning:** Repo/local `ai-features` replaces the global block. Repeat `ai-provider` and `ai-model` in every override.
 
@@ -395,7 +395,7 @@ Where: `Global` or `Repo`
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `test-oracle.server-url` | `string` | none | Base URL of the test oracle service. Required when the block is present. | The webhook server calls this service for recommendations. |
-| `test-oracle.ai-provider` | `string` | none | Provider name. Allowed values: `claude`, `gemini`, `cursor`. Required when the block is present. | Sent to the oracle service for model selection. |
+| `test-oracle.ai-provider` | `string` | none | Provider name. Allowed values: `claude`, `gemini`. Required when the block is present. | Sent to the oracle service for model selection. |
 | `test-oracle.ai-model` | `string` | none | Model identifier. Required when the block is present. | Sent to the oracle service for model selection. |
 | `test-oracle.test-patterns` | `array<string>` | service defaults | Test file globs. | Restricts which test paths the oracle recommends from. |
 | `test-oracle.triggers` | `array<string>` | `["approved"]` | Automatic trigger names. Allowed values: `approved`, `pr-opened`, `pr-synchronized`. | Controls when the server runs automatic oracle analysis. |

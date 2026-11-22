@@ -6,15 +6,14 @@ $defs:
     description: |
       AI features configuration. Enables AI-powered enhancements such as
       conventional title suggestions when validation fails.
-      Supported AI providers: claude, gemini, cursor.
+      Supported AI providers: claude, gemini.
     properties:
       ai-provider:
         type: string
         enum:
           - claude
           - gemini
-          - cursor
-        description: AI CLI provider to use
+        description: AI provider to use
       ai-model:
         type: string
         description: AI model identifier (e.g., claude-opus-4-6-1m, sonnet, gemini-2.5-pro)
@@ -40,7 +39,7 @@ $defs:
           timeout-minutes:
             type: integer
             minimum: 1
-            description: Timeout in minutes for the AI CLI process (default 10)
+            description: Timeout in minutes for the AI call (default 10)
             default: 10
         required:
           - enabled
@@ -49,7 +48,7 @@ $defs:
         type: object
         description: |
           AI-powered cherry-pick conflict resolution configuration.
-          When enabled and a cherry-pick has conflicts, the AI CLI will attempt
+          When enabled and a cherry-pick has conflicts, the AI will attempt
           to resolve them with upstream-first priority. AI-resolved cherry-picks
           are never auto-verified - manual review is required.
         properties:
@@ -59,7 +58,7 @@ $defs:
           timeout-minutes:
             type: integer
             minimum: 1
-            description: Timeout in minutes for the AI CLI process (default 10)
+            description: Timeout in minutes for the AI call (default 10)
             default: 10
         required:
           - enabled
@@ -238,7 +237,6 @@ properties:
         enum:
           - claude
           - gemini
-          - cursor
         description: AI provider for test analysis
       ai-model:
         type: string
@@ -686,7 +684,6 @@ properties:
               enum:
                 - claude
                 - gemini
-                - cursor
               description: AI provider for test analysis
             ai-model:
               type: string

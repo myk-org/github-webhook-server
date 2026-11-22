@@ -6,8 +6,8 @@ Turn on AI help when you want pull requests to spend less maintainer time on bad
 
 - A running `github-webhook-server` deployment
 - Access to `config.yaml` or a repository-local `.github-webhook-server.yaml`
-- The provided container image, or another runtime that includes the bundled AI sidecar and supported AI CLIs
-- One supported provider credential for local AI features: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `CURSOR_API_KEY`
+- The provided container image, or another runtime that includes the bundled AI sidecar (no external AI CLIs required)
+- One supported provider credential for local AI features: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or Google Cloud Vertex ADC
 - A reachable `pr-test-oracle` service if you want test recommendations
 
 ## Quick Example
@@ -78,8 +78,6 @@ services:
     environment:
       - ANTHROPIC_API_KEY=sk-ant-xxx
       # - GEMINI_API_KEY=xxx
-      # - CURSOR_API_KEY=xxx
-      # - ACPX_AGENTS=cursor
 ```
 
 ```bash
@@ -91,11 +89,8 @@ Use the credential that matches your `ai-provider` value. The first command chec
 
 | Provider | What to add |
 | --- | --- |
-| `claude` | `ANTHROPIC_API_KEY` |
+| `claude` | `ANTHROPIC_API_KEY` or Google Cloud Vertex ADC |
 | `gemini` | `GEMINI_API_KEY` |
-| `cursor` | `CURSOR_API_KEY` |
-
-> **Tip:** Add `ACPX_AGENTS=cursor` when you want Cursor model discovery. The example deployment also supports `docker exec -it github-webhook-server agent` if you prefer Cursor interactive login instead of `CURSOR_API_KEY`.
 
 See [Environment Variables](environment-variables.html) for the full sidecar and credential list, and [Webhook and Health API](webhook-and-health-api.html) for the main server health endpoint.
 
@@ -205,15 +200,14 @@ Raise `timeout-minutes` when repos are large or conflicts are complicated. Title
 services:
   github-webhook-server:
     environment:
-      - CURSOR_API_KEY=xxx
-      - ACPX_AGENTS=cursor
-      # - VERTEX_CLAUDE_1M=true
+      - VERTEX_CLAUDE_1M=true
+      # - GEMINI_API_KEY=xxx
       # - SIDECAR_PORT=9200
     volumes:
       - $HOME/.config/gcloud:/home/podman/.config/gcloud:ro
 ```
 
-Use `ACPX_AGENTS=cursor` when you want Cursor model discovery. Add `VERTEX_CLAUDE_1M=true` plus a Google Cloud credential mount when you want Vertex-hosted 1M Claude models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
+Add `VERTEX_CLAUDE_1M=true` plus a Google Cloud credential mount when you want Vertex-hosted 1M Claude models, set `GEMINI_API_KEY` for Gemini models, and set `SIDECAR_PORT` if `9100` conflicts with another service.
 
 > **Tip:** `/test-oracle` can still run on draft PRs, and it does not depend on the automatic trigger list. If you reopen a PR and want fresh recommendations, run `/test-oracle` manually.
 

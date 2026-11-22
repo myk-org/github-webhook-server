@@ -125,7 +125,7 @@ branch-protection:
 # See: https://github.com/myk-org/pr-test-oracle
 test-oracle:
   server-url: "http://localhost:8000"
-  ai-provider: "claude" # claude | gemini | cursor
+  ai-provider: "claude" # claude | gemini
   ai-model: "claude-opus-4-6[1m]"
   test-patterns:
     - "tests/**/*.py"
@@ -137,7 +137,7 @@ test-oracle:
 # AI Features configuration
 # Enables AI-powered enhancements (e.g., conventional title suggestions)
 ai-features:
-  ai-provider: "claude" # claude | gemini | cursor
+  ai-provider: "claude" # claude | gemini
   ai-model: "claude-opus-4-6[1m]"
   conventional-title:
     enabled: true
@@ -145,7 +145,7 @@ ai-features:
     timeout-minutes: 10
   resolve-cherry-pick-conflicts-with-ai:
     enabled: true
-    timeout-minutes: 10  # Timeout in minutes for AI CLI (default: 10)
+    timeout-minutes: 10  # Timeout in minutes for AI call (default: 10)
 
 # Security Checks configuration
 # Detects potentially malicious PR patterns like modifications to
@@ -312,7 +312,7 @@ repositories:
     # AI Features configuration (overrides global)
     # Enables AI-powered enhancements (e.g., conventional title suggestions)
     # ai-features:
-    #   ai-provider: "claude"        # claude | gemini | cursor
+    #   ai-provider: "claude"        # claude | gemini
     #   ai-model: "sonnet"
 
     # PR Test Oracle (overrides global)

@@ -1,3 +1,9 @@
-import { startSidecar } from "@myk-org/pi-sidecar";
+import { bindSidecarListenExit, startSidecar } from "@myk-org/pi-sidecar";
 
-startSidecar();
+const handle = startSidecar();
+bindSidecarListenExit(handle);
+
+process.once("SIGTERM", async () => {
+  await handle.close();
+  process.exit(0);
+});

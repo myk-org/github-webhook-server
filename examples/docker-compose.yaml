@@ -20,14 +20,11 @@ services:
       - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
       - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
       # Pi sidecar (AI features)
-      # - ACPX_AGENTS=cursor              # Enable cursor model discovery for AI features
       # - VERTEX_CLAUDE_1M=true            # Enable Claude 1M context window models via Vertex AI
       # - SIDECAR_PORT=9100                # Pi sidecar port (default: 9100)
-      # AI CLI API keys for pr-test-oracle integration
-      # - ANTHROPIC_API_KEY=sk-ant-xxx       # Claude Code
-      # - GEMINI_API_KEY=xxx                  # Gemini CLI
-      # - CURSOR_API_KEY=xxx                  # Cursor Agent (API key method)
-      # For Cursor interactive login: docker exec -it github-webhook-server agent
+      # AI provider API keys for Pi sidecar (native providers)
+      # - ANTHROPIC_API_KEY=sk-ant-xxx     # Anthropic (Claude models)
+      # - GEMINI_API_KEY=xxx               # Google (Gemini models)
     ports:
       - "5000:5000"
     privileged: true

@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from typing import Any
 
+import jsonschema  # type: ignore[import-untyped]
 import pytest
 import yaml
 
@@ -1174,3 +1175,81 @@ class TestConfigSchema:
 
         # maxLength is in the $defs definition (both levels reference it via $ref)
         assert schema["$defs"]["welcome-extra-info"]["maxLength"] == 10240
+
+    @pytest.fixture
+    def schema_validator(self) -> jsonschema.Draft7Validator:
+        """Draft-07 JSON Schema validator loaded from webhook_server/config/schema.yaml."""
+        schema_path = os.path.join(os.path.dirname(__file__), "..", "config", "schema.yaml")
+        with open(schema_path) as f:
+            schema = yaml.safe_load(f)
+        return jsonschema.Draft7Validator(schema)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("provider", ["claude", "gemini"])
+    def test_ai_features_ai_provider_valid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        provider: str,
+    ) -> None:
+        """Test that ai-features.ai-provider accepts claude and gemini at global and repository levels."""
+        ai_features = {"ai-provider": provider, "ai-model": "test-model"}
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["ai-features"] = ai_features
+
+        schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    def test_ai_features_ai_provider_rejects_cursor(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+    ) -> None:
+        """Test that ai-features.ai-provider rejects cursor at global and repository levels."""
+        ai_features = {"ai-provider": "cursor", "ai-model": "test-model"}
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["ai-features"] = ai_features
+
+        with pytest.raises(jsonschema.ValidationError, match="cursor"):
+            schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    @pytest.mark.parametrize("provider", ["claude", "gemini"])
+    def test_test_oracle_ai_provider_valid(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+        provider: str,
+    ) -> None:
+        """Test that test-oracle.ai-provider accepts claude and gemini at global and repository levels."""
+        test_oracle = {
+            "server-url": "http://localhost:8000",
+            "ai-provider": provider,
+            "ai-model": "test-model",
+        }
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = test_oracle
+
+        schema_validator.validate(valid_minimal_config)
+
+    @pytest.mark.parametrize("level", ["global", "repository"])
+    def test_test_oracle_ai_provider_rejects_cursor(
+        self,
+        valid_minimal_config: dict[str, Any],
+        schema_validator: jsonschema.Draft7Validator,
+        level: str,
+    ) -> None:
+        """Test that test-oracle.ai-provider rejects cursor at global and repository levels."""
+        test_oracle = {
+            "server-url": "http://localhost:8000",
+            "ai-provider": "cursor",
+            "ai-model": "test-model",
+        }
+        target = valid_minimal_config if level == "global" else valid_minimal_config["repositories"]["test-repo"]
+        target["test-oracle"] = test_oracle
+
+        with pytest.raises(jsonschema.ValidationError, match="cursor"):
+            schema_validator.validate(valid_minimal_config)

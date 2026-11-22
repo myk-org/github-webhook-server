@@ -79,7 +79,7 @@ dependencies = [
   "pydantic>=2.8.0",
   "psutil>=7.0.0",
   "mcp>=2.3.0,<3",
-  "pi-sidecar-client>=4.15.0",
+  "pi-sidecar-client>=5.0.0",
   "aiohttp>=3.9.0",
 ]
 

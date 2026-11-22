@@ -16,7 +16,7 @@ EXPOSE 9100
 ENV USERNAME="podman"
 ENV HOME_DIR="/home/$USERNAME"
 ENV BIN_DIR="$HOME_DIR/.local/bin"
-ENV PATH="$PATH:$BIN_DIR:$HOME_DIR/.npm-global/bin" \
+ENV PATH="$PATH:$BIN_DIR" \
   DATA_DIR="$HOME_DIR/data" \
   APP_DIR="$HOME_DIR/github-webhook-server"
 
@@ -67,21 +67,6 @@ ENV UV_PYTHON=python3.14 \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek && uv tool install tox
-
-# Install AI CLI tools
-# Claude Code CLI (installs to ~/.local/bin)
-RUN /bin/bash -o pipefail -c "curl -fsSL https://claude.ai/install.sh | bash"
-
-# Cursor Agent CLI (installs to ~/.local/bin)
-RUN /bin/bash -o pipefail -c "curl -fsSL https://cursor.com/install | bash"
-
-# Gemini CLI (npm global install)
-RUN mkdir -p $HOME_DIR/.npm-global \
-  && npm config set prefix "$HOME_DIR/.npm-global" \
-  && npm install -g @google/gemini-cli
-
-# ACPX agent runtime (needed for cursor provider discovery)
-RUN npm install -g acpx
 
 RUN set -ex \
   && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
