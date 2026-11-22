@@ -44,7 +44,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - name: Build site from docs/*.md
         # Pinned, not `@latest`: this step's output is what `deploy` publishes, so the renderer is a
         # build tool — an unpinned release lets a new (or compromised) upstream version replace the
