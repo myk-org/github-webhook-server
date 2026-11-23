@@ -438,7 +438,9 @@ class RunnerHandler:
         _tox_tests = self.github_webhook.tox.get(base_ref, "")
 
         # Build tox command with {worktree_path} placeholder
-        cmd = f"uvx {python_ver} {TOX_STR} --workdir {{worktree_path}} --root {{worktree_path}} -c {{worktree_path}}"
+        cmd = (
+            f"uvx {python_ver} {TOX_STR} --workdir {{worktree_path}}/.tox --root {{worktree_path}} -c {{worktree_path}}"
+        )
         if _tox_tests and _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"

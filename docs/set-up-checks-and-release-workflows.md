@@ -50,7 +50,7 @@ Check-run names are constants in `webhook_server/utils/constants.py`, so what th
 
 | Check run | Config key | Notes |
 | --- | --- | --- |
-| `tox` | `tox` | Runs `uvx tox --workdir {worktree_path} --root {worktree_path} -c {worktree_path}`. |
+| `tox` | `tox` | Runs `uvx tox --workdir {worktree_path}/.tox --root {worktree_path} -c {worktree_path}`. |
 | `pre-commit` | `pre-commit` | Runs `uvx --directory {worktree_path} prek run --all-files`. |
 | `build-container` | `container` | `podman build` of the repo Dockerfile. Also used for release pushes with no check run. |
 | `python-module-install` | `pypi` | `uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}`. |

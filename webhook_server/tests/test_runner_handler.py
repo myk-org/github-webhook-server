@@ -426,8 +426,14 @@ class TestRunnerHandler:
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
-                        ):
+                        ) as mock_run_command:
                             await runner_handler.run_tox(mock_pull_request)
+                            mock_run_command.assert_called_once()
+                            assert mock_run_command.call_args.kwargs["command"] == (
+                                f"uvx --python=3.12 {TOX_STR} "
+                                "--workdir /tmp/worktree-path/.tox "
+                                "--root /tmp/worktree-path -c /tmp/worktree-path"
+                            )
                             mock_set_progress.assert_called_once_with(name=TOX_STR)
                             mock_set_success.assert_called_once_with(
                                 name=TOX_STR, output={"title": "Tox passed", "summary": "", "text": "dummy output"}
@@ -476,6 +482,7 @@ class TestRunnerHandler:
             await runner_handler.run_tox(mock_pull_request)
             mock_run_check.assert_called_once()
             check_config = mock_run_check.call_args[1]["check_config"]
+            assert "--workdir {worktree_path}/.tox --root {worktree_path} -c {worktree_path}" in check_config.command
             assert "-- -k" not in check_config.command
 
     @pytest.mark.asyncio
@@ -5373,12 +5380,12 @@ class TestCheckConfig:
         """Test CheckConfig with worktree_path placeholder."""
         config = CheckConfig(
             name="tox",
-            command="tox --workdir {worktree_path} --root {worktree_path}",
+            command="tox --workdir {worktree_path}/.tox --root {worktree_path}",
             title="Tox",
         )
         # Verify placeholder can be formatted
         formatted = config.command.format(worktree_path="/tmp/worktree")
-        assert formatted == "tox --workdir /tmp/worktree --root /tmp/worktree"
+        assert formatted == "tox --workdir /tmp/worktree/.tox --root /tmp/worktree"
 
 
 class TestRunCheck:
