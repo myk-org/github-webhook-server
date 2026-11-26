@@ -269,6 +269,8 @@ Container build deduplication and supersession apply per target `image:tag` (`co
 
 Pushing happens only for a successful build, using `podman push --creds <user>:<password> <repo>:<tag>`. On success the PR gets a comment and, if `slack-webhook-url` is set, a Slack message; on failure a comment says the push failed. The `/build-and-push-container` comment command triggers the same path on demand and is gated on the commenter's permission to run commands.
 
+When a PR merges or closes, the server removes its temporary `pr-<number>` tag. For `ghcr.io` repositories, it calls the GitHub Packages API using `container.password`, falling back to the webhook GitHub API token only when `container.password` is unset. It paginates package versions until the tag is found and skips deleting any version that also carries other tags, such as `latest` or a release tag. For other registries, it deletes the tag with `regctl` using `container.username` and `container.password`.
+
 #### OCI annotations
 
 `oci-annotations.enabled` defaults to `false`; nothing is added when it is off. When on, each annotation becomes a `--annotation key=value` flag on `podman build`. The `auto` block populates annotations from webhook context, and every auto entry defaults to `true` when `oci-annotations` is enabled:

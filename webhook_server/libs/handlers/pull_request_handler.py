@@ -7,7 +7,7 @@ import traceback
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
 
-from github import GithubException
+from github import Github, GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -45,7 +45,7 @@ from webhook_server.utils.constants import (
     WIP_STR,
 )
 from webhook_server.utils.github_retry import github_api_call
-from webhook_server.utils.helpers import run_command
+from webhook_server.utils.helpers import _redact_secrets, get_github_client, run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -1005,10 +1005,6 @@ For more information, please refer to the project documentation or contact the m
         self, pull_request: PullRequest, repository_full_tag: str, pr_tag: str
     ) -> None:
         """Delete GHCR tag using GitHub Packages REST API."""
-        if not self.github_webhook.github_api or not self.github_webhook.token:
-            self.logger.error(f"{self.log_prefix} GitHub API or token not available for tag deletion")
-            return
-
         # Extract organization and package name from container repository
         # Format: ghcr.io/org/package-name -> org, package-name
         # Format: ghcr.io/org/services/api-server -> org, services/api-server
@@ -1023,86 +1019,164 @@ For more information, please refer to the project documentation or contact the m
         # Join all segments after the owner to support nested paths
         package_name = "/".join(registry_info[2:])
 
+        container_token = (self.github_webhook.container_repository_password or "").strip()
+        redact_values = [secret for secret in (container_token, self.github_webhook.token) if secret]
+
+        ghcr_client: Github | None = None
         try:
+            if container_token:
+                ghcr_client = get_github_client(container_token)
+                requester = ghcr_client.requester
+            elif self.github_webhook.github_api and self.github_webhook.token:
+                requester = self.github_webhook.github_api.requester
+            else:
+                self.logger.error(f"{self.log_prefix} GitHub API or token not available for tag deletion")
+                return
+
+            per_page = 100
             package_api_base: str | None = None
-            versions: list[dict[str, Any]] | None = None
+            page_versions: list[dict[str, Any]] = []
 
             # GHCR packages can live under organisations *and* personal scopes - try both.
             for scope in ("orgs", "users"):
                 candidate_base = f"/{scope}/{owner_name}/packages/container/{package_name}"
                 try:
-                    _, versions = await github_api_call(
-                        self.github_webhook.github_api.requester.requestJsonAndCheck,
+                    _, first_page = await github_api_call(
+                        requester.requestJsonAndCheck,
                         "GET",
                         f"{candidate_base}/versions",
+                        parameters={"per_page": per_page, "page": 1},
                         logger=self.logger,
                         log_prefix=self.log_prefix,
                     )
                     package_api_base = candidate_base
+                    page_versions = first_page or []
                     break
                 except GithubException as ex:
                     if ex.status == 404:
                         continue
                     raise
 
-            if not versions or not package_api_base:
+            if not package_api_base:
                 self.logger.warning(
                     f"{self.log_prefix} Package {package_name} not found for owner {owner_name} on GHCR"
                 )
                 return
 
-            # Find version with matching tag
-            version_to_delete_id: int | None = None
-            for version in versions:
-                # Check metadata.tags for the tag we're looking for
-                metadata = version.get("metadata", {})
-                container_metadata = metadata.get("container", {})
-                version_tags = container_metadata.get("tags", [])
-                if pr_tag in version_tags:
-                    version_to_delete_id = version["id"]
-                    break
+            seen_version_ids: set[Any] = set()
+            matching_versions: list[tuple[Any, list[str]]] = []
 
-            if not version_to_delete_id:
+            def _scan_page(versions_page: list[dict[str, Any]]) -> None:
+                for version in versions_page:
+                    version_id = version.get("id")
+                    if version_id is None or version_id in seen_version_ids:
+                        continue
+                    seen_version_ids.add(version_id)
+
+                    metadata = version.get("metadata") or {}
+                    container_metadata = metadata.get("container") or {}
+                    version_tags = container_metadata.get("tags") or []
+                    if pr_tag in version_tags:
+                        matching_versions.append((version_id, version_tags))
+
+            _scan_page(page_versions)
+
+            page = 1
+            while len(page_versions) >= per_page and not matching_versions:
+                page += 1
+                _, next_page = await github_api_call(
+                    requester.requestJsonAndCheck,
+                    "GET",
+                    f"{package_api_base}/versions",
+                    parameters={"per_page": per_page, "page": page},
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
+                )
+                page_versions = next_page or []
+                if not page_versions:
+                    break
+                _scan_page(page_versions)
+
+            if not matching_versions:
                 self.logger.warning(f"{self.log_prefix} Tag {pr_tag} not found in package {package_name} versions")
                 return
 
-            # Delete the package version
-            # DELETE /{scope}/{owner}/packages/{package_type}/{package_name}/versions/{package_version_id}
-            delete_url = f"{package_api_base}/versions/{version_to_delete_id}"
-            try:
-                await github_api_call(
-                    self.github_webhook.github_api.requester.requestJsonAndCheck,
-                    "DELETE",
-                    delete_url,
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
-            except GithubException as ex:
-                if ex.status == 404:
-                    # Version already deleted or doesn't exist - treat as success
+            deleted_any = False
+            for version_id, version_tags in matching_versions:
+                other_tags = [tag for tag in version_tags if tag != pr_tag]
+                if other_tags:
                     self.logger.warning(
-                        f"{self.log_prefix} Package version {version_to_delete_id} not found "
-                        "(may have been already deleted)"
+                        f"{self.log_prefix} Skipping deletion of GHCR package version {version_id} for "
+                        f"{repository_full_tag} because it is shared with other tags: {other_tags}"
                     )
-                else:
-                    raise
+                    continue
 
-            try:
-                await github_api_call(
-                    pull_request.create_issue_comment,
-                    f"Successfully removed PR tag: {repository_full_tag}.",
-                    logger=self.logger,
-                    log_prefix=self.log_prefix,
-                )
-            except Exception:
-                self.logger.exception(
-                    f"{self.log_prefix} Tag cleanup succeeded, but PR notification failed: {repository_full_tag}"
-                )
+                # Delete the package version
+                # DELETE /{scope}/{owner}/packages/{package_type}/{package_name}/versions/{package_version_id}
+                delete_url = f"{package_api_base}/versions/{version_id}"
+                try:
+                    await github_api_call(
+                        requester.requestJsonAndCheck,
+                        "DELETE",
+                        delete_url,
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                    deleted_any = True
+                except GithubException as ex:
+                    if ex.status == 404:
+                        # Version already deleted or doesn't exist
+                        self.logger.warning(
+                            f"{self.log_prefix} Package version {version_id} not found (may have been already deleted)"
+                        )
+                    else:
+                        raise
 
-        except GithubException:
-            self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
-        except Exception:
-            self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
+            if deleted_any:
+                try:
+                    await github_api_call(
+                        pull_request.create_issue_comment,
+                        f"Successfully removed PR tag: {repository_full_tag}.",
+                        logger=self.logger,
+                        log_prefix=self.log_prefix,
+                    )
+                except Exception:
+                    self.logger.exception(
+                        f"{self.log_prefix} Tag cleanup succeeded, but PR notification failed: {repository_full_tag}"
+                    )
+
+        except GithubException as ex:
+            redacted_data = _redact_secrets(
+                str(ex.data),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            redacted_tb = _redact_secrets(
+                traceback.format_exc(),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            self.logger.error(
+                f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag} "
+                f"(status={ex.status}, data={redacted_data})\n{redacted_tb}"
+            )
+        except Exception as ex:
+            redacted_err = _redact_secrets(
+                str(ex),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            redacted_tb = _redact_secrets(
+                traceback.format_exc(),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            self.logger.error(
+                f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}: {redacted_err}\n{redacted_tb}"
+            )
+        finally:
+            if ghcr_client is not None:
+                ghcr_client.close()
 
     async def _delete_registry_tag_via_regctl(
         self, pull_request: PullRequest, repository_full_tag: str, pr_tag: str, registry_url: str
