@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import httpx
 import pytest
@@ -90,6 +90,7 @@ def _create_mock_github_webhook() -> Mock:
     mock_webhook.minimum_lgtm = 1
     mock_webhook.container_repository_username = "test-user"
     mock_webhook.container_repository_password = "test-password"  # pragma: allowlist secret
+    mock_webhook.mask_sensitive = True
     mock_webhook.github_api = Mock()
     mock_webhook.tox = True
     mock_webhook.pre_commit = True
@@ -3035,6 +3036,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
@@ -3069,6 +3071,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
@@ -3097,6 +3100,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
@@ -3122,6 +3126,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
@@ -3146,6 +3151,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
@@ -3167,6 +3173,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", None),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
@@ -3189,6 +3196,7 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/invalid:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/invalid"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
@@ -3223,12 +3231,386 @@ class TestPullRequestHandler:
                 return_value="ghcr.io/org/repo:pr-123",
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.warning.called
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_dedicated_container_token(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GHCR deletion uses dedicated stripped container_repository_password token and closes client."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        mock_ghcr_requester = Mock()
+        mock_ghcr_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, [{"id": 42, "metadata": {"container": {"tags": ["pr-123"]}}}]),
+                None,
+            ]
+        )
+        mock_ghcr_client = Mock(requester=mock_ghcr_requester)
+        mock_fallback_requester = Mock()
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_password",
+                "  ghp_container_secret_token  ",  # pragma: allowlist secret
+            ),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_fallback_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "fallback-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.get_github_client",
+                return_value=mock_ghcr_client,
+            ) as mock_get_github_client,
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            mock_get_github_client.assert_called_once_with(
+                "ghp_container_secret_token"  # pragma: allowlist secret
+            )
+            assert mock_ghcr_requester.requestJsonAndCheck.call_count == 2
+            mock_fallback_requester.requestJsonAndCheck.assert_not_called()
+            mock_ghcr_client.close.assert_called_once()
+            mock_pull_request.create_issue_comment.assert_called_once_with(
+                "Successfully removed PR tag: ghcr.io/org/repo:pr-123."
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("container_password", ["", "   ", None])
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_fallback_on_blank_password(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        container_password: str | None,
+    ) -> None:
+        """Test GHCR deletion falls back to github_api.requester when container_repository_password is blank."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, [{"id": 1, "metadata": {"container": {"tags": ["pr-123"]}}}]),
+                None,
+            ]
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", container_password),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "fallback-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch("webhook_server.libs.handlers.pull_request_handler.get_github_client") as mock_get_github_client,
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            mock_get_github_client.assert_not_called()
+            assert mock_requester.requestJsonAndCheck.call_count == 2
+            mock_pull_request.create_issue_comment.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_multipage_lookup(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GHCR tag lookup paginates with per_page=100 and deletes version found on page 2."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        page_1 = [{"id": idx, "metadata": {"container": {"tags": [f"other-{idx}"]}}} for idx in range(1, 101)]
+        page_2 = [{"id": 201, "metadata": {"container": {"tags": ["pr-123"]}}}]
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, page_1),
+                ({}, page_2),
+                None,
+            ]
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            assert mock_requester.requestJsonAndCheck.call_args_list == [
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 2}),
+                call("DELETE", "/orgs/org/packages/container/repo/versions/201"),
+            ]
+            mock_pull_request.create_issue_comment.assert_called_once_with(
+                "Successfully removed PR tag: ghcr.io/org/repo:pr-123."
+            )
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_multipage_empty_second_page(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GHCR pagination stops cleanly on an empty page after a full 100-item page."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        page_1 = [{"id": idx, "metadata": {"container": {"tags": [f"other-{idx}"]}}} for idx in range(1, 101)]
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, page_1),
+                ({}, []),
+            ]
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            assert mock_requester.requestJsonAndCheck.call_args_list == [
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 2}),
+            ]
+            pull_request_handler.logger.warning.assert_called_once_with(
+                "[TEST] Tag pr-123 not found in package repo versions"
+            )
+            mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_multipage_deduplicates_version_ids(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test duplicate version IDs across pagination pages are deleted only once."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        page_1 = [
+            {"id": idx, "metadata": {"container": {"tags": ["pr-123"] if idx == 50 else [f"other-{idx}"]}}}
+            for idx in range(1, 101)
+        ]
+        page_2 = [{"id": 50, "metadata": {"container": {"tags": ["pr-123"]}}}]
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, page_1),
+                ({}, page_2),
+                None,
+            ]
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            assert mock_requester.requestJsonAndCheck.call_args_list == [
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 2}),
+                call("DELETE", "/orgs/org/packages/container/repo/versions/50"),
+            ]
+            mock_pull_request.create_issue_comment.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("version_tags", "shared_tag"),
+        [
+            (["pr-123", "latest"], "latest"),
+            (["pr-123", "v1.2.3"], "v1.2.3"),
+            (["pr-123", "pr-456"], "pr-456"),
+        ],
+    )
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_skips_shared_tags(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        version_tags: list[str],
+        shared_tag: str,
+    ) -> None:
+        """Test GHCR version deletion is skipped when version is shared with other tags."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            return_value=({}, [{"id": 7, "metadata": {"container": {"tags": version_tags}}}])
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            assert mock_requester.requestJsonAndCheck.call_count == 1
+            pull_request_handler.logger.warning.assert_called_once()
+            warning_msg = pull_request_handler.logger.warning.call_args[0][0]
+            assert shared_tag in warning_msg
+            mock_pull_request.create_issue_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_github_exception_redacts_secret(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GithubException logs status and redacted data and closes dedicated GHCR client."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        secret = "ghp_super_secret_ghcr_token"  # pragma: allowlist secret
+        mock_ghcr_requester = Mock()
+        mock_ghcr_requester.requestJsonAndCheck = Mock(
+            side_effect=GithubException(403, {"message": "Forbidden", "leak": secret}, {})
+        )
+        mock_ghcr_client = Mock(requester=mock_ghcr_requester)
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", secret),
+            patch.object(pull_request_handler.github_webhook, "mask_sensitive", True),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.get_github_client",
+                return_value=mock_ghcr_client,
+            ),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            pull_request_handler.logger.exception.assert_called_once()
+            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            assert "status=403" in log_msg
+            assert "Forbidden" in log_msg
+            assert "***REDACTED***" in log_msg
+            assert secret not in log_msg
+            mock_ghcr_client.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_generic_exception_redacts_secret(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test generic Exception redacts secret in log message and closes dedicated GHCR client."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        secret = "ghp_super_secret_ghcr_token"  # pragma: allowlist secret
+        mock_ghcr_requester = Mock()
+        mock_ghcr_requester.requestJsonAndCheck = Mock(side_effect=RuntimeError(f"boom {secret}"))
+        mock_ghcr_client = Mock(requester=mock_ghcr_requester)
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", secret),
+            patch.object(pull_request_handler.github_webhook, "mask_sensitive", True),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.get_github_client",
+                return_value=mock_ghcr_client,
+            ),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            pull_request_handler.logger.exception.assert_called_once()
+            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            assert "boom" in log_msg
+            assert "***REDACTED***" in log_msg
+            assert secret not in log_msg
+            mock_ghcr_client.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_exception_no_redaction_when_mask_disabled(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GithubException data is not redacted when mask_sensitive is False."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        secret = "ghp_super_secret_ghcr_token"  # pragma: allowlist secret
+        mock_ghcr_requester = Mock()
+        mock_ghcr_requester.requestJsonAndCheck = Mock(
+            side_effect=GithubException(403, {"message": "Forbidden", "leak": secret}, {})
+        )
+        mock_ghcr_client = Mock(requester=mock_ghcr_requester)
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", secret),
+            patch.object(pull_request_handler.github_webhook, "mask_sensitive", False),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.get_github_client",
+                return_value=mock_ghcr_client,
+            ),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            pull_request_handler.logger.exception.assert_called_once()
+            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            assert "status=403" in log_msg
+            assert "Forbidden" in log_msg
+            assert secret in log_msg
+            assert "***REDACTED***" not in log_msg
+            mock_ghcr_client.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_issue_for_merged_or_closed_pr_without_issue(
@@ -3652,6 +4034,7 @@ class TestPullRequestHandler:
         """Test exceptions in _delete_ghcr_tag_via_github_api."""
         mock_github_webhook.build_and_push_container = True
         mock_github_webhook.container_repository = "ghcr.io/org/pkg"
+        mock_github_webhook.container_repository_password = ""
         mock_github_webhook.container_repository_and_tag = MagicMock(return_value="ghcr.io/org/pkg:123")
         mock_github_webhook.github_api = MagicMock()
         mock_github_webhook.token = "token"  # pragma: allowlist secret

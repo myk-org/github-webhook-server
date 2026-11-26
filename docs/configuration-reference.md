@@ -518,7 +518,7 @@ Where: `Repo/local`
 | Key | Type | Default | Description | Effect |
 |---|---|---|---|---|
 | `container.username` | `string` | none | Registry username. Required when the `container` block is present. | Used for image push credentials. |
-| `container.password` | `string` | none | Registry password or token. Required when the `container` block is present. | Used for image push credentials. |
+| `container.password` | `string` | none | Registry password or token. Required when the `container` block is present. | Used for image push credentials and, for GHCR (`ghcr.io`), for deleting temporary `pr-<number>` package versions via the GitHub Packages API. Falls back to the webhook GitHub API token only when unset; GHCR cleanup requires `delete:packages` or package delete permission. |
 | `container.repository` | `string` | none | Full image repository name. Required when the `container` block is present. | Target image repository for builds and pushes. |
 | `container.tag` | `string` | `latest` | Default main/master release tag. | Used for merged PRs targeting `main` or `master`; PR builds use `pr-<number>`. |
 | `container.release` | `boolean` | `false` | Push images on release/tag workflows. | Enables publish behavior in release flows. |
