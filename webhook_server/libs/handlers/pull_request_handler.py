@@ -1035,7 +1035,6 @@ For more information, please refer to the project documentation or contact the m
 
             per_page = 100
             package_api_base: str | None = None
-            versions: list[dict[str, Any]] = []
             page_versions: list[dict[str, Any]] = []
 
             # GHCR packages can live under organisations *and* personal scopes - try both.
@@ -1052,7 +1051,6 @@ For more information, please refer to the project documentation or contact the m
                     )
                     package_api_base = candidate_base
                     page_versions = first_page or []
-                    versions.extend(page_versions)
                     break
                 except GithubException as ex:
                     if ex.status == 404:
@@ -1065,8 +1063,26 @@ For more information, please refer to the project documentation or contact the m
                 )
                 return
 
+            seen_version_ids: set[Any] = set()
+            matching_versions: list[tuple[Any, list[str]]] = []
+
+            def _scan_page(versions_page: list[dict[str, Any]]) -> None:
+                for version in versions_page:
+                    version_id = version.get("id")
+                    if version_id is None or version_id in seen_version_ids:
+                        continue
+                    seen_version_ids.add(version_id)
+
+                    metadata = version.get("metadata") or {}
+                    container_metadata = metadata.get("container") or {}
+                    version_tags = container_metadata.get("tags") or []
+                    if pr_tag in version_tags:
+                        matching_versions.append((version_id, version_tags))
+
+            _scan_page(page_versions)
+
             page = 1
-            while len(page_versions) >= per_page:
+            while len(page_versions) >= per_page and not matching_versions:
                 page += 1
                 _, next_page = await github_api_call(
                     requester.requestJsonAndCheck,
@@ -1079,21 +1095,7 @@ For more information, please refer to the project documentation or contact the m
                 page_versions = next_page or []
                 if not page_versions:
                     break
-                versions.extend(page_versions)
-
-            seen_version_ids: set[Any] = set()
-            matching_versions: list[tuple[Any, list[str]]] = []
-            for version in versions:
-                version_id = version.get("id")
-                if version_id is None or version_id in seen_version_ids:
-                    continue
-                seen_version_ids.add(version_id)
-
-                metadata = version.get("metadata") or {}
-                container_metadata = metadata.get("container") or {}
-                version_tags = container_metadata.get("tags") or []
-                if pr_tag in version_tags:
-                    matching_versions.append((version_id, version_tags))
+                _scan_page(page_versions)
 
             if not matching_versions:
                 self.logger.warning(f"{self.log_prefix} Tag {pr_tag} not found in package {package_name} versions")
@@ -1120,15 +1122,15 @@ For more information, please refer to the project documentation or contact the m
                         logger=self.logger,
                         log_prefix=self.log_prefix,
                     )
+                    deleted_any = True
                 except GithubException as ex:
                     if ex.status == 404:
-                        # Version already deleted or doesn't exist - treat as success
+                        # Version already deleted or doesn't exist
                         self.logger.warning(
                             f"{self.log_prefix} Package version {version_id} not found (may have been already deleted)"
                         )
                     else:
                         raise
-                deleted_any = True
 
             if deleted_any:
                 try:
@@ -1149,9 +1151,14 @@ For more information, please refer to the project documentation or contact the m
                 redact_values,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
-            self.logger.exception(
+            redacted_tb = _redact_secrets(
+                traceback.format_exc(),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            self.logger.error(
                 f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag} "
-                f"(status={ex.status}, data={redacted_data})"
+                f"(status={ex.status}, data={redacted_data})\n{redacted_tb}"
             )
         except Exception as ex:
             redacted_err = _redact_secrets(
@@ -1159,7 +1166,14 @@ For more information, please refer to the project documentation or contact the m
                 redact_values,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
-            self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}: {redacted_err}")
+            redacted_tb = _redact_secrets(
+                traceback.format_exc(),
+                redact_values,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+            self.logger.error(
+                f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}: {redacted_err}\n{redacted_tb}"
+            )
         finally:
             if ghcr_client is not None:
                 ghcr_client.close()

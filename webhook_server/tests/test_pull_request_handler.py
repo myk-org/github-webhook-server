@@ -1,4 +1,6 @@
 import asyncio
+import io
+import logging
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
@@ -3156,7 +3158,8 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.exception.called
+            assert pull_request_handler.logger.error.called
+            pull_request_handler.logger.exception.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_no_api(
@@ -3238,6 +3241,7 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.warning.called
+            mock_pull_request.create_issue_comment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_dedicated_container_token(
@@ -3329,14 +3333,60 @@ class TestPullRequestHandler:
             mock_pull_request.create_issue_comment.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_stops_pagination_on_page_1_match(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test GHCR pagination stops immediately after page 1 when pr-123 is found on a full page."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        page_1 = [
+            {"id": idx, "metadata": {"container": {"tags": ["pr-123"] if idx == 50 else [f"other-{idx}"]}}}
+            for idx in range(1, 101)
+        ]
+        mock_requester = Mock()
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                ({}, page_1),
+                None,
+            ]
+        )
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", ""),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+            assert mock_requester.requestJsonAndCheck.call_count == 2
+            assert mock_requester.requestJsonAndCheck.call_args_list == [
+                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
+                call("DELETE", "/orgs/org/packages/container/repo/versions/50"),
+            ]
+            mock_pull_request.create_issue_comment.assert_called_once_with(
+                "Successfully removed PR tag: ghcr.io/org/repo:pr-123."
+            )
+
+    @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_multipage_lookup(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test GHCR tag lookup paginates with per_page=100 and deletes version found on page 2."""
+        """Test GHCR pagination fetches page 2 and stops early without fetching page 3 once pr-123 is found."""
         mock_pull_request.title = "Test PR"
         mock_pull_request.number = 123
         page_1 = [{"id": idx, "metadata": {"container": {"tags": [f"other-{idx}"]}}} for idx in range(1, 101)]
-        page_2 = [{"id": 201, "metadata": {"container": {"tags": ["pr-123"]}}}]
+        page_2 = [
+            {"id": idx, "metadata": {"container": {"tags": ["pr-123"] if idx == 150 else [f"other-{idx}"]}}}
+            for idx in range(101, 201)
+        ]
         mock_requester = Mock()
         mock_requester.requestJsonAndCheck = Mock(
             side_effect=[
@@ -3361,10 +3411,11 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
 
+            assert mock_requester.requestJsonAndCheck.call_count == 3
             assert mock_requester.requestJsonAndCheck.call_args_list == [
                 call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
                 call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 2}),
-                call("DELETE", "/orgs/org/packages/container/repo/versions/201"),
+                call("DELETE", "/orgs/org/packages/container/repo/versions/150"),
             ]
             mock_pull_request.create_issue_comment.assert_called_once_with(
                 "Successfully removed PR tag: ghcr.io/org/repo:pr-123."
@@ -3411,22 +3462,21 @@ class TestPullRequestHandler:
             mock_pull_request.create_issue_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_multipage_deduplicates_version_ids(
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_deduplicates_version_ids(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test duplicate version IDs across pagination pages are deleted only once."""
+        """Test duplicate matching version IDs within a page are deleted only once."""
         mock_pull_request.title = "Test PR"
         mock_pull_request.number = 123
         page_1 = [
-            {"id": idx, "metadata": {"container": {"tags": ["pr-123"] if idx == 50 else [f"other-{idx}"]}}}
-            for idx in range(1, 101)
+            {"id": 50, "metadata": {"container": {"tags": ["pr-123"]}}},
+            {"id": 50, "metadata": {"container": {"tags": ["pr-123"]}}},
+            {"id": 51, "metadata": {"container": {"tags": ["other-51"]}}},
         ]
-        page_2 = [{"id": 50, "metadata": {"container": {"tags": ["pr-123"]}}}]
         mock_requester = Mock()
         mock_requester.requestJsonAndCheck = Mock(
             side_effect=[
                 ({}, page_1),
-                ({}, page_2),
                 None,
             ]
         )
@@ -3448,7 +3498,6 @@ class TestPullRequestHandler:
 
             assert mock_requester.requestJsonAndCheck.call_args_list == [
                 call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 1}),
-                call("GET", "/orgs/org/packages/container/repo/versions", parameters={"per_page": 100, "page": 2}),
                 call("DELETE", "/orgs/org/packages/container/repo/versions/50"),
             ]
             mock_pull_request.create_issue_comment.assert_called_once()
@@ -3529,8 +3578,9 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
 
-            pull_request_handler.logger.exception.assert_called_once()
-            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            pull_request_handler.logger.error.assert_called_once()
+            pull_request_handler.logger.exception.assert_not_called()
+            log_msg = pull_request_handler.logger.error.call_args[0][0]
             assert "status=403" in log_msg
             assert "Forbidden" in log_msg
             assert "***REDACTED***" in log_msg
@@ -3566,8 +3616,9 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
 
-            pull_request_handler.logger.exception.assert_called_once()
-            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            pull_request_handler.logger.error.assert_called_once()
+            pull_request_handler.logger.exception.assert_not_called()
+            log_msg = pull_request_handler.logger.error.call_args[0][0]
             assert "boom" in log_msg
             assert "***REDACTED***" in log_msg
             assert secret not in log_msg
@@ -3604,13 +3655,83 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
 
-            pull_request_handler.logger.exception.assert_called_once()
-            log_msg = pull_request_handler.logger.exception.call_args[0][0]
+            pull_request_handler.logger.error.assert_called_once()
+            pull_request_handler.logger.exception.assert_not_called()
+            log_msg = pull_request_handler.logger.error.call_args[0][0]
             assert "status=403" in log_msg
             assert "Forbidden" in log_msg
             assert secret in log_msg
             assert "***REDACTED***" not in log_msg
             mock_ghcr_client.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "exception_factory",
+        [
+            pytest.param(
+                lambda token: GithubException(403, {"message": "Forbidden", "leak": token}, {}),
+                id="github-exception",
+            ),
+            pytest.param(
+                lambda token: RuntimeError(f"boom {token}"),
+                id="generic-exception",
+            ),
+        ],
+    )
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_real_logger_redacts_exception_and_traceback(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_pull_request: Mock,
+        exception_factory: Callable[[str], Exception],
+    ) -> None:
+        """Test real logging output redacts secrets in message and traceback with no exc_info attached."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        secret = "ghp_super_secret_ghcr_token"  # pragma: allowlist secret
+        mock_ghcr_requester = Mock()
+        mock_ghcr_requester.requestJsonAndCheck = Mock(side_effect=exception_factory(secret))
+        mock_ghcr_client = Mock(requester=mock_ghcr_requester)
+
+        stream = io.StringIO()
+        records: list[logging.LogRecord] = []
+
+        def _capture_record(record: logging.LogRecord) -> bool:
+            records.append(record)
+            return True
+
+        real_logger = logging.Logger("test-ghcr-redaction", level=logging.DEBUG)
+        real_logger.propagate = False
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
+        handler.addFilter(_capture_record)
+        real_logger.addHandler(handler)
+
+        with (
+            patch.object(pull_request_handler, "logger", real_logger),
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "container_repository_password", secret),
+            patch.object(pull_request_handler.github_webhook, "mask_sensitive", True),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.get_github_client",
+                return_value=mock_ghcr_client,
+            ),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+
+        formatted_output = stream.getvalue()
+        assert "***REDACTED***" in formatted_output
+        assert secret not in formatted_output
+        assert "Traceback (most recent call last):" in formatted_output
+        error_records = [record for record in records if record.levelno == logging.ERROR]
+        assert len(error_records) == 1
+        assert error_records[0].exc_info is None
+        mock_ghcr_client.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_issue_for_merged_or_closed_pr_without_issue(
